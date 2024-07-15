@@ -1,11 +1,11 @@
-import express from "express";
+const express = require("express");
 
 const router = express.Router();
 
-import homeController from "../controller/home";
-
 // List Home Default
-router.get("/list-product", homeController.home);
+router.get("/list-product", (req, res, next) => {
+  res.send("HELLo");
+});
 
 // // Search
 // router.post("/list", homeController.home);

@@ -2,7 +2,7 @@ import db from "../db";
 // import moment from "moment";
 // const invoiceDate = new Date();
 
-const home = async (req, res, next) => {
+exports.productList = async (req, res, next) => {
   return await db.pool.query(
     'SELECT * FROM public."User" ORDER BY id ASC',
     (err, data) => {
@@ -168,6 +168,5 @@ const home = async (req, res, next) => {
 const filteringHome = (req, res, next) => {};
 
 module.exports = {
-  home,
   filteringHome,
 };

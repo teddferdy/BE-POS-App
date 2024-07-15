@@ -1,10 +1,11 @@
-import express from "express";
-import bodyParser from "body-parser";
-import path from "path";
-import cors from "cors";
+const express = require("express");
+const bodyParser = require("body-parser");
+const path = require("path");
+const cors = require("cors");
 
 // Routes
-// import homeRoutes from "./routes/home";
+const homeRoutes = require("./routes/home");
+const authRoutes = require("./routes/auth");
 
 // Error Controller
 
@@ -47,9 +48,9 @@ app.use(setContext);
 // app.use(express.static(path.join(__dirname, "public")));
 app.use("/assets", express.static("assets"));
 
-app.use("/home", (req, res, next) => {
-  res.status(200).send("HELLo");
-});
+app.use("/auth", authRoutes);
+
+app.use("/product", homeRoutes);
 
 app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log("server running port 5000");
