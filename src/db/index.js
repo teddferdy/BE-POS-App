@@ -8,7 +8,8 @@ const pool = new Pool({
   password: process.env.POSTGRES_PASSWORD,
   port: process.env.POSTGRES_PORTING,
   host: process.env.POSTGRES_HOST,
-  connectionTimeoutMillis: 200,
+  idleTimeoutMillis: 0,
+  connectionTimeoutMillis: 0,
 });
 
 module.exports = {
