@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "main": "app.js",
-  "type":"module",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon src/app.js",
-    "dev": "nodemon src/app.js"
+    "start": "nodemon ./src/index.js",
+    "dev": "nodemon ./src/index.js",
+    "server": "nodemon ./src/index.js"
   },
   "author": "",
   "license": "ISC",
