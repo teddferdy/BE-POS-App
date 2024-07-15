@@ -1,8 +1,8 @@
 import db from "../db";
-import moment from "moment";
-const invoiceDate = new Date();
+// import moment from "moment";
+// const invoiceDate = new Date();
 
-exports.home = async (req, res, next) => {
+const home = async (req, res, next) => {
   return await db.pool.query(
     'SELECT * FROM public."User" ORDER BY id ASC',
     (err, data) => {
@@ -165,4 +165,9 @@ exports.home = async (req, res, next) => {
 };
 
 // When User Filter
-exports.filteringHome = (req, res, next) => {};
+const filteringHome = (req, res, next) => {};
+
+module.exports = {
+  home,
+  filteringHome,
+};

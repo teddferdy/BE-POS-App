@@ -1,14 +1,10 @@
 import express from "express";
 import bodyParser from "body-parser";
 import path from "path";
-import cookieParser from "cookie-parser";
 import cors from "cors";
-import { config } from "dotenv";
-
-config({ path: path.resolve(__dirname, ".env") });
 
 // Routes
-const homeRoutes = require("./routes/home");
+// import homeRoutes from "./routes/home";
 
 // Error Controller
 
@@ -23,7 +19,9 @@ app.use(bodyParser.json());
 // app.use(express.static(path.join(__dirname, "public")));
 app.use("/assets", express.static("assets"));
 
-app.use("/home", homeRoutes);
+app.use("/home", (req, res, next) => {
+  res.send("HELLo");
+});
 
 app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log("server running port 5000");
