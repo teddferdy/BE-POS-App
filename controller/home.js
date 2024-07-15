@@ -1,5 +1,5 @@
-const db = require("../db");
-const moment = require("moment");
+import db from "../db";
+import moment from "moment";
 const invoiceDate = new Date();
 
 exports.home = async (req, res, next) => {

@@ -1,9 +1,9 @@
-const express = require("express");
+import express from "express";
 
 const router = express.Router();
 
 // Contollers
-const authController = require("../controller/auth");
+import authController from "../controller/auth";
 
 // Form Login
 router.get("/", authController.renderFormLogin);

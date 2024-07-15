@@ -1,9 +1,9 @@
-const express = require("express");
+import express from "express";
 
 const router = express.Router();
 
 // Controller
-const cartController = require("../controller/cart");
+import cartController from "../controller/cart";
 
 // Add Cart
 router.post("/add-cart", cartController.Addcart);

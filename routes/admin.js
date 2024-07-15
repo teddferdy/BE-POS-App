@@ -1,5 +1,5 @@
-const express = require("express");
-const multer = require("multer");
+import express from "express";
+import multer from "multer";
 
 const storage = multer.diskStorage({
   destination: function (req, res, cb) {
@@ -17,9 +17,8 @@ const upload = multer({
 const router = express.Router();
 
 // Import Admin Controller
-const adminController = require("../controller/admin");
-// Import Home Conctoller
-const homeController = require("../controller/home");
+import adminController from "../controller/admin";
+import homeController from "../controller/home";
 
 // List Home Default
 router.get("/list", homeController.home);

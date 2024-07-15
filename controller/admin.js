@@ -1,8 +1,8 @@
 // Connect DB
-const db = require("../db");
-const moment = require("moment");
+import db from "../db";
+import moment from "moment";
+import fs from "fs/promises";
 const date = moment().format("YYYY-MM-DD");
-const fs = require("fs/promises");
 
 // Render Add Form Product
 exports.renderFormAdd = async (req, res, next) => {};

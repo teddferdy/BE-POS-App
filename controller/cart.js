@@ -1,5 +1,5 @@
 // Connect DB
-const db = require("../db");
+import db from "../db";
 const invoiceDate = new Date();
 
 // User Add To Cart

@@ -1,9 +1,8 @@
-const express = require("express");
-
+import express from "express";
 const router = express.Router();
 
 // Import Home Controller
-const homeController = require("../controller/home");
+import homeController from "../controller/home";
 
 router.use("/list", homeController.home);
 

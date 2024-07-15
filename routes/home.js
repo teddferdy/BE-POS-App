@@ -1,8 +1,8 @@
-const express = require("express");
+import express from "express";
 
 const router = express.Router();
 
-const homeController = require("../controller/home");
+import homeController from "../controller/home";
 
 // List Home Default
 router.get("/list-product", homeController.home);

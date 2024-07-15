@@ -1,8 +1,8 @@
-const express = require("express");
+import express from "express";
 
 const router = express.Router();
 
-const reportSellingController = require("../controller/reportSelling");
+import reportSellingController from "../controller/reportSelling";
 
 // Function Show Graph
 router.get("/show-graph", reportSellingController.showGraph);

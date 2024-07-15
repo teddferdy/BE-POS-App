@@ -1,11 +1,11 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const path = require("path");
-const cookieParser = require("cookie-parser");
-const { credentials } = require("./config");
-const cors = require("cors");
+import express from "express";
+import bodyParser from "body-parser";
+import path from "path";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import { config } from "dotenv";
 
-require("dotenv").config({ path: path.resolve(__dirname, ".env") });
+config({ path: path.resolve(__dirname, ".env") });
 
 // Routes
 const homeRoutes = require("./routes/home");
@@ -14,7 +14,6 @@ const homeRoutes = require("./routes/home");
 
 const app = express();
 app.use(cors());
-app.use(cookieParser(credentials.secretCookie));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 

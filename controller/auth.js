@@ -1,4 +1,4 @@
-const db = require("../db");
+import db from "../db";
 
 exports.renderFormLogin = (req, res, next) => {};
 
