@@ -20,7 +20,7 @@ app.use(bodyParser.json());
 app.use("/assets", express.static("assets"));
 
 app.use("/home", (req, res, next) => {
-  res.send("HELLo");
+  res.status(200).send("HELLo");
 });
 
 app.listen(process.env.POSTGRES_PORT || 5000, () => {
