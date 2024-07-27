@@ -21,7 +21,7 @@ exports.login = async (req, res, next) => {
       `SELECT * FROM public."User" WHERE "userName" = '${userName}' AND password = '${password}'`
     );
 
-    if (datas.rows) {
+    if (datas?.rows.length > 1) {
       res.status(200).json({
         message: "Success",
         data: datas?.rows,
