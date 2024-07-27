@@ -15,13 +15,13 @@ exports.getAllUser = async (req, res, next) => {
 };
 
 exports.login = async (req, res, next) => {
-  const { userName, password } = req.body;
+  const { userName, password } = req?.body;
   try {
     const datas = await db.pool.query(
       `SELECT * FROM public."User" WHERE "userName" = '${userName}' AND password = '${password}'`
     );
 
-    if (datas?.rows.length > 1) {
+    if (datas?.rows?.length > 0) {
       res.status(200).json({
         message: "Success",
         data: datas?.rows,
