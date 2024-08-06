@@ -42,24 +42,29 @@ exports.login = async (req, res, next) => {
 exports.registerNewUser = async (req, res, next) => {
   const { userName, password } = req.body;
   try {
-    const datas = await db.pool.query(`
-      INSERT INTO public."User"(
-        "userName", password, role)
-        VALUES ('${userName}', '${password}', 'user');
-    `);
-
-    if (datas.rows) {
-      res.status(200).json({
+    // Check user First
+    const getUserList = await db.pool.query(
+      `SELECT * FROM public."User" WHERE "userName" = '${userName}'`
+    );
+    if (!getUserList?.rows?.length > 0) {
+      // If Username Not Exist
+      const datas = await db.pool.query(`
+        INSERT INTO public."User"(
+          "userName", password, role)
+          VALUES ('${userName}', '${password}', 'user');
+      `);
+      return res.status(200).json({
         message: "Success",
         data: datas?.rows,
       });
     } else {
-      res.status(404).json({
-        error: "Pengguna Sudah Ada",
+      // Error User name has exist
+      return res.status(500).json({
+        error: "Gagal Menyimpan, Pengguna sudah tersedia",
       });
     }
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Gagal Menyimpan",
     });
   }
