@@ -1,4 +1,4 @@
-const User = require("../db/models/User");
+const User = require("../db/models/user");
 const jwt = require("jsonwebtoken");
 
 const generateToken = (payload) => {
