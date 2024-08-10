@@ -1,4 +1,11 @@
 const dbUser = require("../db/models/user");
+const jwt = require("jsonwebtoken");
+
+const generateToken = (payload) => {
+  return jwt.sign(payload, process.env.JWT_SECRET_KEY, {
+    expiresIn: process.env.JWT_EXPIRED_IN,
+  });
+};
 
 exports.getAllUser = async (req, res, next) => {
   // try {
@@ -48,7 +55,7 @@ exports.registerNewUser = async (req, res, next) => {
       });
     }
 
-    const createUser = dbUser.create({
+    const createUser = await dbUser.create({
       userName: userName,
       password: password,
       confirmPassword: confirmPassword,
@@ -58,7 +65,15 @@ exports.registerNewUser = async (req, res, next) => {
       placeDateOfBirth: "",
     });
 
-    if (!createUser) {
+    const result = createUser.toJSON();
+    delete result.password;
+    delete result.deletedAt;
+
+    result.token = generateToken({
+      id: result.id,
+    });
+
+    if (!result) {
       return res.status(400).json({
         message: "Gagal Menyimpan User",
       });
@@ -66,7 +81,7 @@ exports.registerNewUser = async (req, res, next) => {
 
     return res.status(201).json({
       message: "Success Menyimpan User",
-      data: createUser,
+      data: result,
     });
   } catch (error) {
     return res.status(500).json({

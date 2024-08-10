@@ -1,5 +1,6 @@
 "use strict";
-const { Sequelize, DataTypes } = require("sequelize");
+const { DataTypes } = require("sequelize");
+const bcrypt = require("bcrypt");
 const sequelize = require("../../config/database");
 module.exports = sequelize.define(
   "user",
@@ -21,6 +22,14 @@ module.exports = sequelize.define(
     },
     confirmPassword: {
       type: DataTypes.VIRTUAL,
+      set(value) {
+        if (value === this.password) {
+          const hashPassword = bcrypt.hashSync(value, 10);
+          this.setDataValue("password", hashPassword);
+        } else {
+          throw new Error("Password & Confirmation Password Tidak Sama");
+        }
+      },
     },
     email: {
       type: DataTypes.STRING,
