@@ -1,10 +1,10 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const cors = require("cors");
+import express from "express";
+import bodyParser from "body-parser";
+import cors from "cors";
 
 // Routes
-const homeRoutes = require("./routes/home");
-const authRoutes = require("./routes/auth");
+// import homeRoutes from "./routes/home";
+import authRoutes from "./routes/auth";
 
 const app = express();
 
@@ -14,7 +14,7 @@ app.use(bodyParser.json());
 
 app.use("/auth", authRoutes);
 
-app.use("/product", homeRoutes);
+// app.use("/product", homeRoutes);
 
 app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log("server running port 5000");
