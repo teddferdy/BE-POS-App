@@ -6,7 +6,6 @@
       "dest": "./index.js"
     }
   ],
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.js" }],
   "builds": [
     {
       "src": "./index.js",
