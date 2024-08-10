@@ -1,8 +1,7 @@
 "use strict";
-import { DataTypes } from "sequelize";
-import bcrypt from "bcrypt";
-import sequelize from "../../config/database";
-
+const { DataTypes } = require("sequelize");
+const bcrypt = require("bcrypt");
+const sequelize = require("../../config/database");
 module.exports = sequelize.define(
   "user",
   {

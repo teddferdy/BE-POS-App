@@ -1,10 +1,10 @@
-import express from "express";
-import bodyParser from "body-parser";
-import cors from "cors";
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
 
 // Routes
-// import homeRoutes from "./routes/home";
-import authRoutes from "./routes/auth";
+// const homeRoutes = require("./routes/home");
+const authRoutes = require("./routes/auth");
 
 const app = express();
 
