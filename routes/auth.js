@@ -1,22 +1,23 @@
-import express from "express";
-// Contollers
-import authController from "../controller/auth";
+const express = require("express");
 
 const router = express.Router();
 
+// Contollers
+const authController = require("../controller/auth");
+
 // Form Login
-router.get("/get-all-user", authController?.getAllUser);
+router.get("/get-all-user", authController.getAllUser);
 
 // Login Post
-router.post("/login", authController?.login);
+router.post("/login", authController.login);
 
 // Function Post New Account
-router.post("/register", authController?.registerNewUser);
+router.post("/register", authController.registerNewUser);
 
 // Function Reset Password
-router.post("/reset-password", authController?.resetPassword);
+router.post("/reset-password", authController.resetPassword);
 
 // Logout
-router.post("/logout", authController?.logout);
+router.post("/logout", authController.logout);
 
 module.exports = router;

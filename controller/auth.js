@@ -1,5 +1,5 @@
-import jwt from "jsonwebtoken";
-import User from "../db/models/User";
+const User = require("../db/models/User");
+const jwt = require("jsonwebtoken");
 
 const generateToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET_KEY, {
