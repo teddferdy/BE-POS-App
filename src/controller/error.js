@@ -1,3 +1,3 @@
-const db = require("../db");
+// const db = require("../db");
 
-exports.error = (req, res, next) => {};
+// exports.error = (req, res, next) => {};

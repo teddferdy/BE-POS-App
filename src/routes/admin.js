@@ -1,67 +1,67 @@
-const express = require("express");
-const multer = require("multer");
+// const express = require("express");
+// const multer = require("multer");
 
-const storage = multer.diskStorage({
-  destination: function (req, res, cb) {
-    cb(null, "./assets/");
-  },
-  filename: function (req, file, cb) {
-    cb(null, file.originalname);
-  },
-});
+// const storage = multer.diskStorage({
+//   destination: function (req, res, cb) {
+//     cb(null, "./assets/");
+//   },
+//   filename: function (req, file, cb) {
+//     cb(null, file.originalname);
+//   },
+// });
 
-const upload = multer({
-  storage: storage,
-});
+// const upload = multer({
+//   storage: storage,
+// });
 
-const router = express.Router();
+// const router = express.Router();
 
-// Import Admin Controller
-import adminController from "../controller/admin";
-import homeController from "../controller/home";
+// // Import Admin Controller
+// import adminController from "../controller/admin";
+// import homeController from "../controller/home";
 
-// List Home Default
-router.get("/list", homeController.home);
+// // List Home Default
+// router.get("/list", homeController.home);
 
-// Search
-router.post("/list", homeController.home);
+// // Search
+// router.post("/list", homeController.home);
 
-// List Home By Value
-router.post("/filter/:value", homeController.filteringHome);
+// // List Home By Value
+// router.post("/filter/:value", homeController.filteringHome);
 
-// Render Form Add Product
-router.get("/add-product", adminController.renderFormAdd);
+// // Render Form Add Product
+// router.get("/add-product", adminController.renderFormAdd);
 
-// Function Post Product
-router.post(
-  "/add-product",
-  upload.single("image"),
-  adminController.postAddProduct
-);
+// // Function Post Product
+// router.post(
+//   "/add-product",
+//   upload.single("image"),
+//   adminController.postAddProduct
+// );
 
-// Function Delete
-router.post("/delete-product", adminController.deleteProduct);
+// // Function Delete
+// router.post("/delete-product", adminController.deleteProduct);
 
-// Render Form Edit Product
-router.get("/edit-product/:id", adminController.renderFormEdit);
+// // Render Form Edit Product
+// router.get("/edit-product/:id", adminController.renderFormEdit);
 
-// Router delete Image
-router.post("/delete-image", adminController.deleteImage);
+// // Router delete Image
+// router.post("/delete-image", adminController.deleteImage);
 
-// Router Render Category
-router.get("/add-category", adminController.renderAddCategory);
+// // Router Render Category
+// router.get("/add-category", adminController.renderAddCategory);
 
-// Function Post new Category
-router.post("/add-category", adminController.postAddCategory);
+// // Function Post new Category
+// router.post("/add-category", adminController.postAddCategory);
 
-// Function Post Edit Product
-router.post(
-  "/edit-product/:id",
-  upload.single("image"),
-  adminController.EditProduct
-);
+// // Function Post Edit Product
+// router.post(
+//   "/edit-product/:id",
+//   upload.single("image"),
+//   adminController.EditProduct
+// );
 
-// Function Render Cart
-router.get("/cart", adminController.renderCart);
+// // Function Render Cart
+// router.get("/cart", adminController.renderCart);
 
-module.exports = router;
+// module.exports = router;

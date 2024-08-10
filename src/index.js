@@ -1,14 +1,13 @@
 const express = require("express");
 const bodyParser = require("body-parser");
-const path = require("path");
+// const path = require("path");
 const cors = require("cors");
 
 // Routes
-const homeRoutes = require("./routes/home");
+// const homeRoutes = require("./routes/home");
 const authRoutes = require("./routes/auth");
 
 // Error Controller
-
 const app = express();
 
 const whitelist = ["*"];
@@ -43,15 +42,9 @@ const setContext = (req, res, next) => {
 };
 app.use(setContext);
 
-// Set EJS
-// app.set("view engine", "ejs");
-// app.set("views", "./views");
-// app.use(express.static(path.join(__dirname, "public")));
-app.use("/assets", express.static("assets"));
-
 app.use("/auth", authRoutes);
 
-app.use("/product", homeRoutes);
+// app.use("/product", homeRoutes);
 
 app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log("server running port 5000");
