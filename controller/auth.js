@@ -1,4 +1,4 @@
-const dbUser = require("../db/models/user");
+const User = require("../db/models/User");
 const jwt = require("jsonwebtoken");
 
 const generateToken = (payload) => {
@@ -55,7 +55,7 @@ exports.registerNewUser = async (req, res, next) => {
       });
     }
 
-    const createUser = await dbUser.create({
+    const createUser = await User.create({
       userName: userName,
       password: password,
       confirmPassword: confirmPassword,
