@@ -1,13 +1,13 @@
-const express = require("express");
+// const express = require("express");
 
-const router = express.Router();
+// const router = express.Router();
 
-// List Home Default
-router.get("/list-product", (req, res, next) => {
-  res.send("HELLo");
-});
+// // List Home Default
+// router.get("/list-product", (req, res, next) => {
+//   res.send("HELLo");
+// });
 
-// // Search
-// router.post("/list", homeController.home);
+// // // Search
+// // router.post("/list", homeController.home);
 
-module.exports = router;
+// module.exports = router;
