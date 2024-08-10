@@ -6,9 +6,9 @@
   "type": "commonjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon src/index.js",
-    "dev": "nodemon src/index.js",
-    "server": "nodemon src/index.js"
+    "start": "nodemon api/index.js",
+    "dev": "nodemon api/index.js",
+    "server": "nodemon api/index.js"
   },
   "author": "",
   "license": "ISC",
