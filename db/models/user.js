@@ -1,63 +1,67 @@
-"use strict";
-const { DataTypes } = require("sequelize");
-const bcrypt = require("bcrypt");
-const sequelize = require("../../config/database");
+'use strict'
+const { DataTypes } = require('sequelize')
+const bcrypt = require('bcrypt')
+const sequelize = require('../../config/database')
 module.exports = sequelize.define(
-  "user",
+  'user',
   {
     id: {
       allowNull: false,
       autoIncrement: true,
       primaryKey: true,
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER
     },
     userType: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING
     },
     userName: {
+      allowNull: false,
       type: DataTypes.STRING,
+      primaryKey: true
     },
     password: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING
     },
     confirmPassword: {
       type: DataTypes.VIRTUAL,
       set(value) {
         if (value === this.password) {
-          const hashPassword = bcrypt.hashSync(value, 10);
-          this.setDataValue("password", hashPassword);
+          const hashPassword = bcrypt.hashSync(value, 10)
+          this.setDataValue('password', hashPassword)
         } else {
-          throw new Error("Password & Confirmation Password Tidak Sama");
+          throw new Error('Password & Confirmation Password Tidak Sama')
         }
-      },
+      }
     },
     email: {
+      allowNull: false,
       type: DataTypes.STRING,
+      primaryKey: true
     },
     address: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING
     },
     gender: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING
     },
     placeDateOfBirth: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING
     },
     createdAt: {
       allowNull: false,
-      type: DataTypes.DATE,
+      type: DataTypes.DATE
     },
     updatedAt: {
       allowNull: false,
-      type: DataTypes.DATE,
+      type: DataTypes.DATE
     },
     deletedAt: {
-      type: DataTypes.DATE,
-    },
+      type: DataTypes.DATE
+    }
   },
   {
     paranoid: true,
     freezeTableName: true,
-    modelName: "user",
+    modelName: 'user'
   }
-);
+)
