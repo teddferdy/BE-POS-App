@@ -1,11 +1,6 @@
-const User = require("../../db/models/user");
-const jwt = require("jsonwebtoken");
-
-const generateToken = (payload) => {
-  return jwt.sign(payload, process.env.JWT_SECRET_KEY, {
-    expiresIn: process.env.JWT_EXPIRED_IN,
-  });
-};
+/* eslint-disable no-unused-vars */
+const User = require('../../db/models/user')
+const generateToken = require('../../utils/jwtConvert')
 
 exports.getAllUser = async (req, res, next) => {
   // try {
@@ -19,7 +14,7 @@ exports.getAllUser = async (req, res, next) => {
   //     error: "Something went wrong",
   //   });
   // }
-};
+}
 
 exports.login = async (req, res, next) => {
   // const { userName, password } = req?.body;
@@ -42,53 +37,57 @@ exports.login = async (req, res, next) => {
   //     error: "Server Error",
   //   });
   // }
-};
+}
 
 // Register
 exports.registerNewUser = async (req, res, next) => {
-  const { userName, password, confirmPassword, userType, email } = req.body;
+  const body = req?.body
 
   try {
-    if (!["admin", "user"]?.includes(userType)) {
+    if (!['admin', 'user']?.includes(body?.userType)) {
       res.status(400).json({
-        message: "Gagal Menyimpan User",
-      });
+        message: 'Gagal Menyimpan User'
+      })
     }
 
-    const createUser = await User.create({
-      userName: userName,
-      password: password,
-      confirmPassword: confirmPassword,
-      userType: userType,
-      email: email,
-      address: "",
-      placeDateOfBirth: "",
-    });
+    const createUser = await User?.create({
+      userName: body?.userName,
+      password: body?.password,
+      confirmPassword: body?.confirmPassword,
+      userType: body?.userType,
+      email: body?.email,
+      address: '',
+      placeDateOfBirth: ''
+    })
 
-    const result = createUser.toJSON();
-    delete result.password;
-    delete result.deletedAt;
+    const result = createUser.toJSON()
+    delete result?.password
+    delete result?.deletedAt
 
     result.token = generateToken({
-      id: result.id,
-    });
+      id: result?.id
+    })
 
     if (!result) {
-      return res.status(400).json({
-        message: "Gagal Menyimpan User",
-      });
+      res.status(400).json({
+        message: 'Gagal Menyimpan User'
+      })
     }
 
-    return res.status(201).json({
-      message: "Success Menyimpan User",
-      data: result,
-    });
+    console.log('result =>', result)
+
+    res.status(200).json({
+      message: 'Success Menyimpan User',
+      data: result
+    })
   } catch (error) {
-    return res.status(500).json({
-      message: "Terjadi Error Server",
-    });
+    console.log('ERR =>', error)
+
+    res.status(500).json({
+      message: 'Terjadi Error Server'
+    })
   }
-};
+}
 
 // Reset Password
 exports.resetPassword = async (req, res, next) => {
@@ -119,7 +118,7 @@ exports.resetPassword = async (req, res, next) => {
   //     error: "Gagal Menyimpan",
   //   });
   // }
-};
+}
 
 // User Logout
 exports.logout = (req, res, next) => {
@@ -129,4 +128,4 @@ exports.logout = (req, res, next) => {
   // res.clearCookie("id");
   // res.redirect("/");
   // return res.end();
-};
+}
