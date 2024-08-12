@@ -32,7 +32,24 @@ module.exports = {
       gender: {
         type: Sequelize.STRING
       },
+      phoneNumber: {
+        type: Sequelize.STRING
+      },
+      employeeID: {
+        type: Sequelize.STRING,
+        primaryKey: true
+      },
+      statusEmployee: {
+        type: Sequelize.BOOLEAN
+      },
+      statusActive: {
+        type: Sequelize.BOOLEAN
+      },
       placeDateOfBirth: {
+        type: Sequelize.STRING
+      },
+      location: {
+        allowNull: false,
         type: Sequelize.STRING
       },
       createdAt: {
@@ -43,8 +60,11 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE
       },
+      modifiedAt: {
+        type: Sequelize.STRING
+      },
       deletedAt: {
-        type: Sequelize.DATE
+        type: Sequelize.STRING
       }
     })
   },
