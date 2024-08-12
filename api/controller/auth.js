@@ -1,42 +1,97 @@
 /* eslint-disable no-unused-vars */
 const User = require('../../db/models/user')
 const generateToken = require('../../utils/jwtConvert')
+const bcrypt = require('bcrypt')
 
+// Get All List User
 exports.getAllUser = async (req, res, next) => {
-  // try {
-  //   const datas = await db.pool.query(`SELECT * FROM public."User"`);
-  //   res.status(200).json({
-  //     message: "Get All Data",
-  //     data: datas?.rows,
-  //   });
-  // } catch (error) {
-  //   res.status(500).json({
-  //     error: "Something went wrong",
-  //   });
-  // }
+  try {
+    const getAllUser = await User.findAll().then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        delete getData.password
+        return getData
+      })
+    )
+
+    res.status(200).json({
+      message: 'Success',
+      data: getAllUser.length > 0 ? getAllUser : 'Data Masih Kosong'
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
 }
 
 exports.login = async (req, res, next) => {
-  // const { userName, password } = req?.body;
-  // try {
-  //   const datas = await db.pool.query(
-  //     `SELECT * FROM public."User" WHERE "userName" = '${userName}' AND password = '${password}'`
-  //   );
-  //   if (datas?.rows?.length > 0) {
-  //     res.status(200).json({
-  //       message: "Success",
-  //       data: datas?.rows,
-  //     });
-  //   } else {
-  //     res.status(404).json({
-  //       error: "Pengguna Tidak Ditemukan",
-  //     });
-  //   }
-  // } catch (error) {
-  //   res.status(500).json({
-  //     error: "Server Error",
-  //   });
-  // }
+  const body = req.body
+  const bodyUserNameOrEmail = body.email || body.userName
+  if (!bodyUserNameOrEmail || !body.password) {
+    return res.status(401).json({
+      message: 'User Name / Email & Password Tidak Boleh Kosong'
+    })
+  }
+
+  try {
+    const findUser = body?.email
+      ? await User.findOne({
+          where: {
+            email: body.email
+          }
+        })
+      : await User.findOne({
+          where: {
+            userName: body.userName
+          }
+        })
+    console.log('LOGIN BROO =>', findUser)
+
+    if (
+      !findUser ||
+      !(await bcrypt.compare(body.password, findUser.password))
+    ) {
+      return res.status(401).json({
+        message: 'User Name / Email & Password Tidak Ditemukan'
+      })
+    } else {
+      const updateUser = body?.email
+        ? await User.update(
+            { statusActive: true },
+            {
+              where: {
+                email: body.email
+              }
+            }
+          )
+        : await User.update(
+            { statusActive: true },
+            {
+              where: {
+                userName: body.userName
+              }
+            }
+          )
+
+      const getToken = generateToken({
+        id: updateUser.id
+      })
+
+      return res.status(200).json({
+        message: 'Success Login',
+        token: getToken
+      })
+    }
+  } catch (error) {
+    console.log('ERROR BRAY =>', error)
+
+    return res.status(500).json({
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
 }
 
 // Register
@@ -50,74 +105,150 @@ exports.registerNewUser = async (req, res, next) => {
       })
     }
 
-    const createUser = await User?.create({
-      userName: body?.userName,
-      password: body?.password,
-      confirmPassword: body?.confirmPassword,
-      userType: body?.userType,
-      email: body?.email,
-      address: '',
-      placeDateOfBirth: ''
+    // FInd One User Has Been Create
+    const findUser = await User?.findOne({
+      where: {
+        userName: body.userName,
+        email: body.email
+      }
     })
 
-    const result = createUser.toJSON()
-    delete result?.password
-    delete result?.deletedAt
+    if (!findUser?.dataValues) {
+      const createUser = await User?.create({
+        userName: body?.userName,
+        password: body?.password,
+        confirmPassword: body?.confirmPassword,
+        userType: body?.userType,
+        email: body?.email,
+        location: body.location,
+        employeeID: '',
+        address: '',
+        placeDateOfBirth: '',
+        statusEmployee: true,
+        statusActive: true,
+        modifiedAt: ''
+      })
 
-    result.token = generateToken({
-      id: result?.id
-    })
+      const result = createUser.toJSON()
+      delete result?.password
 
-    if (!result) {
-      res.status(400).json({
-        message: 'Gagal Menyimpan User'
+      result.token = generateToken({
+        id: result?.id
+      })
+
+      if (!result) {
+        return res.status(400).json({
+          message: 'Gagal Menyimpan User'
+        })
+      }
+
+      return res.status(200).json({
+        message: 'Success Menyimpan User',
+        data: result
+      })
+    } else {
+      return res.status(401).json({
+        message: 'Email / Username Sudah Terdaftar'
       })
     }
-
-    console.log('result =>', result)
-
-    res.status(200).json({
-      message: 'Success Menyimpan User',
-      data: result
-    })
   } catch (error) {
-    console.log('ERR =>', error)
+    console.log('INI ERROR REGISTER =>', error)
 
-    res.status(500).json({
-      message: 'Terjadi Error Server'
+    return res.status(500).json({
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Edit User
+exports.editUser = async (req, res, next) => {
+  try {
+    const body = req.body
+    const getUser = await User.update(
+      {
+        userName: body.userName,
+        address: body.address,
+        gender: body.gender,
+        phoneNumber: body.phoneNumber,
+        placeDateOfBirth: body.placeDateOfBirth,
+        location: body.location,
+        modifiedAt: body.modifiedAt,
+        deletedAt: null
+      },
+      {
+        where: {
+          email: body.email,
+          id: body.id
+        }
+      }
+    ).then((res) => res)
+    console.log('getUser =>', getUser)
+
+    if (getUser.length > 0) {
+      return res.status(200).json({
+        message: 'Sukses Ubah Profile User',
+        data: []
+      })
+    } else {
+      return res.status(401).json({
+        message: 'User Tidak Ditemukan'
+      })
+    }
+  } catch (error) {
+    console.log('ERROR BRAY', error)
+
+    return res.status(500).json({
+      message: 'Terjadi Kesalahan Internal Server'
     })
   }
 }
 
 // Reset Password
 exports.resetPassword = async (req, res, next) => {
-  // const { userName, password } = req.body;
-  // try {
-  //   // Check user First
-  //   const getUserList = await db.pool.query(
-  //     `SELECT * FROM public."User" WHERE "userName" = '${userName}'`
-  //   );
-  //   if (!getUserList?.rows?.length > 0) {
-  //     const datas = await db.pool.query(`
-  //       UPDATE public."User"
-  //         SET password = '${password}'
-  //       WHERE "userName" = '${userName}';
-  //     `);
-  //     return res.status(200).json({
-  //       message: "Success",
-  //       data: datas?.rows,
-  //     });
-  //   } else {
-  //     // Error User name has exist
-  //     return res.status(500).json({
-  //       error: "Gagal Menyimpan, Pengguna tidak tersedia",
-  //     });
-  //   }
-  // } catch (error) {
-  //   return res.status(500).json({
-  //     error: "Gagal Menyimpan",
-  //   });
-  // }
+  const body = req.body
+  try {
+    await User.update(
+      {
+        password: bcrypt.hashSync(body.password, 10)
+      },
+      {
+        where: {
+          userName: body.userName
+        }
+      }
+    )
+
+    const findUser = await User.findOne({
+      where: {
+        userName: body.userName
+      }
+    })
+
+    console.log('findUser =>', findUser)
+
+    if (findUser.dataValues) {
+      const result = findUser.toJSON()
+
+      result.token = generateToken({
+        id: result?.id
+      })
+
+      console.log('RESULT =>', result)
+
+      return res.status(200).json({
+        message: 'Success Mereset Password User',
+        data: result
+      })
+    } else {
+      return res.status(401).json({
+        error: 'Gagal Mereset Password'
+      })
+    }
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
 }
 
 // User Logout

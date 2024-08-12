@@ -44,6 +44,23 @@ module.exports = sequelize.define(
     gender: {
       type: DataTypes.STRING
     },
+    phoneNumber: {
+      type: DataTypes.STRING
+    },
+    employeeID: {
+      type: DataTypes.STRING,
+      primaryKey: true
+    },
+    statusEmployee: {
+      type: DataTypes.BOOLEAN
+    },
+    statusActive: {
+      type: DataTypes.BOOLEAN
+    },
+    location: {
+      allowNull: false,
+      type: DataTypes.STRING
+    },
     placeDateOfBirth: {
       type: DataTypes.STRING
     },
@@ -55,8 +72,11 @@ module.exports = sequelize.define(
       allowNull: false,
       type: DataTypes.DATE
     },
+    modifiedAt: {
+      type: DataTypes.STRING
+    },
     deletedAt: {
-      type: DataTypes.DATE
+      type: DataTypes.STRING
     }
   },
   {

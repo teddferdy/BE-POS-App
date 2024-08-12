@@ -16,6 +16,9 @@ router.post('/register', authController?.registerNewUser)
 // Function Reset Password
 router.post('/reset-password', authController?.resetPassword)
 
+// Function Edit User
+router.post('/edit-user/:id', authController?.editUser)
+
 // Logout
 router.post('/logout', authController?.logout)
 
