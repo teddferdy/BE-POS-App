@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser')
 // Routes
 // const homeRoutes = require("./routes/home");
 const authRoutes = require('./routes/auth')
+const categoryRoutes = require('./routes/category')
 
 // Error Controller
 const app = express()
@@ -45,6 +46,7 @@ app.use(cookieParser())
 // app.use(setContext)
 
 app.use('/auth', authRoutes)
+app.use('/category', categoryRoutes)
 
 // app.use("/product", homeRoutes);
 
