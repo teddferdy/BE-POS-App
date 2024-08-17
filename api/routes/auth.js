@@ -2,10 +2,12 @@ const express = require('express')
 // Contollers
 const authController = require('../controller/auth')
 
+const authorization = require('../../utils/authorization')
+
 const router = express.Router()
 
 // Form Login
-router.get('/get-all-user', authController?.getAllUser)
+router.get('/get-all-user', authorization, authController?.getAllUser)
 
 // Login Post
 router.post('/login', authController?.login)

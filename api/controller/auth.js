@@ -48,7 +48,6 @@ exports.login = async (req, res, next) => {
             userName: body.userName
           }
         })
-    console.log('LOGIN BROO =>', findUser)
 
     if (
       !findUser ||
@@ -80,7 +79,7 @@ exports.login = async (req, res, next) => {
         id: updateUser.id
       })
 
-      return res.status(200).json({
+      return res.cookie('token', getToken).status(200).json({
         message: 'Success Login',
         token: getToken
       })
@@ -224,16 +223,12 @@ exports.resetPassword = async (req, res, next) => {
       }
     })
 
-    console.log('findUser =>', findUser)
-
     if (findUser.dataValues) {
       const result = findUser.toJSON()
 
       result.token = generateToken({
         id: result?.id
       })
-
-      console.log('RESULT =>', result)
 
       return res.status(200).json({
         message: 'Success Mereset Password User',
@@ -253,10 +248,16 @@ exports.resetPassword = async (req, res, next) => {
 
 // User Logout
 exports.logout = (req, res, next) => {
-  // res.clearCookie("userName");
-  // res.clearCookie("password");
-  // res.clearCookie("role");
-  // res.clearCookie("id");
-  // res.redirect("/");
-  // return res.end();
+  try {
+    if (req.cookies.token) {
+      res.clearCookie('token')
+      return res.status(200).json({
+        message: 'User Berhasil Logout'
+      })
+    }
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
 }
