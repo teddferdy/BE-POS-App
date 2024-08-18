@@ -175,15 +175,17 @@ exports.editUser = async (req, res, next) => {
         deletedAt: null
       },
       {
+        returning: true,
         where: {
           email: body.email,
           id: body.id
         }
       }
-    ).then((res) => res)
-    console.log('getUser =>', getUser)
+    ).then(([_, data]) => {
+      return data
+    })
 
-    if (getUser.length > 0) {
+    if (getUser?.dataValues) {
       return res.status(200).json({
         message: 'Sukses Ubah Profile User',
         data: []

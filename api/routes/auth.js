@@ -19,7 +19,7 @@ router.post('/register', authController?.registerNewUser)
 router.post('/reset-password', authController?.resetPassword)
 
 // Function Edit User
-router.post('/edit-user/:id', authController?.editUser)
+router.put('/edit-user/:id', authController?.editUser)
 
 // Logout
 router.post('/logout', authController?.logout)

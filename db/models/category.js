@@ -29,6 +29,9 @@ module.exports = sequelize.define(
       allowNull: false,
       type: DataTypes.DATE
     },
+    modifiedBy: {
+      type: DataTypes.STRING
+    },
     updatedAt: {
       allowNull: false,
       type: DataTypes.DATE
