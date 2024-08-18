@@ -4,7 +4,19 @@ const Category = require('../../db/models/category')
 // Get All List
 exports.getAllCategory = async (req, res, next) => {
   try {
-    console.log('getAllCategory', req)
+    const getAllCategory = await Category.findAll().then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllCategory?.length > 0 ? getAllCategory : 'Data Masih Kosong'
+    })
   } catch (error) {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
@@ -50,8 +62,44 @@ exports.addNewCategory = async (req, res, next) => {
 
 // Edit Category By Id
 exports.editCategoryById = async (req, res, next) => {
+  const body = req.body
   try {
-    console.log('editCategoryById', req)
+    const getDuplicate = await Category.findOne({
+      where: {
+        name: body.name
+      }
+    })
+
+    if (!getDuplicate.dataValues) {
+      const editCategory = await Category?.update(
+        {
+          id: body?.id,
+          name: body?.name,
+          value: body?.value,
+          status: body?.status,
+          createdBy: body?.createdBy,
+          modifiedBy: body?.modifiedBy,
+          modifiedAt: body?.modifiedAt
+        },
+        {
+          returning: true,
+          where: {
+            id: body.id
+          }
+        }
+      ).then(([_, data]) => {
+        return data
+      })
+
+      return res.status(200).json({
+        message: 'Sukses Ubah Category',
+        data: editCategory?.dataValues
+      })
+    } else {
+      return res.status(403).json({
+        message: 'Category Sudah Tersedia'
+      })
+    }
   } catch (error) {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
@@ -61,8 +109,26 @@ exports.editCategoryById = async (req, res, next) => {
 
 // Delete Category By Id
 exports.deleteCategoryById = async (req, res, next) => {
+  const body = req.body
+
   try {
-    console.log('deleteCategoryById =>', req)
+    const getId = await Category.destroy({
+      where: {
+        id: body.id,
+        name: body.name
+      },
+      force: true
+    })
+
+    if (getId) {
+      return res.status(200).json({
+        message: 'Success Delete Category'
+      })
+    } else {
+      return res.status(403).json({
+        message: 'Delete Category Gagal'
+      })
+    }
   } catch (error) {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'

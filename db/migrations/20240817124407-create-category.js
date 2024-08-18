@@ -28,6 +28,9 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE
       },
+      modifiedBy: {
+        type: Sequelize.STRING
+      },
       updatedAt: {
         allowNull: false,
         type: Sequelize.DATE

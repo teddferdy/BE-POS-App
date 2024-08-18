@@ -18,7 +18,7 @@ router.post(
 )
 
 // Edit Category
-router.post(
+router.put(
   '/edit-category/:id',
   authorization,
   categoryController?.editCategoryById
