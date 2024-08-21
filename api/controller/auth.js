@@ -107,8 +107,8 @@ exports.registerNewUser = async (req, res, next) => {
     // FInd One User Has Been Create
     const findUser = await User?.findOne({
       where: {
-        userName: body.userName,
-        email: body.email
+        userName: body?.userName,
+        email: body?.email
       }
     })
 
@@ -117,11 +117,12 @@ exports.registerNewUser = async (req, res, next) => {
         userName: body?.userName,
         password: body?.password,
         confirmPassword: body?.confirmPassword,
-        userType: body?.userType,
         email: body?.email,
         location: body.location,
+        userType: 'user',
         employeeID: '',
         address: '',
+        phoneNumber: '',
         placeDateOfBirth: '',
         statusEmployee: true,
         statusActive: true,
@@ -165,13 +166,13 @@ exports.editUser = async (req, res, next) => {
     const body = req.body
     const getUser = await User.update(
       {
-        userName: body.userName,
-        address: body.address,
-        gender: body.gender,
-        phoneNumber: body.phoneNumber,
-        placeDateOfBirth: body.placeDateOfBirth,
-        location: body.location,
-        modifiedAt: body.modifiedAt,
+        userName: body?.userName,
+        address: body?.address,
+        gender: body?.gender,
+        phoneNumber: body?.phoneNumber,
+        placeDateOfBirth: body?.placeDateOfBirth,
+        location: body?.location,
+        modifiedAt: body?.modifiedAt,
         deletedAt: null
       },
       {
@@ -206,22 +207,22 @@ exports.editUser = async (req, res, next) => {
 
 // Reset Password
 exports.resetPassword = async (req, res, next) => {
-  const body = req.body
+  const body = req?.body
   try {
     await User.update(
       {
-        password: bcrypt.hashSync(body.password, 10)
+        password: bcrypt.hashSync(body?.password, 10)
       },
       {
         where: {
-          userName: body.userName
+          userName: body?.userName
         }
       }
     )
 
     const findUser = await User.findOne({
       where: {
-        userName: body.userName
+        userName: body?.userName
       }
     })
 
