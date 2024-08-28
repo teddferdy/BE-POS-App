@@ -54,6 +54,7 @@ app.use('/member', memberRoutes)
 
 // app.use("/product", homeRoutes);
 
-app.listen(process.env.POSTGRES_PORT || 5000, () => {
+const server = app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log('server running port 5000')
 })
+server.timeout = 120000
