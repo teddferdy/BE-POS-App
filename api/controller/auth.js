@@ -251,11 +251,12 @@ exports.resetPassword = async (req, res, next) => {
 }
 
 // User Logout
-exports.logout = (req, res, next) => {
+exports.logout = async (req, res, next) => {
   try {
-    if (req?.cookies?.token) {
+    const token = await req?.cookies?.token
+    if (token) {
       res.clearCookie('token')
-      return res.status(200).json({
+      return await res.status(200).json({
         message: 'User Berhasil Logout'
       })
     }
