@@ -82,7 +82,7 @@ exports.login = async (req, res, next) => {
       return res.cookie('token', getToken).status(200).json({
         message: 'Success Login',
         token: getToken,
-        user: updateUser
+        user: findUser?.dataValues
       })
     }
   } catch (error) {
