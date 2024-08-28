@@ -22,6 +22,6 @@ router.post('/reset-password', authController?.resetPassword)
 router.put('/edit-user/:id', authController?.editUser)
 
 // Logout
-router.post('/logout', authController?.logout)
+router.post('/logout/:id', authController?.logout)
 
 module.exports = router

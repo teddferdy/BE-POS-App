@@ -253,8 +253,14 @@ exports.resetPassword = async (req, res, next) => {
 // User Logout
 exports.logout = async (req, res, next) => {
   try {
-    const token = await req?.cookies?.token
-    if (token) {
+    const body = req.body
+    const findUser = await User?.findOne({
+      where: {
+        id: body?.id
+      }
+    })
+    const token = req?.cookies?.token
+    if (findUser && token) {
       res.clearCookie('token')
       return await res.status(200).json({
         message: 'User Berhasil Logout'
