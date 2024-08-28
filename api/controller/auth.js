@@ -253,7 +253,7 @@ exports.resetPassword = async (req, res, next) => {
 // User Logout
 exports.logout = async (req, res, next) => {
   try {
-    const body = req.body
+    const body = req?.body
     const findUser = await User?.findOne({
       where: {
         id: body?.id
