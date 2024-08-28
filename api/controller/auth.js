@@ -259,9 +259,10 @@ exports.logout = async (req, res, next) => {
         id: body?.id
       }
     })
+    // const token = req?.cookies?.token
     if (findUser) {
       res.clearCookie('token')
-      return res.status(200).json({
+      return await res.status(200).json({
         message: 'User Berhasil Logout'
       })
     }
