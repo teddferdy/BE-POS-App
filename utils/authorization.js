@@ -1,7 +1,5 @@
 const authorization = (req, res, next) => {
-  console.log('req?.headers =>', req?.headers)
-  const getToken = req?.headers?.cookie?.split('=')?.[1]
-  console.log('get token =>', getToken)
+  const getToken = req?.cookies
 
   if (!getToken) {
     return res.status(401).json({
