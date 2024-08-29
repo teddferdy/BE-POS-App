@@ -78,8 +78,8 @@ exports.login = async (req, res, next) => {
       const getToken = generateToken({
         id: updateUser.id
       })
-
-      return res.cookie('token', getToken).status(200).json({
+      res.cookie('token', getToken)
+      return res.status(200).json({
         message: 'Success Login',
         token: getToken,
         user: findUser?.dataValues

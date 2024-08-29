@@ -11,34 +11,34 @@ const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
 
+const corsOptions = {
+  credentials: true,
+  optionsSuccessStatus: 200
+}
+
 // Error Controller
 const app = express()
 
 // const whitelist = ['*']
 
-app.use(cors())
+app.use(cors(corsOptions))
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 app.use(cookieParser())
+
 // app.use((req, res, next) => {
-//   const origin = req.get('referer')
-//   const isWhitelisted = whitelist.find((w) => origin && origin.includes(w))
-//   if (isWhitelisted) {
-//     res.setHeader('Access-Control-Allow-Origin', '*')
-//     res.setHeader('Content-Type', 'application/json')
-//     res.setHeader(
-//       'Access-Control-Allow-Methods',
-//       'GET, POST, OPTIONS, PUT, PATCH, DELETE'
-//     )
-//     res.setHeader(
-//       'Access-Control-Allow-Headers',
-//       'X-Requested-With,Content-Type,Authorization'
-//     )
-//     res.setHeader('Access-Control-Allow-Credentials', true)
-//   }
-//   // Pass to next layer of middleware
-//   if (req.method === 'OPTIONS') res.sendStatus(200)
-//   else next()
+//   console.log('TOKEN COK', app.get('token'))
+
+// const origin = req.get('referer')
+// const isWhitelisted = whitelist.find((w) => origin && origin.includes(w))
+// if (isWhitelisted) {
+//   res.setHeader('Access-Control-Allow-Origin', '*')
+//   res.setHeader('Content-Type', 'application/json')
+//   res.cookie('token', 'GET, POST, OPTIONS, PUT, PATCH, DELETE')
+// }
+// // Pass to next layer of middleware
+// if (req.method === 'OPTIONS') res.sendStatus(200)
+// else next()
 // })
 
 // const setContext = (req, res, next) => {
@@ -46,7 +46,6 @@ app.use(cookieParser())
 //   next()
 // }
 // app.use(setContext)
-
 app.use('/auth', authRoutes)
 app.use('/category', categoryRoutes)
 app.use('/location', locationRoutes)

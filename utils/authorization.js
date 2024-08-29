@@ -1,4 +1,5 @@
 const authorization = (req, res, next) => {
+  console.log('req?.headers =>', req?.headers)
   const getToken = req?.headers?.cookie?.split('=')?.[1]
   console.log('get token =>', getToken)
 
@@ -10,8 +11,8 @@ const authorization = (req, res, next) => {
   try {
     return next()
   } catch {
-    return res.status(401).json({
-      message: 'User Belum Login'
+    return res.status(500).json({
+      message: 'Server Error'
     })
   }
 }
