@@ -15,7 +15,7 @@ exports.getAllLocation = async (req, res, next) => {
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllLocation?.length > 0 ? getAllLocation : 'Lokasi Masih Kosong'
+      data: getAllLocation?.length > 0 ? getAllLocation : []
     })
   } catch (error) {
     console.log('Error =>', error)

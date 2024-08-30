@@ -15,8 +15,7 @@ exports.getAllCategory = async (req, res, next) => {
 
     return res.status(200).json({
       message: 'Success',
-      data:
-        getAllCategory?.length > 0 ? getAllCategory : 'Kategori Masih Kosong'
+      data: getAllCategory?.length > 0 ? getAllCategory : []
     })
   } catch (error) {
     return res.status(500).json({
