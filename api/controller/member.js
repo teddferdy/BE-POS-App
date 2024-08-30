@@ -15,7 +15,7 @@ exports.getAllMember = async (req, res, next) => {
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllMember?.length > 0 ? getAllMember : 'Member Masih Kosong'
+      data: getAllMember?.length > 0 ? getAllMember : []
     })
   } catch (error) {
     console.log('Error =>', error)
