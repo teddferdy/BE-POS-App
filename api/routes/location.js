@@ -6,7 +6,7 @@ const locationController = require('../controller/location')
 const authorization = require('../../utils/authorization')
 
 // Get All Location
-router.get('/get-location', authorization, locationController?.getAllLocation)
+router.get('/get-location', locationController?.getAllLocation)
 
 // Add Location
 router.post(
