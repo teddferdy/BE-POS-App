@@ -30,13 +30,3 @@ router.delete(
 )
 
 module.exports = router
-
-// {
-//     "nameStore": "Add New Store",
-//     "address": "Address Bray",
-//     "detailLocation": "Samping Pom Bensin",
-//     "phoneNumber": "+6292312",
-//     "status": true,
-//     "createdBy": "teddy",
-//     "modifiedBy": ""
-// }
