@@ -1,10 +1,22 @@
 /* eslint-disable no-unused-vars */
 const Member = require('../../db/models/member')
+const { Op } = require('sequelize')
 
 // Get All List
 exports.getAllMember = async (req, res, next) => {
   try {
-    const getAllMember = await Member.findAll().then((res) =>
+    const { nameMember, phoneNumber } = req.query
+    const filters = {}
+    if (nameMember || phoneNumber) {
+      filters.nameMember = {
+        [Op.like]: `${nameMember}%`
+      }
+      filters.phoneNumber = {
+        [Op.like]: `${phoneNumber}%`
+      }
+    }
+
+    const getAllMember = await Member.findAll({ where: filters }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
