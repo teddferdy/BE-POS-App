@@ -1,1 +1,2 @@
-exports.user = async (req, res, next) => {};
+/* eslint-disable no-unused-vars */
+exports.user = async (req, res, next) => {}
