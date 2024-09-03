@@ -33,18 +33,15 @@ const upload = multer({
   }
 }).single('image')
 
-// Import Admin Controller
-// import adminController from '../controller/admin'
-
-// Render Form Add Product
-
-// Post Product
+// Post New Product
 router.post(
   '/add-product',
   upload,
   authorization,
   productController?.postAddProduct
 )
+
+router.get('/get-product', authorization, productController.getAllProduct)
 
 // Function Delete
 // router.post('/delete-product', productController?.deleteProduct)

@@ -10,13 +10,18 @@ module.exports = {
         type: Sequelize.INTEGER
       },
       nameProduct: {
-        type: Sequelize.STRING
+        allowNull: false,
+        type: Sequelize.STRING,
+        primaryKey: true
       },
       image: {
+        allowNull: false,
         type: Sequelize.STRING
       },
       category: {
-        type: Sequelize.STRING
+        allowNull: false,
+        type: Sequelize.STRING,
+        primaryKey: true
       },
       description: {
         type: Sequelize.STRING
