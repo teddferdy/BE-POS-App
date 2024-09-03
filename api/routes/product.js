@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 const express = require('express')
 const multer = require('multer')
 const path = require('path')
@@ -9,7 +10,7 @@ const productController = require('../controller/product')
 
 const storage = multer.diskStorage({
   destination: function (req, res, cb) {
-    cb(null, './assets/')
+    cb(null, path.join(__dirname, '/assets/'))
   },
   filename: function (req, file, cb) {
     cb(null, file.originalname)
