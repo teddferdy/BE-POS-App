@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars */
 // Connect DB
 const Product = require('../../db/models/product')
+const { Op } = require('sequelize')
 
 // const dataGraph = {
 //   data: {
@@ -28,6 +29,34 @@ exports.postAddProduct = async (req, res, next) => {
   res.status(200).json({
     status: 'success',
     data: postData
+  })
+}
+
+exports.getAllProduct = async (req, res, next) => {
+  const { nameProduct, category } = req.query
+
+  const filters = {}
+  if (nameProduct || category) {
+    filters.nameProduct = {
+      [Op.like]: `${nameProduct}%`
+    }
+    filters.category = {
+      [Op.like]: `${category}%`
+    }
+  }
+
+  const getAllProduct = await Product.findAll({ where: filters }).then((res) =>
+    res.map((items) => {
+      const getData = {
+        ...items.dataValues
+      }
+      return getData
+    })
+  )
+
+  return res.status(200).json({
+    message: 'Success',
+    data: getAllProduct?.length > 0 ? getAllProduct : []
   })
 }
 

@@ -11,12 +11,16 @@ module.exports = sequelize.define(
       type: DataTypes.INTEGER
     },
     nameProduct: {
+      allowNull: false,
+      primaryKey: true,
       type: DataTypes.STRING
     },
     image: {
       type: DataTypes.STRING
     },
     category: {
+      allowNull: false,
+      primaryKey: true,
       type: DataTypes.STRING
     },
     description: {
