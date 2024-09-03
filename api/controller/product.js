@@ -14,50 +14,65 @@ const { Op } = require('sequelize')
 
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
-  const { nameProduct, category, description, price, createdBy } = req.body
-  const { path } = req.file
+  try {
+    const { nameProduct, category, description, price, createdBy } = req.body
+    const { path } = req.file
 
-  const postData = await Product.create({
-    nameProduct: nameProduct,
-    category: category,
-    description: description,
-    price: price,
-    createdBy: createdBy,
-    image: path
-  })
+    const postData = await Product.create({
+      nameProduct: nameProduct,
+      category: category,
+      description: description,
+      price: price,
+      createdBy: createdBy,
+      image: path
+    })
 
-  res.status(200).json({
-    status: 'success',
-    data: postData
-  })
+    return res.status(200).json({
+      status: 'success',
+      data: postData
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
 }
 
 exports.getAllProduct = async (req, res, next) => {
   const { nameProduct, category } = req.query
 
-  const filters = {}
-  if (nameProduct || category) {
-    filters.nameProduct = {
-      [Op.like]: `${nameProduct}%`
-    }
-    filters.category = {
-      [Op.like]: `${category}%`
-    }
-  }
-
-  const getAllProduct = await Product.findAll({ where: filters }).then((res) =>
-    res.map((items) => {
-      const getData = {
-        ...items.dataValues
+  try {
+    const filters = {}
+    if (nameProduct || category) {
+      filters.nameProduct = {
+        [Op.like]: `${nameProduct}%`
       }
-      return getData
-    })
-  )
+      filters.category = {
+        [Op.like]: `${category}%`
+      }
+    }
 
-  return res.status(200).json({
-    message: 'Success',
-    data: getAllProduct?.length > 0 ? getAllProduct : []
-  })
+    const getAllProduct = await Product.findAll({ where: filters }).then(
+      (res) =>
+        res.map((items) => {
+          const getData = {
+            ...items.dataValues
+          }
+          return getData
+        })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllProduct?.length > 0 ? getAllProduct : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
 }
 
 // Render Edit Form Product
