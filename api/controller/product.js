@@ -15,8 +15,8 @@ const { Op } = require('sequelize')
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
   try {
-    const { nameProduct, category, description, price, createdBy } = req.body
-    const { path } = req.file
+    const { nameProduct, category, description, price, createdBy, image } =
+      req.body
 
     const postData = await Product.create({
       nameProduct: nameProduct,
@@ -24,7 +24,7 @@ exports.postAddProduct = async (req, res, next) => {
       description: description,
       price: price,
       createdBy: createdBy,
-      image: path
+      image: image
     })
 
     return res.status(200).json({
