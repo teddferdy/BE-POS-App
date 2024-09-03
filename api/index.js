@@ -24,7 +24,6 @@ app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 app.use(cookieParser())
 
-app.use(express.static(__dirname, '/assets'))
 app.use('/product', productRoutes)
 app.use('/auth', authRoutes)
 app.use('/category', categoryRoutes)
