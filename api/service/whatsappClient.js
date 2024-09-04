@@ -1,11 +1,17 @@
+/* eslint-disable no-undef */
 const { Client, LocalAuth } = require('whatsapp-web.js')
 const qrcode = require('qrcode-terminal')
 
+const SESSION_FILE_PATH = '../../session.json'
+let sessionCfg
+if (fs.existsSync(SESSION_FILE_PATH)) {
+  sessionCfg = require(SESSION_FILE_PATH)
+}
+
 const whatsappClient = new Client({
   authStrategy: new LocalAuth(),
-  puppeteer: {
-    args: ['--no-sandbox']
-  }
+  puppeteer: { headless: false },
+  session: sessionCfg
 })
 
 whatsappClient.on('qr', (qr) => qrcode.generate(qr, { small: true }))
