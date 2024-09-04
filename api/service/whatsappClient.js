@@ -1,6 +1,7 @@
 /* eslint-disable no-undef */
 const { Client, LocalAuth } = require('whatsapp-web.js')
 const qrcode = require('qrcode-terminal')
+var fs = require('fs')
 
 const SESSION_FILE_PATH = '../../session.json'
 let sessionCfg
