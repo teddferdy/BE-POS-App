@@ -3,7 +3,7 @@
 
 
 # .wwebjs_cache
-# .wwebjs_auth
+.wwebjs_auth
 
 # misc
 .DS_Store
