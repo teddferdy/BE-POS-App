@@ -3,6 +3,9 @@ const express = require('express')
 const bodyParser = require('body-parser')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
+const whatsappClient = require('./service/whatsappClient')
+
+whatsappClient.initialize()
 
 // Routes
 const productRoutes = require('./routes/product')
@@ -10,6 +13,7 @@ const authRoutes = require('./routes/auth')
 const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
+const messageRoutes = require('./routes/message')
 
 const corsOptions = {
   credentials: true,
@@ -24,6 +28,7 @@ app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 app.use(cookieParser())
 
+app.use(messageRoutes)
 app.use('/product', productRoutes)
 app.use('/auth', authRoutes)
 app.use('/category', categoryRoutes)
