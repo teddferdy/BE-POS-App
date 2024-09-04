@@ -26,7 +26,7 @@ app.use(cors(corsOptions))
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 app.use(cookieParser())
-whatsappClient.initialize()
+// whatsappClient.initialize()
 
 // app.use('/message', messageRoutes)
 app.use('/product', productRoutes)
