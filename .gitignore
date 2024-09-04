@@ -1,10 +1,6 @@
 # dependencies
 /node_modules
 
-
-.wwebjs_cache
-.wwebjs_auth
-
 # misc
 .DS_Store
 .env
