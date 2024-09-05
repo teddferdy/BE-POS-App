@@ -14,15 +14,25 @@ const { Op } = require('sequelize')
 
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
+  console.log('BODY =>', req.body)
+
   try {
-    const { nameProduct, category, description, price, createdBy, image } =
-      req.body
+    const {
+      nameProduct,
+      category,
+      description,
+      price,
+      createdBy,
+      image,
+      isOption
+    } = req.body
 
     const postData = await Product.create({
       nameProduct: nameProduct,
       category: category,
       description: description,
       price: price,
+      isOption: isOption,
       createdBy: createdBy,
       image: image
     })

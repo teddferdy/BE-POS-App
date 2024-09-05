@@ -2,7 +2,7 @@
 const { DataTypes } = require('sequelize')
 const sequelize = require('../../config/database')
 module.exports = sequelize.define(
-  'product',
+  'sub_category',
   {
     id: {
       allowNull: false,
@@ -10,26 +10,16 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.INTEGER
     },
-    nameProduct: {
-      allowNull: false,
-      primaryKey: true,
+    idCategory: {
+      type: DataTypes.INTEGER
+    },
+    nameSubCategory: {
       type: DataTypes.STRING
     },
-    image: {
+    typeSubCategory: {
       type: DataTypes.STRING
     },
-    category: {
-      allowNull: false,
-      primaryKey: true,
-      type: DataTypes.STRING
-    },
-    description: {
-      type: DataTypes.STRING
-    },
-    price: {
-      type: DataTypes.STRING
-    },
-    isOption: {
+    isMultiple: {
       type: DataTypes.BOOLEAN
     },
     createdBy: {
@@ -50,6 +40,6 @@ module.exports = sequelize.define(
   {
     paranoid: true,
     freezeTableName: true,
-    modelName: 'product'
+    modelName: 'sub_category'
   }
 )
