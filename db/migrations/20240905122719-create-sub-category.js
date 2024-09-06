@@ -16,7 +16,7 @@ module.exports = {
         type: Sequelize.STRING
       },
       typeSubCategory: {
-        type: Sequelize.JSON
+        type: Sequelize.TEXT
       },
       isMultiple: {
         type: Sequelize.BOOLEAN
