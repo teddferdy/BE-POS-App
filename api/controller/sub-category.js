@@ -5,7 +5,7 @@ const SubCategoryProduct = require('../../db/models/sub_category')
 exports.postNewSubCategory = async (req, res, next) => {
   try {
     const {
-      idCategory,
+      parentCategory,
       nameSubCategory,
       typeSubCategory,
       isMultiple,
@@ -13,7 +13,7 @@ exports.postNewSubCategory = async (req, res, next) => {
     } = req.body
 
     const postData = await SubCategoryProduct.create({
-      idCategory: idCategory,
+      parentCategory: parentCategory,
       nameSubCategory: nameSubCategory,
       typeSubCategory: typeSubCategory,
       isMultiple: isMultiple,

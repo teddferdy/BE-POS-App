@@ -9,8 +9,8 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      idCategory: {
-        type: Sequelize.INTEGER
+      parentCategory: {
+        type: Sequelize.STRING
       },
       nameSubCategory: {
         type: Sequelize.STRING
