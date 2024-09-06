@@ -10,7 +10,7 @@ const productController = require('../controller/product')
 // Post New Product
 router.post('/add-product', authorization, productController?.postAddProduct)
 
-router.get('/get-product', authorization, productController.getAllProduct)
+router.get('/get-product', authorization, productController?.getAllProduct)
 
 // Function Delete
 // router.post('/delete-product', productController?.deleteProduct)

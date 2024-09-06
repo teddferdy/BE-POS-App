@@ -12,6 +12,42 @@ const { Op } = require('sequelize')
 //   }
 // }
 
+exports.getAllProduct = async (req, res, next) => {
+  const { nameProduct, category } = req.query
+
+  try {
+    const filters = {}
+    if (nameProduct || category) {
+      filters.nameProduct = {
+        [Op.like]: `${nameProduct}%`
+      }
+      filters.category = {
+        [Op.like]: `${category}%`
+      }
+    }
+
+    const getAllProduct = await Product.findAll({ where: filters }).then(
+      (res) =>
+        res.map((items) => {
+          const getData = {
+            ...items.dataValues
+          }
+          return getData
+        })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllProduct?.length > 0 ? getAllProduct : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
   console.log('BODY =>', req.body)
@@ -40,42 +76,6 @@ exports.postAddProduct = async (req, res, next) => {
     return res.status(200).json({
       status: 'success',
       data: postData
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  }
-}
-
-exports.getAllProduct = async (req, res, next) => {
-  const { nameProduct, category } = req.query
-
-  try {
-    const filters = {}
-    if (nameProduct || category) {
-      filters.nameProduct = {
-        [Op.like]: `${nameProduct}%`
-      }
-      filters.category = {
-        [Op.like]: `${category}%`
-      }
-    }
-
-    const getAllProduct = await Product.findAll({ where: filters }).then(
-      (res) =>
-        res.map((items) => {
-          const getData = {
-            ...items.dataValues
-          }
-          return getData
-        })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: getAllProduct?.length > 0 ? getAllProduct : []
     })
   } catch (error) {
     console.log('Error =>', error)
