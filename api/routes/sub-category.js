@@ -25,7 +25,21 @@ router.post(
 router.get(
   '/get-subcategory/:id',
   authorization,
-  controllerSubCategory?.getSubCategory
+  controllerSubCategory?.getSubcategoryById
+)
+
+// Edit Location
+router.put(
+  '/edit-subcategory/:id',
+  authorization,
+  controllerSubCategory?.editSubcategoryById
+)
+
+// Delete Location
+router.delete(
+  '/delete-subcategory/:id',
+  authorization,
+  controllerSubCategory?.deleteSubcategoryById
 )
 
 module.exports = router
