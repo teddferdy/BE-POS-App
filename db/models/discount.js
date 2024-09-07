@@ -16,6 +16,8 @@ module.exports = sequelize.define(
       type: DataTypes.STRING
     },
     percentage: {
+      allowNull: false,
+      primaryKey: true,
       type: DataTypes.DECIMAL
     },
     isActive: {
