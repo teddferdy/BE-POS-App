@@ -15,4 +15,18 @@ router.post(
   discountController?.postNewDiscount
 )
 
+// Edit Location
+router.put(
+  '/edit-discount/:id',
+  authorization,
+  discountController?.editLocationById
+)
+
+// Delete Location
+router.delete(
+  '/edit-discount/:id',
+  authorization,
+  discountController?.deleteLocationById
+)
+
 module.exports = router

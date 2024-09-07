@@ -10,6 +10,8 @@ module.exports = {
         type: Sequelize.INTEGER
       },
       description: {
+        allowNull: false,
+        primaryKey: true,
         type: Sequelize.STRING
       },
       percentage: {
@@ -24,6 +26,9 @@ module.exports = {
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE
+      },
+      modifiedBy: {
+        type: Sequelize.STRING
       },
       updatedAt: {
         allowNull: false,

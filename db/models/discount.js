@@ -11,6 +11,8 @@ module.exports = sequelize.define(
       type: DataTypes.INTEGER
     },
     description: {
+      allowNull: false,
+      primaryKey: true,
       type: DataTypes.STRING
     },
     percentage: {
@@ -25,6 +27,9 @@ module.exports = sequelize.define(
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
+    },
+    modifiedBy: {
+      type: DataTypes.STRING
     },
     updatedAt: {
       allowNull: false,
