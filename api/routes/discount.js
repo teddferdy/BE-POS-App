@@ -19,14 +19,14 @@ router.post(
 router.put(
   '/edit-discount/:id',
   authorization,
-  discountController?.editLocationById
+  discountController?.editDiscountById
 )
 
 // Delete Location
 router.delete(
   '/edit-discount/:id',
   authorization,
-  discountController?.deleteLocationById
+  discountController?.editDiscountById
 )
 
 module.exports = router
