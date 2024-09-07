@@ -72,7 +72,10 @@ exports.editDiscountById = async (req, res, next) => {
       }
     })
 
-    if (!getDuplicate?.dataValues) {
+    if (
+      !getDuplicate?.dataValues ||
+      !getDuplicate?.dataValues?.isActive === body?.isActive
+    ) {
       const editDiscount = await Discount?.update(
         {
           description: body.description,
