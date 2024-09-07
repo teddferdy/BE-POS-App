@@ -15,6 +15,7 @@ const memberRoutes = require('./routes/member')
 const checkoutRoutes = require('./routes/checkout')
 const subCategoryRoutes = require('./routes/sub-category')
 const discountRoutes = require('./routes/discount')
+const employeeRoutes = require('./routes/employee')
 
 const corsOptions = {
   credentials: true,
@@ -39,6 +40,7 @@ app.use('/member', memberRoutes)
 app.use('/checkout', checkoutRoutes)
 app.use('/sub-category', subCategoryRoutes)
 app.use('/discount', discountRoutes)
+app.use('/employee', employeeRoutes)
 
 const server = app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log('server running port 5000')

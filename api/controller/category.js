@@ -70,7 +70,10 @@ exports.editCategoryById = async (req, res, next) => {
       }
     })
 
-    if (!getDuplicate?.dataValues) {
+    if (
+      !getDuplicate?.dataValues ||
+      !getDuplicate?.dataValues?.status === body?.status
+    ) {
       const editCategory = await Category?.update(
         {
           id: body?.id,
