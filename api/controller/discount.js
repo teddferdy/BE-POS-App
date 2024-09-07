@@ -31,7 +31,7 @@ exports.postNewDiscount = async (req, res, next) => {
     const { description, percentage, isActive, createdBy } = req.body
     const findOneDiscount = await Discount?.findOne({
       where: {
-        nameStore: description
+        description: description
       }
     })
 
