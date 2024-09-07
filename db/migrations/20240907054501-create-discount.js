@@ -15,6 +15,8 @@ module.exports = {
         type: Sequelize.STRING
       },
       percentage: {
+        allowNull: false,
+        primaryKey: true,
         type: Sequelize.DECIMAL
       },
       isActive: {

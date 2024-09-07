@@ -63,15 +63,16 @@ exports.postNewDiscount = async (req, res, next) => {
 // Edit Discount By Id
 exports.editDiscountById = async (req, res, next) => {
   const body = req.body
+  const numbPercent = body.percentage.replace('%', '')
   try {
     const getDuplicate = await Discount.findOne({
       where: {
-        description: body.description
+        description: body.description,
+        percentage: parseFloat(numbPercent) / 100.0
       }
     })
 
     if (!getDuplicate?.dataValues) {
-      const numbPercent = body.percentage.replace('%', '')
       const editDiscount = await Discount?.update(
         {
           description: body.description,
