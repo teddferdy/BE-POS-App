@@ -109,8 +109,7 @@ exports.deleteSubcategoryById = async (req, res, next) => {
   try {
     const getId = await SubCategoryProduct.destroy({
       where: {
-        id: body.id,
-        parentCategory: body.parentCategory
+        id: body.id
       },
       force: true
     })
