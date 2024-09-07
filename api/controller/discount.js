@@ -115,7 +115,7 @@ exports.deleteDiscountById = async (req, res, next) => {
   const body = req.body
 
   try {
-    const getId = await Location.destroy({
+    const getId = await Discount.destroy({
       where: {
         id: body.id,
         description: body.description

@@ -24,9 +24,9 @@ router.put(
 
 // Delete Location
 router.delete(
-  '/edit-discount/:id',
+  '/delete-discount/:id',
   authorization,
-  discountController?.editDiscountById
+  discountController?.deleteDiscountById
 )
 
 module.exports = router
