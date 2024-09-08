@@ -61,6 +61,9 @@ module.exports = sequelize.define(
       allowNull: false,
       type: DataTypes.STRING
     },
+    shiftName: {
+      type: DataTypes.STRING
+    },
     placeDateOfBirth: {
       type: DataTypes.STRING
     },
