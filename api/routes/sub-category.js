@@ -23,9 +23,9 @@ router.post(
 
 // Get Sub Category By idCategory
 router.get(
-  '/get-subcategory/:id',
+  '/get-subcategory-by-category',
   authorization,
-  controllerSubCategory?.getSubcategoryById
+  controllerSubCategory?.getSubcategoryByCategory
 )
 
 // Edit Location

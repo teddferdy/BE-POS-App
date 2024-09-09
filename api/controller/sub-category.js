@@ -57,7 +57,26 @@ exports.postNewSubCategory = async (req, res, next) => {
   }
 }
 
-exports.getSubcategoryById = async (req, res, next) => {}
+// Get All Sub-category By Category
+exports.getSubcategoryByCategory = async (req, res, next) => {
+  try {
+    const { parentCategory } = req.query
+
+    const getSubAllCategory = await SubCategoryProduct.findAll({
+      where: { parentCategory: parentCategory }
+    })
+
+    return res.status(200).json({
+      status: 'success',
+      data: getSubAllCategory.map((items) => ({ ...items.dataValues }))
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
 
 // Edit Sub Category By ID
 exports.editSubcategoryById = async (req, res, next) => {

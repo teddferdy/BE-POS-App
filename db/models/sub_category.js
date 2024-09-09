@@ -11,6 +11,8 @@ module.exports = sequelize.define(
       type: DataTypes.INTEGER
     },
     parentCategory: {
+      primaryKey: true,
+      allowNull: false,
       type: DataTypes.STRING
     },
     nameSubCategory: {
