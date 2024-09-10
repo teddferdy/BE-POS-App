@@ -29,8 +29,8 @@ module.exports = sequelize.define(
     price: {
       type: DataTypes.STRING
     },
-    isOption: {
-      type: DataTypes.BOOLEAN
+    option: {
+      type: DataTypes.TEXT
     },
     createdBy: {
       type: DataTypes.STRING

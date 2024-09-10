@@ -60,7 +60,7 @@ exports.postAddProduct = async (req, res, next) => {
       price,
       createdBy,
       image,
-      isOption
+      option
     } = req.body
 
     const postData = await Product.create({
@@ -68,7 +68,7 @@ exports.postAddProduct = async (req, res, next) => {
       category: category,
       description: description,
       price: price,
-      isOption: isOption,
+      option: option,
       createdBy: createdBy,
       image: image
     })
