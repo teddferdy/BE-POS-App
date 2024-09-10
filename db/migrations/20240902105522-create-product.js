@@ -29,8 +29,8 @@ module.exports = {
       price: {
         type: Sequelize.STRING
       },
-      isOption: {
-        type: Sequelize.BOOLEAN
+      option: {
+        type: Sequelize.TEXT
       },
       createdBy: {
         type: Sequelize.STRING
