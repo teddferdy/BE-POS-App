@@ -76,7 +76,7 @@ exports.editLocationById = async (req, res, next) => {
 
     if (
       !getDuplicate?.dataValues ||
-      !getDuplicate?.dataValues?.isActive === body?.isActive
+      !getDuplicate?.dataValues?.status === body?.status
     ) {
       const editLocation = await Location?.update(
         {
