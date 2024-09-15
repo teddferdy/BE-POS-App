@@ -17,7 +17,6 @@ const subCategoryRoutes = require('./routes/sub-category')
 const discountRoutes = require('./routes/discount')
 const employeeRoutes = require('./routes/employee')
 const shiftRoutes = require('./routes/shift')
-const typePaymentRoutes = require('./routes/type-payment')
 
 const corsOptions = {
   credentials: true,
@@ -44,7 +43,6 @@ app.use('/sub-category', subCategoryRoutes)
 app.use('/discount', discountRoutes)
 app.use('/employee', employeeRoutes)
 app.use('/shift', shiftRoutes)
-app.use('/type-payment', typePaymentRoutes)
 
 const server = app.listen(process.env.POSTGRES_PORT || 5000, () => {
   console.log('server running port 5000')
