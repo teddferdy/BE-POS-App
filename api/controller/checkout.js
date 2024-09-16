@@ -3,17 +3,6 @@ const Checkout = require('../../db/models/checkout')
 
 // Generate Invoice
 exports.generateInvoice = async (req, res, next) => {
-  /*
-    INV[company_name]#[transaction_date]#[random_generate]
-    ketentuan: 
-    INV (dari kata Invoice)
-    [company_name](3 first char)
-    [transaction_date](timestamp)
-    [random_generate](5char)
-
-    contoh:
-    INVAYA#130920241525012365#y&u>3
-  */
   const COMP_NAME = 'BISA NOTA'
   const date = new Date()
   const lengthChara = 5
@@ -30,8 +19,6 @@ exports.generateInvoice = async (req, res, next) => {
 
   const subStringCompName = COMP_NAME.substring(0, 3)
   const timeStampDate = date.getTime()
-  console.log('timeStampDate =>', timeStampDate)
-
   const chara = randomString
   const invoice = `${INV}${subStringCompName}#${timeStampDate}#${chara}`
   if (invoice) {
@@ -39,7 +26,7 @@ exports.generateInvoice = async (req, res, next) => {
   }
 }
 
-// Checkout
+// Post Checkout
 exports.checkout = async (req, res, next) => {
   const body = req.body
 
@@ -62,14 +49,7 @@ exports.checkout = async (req, res, next) => {
         createdBy: body.createdBy
       })
 
-      console.log('creadtedCheckout =>', creadtedCheckout)
-
       if (creadtedCheckout?.getDataValue) {
-        console.log(
-          'creadtedCheckout?.getDataValue =>',
-          creadtedCheckout.dataValues
-        )
-
         return res.status(200).json({
           message: 'Success',
           data: creadtedCheckout.dataValues
@@ -81,6 +61,77 @@ exports.checkout = async (req, res, next) => {
       })
     }
   } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Edit Checkout
+exports.editCheckout = async (req, res, next) => {
+  const body = req.body
+  console.log('BODY =>', body)
+
+  try {
+    const editCheckout = await Checkout?.update(
+      {
+        cashierName: body.cashierName,
+        customerName: body.customerName,
+        customerPhoneNumber: body.customerPhoneNumber,
+        dateOrder: body.dateOrder,
+        invoice: body.invoice,
+        totalPrice: body.totalPrice,
+        totalQuantity: body.totalQuantity,
+        typePayment: body.typePayment,
+        createdBy: body.cashierName,
+        modifiedBy: body?.modifiedBy
+      },
+      {
+        returning: true,
+        where: {
+          id: body.id,
+          invoice: body.invoice
+        }
+      }
+    ).then(([_, data]) => {
+      return data
+    })
+
+    return res.status(200).json({
+      message: 'Sukses Ubah Discount',
+      data: editCheckout?.dataValues
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Delete Checkout
+exports.deleteCheckout = async (req, res, next) => {
+  const body = req.body
+
+  try {
+    const getId = await Checkout.destroy({
+      where: {
+        id: body.id,
+        invoice: body.invoice
+      },
+      force: true
+    })
+
+    if (getId) {
+      return res.status(200).json({
+        message: 'Success Hapus Items'
+      })
+    } else {
+      return res.status(403).json({
+        message: 'Hapus Items Gagal'
+      })
+    }
+  } catch (error) {
+    console.log('ERROR =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
