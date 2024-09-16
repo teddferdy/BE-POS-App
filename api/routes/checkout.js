@@ -8,6 +8,6 @@ const checkoutController = require('../controller/checkout')
 const authorization = require('../../utils/authorization')
 
 // Add New Category
-router.post('/checkout', authorization, checkoutController?.checkout)
+router.post('/checkout-item', authorization, checkoutController?.checkout)
 
 module.exports = router
