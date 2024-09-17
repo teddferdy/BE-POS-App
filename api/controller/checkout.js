@@ -1,5 +1,19 @@
 /* eslint-disable no-unused-vars */
 const Checkout = require('../../db/models/checkout')
+const Transaction = require('../../db/models/transaction')
+
+// Add Transaction DB
+exports.addNewTransaction = async (id, order) => {
+  order.forEach((element) => {
+    Transaction.create({
+      masterId: id,
+      productId: element.idProduct,
+      quantityPerProduct: element.count,
+      productName: element.orderName,
+      price: element.price
+    })
+  })
+}
 
 // Generate Invoice
 exports.generateInvoice = async (req, res, next) => {
@@ -70,9 +84,10 @@ exports.checkout = async (req, res, next) => {
 // Edit Checkout
 exports.editCheckout = async (req, res, next) => {
   const body = req.body
-  console.log('BODY =>', body)
 
   try {
+    await this.addNewTransaction(body.id, body?.order)
+
     const editCheckout = await Checkout?.update(
       {
         cashierName: body.cashierName,
