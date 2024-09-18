@@ -18,6 +18,10 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE
       },
+      dateCheckout: {
+        primaryKey: true,
+        type: Sequelize.DATE
+      },
       totalPrice: {
         type: Sequelize.STRING
       },

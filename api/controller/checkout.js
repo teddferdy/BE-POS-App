@@ -100,6 +100,7 @@ exports.checkout = async (req, res, next) => {
       const creadtedCheckout = await Checkout.create({
         invoice: invoice,
         dateOrder: new Date(),
+        dateCheckout: new Date(),
         totalPrice: body.totalPrice,
         cashierName: body.cashierName,
         totalQuantity: body.totalQuantity,
@@ -118,6 +119,8 @@ exports.checkout = async (req, res, next) => {
       })
     }
   } catch (error) {
+    console.log('ERROR =>', error)
+
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
@@ -137,6 +140,7 @@ exports.editCheckout = async (req, res, next) => {
         customerName: body.customerName,
         customerPhoneNumber: body.customerPhoneNumber,
         dateOrder: body.dateOrder,
+        dateCheckout: body.dateCheckout,
         invoice: body.invoice,
         totalPrice: body.totalPrice,
         totalQuantity: body.totalQuantity,
@@ -160,6 +164,7 @@ exports.editCheckout = async (req, res, next) => {
       data: editCheckout?.dataValues
     })
   } catch (error) {
+    console.log('ERROR =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })

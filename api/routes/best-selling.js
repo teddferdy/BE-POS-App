@@ -14,4 +14,6 @@ router.get(
   besSellingController?.getAllBestSelling
 )
 
+router.get('/get-chart-selling', authorization, besSellingController?.chartData)
+
 module.exports = router

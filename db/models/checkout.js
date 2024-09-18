@@ -19,6 +19,10 @@ module.exports = sequelize.define(
       allowNull: false,
       type: DataTypes.DATE
     },
+    dateCheckout: {
+      primaryKey: true,
+      type: DataTypes.DATE
+    },
     totalPrice: {
       type: DataTypes.STRING
     },
