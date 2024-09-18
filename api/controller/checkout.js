@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars */
 const Checkout = require('../../db/models/checkout')
 const Transaction = require('../../db/models/transaction')
+const BestSelling = require('../../db/models/best_selling')
 
 // Add Transaction DB
 exports.addNewTransaction = async (id, order) => {
@@ -13,6 +14,48 @@ exports.addNewTransaction = async (id, order) => {
       price: element.price
     })
   })
+
+  for (let index = 0; index < order.length; index++) {
+    try {
+      const findBestSelling = await BestSelling?.findOne({
+        where: {
+          productId: order[index].idProduct,
+          nameProduct: order[index].orderName
+        }
+      })
+
+      console.log('findBestSelling =>', findBestSelling)
+
+      if (findBestSelling?.dataValues) {
+        await BestSelling.update(
+          {
+            totalSelling:
+              Number(findBestSelling.dataValues.totalSelling) +
+              Number(order[index].count)
+          },
+          {
+            where: {
+              productId: order[index].idProduct,
+              nameProduct: order[index].orderName
+            }
+          }
+        )
+      } else {
+        await BestSelling.create({
+          productId: order[index].idProduct,
+          nameProduct: order[index].orderName,
+          image: order[index].image,
+          totalSelling: Number(order[index].count)
+        })
+      }
+    } catch (error) {
+      console.log(error)
+
+      // return res.status(500).json({
+      //   error: 'Terjadi Kesalahan Internal Server'
+      // })
+    }
+  }
 }
 
 // Generate Invoice
