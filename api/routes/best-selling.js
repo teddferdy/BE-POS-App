@@ -15,7 +15,7 @@ router.get(
 )
 
 // Chart
-router.get('/get-chart-selling', authorization, besSellingController?.chartData)
+// router.get('/get-chart-selling', authorization, besSellingController?.chartData)
 
 // Chart Current Now & Seven Days Before
 router.get(
