@@ -14,6 +14,14 @@ router.get(
   besSellingController?.getAllBestSelling
 )
 
+// Chart
 router.get('/get-chart-selling', authorization, besSellingController?.chartData)
+
+// Chart Current Now & Seven Days Before
+router.get(
+  '/get-chart-current-and-seven-days-before',
+  authorization,
+  besSellingController?.chartDataByCurrentDateAndSevenDaysBefore
+)
 
 module.exports = router

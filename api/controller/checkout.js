@@ -24,8 +24,6 @@ exports.addNewTransaction = async (id, order) => {
         }
       })
 
-      console.log('findBestSelling =>', findBestSelling)
-
       if (findBestSelling?.dataValues) {
         await BestSelling.update(
           {
