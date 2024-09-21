@@ -14,8 +14,12 @@ router.get(
   besSellingController?.getAllBestSelling
 )
 
-// Chart
-// router.get('/get-chart-selling', authorization, besSellingController?.chartData)
+// Chart By Month
+router.get(
+  '/get-chart-by-month',
+  authorization,
+  besSellingController?.chartDataByMonth
+)
 
 // Chart Current Now & 2 Days Before
 router.get(

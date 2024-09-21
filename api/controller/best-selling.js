@@ -101,73 +101,85 @@ exports.getAllBestSelling = async (req, res, next) => {
 //   }
 // }
 
+const getDateRange = (firstDate, lastDate) => {
+  if (
+    moment(firstDate, 'YYYY-MM-DD').isSame(
+      moment(lastDate, 'YYYY-MM-DD'),
+      'day'
+    )
+  )
+    return [lastDate]
+  let date = firstDate
+  const dates = [date]
+  do {
+    date = moment(date).add(1, 'day')
+    dates.push(date.format('YYYY-MM-DD'))
+  } while (moment(date).isBefore(lastDate))
+  return dates
+}
+
 // Charts by Month from first to endDate in Current Month
-// exports.chartDataByCurrentDate = async (req, res, next) => {
-//   const { query } = req
-//   const date = new Date()
+exports.chartDataByMonth = async (req, res, next) => {
+  const { query } = req
+  const date = new Date()
 
-//   const lastDay = moment(
-//     new Date(date.getFullYear(), date.getMonth() + 1, 0)
-//   ).format('DD')
+  const firstDay = query?.startDate
+    ? moment(query?.startDate).format('YYYY/MM/DD')
+    : moment(new Date(date.getFullYear(), date.getMonth(), 1)).format(
+        'YYYY/MM/DD'
+      )
+  const lastDay = query?.endDate
+    ? moment(query?.endDate).format('YYYY/MM/DD')
+    : moment(new Date(date.getFullYear(), date.getMonth() + 1, 0)).format(
+        'YYYY/MM/DD'
+      )
+  const numberLastDate = moment(lastDay).format('DD')
+  const arrIntervalDate = getDateRange(firstDay, lastDay)
 
-//   console.log('lastDay =>', lastDay)
+  var dates = []
+  for (let I = 0; I < Math.abs(arrIntervalDate.length); I++) {
+    dates.push({
+      date: moment(arrIntervalDate[I]).format('YYYY-MM-DD'),
+      count: '0'
+    })
+  }
 
-//   try {
-//     const arrDate = []
-
-//     for (let index = 1; index <= lastDay; index++) arrDate.push(index)
-
-//     console.log('arrDate =>', arrDate)
-
-//     const getAllBestSelling = await Checkout.findAll({
-//       where: {
-//         dateCheckout: {
-//           [Op.between]: [query.startDate, query.endDate]
-//         }
-//       },
-//       raw: true,
-//       attributes: [
-//         [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
-//         [Sequelize.literal(`COUNT(*)`), 'count']
-//       ],
-//       group: ['date']
-//     }).then((res) => {
-//       console.log('RES =>', res)
-//       const newFormat = res.map((items) => {
-//         return {
-//           date: Number(moment(items.date).format('DD')),
-//           count: Number(items.count)
-//         }
-//       })
-
-//       console.log('NEW FORMAT =>', newFormat)
-
-//       // arrDate.map((items, index) => {
-//       //   return {
-//       //     date: res[index].date
-//       //   }
-//       // })
-
-//       return res.map((items) => {
-//         const getData = {
-//           ...items
-//         }
-//         return getData
-//       })
-//     })
-
-//     console.log('getAllBestSelling =>', getAllBestSelling)
-
-//     return res.status(200).json({
-//       message: 'Success',
-//       data: getAllBestSelling
-//     })
-//   } catch (error) {
-//     return res.status(500).json({
-//       error: 'Terjadi Kesalahan Internal Server'
-//     })
-//   }
-// }
+  try {
+    const datas = await Checkout.findAll({
+      where: {
+        dateCheckout: {
+          [Op.gte]: moment().subtract(numberLastDate, 'days').toDate()
+        }
+      },
+      attributes: [
+        [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
+        [Sequelize.literal(`COUNT(*)`), 'count']
+      ],
+      raw: true,
+      group: ['date']
+    }).then((res) => {
+      let map = {}
+      dates.forEach((item) => (map[item.date] = item))
+      res.forEach((item) => (map[item.date] = item))
+      const result = Object.values(map)
+      return result
+    })
+    return res.status(200).json({
+      message: 'Success',
+      data: datas.map((items) => {
+        return {
+          date: moment(items.date).format('DD-MM-YYYY'),
+          count: Number(items.count)
+        }
+      })
+    })
+  } catch (error) {
+    console.log('ERROR =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
 
 // Chart from now and 7 Days Before
 exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
