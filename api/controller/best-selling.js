@@ -1,3 +1,4 @@
+/* eslint-disable no-constant-condition */
 /* eslint-disable no-unused-vars */
 const BestSelling = require('../../db/models/best_selling')
 const Checkout = require('../../db/models/checkout')
@@ -170,6 +171,18 @@ exports.getAllBestSelling = async (req, res, next) => {
 
 // Chart from now and 7 Days Before
 exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
+  var dates = []
+  for (let I = 0; I < Math.abs(7); I++) {
+    dates.push({
+      date: moment(
+        new Date(
+          new Date().getTime() - (7 >= 0 ? I : I - I - I) * 24 * 60 * 60 * 1000
+        ).toLocaleString()
+      ).format('YYYY-MM-DD'),
+      count: '0'
+    })
+  }
+
   try {
     const datas = await Checkout.findAll({
       where: {
@@ -184,20 +197,115 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
       raw: true,
       group: ['date']
     }).then((res) => {
-      console.log('RES =>', res)
+      let map = {}
+      dates.forEach((item) => (map[item.date] = item))
+      res.forEach((item) => (map[item.date] = item))
+      const result = Object.values(map)
+      return result
+    })
+
+    return res.status(200).json({
+      message: 'Success',
+      data: datas.map((items) => {
+        return {
+          date: moment(items.date).format('DD-MM-YYYY'),
+          count: Number(items.count)
+        }
+      })
+    })
+  } catch (error) {
+    console.log('ERROR =>', error)
+
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Chart from now and 2 Days Before
+exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
+  var dates = []
+  for (let I = 0; I < Math.abs(2); I++) {
+    dates.push({
+      date: moment(
+        new Date(
+          new Date().getTime() - (2 >= 0 ? I : I - I - I) * 24 * 60 * 60 * 1000
+        ).toLocaleString()
+      ).format('YYYY-MM-DD'),
+      count: '0'
+    })
+  }
+
+  try {
+    const datas = await Checkout.findAll({
+      where: {
+        dateCheckout: {
+          [Op.gte]: moment().subtract(2, 'days').toDate()
+        }
+      },
+      attributes: [
+        [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
+        [Sequelize.literal(`COUNT(*)`), 'count']
+      ],
+      raw: true,
+      group: ['date']
+    }).then((res) => {
+      let map = {}
+      dates.forEach((item) => (map[item.date] = item))
+      res.forEach((item) => (map[item.date] = item))
+      const result = Object.values(map)
+      return result
+    })
+
+    return res.status(200).json({
+      message: 'Success',
+      data: datas.map((items) => {
+        return {
+          date: moment(items.date).format('DD-MM-YYYY'),
+          count: Number(items.count)
+        }
+      })
+    })
+  } catch (error) {
+    console.log('ERROR =>', error)
+
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Get Earning Today
+exports.getEarningToday = async (req, res, next) => {
+  const NOW = moment(new Date()).format('YYYY-MM-DD')
+  try {
+    const datas = await Checkout.findAll({
+      where: {
+        dateCheckout: {
+          [Op.gt]: NOW
+        }
+      }
+    }).then((res) => {
       return res.map((items) => {
         const getData = {
-          ...items,
-          date: items.date,
-          count: Number(items.count)
+          ...items.dataValues,
+          totalPrice: Number(items.dataValues.totalPrice)
         }
         return getData
       })
     })
 
+    let totalEarningToday = 0
+    datas?.forEach((items) => {
+      totalEarningToday += items.totalPrice
+    })
+
     return res.status(200).json({
       message: 'Success',
-      data: datas
+      data: {
+        totalEarningToday: totalEarningToday,
+        totalSellingToday: datas.length
+      }
     })
   } catch (error) {
     console.log('ERROR =>', error)
