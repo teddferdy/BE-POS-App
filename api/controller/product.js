@@ -1,16 +1,8 @@
+/* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 // Connect DB
 const Product = require('../../db/models/product')
 const { Op } = require('sequelize')
-
-// const dataGraph = {
-//   data: {
-//     2021: [1, 2, 3, 10, 20],
-//     2022: [20, 30, 40, 50, 20, 10],
-//     2023: [20, 30, 40, 50, 20, 50, 60, 70, 80],
-//     2024: [20, 30, 40, 50, 20, 50, 60, 70, 80, 100, 120, 200]
-//   }
-// }
 
 exports.getAllProduct = async (req, res, next) => {
   const { nameProduct, category } = req.query
@@ -45,6 +37,9 @@ exports.getAllProduct = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -82,6 +77,9 @@ exports.postAddProduct = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 

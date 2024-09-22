@@ -1,3 +1,4 @@
+/* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const TypePayment = require('../../db/models/type_payment')
 
@@ -22,7 +23,8 @@ exports.getAllTypePayment = async (req, res, next) => {
       error: 'Terjadi Kesalahan Internal Server'
     })
   } finally {
-    // conne
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -58,6 +60,9 @@ exports.postNewTypePayment = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -108,6 +113,9 @@ exports.editTypePaymentById = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -138,5 +146,8 @@ exports.deleteTypePaymentById = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }

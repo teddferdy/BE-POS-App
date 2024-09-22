@@ -1,3 +1,4 @@
+/* eslint-disable no-unsafe-finally */
 /* eslint-disable no-constant-condition */
 /* eslint-disable no-unused-vars */
 const BestSelling = require('../../db/models/best_selling')
@@ -25,6 +26,9 @@ exports.getAllBestSelling = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -178,6 +182,9 @@ exports.chartDataByMonth = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -231,6 +238,9 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -284,6 +294,9 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -325,5 +338,8 @@ exports.getEarningToday = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }

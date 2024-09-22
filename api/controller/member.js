@@ -1,3 +1,4 @@
+/* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const Member = require('../../db/models/member')
 const { Op } = require('sequelize')
@@ -35,6 +36,9 @@ exports.getAllMember = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -75,6 +79,9 @@ exports.addNewMember = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -122,5 +129,8 @@ exports.editMemberById = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
