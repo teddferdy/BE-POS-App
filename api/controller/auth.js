@@ -1,3 +1,4 @@
+/* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const User = require('../../db/models/user')
 const generateToken = require('../../utils/jwtConvert')
@@ -24,6 +25,9 @@ exports.getAllUser = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -91,6 +95,9 @@ exports.login = async (req, res, next) => {
     return res.status(500).json({
       message: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -158,6 +165,9 @@ exports.registerNewUser = async (req, res, next) => {
     return res.status(500).json({
       message: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -203,6 +213,9 @@ exports.editUser = async (req, res, next) => {
     return res.status(500).json({
       message: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -247,6 +260,9 @@ exports.resetPassword = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
 
@@ -270,5 +286,8 @@ exports.logout = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
+  } finally {
+    console.log('resEND')
+    return res.end()
   }
 }
