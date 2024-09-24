@@ -18,6 +18,7 @@ module.exports = {
         type: Sequelize.STRING
       },
       status: {
+        primaryKey: true,
         type: Sequelize.BOOLEAN
       },
       createdBy: {

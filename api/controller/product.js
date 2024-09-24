@@ -4,9 +4,9 @@
 const Product = require('../../db/models/product')
 const { Op } = require('sequelize')
 
+// Get All In Cashier List
 exports.getAllProduct = async (req, res, next) => {
   const { nameProduct, category } = req.query
-
   try {
     const filters = {}
     if (nameProduct || category) {
@@ -16,6 +16,7 @@ exports.getAllProduct = async (req, res, next) => {
       filters.category = {
         [Op.like]: `${category}%`
       }
+      filters.status = true
     }
 
     const getAllProduct = await Product.findAll({ where: filters }).then(
@@ -43,10 +44,35 @@ exports.getAllProduct = async (req, res, next) => {
   }
 }
 
+// Get All In Table
+exports.getAllProductInTable = async (req, res, next) => {
+  try {
+    const getAllProduct = await Product.findAll().then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllProduct?.length > 0 ? getAllProduct : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
-  console.log('BODY =>', req.body)
-
   try {
     const {
       nameProduct,
