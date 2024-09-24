@@ -23,7 +23,7 @@ module.exports = {
         type: Sequelize.DATE
       },
       totalPrice: {
-        type: Sequelize.STRING
+        type: Sequelize.INTEGER
       },
       cashierName: {
         type: Sequelize.STRING

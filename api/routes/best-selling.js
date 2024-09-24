@@ -14,6 +14,13 @@ router.get(
   besSellingController?.getAllBestSelling
 )
 
+// Chart By Year
+router.get(
+  '/get-chart-by-year',
+  authorization,
+  besSellingController.chartDataByYear
+)
+
 // Chart By Month
 router.get(
   '/get-chart-by-month',

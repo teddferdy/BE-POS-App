@@ -9,7 +9,8 @@ module.exports = {
     database: process.env.DB_DEV_DATABASE,
     host: process.env.DB_DEV_HOST,
     port: process.env.DB_DEV_PORT,
-    dialect: 'postgres'
+    dialect: 'postgres',
+    timezone: '+07:00'
   },
   test: {
     username: process.env.DB_DEV_USERNAME,
@@ -17,7 +18,8 @@ module.exports = {
     database: process.env.DB_DEV_DATABASE,
     host: process.env.DB_DEV_HOST,
     port: process.env.DB_DEV_PORT,
-    dialect: 'postgres'
+    dialect: 'postgres',
+    timezone: '+07:00'
   },
   production: {
     username: process.env.POSTGRES_USER,
@@ -30,6 +32,7 @@ module.exports = {
       ssl: {
         require: 'true'
       }
-    }
+    },
+    timezone: '+07:00'
   }
 }
