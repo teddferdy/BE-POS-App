@@ -24,7 +24,7 @@ module.exports = sequelize.define(
       type: DataTypes.DATE
     },
     totalPrice: {
-      type: DataTypes.STRING
+      type: DataTypes.INTEGER
     },
     cashierName: {
       type: DataTypes.STRING

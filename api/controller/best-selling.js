@@ -5,6 +5,7 @@ const BestSelling = require('../../db/models/best_selling')
 const Checkout = require('../../db/models/checkout')
 const { Op, Sequelize } = require('sequelize')
 const moment = require('moment')
+const sequelize = require('../../config/database')
 
 // Get All List
 exports.getAllBestSelling = async (req, res, next) => {
@@ -32,78 +33,36 @@ exports.getAllBestSelling = async (req, res, next) => {
   }
 }
 
-// Cart
-// exports.chartData = async (req, res, next) => {
-//   const { query } = req
+// Chart get current year
+exports.chartDataByYear = async (req, res, next) => {
+  const { query } = req
 
-//   const Month = [
-//     'January',
-//     'February',
-//     'March',
-//     'April',
-//     'May',
-//     'June',
-//     'July',
-//     'August',
-//     'September',
-//     'October',
-//     'November',
-//     'December'
-//   ]
+  try {
+    const [result] = await sequelize.query(`
+        SELECT TO_CHAR(months.month, 'YYYY-MM') AS month, 
+          coalesce(sum(co."totalPrice"), 0) as "totalAmount",
+          coalesce(COUNT(co."dateCheckout"), 0) AS "countCheckout"
+        from generate_series(
+          (DATE '${query.year}-01-01'), 
+          (DATE '${query.year}-12-31'), 
+          '1 month') as months(month)
+        left join checkout co on date_trunc('month', co."dateCheckout") = months.month
+        group by months.month
+          order by months.month ASC 
+      `)
 
-//   try {
-//     const getAllBestSelling = await Checkout.findAll({
-//       where: {
-//         dateCheckout: {
-//           [Op.between]: [query.startDate, query.endDate]
-//         }
-//       },
-//       raw: true,
-//       attributes: [
-//         [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
-//         [Sequelize.literal(`COUNT(*)`), 'count']
-//       ],
-//       group: ['date']
-//     }).then((res) => {
-//       console.log('RES =>', res)
-//       const newFormat = res.map((items) => {
-//         return {
-//           date: new Date(items.date).toUTCString(),
-//           count: items.count
-//         }
-//       })
-//       var resultProductData = newFormat.filter((val) => {
-//         console.log('VAL =>', val)
+    return res.status(200).json({
+      message: 'Success',
+      data: result
+    })
+  } catch (error) {
+    console.log('ERROR =>', error)
 
-//         return val.date >= query.startDate && val.date <= query.endDate
-
-//         // console.log('WKWKWK', newFormat)
-//       })
-
-//       console.log('resultProductData =>', resultProductData)
-
-//       // console.log('resultProductData =>', resultProductData)
-
-//       // return res.map((items) => {
-//       //   const getData = {
-//       //     ...items
-//       //   }
-//       //   return getData
-//       // })
-//     })
-
-//     return res.status(200).json({
-//       message: 'Success',
-//       data: getAllBestSelling
-//     })
-//   } catch (error) {
-//     console.log('ERROR =>', error)
-
-//     return res.status(500).json({
-//       error: 'Terjadi Kesalahan Internal Server'
-//     })
-//   }
-// }
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
 
 const getDateRange = (firstDate, lastDate) => {
   if (
