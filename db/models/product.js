@@ -32,6 +32,10 @@ module.exports = sequelize.define(
     option: {
       type: DataTypes.TEXT
     },
+    status: {
+      primaryKey: true,
+      type: DataTypes.BOOLEAN
+    },
     createdBy: {
       type: DataTypes.STRING
     },

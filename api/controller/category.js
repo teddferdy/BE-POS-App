@@ -2,8 +2,38 @@
 /* eslint-disable no-unused-vars */
 const Category = require('../../db/models/category')
 
-// Get All List
+// Get All List To Cashier List
 exports.getAllCategory = async (req, res, next) => {
+  try {
+    const getAllCategory = await Category.findAll({
+      where: {
+        status: true
+      }
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllCategory?.length > 0 ? getAllCategory : []
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Get All List To Table Cashier List
+exports.getAllCategoryInTable = async (req, res, next) => {
   try {
     const getAllCategory = await Category.findAll().then((res) =>
       res.map((items) => {

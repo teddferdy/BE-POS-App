@@ -2,8 +2,40 @@
 /* eslint-disable no-unused-vars */
 const Location = require('../../db/models/location')
 
-// Get All List
+// Get All List To Dropdown
 exports.getAllLocation = async (req, res, next) => {
+  try {
+    const getAllLocation = await Location.findAll({
+      where: {
+        status: true
+      }
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllLocation?.length > 0 ? getAllLocation : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Get All Location To Table
+exports.getAllLocationInTable = async (req, res, next) => {
   try {
     const getAllLocation = await Location.findAll().then((res) =>
       res.map((items) => {

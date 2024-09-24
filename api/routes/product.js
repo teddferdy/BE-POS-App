@@ -3,14 +3,23 @@ const express = require('express')
 
 const router = express.Router()
 
+const productController = require('../controller/product')
+
 // Authorization
 const authorization = require('../../utils/authorization')
-const productController = require('../controller/product')
 
 // Post New Product
 router.post('/add-product', authorization, productController?.postAddProduct)
 
+// Get Product In Cashier List
 router.get('/get-product', authorization, productController?.getAllProduct)
+
+// Get Product In Table
+router.get(
+  '/get-product-all',
+  authorization,
+  productController?.getAllProductInTable
+)
 
 // Function Delete
 // router.post('/delete-product', productController?.deleteProduct)

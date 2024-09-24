@@ -8,6 +8,13 @@ const authorization = require('../../utils/authorization')
 // Get All Location
 router.get('/get-location', locationController?.getAllLocation)
 
+// Get All List To Table
+router.get(
+  '/get-location-all',
+  authorization,
+  locationController?.getAllLocationInTable
+)
+
 // Add Location
 router.post(
   '/add-new-location',
