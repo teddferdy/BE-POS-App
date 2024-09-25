@@ -21,4 +21,32 @@ router.get('/get-member', authorization, overviewController?.getMember)
 // Get User
 router.get('/get-user', authorization, overviewController?.getUser)
 
+// Get Member List By Latest For Table
+router.get(
+  '/get-member-latest',
+  authorization,
+  overviewController?.getMemberDescending
+)
+
+// Get Category List By Latest For Table
+router.get(
+  '/get-category-latest',
+  authorization,
+  overviewController?.getCategoryDescending
+)
+
+// Get Location List By Latest For Table
+router.get(
+  '/get-location-latest',
+  authorization,
+  overviewController?.getLocationDescending
+)
+
+// Get Product List By Latest For Table
+router.get(
+  '/get-product-latest',
+  authorization,
+  overviewController?.getProductDescending
+)
+
 module.exports = router

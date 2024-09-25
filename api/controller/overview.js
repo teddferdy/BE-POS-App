@@ -240,3 +240,123 @@ exports.getUser = async (req, res, next) => {
     return res.end()
   }
 }
+
+// Get Member List By Descending / Latest
+exports.getMemberDescending = async (req, res, next) => {
+  try {
+    const getAllMember = await Member.findAll({
+      order: [['id', 'DESC']],
+      limit: 5
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllMember
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// get Category List By Descending / Latest
+exports.getCategoryDescending = async (req, res, next) => {
+  try {
+    const getAllCategory = await Category.findAll({
+      order: [['id', 'DESC']],
+      limit: 5
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllCategory
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Get Location List By Descending / Latest
+exports.getLocationDescending = async (req, res, next) => {
+  try {
+    const getAllLocation = await Location.findAll({
+      order: [['id', 'DESC']],
+      limit: 5
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllLocation
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Get Product List By Descending / Latest
+exports.getProductDescending = async (req, res, next) => {
+  try {
+    const getAllProduct = await Product.findAll({
+      order: [['id', 'DESC']],
+      limit: 5
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllProduct
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
