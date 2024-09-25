@@ -77,6 +77,7 @@ exports.postAddProduct = async (req, res, next) => {
     const {
       nameProduct,
       category,
+      status,
       description,
       price,
       createdBy,
@@ -89,6 +90,7 @@ exports.postAddProduct = async (req, res, next) => {
       category: category,
       description: description,
       price: price,
+      status: status,
       option: option,
       createdBy: createdBy,
       image: image
