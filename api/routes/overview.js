@@ -23,6 +23,13 @@ router.get('/get-user', authorization, overviewController?.getUser)
 
 // Get Member List By Latest For Table
 router.get(
+  '/get-best-selling',
+  authorization,
+  overviewController?.getBestSellingByCount
+)
+
+// Get Member List By Latest For Table
+router.get(
   '/get-member-latest',
   authorization,
   overviewController?.getMemberDescending
