@@ -20,6 +20,7 @@ const shiftRoutes = require('./routes/shift')
 const typePaymentRoutes = require('./routes/type-payment')
 const bestSellingRoutes = require('./routes/best-selling')
 const overviewRoutes = require('./routes/overview')
+const otherRoutes = require('./routes/other')
 
 const corsOptions = {
   credentials: true,
@@ -49,6 +50,7 @@ app.use('/shift', shiftRoutes)
 app.use('/type-payment', typePaymentRoutes)
 app.use('/best-selling', bestSellingRoutes)
 app.use('/overview', overviewRoutes)
+app.use('/other', otherRoutes)
 
 // Generate Invoice
 // app.use('/generate')

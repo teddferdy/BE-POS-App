@@ -43,7 +43,7 @@ exports.addNewTransaction = async (id, order) => {
         await BestSelling.create({
           productId: order[index].idProduct,
           nameProduct: order[index].orderName,
-          image: order[index].image,
+          image: order[index].img,
           totalSelling: Number(order[index].count)
         })
       }

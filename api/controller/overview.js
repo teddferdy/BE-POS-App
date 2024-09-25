@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars */
 /* eslint-disable no-unsafe-finally */
 const Product = require('../../db/models/product')
+const BestSelling = require('../../db/models/best_selling')
 const Category = require('../../db/models/category')
 const Location = require('../../db/models/location')
 const Member = require('../../db/models/member')
@@ -232,6 +233,35 @@ exports.getUser = async (req, res, next) => {
     })
   } catch (error) {
     console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Get Best Selling By Count
+exports.getBestSellingByCount = async (req, res, next) => {
+  try {
+    const getAllBestSelling = await BestSelling.findAll({
+      order: [['totalSelling', 'DESC']],
+      limit: 5
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllBestSelling?.length > 0 ? getAllBestSelling : []
+    })
+  } catch (error) {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
