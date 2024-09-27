@@ -3,6 +3,7 @@ const router = express.Router()
 
 const invoiceLogoController = require('../controller/invoice-logo')
 const invoiceSocialMediaController = require('../controller/invoice-social-media')
+const invoiceFooterController = require('../controller/invoice-footer')
 
 // Authorization
 const authorization = require('../../utils/authorization')
@@ -93,5 +94,49 @@ router.put(
   invoiceSocialMediaController?.activateInvoiceSocialMediaById
 )
 // ***************************** SOCIAL MEDIA END *************************************
+
+// ***************************** FOOTER START *************************************
+router.get(
+  '/get-invoice-footer-by-active',
+  authorization,
+  invoiceFooterController?.getInvoiceFooterByIsActive
+)
+
+// Get All Invoice Logo
+router.get(
+  '/get-invoice-footer',
+  authorization,
+  invoiceFooterController?.getAllInvoiceFooter
+)
+
+// Add Invoice Logo
+router.post(
+  '/add-new-invoice-footer',
+  authorization,
+  invoiceFooterController?.postNewInvoiceFooter
+)
+
+// Edit Invoice Logo
+router.put(
+  '/edit-invoice-footer/:id',
+  authorization,
+  invoiceFooterController?.editInvoiceFooterById
+)
+
+// Delete Invoice Logo
+router.delete(
+  '/delete-invoice-footer/:id',
+  authorization,
+  invoiceFooterController?.deleteInvoiceFooterById
+)
+
+// Activate / Not Activate Invoice Logo
+router.put(
+  '/activate-invoice-footer/:id',
+  authorization,
+  invoiceFooterController?.activateInvoiceFooterById
+)
+
+// ***************************** FOOTER END *************************************
 
 module.exports = router
