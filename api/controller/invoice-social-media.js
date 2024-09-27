@@ -109,9 +109,15 @@ exports.editInvoiceSocialMediaById = async (req, res, next) => {
       }
     })
 
+    const bodySocialMediaList = JSON.parse(body.socialMediaList)
+    const duplicateSocialMediaList = JSON.parse(
+      getDuplicate.dataValues.socialMediaList
+    )
+
     if (
       !getDuplicate?.dataValues ||
-      !getDuplicate?.dataValues?.status === body?.status
+      !getDuplicate?.dataValues?.status === body?.status ||
+      bodySocialMediaList.length !== duplicateSocialMediaList.length
     ) {
       const editInvoiceSocialMedia = await InvoiceSocialMedia?.update(
         {
