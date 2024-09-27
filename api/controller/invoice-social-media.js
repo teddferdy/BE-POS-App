@@ -1,12 +1,12 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
-const InvoiceLogo = require('../../db/models/invoice_logo')
+const InvoiceSocialMedia = require('../../db/models/invoice_social_media')
 const { Op } = require('sequelize')
 
 // Get Logo Using To Invoice
-exports.getInvoiceLogoByIsActive = async (req, res, next) => {
+exports.getInvoiceSocialMediaByIsActive = async (req, res, next) => {
   try {
-    const invoiceLogo = await InvoiceLogo.findAll({
+    const invoiceSocialMedia = await InvoiceSocialMedia.findAll({
       where: {
         isActive: true
       }
@@ -14,10 +14,11 @@ exports.getInvoiceLogoByIsActive = async (req, res, next) => {
     return res.status(200).json({
       message: 'Success',
       data:
-        invoiceLogo?.length > 0
-          ? invoiceLogo?.map((items) => {
+        invoiceSocialMedia?.length > 0
+          ? invoiceSocialMedia?.map((items) => {
               return {
-                ...items?.dataValues
+                ...items?.dataValues,
+                socialMediaList: JSON?.parse(items?.dataValues?.socialMediaList)
               }
             })
           : []
@@ -33,17 +34,18 @@ exports.getInvoiceLogoByIsActive = async (req, res, next) => {
   }
 }
 
-// Get All Invoice Logo
-exports.getAllInvoiceLogo = async (req, res, next) => {
+// Get All Social Media Invoice
+exports.getAllInvoiceSocialMedia = async (req, res, next) => {
   try {
-    const invoiceLogo = await InvoiceLogo.findAll()
+    const invoiceSocialMedia = await InvoiceSocialMedia.findAll()
     return res.status(200).json({
       message: 'Success',
       data:
-        invoiceLogo?.length > 0
-          ? invoiceLogo?.map((items) => {
+        invoiceSocialMedia?.length > 0
+          ? invoiceSocialMedia?.map((items) => {
               return {
-                ...items?.dataValues
+                ...items?.dataValues,
+                socialMediaList: JSON?.parse(items?.dataValues?.socialMediaList)
               }
             })
           : []
@@ -59,19 +61,20 @@ exports.getAllInvoiceLogo = async (req, res, next) => {
   }
 }
 
-// Post New Invoice Logo
-exports.postNewInvoiceLogo = async (req, res, next) => {
+// Post New Social Media Invoice
+exports.postNewInvoiceSocialMedia = async (req, res, next) => {
   try {
-    const { image, isActive, status, createdBy } = req.body
-    const findOneInvoiceLogo = await InvoiceLogo?.findOne({
+    const { name, socialMediaList, isActive, status, createdBy } = req.body
+    const findOneInvoiceSocialMedia = await InvoiceSocialMedia?.findOne({
       where: {
-        image: image
+        name: name
       }
     })
 
-    if (!findOneInvoiceLogo?.getDataValue) {
-      const postData = await InvoiceLogo.create({
-        image: image,
+    if (!findOneInvoiceSocialMedia?.getDataValue) {
+      const postData = await InvoiceSocialMedia.create({
+        name: name,
+        socialMediaList: socialMediaList,
         isActive: isActive,
         status: status,
         createdBy: createdBy
@@ -82,7 +85,7 @@ exports.postNewInvoiceLogo = async (req, res, next) => {
       })
     } else {
       return res.status(403).json({
-        message: 'Invoice Logo Sudah Tersedia'
+        message: 'Template Name Invoice Social Media Sudah Tersedia'
       })
     }
   } catch (error) {
@@ -96,13 +99,13 @@ exports.postNewInvoiceLogo = async (req, res, next) => {
   }
 }
 
-// Edit InvoiceLogo By Id
-exports.editInvoiceLogoById = async (req, res, next) => {
+// Edit InvoiceSocialMedia By Id
+exports.editInvoiceSocialMediaById = async (req, res, next) => {
   const body = req.body
   try {
-    const getDuplicate = await InvoiceLogo.findOne({
+    const getDuplicate = await InvoiceSocialMedia.findOne({
       where: {
-        image: body.image
+        name: body.name
       }
     })
 
@@ -110,13 +113,14 @@ exports.editInvoiceLogoById = async (req, res, next) => {
       !getDuplicate?.dataValues ||
       !getDuplicate?.dataValues?.status === body?.status
     ) {
-      const editInvoiceLogo = await InvoiceLogo?.update(
+      const editInvoiceSocialMedia = await InvoiceSocialMedia?.update(
         {
-          image: body.image,
-          status: body.status,
+          name: body.name,
+          socialMediaList: body.socialMediaList,
           createdBy: body.createdBy,
           modifiedBy: body?.modifiedBy,
-          isActive: body.isActive
+          status: body.status,
+          isActive: false
         },
         {
           returning: true,
@@ -129,12 +133,12 @@ exports.editInvoiceLogoById = async (req, res, next) => {
       })
 
       return res.status(200).json({
-        message: 'Sukses Ubah Invoice Logo',
-        data: editInvoiceLogo?.dataValues
+        message: 'Sukses Ubah Invoice Social Media',
+        data: editInvoiceSocialMedia?.dataValues
       })
     } else {
       return res.status(403).json({
-        message: 'Invoice Logo Sudah Tersedia'
+        message: 'Invoice Social Media Sudah Tersedia'
       })
     }
   } catch (error) {
@@ -147,26 +151,26 @@ exports.editInvoiceLogoById = async (req, res, next) => {
   }
 }
 
-// Delete Invoice Logo By Id
-exports.deleteInvoiceLogoById = async (req, res, next) => {
+// Delete Social Media Invoice By Id
+exports.deleteInvoiceSocialMediaById = async (req, res, next) => {
   const body = req.body
 
   try {
-    const getId = await InvoiceLogo.destroy({
+    const getId = await InvoiceSocialMedia.destroy({
       where: {
         id: body.id,
-        image: body.image
+        name: body.name
       },
       force: true
     })
 
     if (getId) {
       return res.status(200).json({
-        message: 'Success Hapus Invoice Logo'
+        message: 'Success Hapus Social Media Invoice'
       })
     } else {
       return res.status(403).json({
-        message: 'Hapus Invoice Logo Gagal'
+        message: 'Hapus Social Media Invoice Gagal'
       })
     }
   } catch (error) {
@@ -181,29 +185,25 @@ exports.deleteInvoiceLogoById = async (req, res, next) => {
 }
 
 // Activae / Not Activate Invoice By ID
-exports.activateInvoiceLogoById = async (req, res, next) => {
+exports.activateInvoiceSocialMediaById = async (req, res, next) => {
   const body = req.body
   try {
-    const getDuplicate = await InvoiceLogo.findOne({
+    const getDuplicate = await InvoiceSocialMedia.findOne({
       where: {
-        image: body.image
+        name: body.name
       }
     })
 
-    const arrByIdNotSame = []
-    const getAllLogoNotById = await InvoiceLogo.findAll({
+    const getAllLogoNotById = await InvoiceSocialMedia.findAll({
       where: {
-        image: { [Op.notLike]: body.image }
+        name: { [Op.notLike]: body.name }
       }
     }).then((items) => {
-      console.log('ITEMS =>', items)
       return items.map((val) => val.id)
     })
 
-    console.log('getAllLogoNotById =>', getAllLogoNotById)
-
     getAllLogoNotById.forEach(async (items) => {
-      await InvoiceLogo.update(
+      await InvoiceSocialMedia.update(
         {
           isActive: false
         },
@@ -215,12 +215,10 @@ exports.activateInvoiceLogoById = async (req, res, next) => {
       )
     })
 
-    console.log('GET ALL LOGO NOT BY ID', getAllLogoNotById)
-
     if (getDuplicate?.dataValues) {
-      const editInvoiceLogo = await InvoiceLogo?.update(
+      const editInvoiceSocialMedia = await InvoiceSocialMedia?.update(
         {
-          image: body.image,
+          name: body.name,
           isActive: true
         },
         {
@@ -234,8 +232,8 @@ exports.activateInvoiceLogoById = async (req, res, next) => {
       })
 
       return res.status(200).json({
-        message: 'Sukses Ubah Invoice Logo',
-        data: editInvoiceLogo?.dataValues
+        message: 'Sukses Ubah Social Media Invoice',
+        data: editInvoiceSocialMedia?.dataValues
       })
     }
   } catch (error) {
