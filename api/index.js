@@ -22,6 +22,7 @@ const bestSellingRoutes = require('./routes/best-selling')
 const overviewRoutes = require('./routes/overview')
 const otherRoutes = require('./routes/other')
 const socialMediaRoutes = require('./routes/social-media')
+const invoiceRoutes = require('./routes/invoice')
 
 const corsOptions = {
   credentials: true,
@@ -53,6 +54,7 @@ app.use('/best-selling', bestSellingRoutes)
 app.use('/overview', overviewRoutes)
 app.use('/other', otherRoutes)
 app.use('/social-media', socialMediaRoutes)
+app.use('/invoice', invoiceRoutes)
 
 // Generate Invoice
 // app.use('/generate')
