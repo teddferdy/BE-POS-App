@@ -37,12 +37,13 @@ exports.getInvoiceSocialMediaByIsActive = async (req, res, next) => {
 // Get All Social Media Invoice
 exports.getAllInvoiceSocialMedia = async (req, res, next) => {
   try {
-    const invoiceSocialMedia = await InvoiceSocialMedia.findAll()
+    const socialMedia = await InvoiceSocialMedia.findAll()
+
     return res.status(200).json({
       message: 'Success',
       data:
-        invoiceSocialMedia?.length > 0
-          ? invoiceSocialMedia?.map((items) => {
+        socialMedia?.length > 0
+          ? socialMedia?.map((items) => {
               return {
                 ...items?.dataValues,
                 socialMediaList: JSON?.parse(items?.dataValues?.socialMediaList)
