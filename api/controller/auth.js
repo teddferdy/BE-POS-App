@@ -183,7 +183,6 @@ exports.editUser = async (req, res, next) => {
         phoneNumber: body?.phoneNumber,
         placeDateOfBirth: body?.placeDateOfBirth,
         location: body?.location,
-        modifiedAt: body?.modifiedAt,
         deletedAt: null
       },
       {
