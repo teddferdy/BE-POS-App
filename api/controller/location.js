@@ -126,8 +126,7 @@ exports.editLocationById = async (req, res, next) => {
           phoneNumber: body?.phoneNumber,
           status: body?.status,
           createdBy: body?.createdBy,
-          modifiedBy: body?.modifiedBy,
-          modifiedAt: body?.modifiedAt
+          modifiedBy: body?.modifiedBy
         },
         {
           returning: true,

@@ -1,11 +1,11 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
-const Category = require('../../db/models/category')
+const Role = require('../../db/models/role')
 
-// Get All List To Cashier List
-exports.getAllCategory = async (req, res, next) => {
+// Get All List To Dropdown
+exports.getAllRole = async (req, res, next) => {
   try {
-    const getAllCategory = await Category.findAll({
+    const getAllRole = await Role.findAll({
       where: {
         status: true
       }
@@ -20,9 +20,11 @@ exports.getAllCategory = async (req, res, next) => {
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllCategory?.length > 0 ? getAllCategory : []
+      data: getAllRole?.length > 0 ? getAllRole : []
     })
   } catch (error) {
+    console.log('Error =>', error)
+
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
@@ -32,10 +34,10 @@ exports.getAllCategory = async (req, res, next) => {
   }
 }
 
-// Get All List To Table Cashier List
-exports.getAllCategoryInTable = async (req, res, next) => {
+// Get All Role To Table
+exports.getAllRoleInTable = async (req, res, next) => {
   try {
-    const getAllCategory = await Category.findAll().then((res) =>
+    const getAllRole = await Role.findAll().then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -46,9 +48,11 @@ exports.getAllCategoryInTable = async (req, res, next) => {
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllCategory?.length > 0 ? getAllCategory : []
+      data: getAllRole?.length > 0 ? getAllRole : []
     })
   } catch (error) {
+    console.log('Error =>', error)
+
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
@@ -58,33 +62,33 @@ exports.getAllCategoryInTable = async (req, res, next) => {
   }
 }
 
-// Add New Category
-exports.addNewCategory = async (req, res, next) => {
+// Add New Role
+exports.addNewRole = async (req, res, next) => {
   const body = req.body
 
   try {
-    const findOneCategory = await Category?.findOne({
+    const findOneRole = await Role?.findOne({
       where: {
         name: body?.name
       }
     })
 
-    if (!findOneCategory?.getDataValue) {
-      const creadtedCategory = await Category.create({
+    if (!findOneRole?.getDataValue) {
+      const creadtedRole = await Role.create({
         name: body.name,
-        value: body.value,
+        description: body.description,
         status: body.status,
         createdBy: body.createdBy
       })
 
-      if (creadtedCategory.getDataValue) {
+      if (creadtedRole.getDataValue) {
         return res.status(200).json({
-          message: 'Category Berhasil Di Buat'
+          message: 'Role Berhasil Di Buat'
         })
       }
     } else {
       return res.status(403).json({
-        message: 'Category Sudah Terdaftar'
+        message: 'Role Sudah Terdaftar'
       })
     }
   } catch (error) {
@@ -97,11 +101,11 @@ exports.addNewCategory = async (req, res, next) => {
   }
 }
 
-// Edit Category By Id
-exports.editCategoryById = async (req, res, next) => {
+// Edit Role By Id
+exports.editRoleById = async (req, res, next) => {
   const body = req.body
   try {
-    const getDuplicate = await Category.findOne({
+    const getDuplicate = await Role.findOne({
       where: {
         name: body.name
       }
@@ -111,12 +115,12 @@ exports.editCategoryById = async (req, res, next) => {
       !getDuplicate?.dataValues ||
       !getDuplicate?.dataValues?.status === body?.status
     ) {
-      const editCategory = await Category?.update(
+      const editRole = await Role?.update(
         {
           id: body?.id,
-          name: body?.name,
-          value: body?.value,
-          status: body?.status,
+          name: body.name,
+          description: body.description,
+          status: body.status,
           createdBy: body?.createdBy,
           modifiedBy: body?.modifiedBy
         },
@@ -131,15 +135,17 @@ exports.editCategoryById = async (req, res, next) => {
       })
 
       return res.status(200).json({
-        message: 'Sukses Ubah Kategori',
-        data: editCategory?.dataValues
+        message: 'Sukses Ubah Role',
+        data: editRole?.dataValues
       })
     } else {
       return res.status(403).json({
-        message: 'Kategori Sudah Tersedia'
+        message: 'Role Sudah Tersedia'
       })
     }
   } catch (error) {
+    console.log(error)
+
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
@@ -149,12 +155,12 @@ exports.editCategoryById = async (req, res, next) => {
   }
 }
 
-// Delete Category By Id
-exports.deleteCategoryById = async (req, res, next) => {
+// Delete Role By Id
+exports.deleteRoleById = async (req, res, next) => {
   const body = req.body
 
   try {
-    const getId = await Category.destroy({
+    const getId = await Role.destroy({
       where: {
         id: body.id,
         name: body.name
@@ -164,14 +170,15 @@ exports.deleteCategoryById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
-        message: 'Success Hapus Kategori'
+        message: 'Success Hapus Role'
       })
     } else {
       return res.status(403).json({
-        message: 'Gagal Hapus Kategori'
+        message: 'Hapus Role Gagal'
       })
     }
   } catch (error) {
+    console.log('ERROR =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
