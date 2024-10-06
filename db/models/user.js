@@ -12,7 +12,8 @@ module.exports = sequelize.define(
       type: DataTypes.INTEGER
     },
     userType: {
-      type: DataTypes.STRING
+      type: DataTypes.STRING,
+      primaryKey: true
     },
     userName: {
       allowNull: false,
@@ -59,6 +60,7 @@ module.exports = sequelize.define(
     },
     location: {
       allowNull: false,
+      primaryKey: true,
       type: DataTypes.STRING
     },
     shiftName: {

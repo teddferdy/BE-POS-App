@@ -6,7 +6,17 @@ const authorization = require('../../utils/authorization')
 
 const router = express.Router()
 
-// Form Login
+// Get User By Location
+router.get('/get-user', authorization, authController?.userByLocation)
+
+// Change Role User By Id & Location
+router.put(
+  '/change-role-user',
+  authorization,
+  authController?.changeUserByIdAndLocation
+)
+
+// Get All User
 router.get('/get-all-user', authorization, authController?.getAllUser)
 
 // Login Post

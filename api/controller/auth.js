@@ -1,8 +1,75 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
+
 const User = require('../../db/models/user')
 const generateToken = require('../../utils/jwtConvert')
 const bcrypt = require('bcrypt')
+const { Op } = require('sequelize')
+
+// Get User By Location
+exports.userByLocation = async (req, res, next) => {
+  const { location } = req.query
+  try {
+    const getAllUser = await User.findAll({
+      where: {
+        location: location,
+        userType: { [Op.notLike]: 'super-admin' }
+      }
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        delete getData.password
+        return getData
+      })
+    )
+    res.status(200).json({
+      message: 'Success',
+      data: getAllUser.length > 0 ? getAllUser : 'Data Masih Kosong'
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Change User Role By Id & Location
+exports.changeUserByIdAndLocation = async (req, res, next) => {
+  const { location, userType, id } = req.body
+  try {
+    const editCategory = await User?.update(
+      {
+        userType: userType
+      },
+      {
+        returning: true,
+        where: {
+          id: id,
+          location: location
+        }
+      }
+    ).then(([_, data]) => {
+      return data
+    })
+
+    return res.status(200).json({
+      message: 'Sukses Ubah Role User',
+      data: editCategory?.dataValues
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
 
 // Get All List User
 exports.getAllUser = async (req, res, next) => {

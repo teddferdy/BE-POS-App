@@ -24,6 +24,11 @@ module.exports = sequelize.define(
     isMultiple: {
       type: DataTypes.BOOLEAN
     },
+    store: {
+      allowNull: false,
+      type: DataTypes.STRING,
+      primaryKey: true
+    },
     createdBy: {
       type: DataTypes.STRING
     },
