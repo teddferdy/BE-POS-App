@@ -9,6 +9,10 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
+      image: {
+        primaryKey: true,
+        type: Sequelize.STRING
+      },
       nameStore: {
         type: Sequelize.STRING,
         primaryKey: true

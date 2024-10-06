@@ -10,6 +10,7 @@ module.exports = {
         type: Sequelize.INTEGER
       },
       userType: {
+        primaryKey: true,
         type: Sequelize.STRING
       },
       userName: {
@@ -50,7 +51,8 @@ module.exports = {
       },
       location: {
         allowNull: false,
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        primaryKey: true
       },
       shiftName: {
         type: Sequelize.STRING

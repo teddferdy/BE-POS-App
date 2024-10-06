@@ -23,6 +23,11 @@ module.exports = {
       isMultiple: {
         type: Sequelize.BOOLEAN
       },
+      store: {
+        allowNull: false,
+        type: Sequelize.STRING,
+        primaryKey: true
+      },
       createdBy: {
         type: Sequelize.STRING
       },

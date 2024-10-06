@@ -38,6 +38,7 @@ exports.postNewSubCategory = async (req, res, next) => {
       nameSubCategory,
       typeSubCategory,
       isMultiple,
+      store,
       createdBy
     } = req.body
 
@@ -46,6 +47,7 @@ exports.postNewSubCategory = async (req, res, next) => {
       nameSubCategory: nameSubCategory,
       typeSubCategory: typeSubCategory,
       isMultiple: isMultiple,
+      store: store,
       createdBy: createdBy
     })
 
@@ -97,6 +99,7 @@ exports.editSubcategoryById = async (req, res, next) => {
       nameSubCategory,
       typeSubCategory,
       isMultiple,
+      store,
       createdBy,
       modifiedBy
     } = req.body
@@ -107,6 +110,7 @@ exports.editSubcategoryById = async (req, res, next) => {
         nameSubCategory: nameSubCategory,
         typeSubCategory: typeSubCategory,
         isMultiple: isMultiple,
+        store: store,
         createdBy: createdBy,
         modifiedBy: modifiedBy
       },

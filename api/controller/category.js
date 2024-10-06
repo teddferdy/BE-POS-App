@@ -71,8 +71,9 @@ exports.addNewCategory = async (req, res, next) => {
 
     if (!findOneCategory?.getDataValue) {
       const creadtedCategory = await Category.create({
-        name: body.name,
-        value: body.value,
+        name: body?.name,
+        value: body?.name?.toLowerCase(),
+        store: body?.store,
         status: body.status,
         createdBy: body.createdBy
       })
@@ -115,8 +116,9 @@ exports.editCategoryById = async (req, res, next) => {
         {
           id: body?.id,
           name: body?.name,
-          value: body?.value,
+          value: body?.name?.toLowerCase(),
           status: body?.status,
+          store: body?.store,
           createdBy: body?.createdBy,
           modifiedBy: body?.modifiedBy
         },

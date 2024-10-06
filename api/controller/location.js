@@ -1,6 +1,7 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const Location = require('../../db/models/location')
+const compareObjects = require('../../utils/compare-value')
 
 // Get All List To Dropdown
 exports.getAllLocation = async (req, res, next) => {
@@ -75,6 +76,7 @@ exports.addNewLocation = async (req, res, next) => {
 
     if (!findOneLocation?.getDataValue) {
       const creadtedLocation = await Location.create({
+        image: body.image,
         nameStore: body.nameStore,
         address: body.address,
         detailLocation: body.detailLocation,
@@ -113,13 +115,34 @@ exports.editLocationById = async (req, res, next) => {
       }
     })
 
-    if (
-      !getDuplicate?.dataValues ||
-      !getDuplicate?.dataValues?.status === body?.status
-    ) {
+    const bodyReq = {
+      id: body?.id,
+      image: body.image,
+      nameStore: body?.nameStore,
+      address: body?.address,
+      detailLocation: body?.detailLocation,
+      phoneNumber: body?.phoneNumber,
+      status: body?.status
+    }
+
+    const dataExist = {
+      id: getDuplicate.dataValues.id,
+      image: getDuplicate.dataValues.image,
+      nameStore: getDuplicate.dataValues.nameStore,
+      address: getDuplicate.dataValues.address,
+      detailLocation: getDuplicate.dataValues.detailLocation,
+      phoneNumber: getDuplicate.dataValues.phoneNumber,
+      status: getDuplicate.dataValues.status
+    }
+
+    // Compare Body Req & Duplicate
+    const resultValue = compareObjects(bodyReq, bodyReq)
+
+    if (resultValue) {
       const editLocation = await Location?.update(
         {
           id: body?.id,
+          image: body.image,
           nameStore: body?.nameStore,
           address: body?.address,
           detailLocation: body?.detailLocation,

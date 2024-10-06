@@ -10,6 +10,10 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.INTEGER
     },
+    image: {
+      primaryKey: true,
+      type: DataTypes.STRING
+    },
     nameStore: {
       type: DataTypes.STRING,
       primaryKey: true
