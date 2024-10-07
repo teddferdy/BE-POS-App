@@ -50,9 +50,9 @@ exports.getProduct = async (req, res, next) => {
     return res.status(200).json({
       message: 'Success',
       data: {
-        total: getAllProduct.length,
-        active: getAllByTrue.length,
-        notActive: getAllByFalse.length
+        total: getAllProduct?.length || 0,
+        active: getAllByTrue?.length || 0,
+        notActive: getAllByFalse?.length || 0
       }
     })
   } catch (error) {
@@ -109,9 +109,9 @@ exports.getCategory = async (req, res, next) => {
     return res.status(200).json({
       message: 'Success',
       data: {
-        total: getAllCategory.length,
-        active: getAllByTrue.length,
-        notActive: getAllByFalse.length
+        total: getAllCategory?.length || 0,
+        active: getAllByTrue?.length || 0,
+        notActive: getAllByFalse?.length || 0
       }
     })
   } catch (error) {
@@ -168,9 +168,9 @@ exports.getLocation = async (req, res, next) => {
     return res.status(200).json({
       message: 'Success',
       data: {
-        total: getAllLocation.length,
-        active: getAllByTrue.length,
-        notActive: getAllByFalse.length
+        total: getAllLocation?.length || 0,
+        active: getAllByTrue?.length || 0,
+        notActive: getAllByFalse?.length || 0
       }
     })
   } catch (error) {
@@ -199,7 +199,7 @@ exports.getMember = async (req, res, next) => {
     return res.status(200).json({
       message: 'Success',
       data: {
-        total: getAllMember.length
+        total: getAllMember.length || 0
       }
     })
   } catch (error) {
@@ -228,7 +228,7 @@ exports.getUser = async (req, res, next) => {
     return res.status(200).json({
       message: 'Success',
       data: {
-        total: getAllUser.length
+        total: getAllUser.length || 0
       }
     })
   } catch (error) {
