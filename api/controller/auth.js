@@ -12,8 +12,7 @@ exports.userByLocation = async (req, res, next) => {
   try {
     const getAllUser = await User.findAll({
       where: {
-        location: location,
-        userType: { [Op.notLike]: 'super-admin' }
+        location: location
       }
     }).then((res) =>
       res.map((items) => {
