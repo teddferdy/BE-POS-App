@@ -26,7 +26,7 @@ exports.userByLocation = async (req, res, next) => {
     )
     res.status(200).json({
       message: 'Success',
-      data: getAllUser.length > 0 ? getAllUser : 'Data Masih Kosong'
+      data: getAllUser.length > 0 ? getAllUser : []
     })
   } catch (error) {
     return res.status(500).json({
@@ -86,7 +86,7 @@ exports.getAllUser = async (req, res, next) => {
 
     res.status(200).json({
       message: 'Success',
-      data: getAllUser.length > 0 ? getAllUser : 'Data Masih Kosong'
+      data: getAllUser.length > 0 ? getAllUser : []
     })
   } catch (error) {
     return res.status(500).json({
