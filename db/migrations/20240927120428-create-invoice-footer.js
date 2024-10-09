@@ -21,6 +21,10 @@ module.exports = {
       isActive: {
         type: Sequelize.BOOLEAN
       },
+      store: {
+        primaryKey: true,
+        type: Sequelize.STRING
+      },
       createdBy: {
         type: Sequelize.STRING
       },

@@ -17,7 +17,8 @@ module.exports = {
         type: Sequelize.STRING,
         primaryKey: true
       },
-      location: {
+      store: {
+        primaryKey: true,
         type: Sequelize.STRING
       },
       status: {

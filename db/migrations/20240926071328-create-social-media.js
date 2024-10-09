@@ -20,6 +20,10 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE
       },
+      store: {
+        primaryKey: true,
+        type: Sequelize.STRING
+      },
       modifiedBy: {
         type: Sequelize.STRING
       },

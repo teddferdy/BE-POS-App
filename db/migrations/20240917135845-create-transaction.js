@@ -9,6 +9,10 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
+      store: {
+        primaryKey: true,
+        type: Sequelize.STRING
+      },
       masterId: {
         type: Sequelize.INTEGER
       },

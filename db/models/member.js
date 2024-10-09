@@ -18,7 +18,8 @@ module.exports = sequelize.define(
       type: DataTypes.STRING,
       primaryKey: true
     },
-    location: {
+    store: {
+      primaryKey: true,
       type: DataTypes.STRING
     },
     status: {
