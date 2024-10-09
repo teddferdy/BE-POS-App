@@ -11,8 +11,22 @@ const authorization = require('../../utils/authorization')
 // Post New Product
 router.post('/add-product', authorization, productController?.postAddProduct)
 
-// Get Product In Cashier List
+// Get Product In Cashier List By Location
 router.get('/get-product', authorization, productController?.getAllProduct)
+
+// Get Product In By Location Super Admin List
+router.get(
+  '/get-product-by-super-admin',
+  authorization,
+  productController?.getProductByLocationSuperAdmin
+)
+
+// Get Product In By Location Admin List
+router.get(
+  '/get-product-by-admin',
+  authorization,
+  productController?.getProductByLocationAdmin
+)
 
 // Get Product In Table
 router.get(

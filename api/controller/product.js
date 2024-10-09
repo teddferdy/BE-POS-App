@@ -4,9 +4,73 @@
 const Product = require('../../db/models/product')
 const { Op } = require('sequelize')
 
+// Get Product By Location Store
+exports.getProductByLocationSuperAdmin = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const getAllProduct = await Product.findAll({
+      where: {
+        store: store,
+        status: true
+      }
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllProduct?.length > 0 ? getAllProduct : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+exports.getProductByLocationAdmin = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const getAllProduct = await Product.findAll({
+      where: {
+        store: store
+      }
+    }).then((res) =>
+      res.map((items) => {
+        const getData = {
+          ...items.dataValues
+        }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      message: 'Success',
+      data: getAllProduct?.length > 0 ? getAllProduct : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
 // Get All In Cashier List
 exports.getAllProduct = async (req, res, next) => {
-  const { nameProduct, category } = req.query
+  const { nameProduct, category, store } = req.query
   try {
     const filters = {}
     if (nameProduct || category) {
@@ -16,6 +80,7 @@ exports.getAllProduct = async (req, res, next) => {
       filters.category = {
         [Op.like]: `${category}%`
       }
+      filters.store = store
       filters.status = true
     }
 
@@ -46,8 +111,13 @@ exports.getAllProduct = async (req, res, next) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const getAllProduct = await Product.findAll().then((res) =>
+    const getAllProduct = await Product.findAll({
+      where: {
+        store: store
+      }
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
