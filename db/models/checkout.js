@@ -10,6 +10,10 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.INTEGER
     },
+    store: {
+      primaryKey: true,
+      type: DataTypes.STRING
+    },
     invoice: {
       primaryKey: true,
       allowNull: false,

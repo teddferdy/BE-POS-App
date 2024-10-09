@@ -59,7 +59,7 @@ exports.addNewMember = async (req, res, next) => {
       const creadtedMember = await Member.create({
         nameMember: body.nameMember,
         phoneNumber: body.phoneNumber,
-        location: body.location,
+        store: body.location,
         createdBy: body.createdBy,
         status: body.status,
         point: body.point
@@ -97,8 +97,6 @@ exports.editMemberById = async (req, res, next) => {
     })
 
     if (getMember?.dataValues) {
-      console.log('getMember', getMember)
-
       const editMember = await Member?.update(
         {
           point: body.point + Number(getMember?.dataValues?.point)

@@ -21,6 +21,10 @@ module.exports = sequelize.define(
       allowNull: false,
       type: DataTypes.DATE
     },
+    store: {
+      primaryKey: true,
+      type: DataTypes.STRING
+    },
     modifiedBy: {
       type: DataTypes.STRING
     },
