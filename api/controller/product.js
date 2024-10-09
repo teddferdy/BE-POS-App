@@ -37,37 +37,6 @@ exports.getProductByLocationSuperAdmin = async (req, res, next) => {
   }
 }
 
-exports.getProductByLocationAdmin = async (req, res, next) => {
-  const { store } = req.query
-  try {
-    const getAllProduct = await Product.findAll({
-      where: {
-        store: store
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: getAllProduct?.length > 0 ? getAllProduct : []
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
 // Get All In Cashier List
 exports.getAllProduct = async (req, res, next) => {
   const { nameProduct, category, store } = req.query
