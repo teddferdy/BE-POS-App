@@ -21,13 +21,6 @@ router.get(
   productController?.getProductByLocationSuperAdmin
 )
 
-// Get Product In By Location Admin List
-router.get(
-  '/get-product-by-admin',
-  authorization,
-  productController?.getProductByLocationAdmin
-)
-
 // Get Product In Table
 router.get(
   '/get-product-all',
