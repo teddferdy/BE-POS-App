@@ -12,7 +12,7 @@ module.exports = {
       parentCategory: {
         primaryKey: true,
         allowNull: false,
-        type: Sequelize.STRING
+        type: Sequelize.INTEGER
       },
       nameSubCategory: {
         type: Sequelize.STRING
