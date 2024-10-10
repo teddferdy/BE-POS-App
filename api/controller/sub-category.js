@@ -32,16 +32,15 @@ exports.getAllSubCategory = async (req, res, next) => {
 
 // Post New SUb Category
 exports.postNewSubCategory = async (req, res, next) => {
+  const {
+    parentCategory,
+    nameSubCategory,
+    typeSubCategory,
+    isMultiple,
+    store,
+    createdBy
+  } = req.body
   try {
-    const {
-      parentCategory,
-      nameSubCategory,
-      typeSubCategory,
-      isMultiple,
-      store,
-      createdBy
-    } = req.body
-
     const postData = await SubCategoryProduct.create({
       parentCategory: parentCategory,
       nameSubCategory: nameSubCategory,
@@ -68,9 +67,8 @@ exports.postNewSubCategory = async (req, res, next) => {
 
 // Get All Sub-category By Category
 exports.getSubcategoryByCategory = async (req, res, next) => {
+  const { parentCategory } = req.query
   try {
-    const { parentCategory } = req.query
-
     const getSubAllCategory = await SubCategoryProduct.findAll({
       where: { parentCategory: parentCategory }
     })
@@ -92,18 +90,17 @@ exports.getSubcategoryByCategory = async (req, res, next) => {
 
 // Edit Sub Category By ID
 exports.editSubcategoryById = async (req, res, next) => {
+  const {
+    id,
+    parentCategory,
+    nameSubCategory,
+    typeSubCategory,
+    isMultiple,
+    store,
+    createdBy,
+    modifiedBy
+  } = req.body
   try {
-    const {
-      id,
-      parentCategory,
-      nameSubCategory,
-      typeSubCategory,
-      isMultiple,
-      store,
-      createdBy,
-      modifiedBy
-    } = req.body
-
     const editSubCategory = await SubCategoryProduct?.update(
       {
         parentCategory: parentCategory,
