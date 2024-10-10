@@ -3,6 +3,39 @@
 const InvoiceFooter = require('../../db/models/invoice_footer')
 const { Op } = require('sequelize')
 
+// Get Logo Invoice By Location
+exports.getInvoiceFooterByLocation = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const invoiceFooter = await InvoiceFooter.findAll({
+      where: {
+        store: store,
+        isActive: true
+      }
+    })
+    return res.status(200).json({
+      message: 'Success',
+      data:
+        invoiceFooter?.length > 0
+          ? invoiceFooter?.map((items) => {
+              return {
+                ...items?.dataValues,
+                footerList: JSON?.parse(items?.dataValues?.footerList)
+              }
+            })
+          : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
 // Get Logo Using To Invoice
 exports.getInvoiceFooterByIsActive = async (req, res, next) => {
   try {
