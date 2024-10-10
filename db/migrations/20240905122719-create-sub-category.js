@@ -9,9 +9,8 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      parentCategory: {
+      idParentCategory: {
         primaryKey: true,
-        allowNull: false,
         type: Sequelize.INTEGER
       },
       nameSubCategory: {

@@ -1,28 +1,50 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const SubCategoryProduct = require('../../db/models/sub_category')
+const Category = require('../../db/models/category')
 
 // Get All Sub-category
 exports.getAllSubCategory = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const subCategory = await SubCategoryProduct.findAll()
+    const subCategory = await SubCategoryProduct.findAll({
+      where: {
+        store: store
+      },
+      returning: true
+    })
+
+    const resolvedSubCategories = await Promise.all(
+      subCategory.map(async (items) => {
+        const categoryData = await Category.findOne({
+          where: {
+            id: items.dataValues.idParentCategory
+          },
+          returning: true
+        })
+
+        return {
+          ...items.dataValues,
+          nameCategory: categoryData ? categoryData.name : null
+        }
+      })
+    )
+
+    const responseData = resolvedSubCategories.map((items) => {
+      return {
+        ...items,
+        typeSubCategory: JSON?.parse(items?.typeSubCategory)
+      }
+    })
 
     return res.status(200).json({
       message: 'Success',
-      data:
-        subCategory?.length > 0
-          ? subCategory?.map((items) => {
-              return {
-                ...items?.dataValues,
-                typeSubCategory: JSON?.parse(items?.dataValues?.typeSubCategory)
-              }
-            })
-          : []
+      data: responseData.length > 0 ? responseData : []
     })
   } catch (error) {
     console.log('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal Server Error'
     })
   } finally {
     console.log('resEND')
@@ -41,8 +63,8 @@ exports.postNewSubCategory = async (req, res, next) => {
     createdBy
   } = req.body
   try {
-    const postData = await SubCategoryProduct.create({
-      parentCategory: parentCategory,
+    const postData = SubCategoryProduct.create({
+      idParentCategory: parentCategory,
       nameSubCategory: nameSubCategory,
       typeSubCategory: typeSubCategory,
       isMultiple: isMultiple,
@@ -70,7 +92,7 @@ exports.getSubcategoryByCategory = async (req, res, next) => {
   const { parentCategory } = req.query
   try {
     const getSubAllCategory = await SubCategoryProduct.findAll({
-      where: { parentCategory: parentCategory }
+      where: { idParentCategory: parentCategory }
     })
 
     return res.status(200).json({
@@ -103,7 +125,7 @@ exports.editSubcategoryById = async (req, res, next) => {
   try {
     const editSubCategory = await SubCategoryProduct?.update(
       {
-        parentCategory: parentCategory,
+        idParentCategory: parentCategory,
         nameSubCategory: nameSubCategory,
         typeSubCategory: typeSubCategory,
         isMultiple: isMultiple,
