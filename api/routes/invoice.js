@@ -9,6 +9,14 @@ const invoiceFooterController = require('../controller/invoice-footer')
 const authorization = require('../../utils/authorization')
 
 // ***************************** LOGO START *************************************
+
+// Get Invoice Logo By Location
+router.get(
+  '/get-invoice-logo-by-location',
+  authorization,
+  invoiceLogoController?.getInvoiceLogoByLocation
+)
+
 // Get Invoice Logo By Active
 router.get(
   '/get-invoice-logo-by-active',
@@ -54,6 +62,12 @@ router.put(
 
 // ***************************** SOCIAL MEDIA START *************************************
 router.get(
+  '/get-invoice-social-media-by-location',
+  authorization,
+  invoiceSocialMediaController?.getInvoiceSocialMediaByLocation
+)
+
+router.get(
   '/get-invoice-social-media-by-active',
   authorization,
   invoiceSocialMediaController?.getInvoiceSocialMediaByIsActive
@@ -96,6 +110,12 @@ router.put(
 // ***************************** SOCIAL MEDIA END *************************************
 
 // ***************************** FOOTER START *************************************
+router.get(
+  '/get-invoice-footer-by-location',
+  authorization,
+  invoiceFooterController?.getInvoiceFooterByLocation
+)
+
 router.get(
   '/get-invoice-footer-by-active',
   authorization,

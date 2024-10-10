@@ -3,6 +3,38 @@
 const InvoiceLogo = require('../../db/models/invoice_logo')
 const { Op } = require('sequelize')
 
+// Get Logo Using By Location
+exports.getInvoiceLogoByLocation = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const invoiceLogo = await InvoiceLogo.findAll({
+      where: {
+        store: store,
+        isActive: true
+      }
+    })
+    return res.status(200).json({
+      message: 'Success',
+      data:
+        invoiceLogo?.length > 0
+          ? invoiceLogo?.map((items) => {
+              return {
+                ...items?.dataValues
+              }
+            })
+          : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
 // Get Logo Using To Invoice
 exports.getInvoiceLogoByIsActive = async (req, res, next) => {
   try {

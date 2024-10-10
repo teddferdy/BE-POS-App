@@ -4,6 +4,39 @@ const InvoiceSocialMedia = require('../../db/models/invoice_social_media')
 const { Op } = require('sequelize')
 
 // Get Logo Using To Invoice
+exports.getInvoiceSocialMediaByLocation = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const invoiceSocialMedia = await InvoiceSocialMedia.findAll({
+      where: {
+        store: store,
+        isActive: true
+      }
+    })
+    return res.status(200).json({
+      message: 'Success',
+      data:
+        invoiceSocialMedia?.length > 0
+          ? invoiceSocialMedia?.map((items) => {
+              return {
+                ...items?.dataValues,
+                socialMediaList: JSON?.parse(items?.dataValues?.socialMediaList)
+              }
+            })
+          : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
+// Get Logo Using To Invoice
 exports.getInvoiceSocialMediaByIsActive = async (req, res, next) => {
   try {
     const invoiceSocialMedia = await InvoiceSocialMedia.findAll({
