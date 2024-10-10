@@ -30,7 +30,8 @@ module.exports = sequelize.define(
       type: DataTypes.STRING
     },
     option: {
-      type: DataTypes.TEXT
+      primaryKey: true,
+      type: DataTypes.ARRAY(DataTypes.INTEGER)
     },
     status: {
       primaryKey: true,

@@ -1,7 +1,9 @@
 'use strict'
 const { DataTypes } = require('sequelize')
 const sequelize = require('../../config/database')
-module.exports = sequelize.define(
+const Category = require('./category')
+
+const SubCategory = sequelize.define(
   'sub_category',
   {
     id: {
@@ -10,9 +12,8 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.INTEGER
     },
-    parentCategory: {
+    idParentCategory: {
       primaryKey: true,
-      allowNull: false,
       type: DataTypes.INTEGER
     },
     nameSubCategory: {
@@ -50,3 +51,19 @@ module.exports = sequelize.define(
     modelName: 'sub_category'
   }
 )
+
+// Define the relationship between Category and SubCategory
+Category.hasMany(SubCategory, {
+  foreignKey: 'idParentCategory',
+  sourceKey: 'name', // `name` is the key used for the relationship
+  onDelete: 'CASCADE',
+  onUpdate: 'CASCADE'
+})
+
+SubCategory.belongsTo(Category, {
+  foreignKey: 'idParentCategory',
+  targetKey: 'name'
+})
+
+// Export the SubCategory model
+module.exports = SubCategory
