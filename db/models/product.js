@@ -19,9 +19,8 @@ module.exports = sequelize.define(
       type: DataTypes.STRING
     },
     category: {
-      allowNull: false,
       primaryKey: true,
-      type: DataTypes.STRING
+      type: DataTypes.INTEGER
     },
     description: {
       type: DataTypes.STRING

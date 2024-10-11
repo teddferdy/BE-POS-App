@@ -2,6 +2,8 @@
 /* eslint-disable no-unused-vars */
 // Connect DB
 const Product = require('../../db/models/product')
+const Category = require('../../db/models/category')
+const SubCategoryProduct = require('../../db/models/sub_category')
 const { Op } = require('sequelize')
 
 // Get Product By Location Store
@@ -86,23 +88,70 @@ exports.getAllProductInTable = async (req, res, next) => {
       where: {
         store: store
       }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
+    })
+
+    // Fetch categories and resolve subcategories
+    const resolvedSubCategories = await Promise.all(
+      getAllProduct.map(async (items) => {
+        const categoryData = await Category.findOne({
+          where: {
+            id: items.dataValues.category
+          },
+          returning: true
+        })
+
+        return {
+          ...items.dataValues,
+          nameCategory: categoryData ? categoryData.name : null
         }
-        return getData
       })
     )
 
+    // Resolve subcategory options for each product
+    const dataNewFormat = await Promise.all(
+      resolvedSubCategories.map(async (items) => {
+        const resolvedOptions = await Promise.all(
+          items.option.map(async (val) => {
+            const categoryData = await SubCategoryProduct.findOne({
+              where: {
+                id: val
+              },
+              returning: true
+            })
+
+            console.log('categoryData =>', categoryData)
+
+            return categoryData
+              ? {
+                  name: categoryData.nameSubCategory,
+                  option: JSON.parse(categoryData.typeSubCategory),
+                  isMultiple: categoryData.isMultiple
+                }
+              : null
+          })
+        )
+
+        return {
+          ...items,
+          option: resolvedOptions
+        }
+      })
+    )
+
+    const responseData = dataNewFormat.map((items) => {
+      return {
+        ...items
+      }
+    })
+
     return res.status(200).json({
       message: 'Success',
-      data: getAllProduct?.length > 0 ? getAllProduct : []
+      data: responseData.length > 0 ? responseData : []
     })
   } catch (error) {
     console.log('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal Server Error'
     })
   } finally {
     console.log('resEND')

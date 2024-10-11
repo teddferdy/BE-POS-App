@@ -19,9 +19,8 @@ module.exports = {
         type: Sequelize.STRING
       },
       category: {
-        allowNull: false,
-        type: Sequelize.STRING,
-        primaryKey: true
+        primaryKey: true,
+        type: Sequelize.INTEGER
       },
       description: {
         type: Sequelize.STRING
