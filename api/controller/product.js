@@ -55,19 +55,65 @@ exports.getAllProduct = async (req, res, next) => {
       filters.status = true
     }
 
-    const getAllProduct = await Product.findAll({ where: filters }).then(
-      (res) =>
-        res.map((items) => {
-          const getData = {
-            ...items.dataValues
-          }
-          return getData
+    const getAllProduct = await Product.findAll({
+      where: filters
+    })
+
+    // Fetch categories and resolve subcategories
+    const resolvedSubCategories = await Promise.all(
+      getAllProduct.map(async (items) => {
+        const categoryData = await Category.findOne({
+          where: {
+            id: items.dataValues.category
+          },
+          returning: true
         })
+
+        return {
+          ...items.dataValues,
+          nameCategory: categoryData ? categoryData.value : null
+        }
+      })
     )
+
+    // Resolve subcategory options for each product
+    const dataNewFormat = await Promise.all(
+      resolvedSubCategories.map(async (items) => {
+        const resolvedOptions = await Promise.all(
+          items.option.map(async (val) => {
+            const categoryData = await SubCategoryProduct.findOne({
+              where: {
+                id: val
+              },
+              returning: true
+            })
+
+            return categoryData
+              ? {
+                  isMultiple: categoryData.isMultiple,
+                  nameSubCategory: categoryData.nameSubCategory,
+                  typeSubCategory: categoryData.typeSubCategory
+                }
+              : null
+          })
+        )
+
+        return {
+          ...items,
+          option: resolvedOptions
+        }
+      })
+    )
+
+    const responseData = dataNewFormat.map((items) => {
+      return {
+        ...items
+      }
+    })
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllProduct?.length > 0 ? getAllProduct : []
+      data: responseData.length > 0 ? responseData : []
     })
   } catch (error) {
     console.log('Error =>', error)
