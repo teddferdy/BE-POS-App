@@ -92,6 +92,7 @@ exports.editMemberById = async (req, res, next) => {
     const getMember = await Member.findOne({
       returning: true,
       where: {
+        nameMember: body.nameMember,
         phoneNumber: body?.phoneNumber
       }
     })
@@ -105,6 +106,7 @@ exports.editMemberById = async (req, res, next) => {
           returning: true,
           where: {
             id: getMember?.dataValues?.id,
+            nameMember: body.nameMember,
             phoneNumber: body?.phoneNumber
           }
         }
