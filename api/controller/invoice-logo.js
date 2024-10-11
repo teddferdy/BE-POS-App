@@ -37,10 +37,12 @@ exports.getInvoiceLogoByLocation = async (req, res, next) => {
 
 // Get Logo Using To Invoice
 exports.getInvoiceLogoByIsActive = async (req, res, next) => {
+  const { store } = req.query
   try {
     const invoiceLogo = await InvoiceLogo.findAll({
       where: {
-        isActive: true
+        isActive: true,
+        store: store
       }
     })
     return res.status(200).json({
@@ -67,8 +69,13 @@ exports.getInvoiceLogoByIsActive = async (req, res, next) => {
 
 // Get All Invoice Logo
 exports.getAllInvoiceLogo = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const invoiceLogo = await InvoiceLogo.findAll()
+    const invoiceLogo = await InvoiceLogo.findAll({
+      where: {
+        store: store
+      }
+    })
     return res.status(200).json({
       message: 'Success',
       data:
@@ -93,8 +100,8 @@ exports.getAllInvoiceLogo = async (req, res, next) => {
 
 // Post New Invoice Logo
 exports.postNewInvoiceLogo = async (req, res, next) => {
+  const { image, isActive, status, createdBy, store } = req.body
   try {
-    const { image, isActive, status, createdBy } = req.body
     const findOneInvoiceLogo = await InvoiceLogo?.findOne({
       where: {
         image: image
@@ -105,6 +112,7 @@ exports.postNewInvoiceLogo = async (req, res, next) => {
       const postData = await InvoiceLogo.create({
         image: image,
         isActive: isActive,
+        store: store,
         status: status,
         createdBy: createdBy
       })
@@ -134,7 +142,8 @@ exports.editInvoiceLogoById = async (req, res, next) => {
   try {
     const getDuplicate = await InvoiceLogo.findOne({
       where: {
-        image: body.image
+        image: body.image,
+        store: body.store
       }
     })
 
@@ -153,7 +162,8 @@ exports.editInvoiceLogoById = async (req, res, next) => {
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
@@ -187,7 +197,8 @@ exports.deleteInvoiceLogoById = async (req, res, next) => {
     const getId = await InvoiceLogo.destroy({
       where: {
         id: body.id,
-        image: body.image
+        image: body.image,
+        store: body.store
       },
       force: true
     })
@@ -218,20 +229,19 @@ exports.activateInvoiceLogoById = async (req, res, next) => {
   try {
     const getDuplicate = await InvoiceLogo.findOne({
       where: {
-        image: body.image
+        image: body.image,
+        store: body.store
       }
     })
 
     const getAllLogoNotById = await InvoiceLogo.findAll({
       where: {
-        image: { [Op.notLike]: body.image }
+        image: { [Op.notLike]: body.image },
+        store: body.store
       }
     }).then((items) => {
-      console.log('ITEMS =>', items)
       return items.map((val) => val.id)
     })
-
-    console.log('getAllLogoNotById =>', getAllLogoNotById)
 
     getAllLogoNotById.forEach(async (items) => {
       await InvoiceLogo.update(
@@ -240,24 +250,24 @@ exports.activateInvoiceLogoById = async (req, res, next) => {
         },
         {
           where: {
-            id: items
+            id: items,
+            store: body.store
           }
         }
       )
     })
 
-    console.log('GET ALL LOGO NOT BY ID', getAllLogoNotById)
-
     if (getDuplicate?.dataValues) {
       const editInvoiceLogo = await InvoiceLogo?.update(
         {
           image: body.image,
-          isActive: true
+          isActive: body.isActive
         },
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {

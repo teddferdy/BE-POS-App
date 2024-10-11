@@ -4,8 +4,13 @@ const SocialMedia = require('../../db/models/social_media')
 
 // Get All List To Cashier List
 exports.getAllSocialMedia = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const getAllCategory = await SocialMedia.findAll().then((res) =>
+    const getAllCategory = await SocialMedia.findAll({
+      where: {
+        store: store
+      }
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -35,14 +40,16 @@ exports.addNewSocialMedia = async (req, res, next) => {
   try {
     const findOneSocialMedia = await SocialMedia?.findOne({
       where: {
-        name: body?.name
+        name: body?.name,
+        store: body.store
       }
     })
 
     if (!findOneSocialMedia?.getDataValue) {
       const creadtedCategory = await SocialMedia.create({
         name: body.name,
-        createdBy: body.createdBy
+        createdBy: body.createdBy,
+        store: body.store
       })
 
       if (creadtedCategory.getDataValue) {
@@ -71,7 +78,8 @@ exports.editSocialMediaById = async (req, res, next) => {
   try {
     const getDuplicate = await SocialMedia.findOne({
       where: {
-        name: body.name
+        name: body.name,
+        store: body.store
       }
     })
 
@@ -84,7 +92,8 @@ exports.editSocialMediaById = async (req, res, next) => {
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
@@ -118,7 +127,8 @@ exports.deleteSocialMediaById = async (req, res, next) => {
     const getId = await SocialMedia.destroy({
       where: {
         id: body.id,
-        name: body.name
+        name: body.name,
+        store: body.store
       },
       force: true
     })

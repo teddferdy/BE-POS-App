@@ -38,10 +38,12 @@ exports.getInvoiceSocialMediaByLocation = async (req, res, next) => {
 
 // Get Logo Using To Invoice
 exports.getInvoiceSocialMediaByIsActive = async (req, res, next) => {
+  const { store } = req.query
   try {
     const invoiceSocialMedia = await InvoiceSocialMedia.findAll({
       where: {
-        isActive: true
+        isActive: true,
+        store: store
       }
     })
     return res.status(200).json({
@@ -69,8 +71,13 @@ exports.getInvoiceSocialMediaByIsActive = async (req, res, next) => {
 
 // Get All Social Media Invoice
 exports.getAllInvoiceSocialMedia = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const socialMedia = await InvoiceSocialMedia.findAll()
+    const socialMedia = await InvoiceSocialMedia.findAll({
+      where: {
+        store: store
+      }
+    })
 
     return res.status(200).json({
       message: 'Success',
@@ -97,11 +104,12 @@ exports.getAllInvoiceSocialMedia = async (req, res, next) => {
 
 // Post New Social Media Invoice
 exports.postNewInvoiceSocialMedia = async (req, res, next) => {
+  const { name, socialMediaList, isActive, status, createdBy, store } = req.body
   try {
-    const { name, socialMediaList, isActive, status, createdBy } = req.body
     const findOneInvoiceSocialMedia = await InvoiceSocialMedia?.findOne({
       where: {
-        name: name
+        name: name,
+        store: store
       }
     })
 
@@ -110,6 +118,7 @@ exports.postNewInvoiceSocialMedia = async (req, res, next) => {
         name: name,
         socialMediaList: socialMediaList,
         isActive: isActive,
+        store: store,
         status: status,
         createdBy: createdBy
       })
@@ -139,7 +148,8 @@ exports.editInvoiceSocialMediaById = async (req, res, next) => {
   try {
     const getDuplicate = await InvoiceSocialMedia.findOne({
       where: {
-        name: body.name
+        name: body.name,
+        store: body.store
       }
     })
 
@@ -165,7 +175,8 @@ exports.editInvoiceSocialMediaById = async (req, res, next) => {
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
@@ -199,7 +210,8 @@ exports.deleteInvoiceSocialMediaById = async (req, res, next) => {
     const getId = await InvoiceSocialMedia.destroy({
       where: {
         id: body.id,
-        name: body.name
+        name: body.name,
+        store: body.store
       },
       force: true
     })
@@ -249,7 +261,8 @@ exports.activateInvoiceSocialMediaById = async (req, res, next) => {
         },
         {
           where: {
-            id: items
+            id: items,
+            store: body.store
           }
         }
       )
@@ -259,12 +272,13 @@ exports.activateInvoiceSocialMediaById = async (req, res, next) => {
       const editInvoiceSocialMedia = await InvoiceSocialMedia?.update(
         {
           name: body.name,
-          isActive: true
+          isActive: body.isActive
         },
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
