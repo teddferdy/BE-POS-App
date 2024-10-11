@@ -21,6 +21,10 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.BOOLEAN
     },
+    store: {
+      primaryKey: true,
+      type: DataTypes.STRING
+    },
     isActive: {
       primaryKey: true,
       type: DataTypes.BOOLEAN

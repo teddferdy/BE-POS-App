@@ -38,10 +38,12 @@ exports.getInvoiceFooterByLocation = async (req, res, next) => {
 
 // Get Logo Using To Invoice
 exports.getInvoiceFooterByIsActive = async (req, res, next) => {
+  const { store } = req.query
   try {
     const invoiceFooter = await InvoiceFooter.findAll({
       where: {
-        isActive: true
+        isActive: true,
+        store: store
       }
     })
     return res.status(200).json({
@@ -69,8 +71,13 @@ exports.getInvoiceFooterByIsActive = async (req, res, next) => {
 
 // Get All Social Media Invoice
 exports.getAllInvoiceFooter = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const invoiceFooter = await InvoiceFooter.findAll()
+    const invoiceFooter = await InvoiceFooter.findAll({
+      where: {
+        store: store
+      }
+    })
     return res.status(200).json({
       message: 'Success',
       data:
@@ -96,8 +103,8 @@ exports.getAllInvoiceFooter = async (req, res, next) => {
 
 // Post New Social Media Invoice
 exports.postNewInvoiceFooter = async (req, res, next) => {
+  const { name, footerList, isActive, status, createdBy, store } = req.body
   try {
-    const { name, footerList, isActive, status, createdBy } = req.body
     const findOneInvoiceFooter = await InvoiceFooter?.findOne({
       where: {
         name: name
@@ -109,6 +116,7 @@ exports.postNewInvoiceFooter = async (req, res, next) => {
         name: name,
         footerList: footerList,
         isActive: isActive,
+        store: store,
         status: status,
         createdBy: createdBy
       })
@@ -138,7 +146,8 @@ exports.editInvoiceFooterById = async (req, res, next) => {
   try {
     const getDuplicate = await InvoiceFooter.findOne({
       where: {
-        name: body.name
+        name: body.name,
+        store: body.store
       }
     })
 
@@ -196,7 +205,8 @@ exports.deleteInvoiceFooterById = async (req, res, next) => {
     const getId = await InvoiceFooter.destroy({
       where: {
         id: body.id,
-        name: body.name
+        name: body.name,
+        store: body.store
       },
       force: true
     })
@@ -227,7 +237,8 @@ exports.activateInvoiceFooterById = async (req, res, next) => {
   try {
     const getDuplicate = await InvoiceFooter.findOne({
       where: {
-        name: body.name
+        name: body.name,
+        store: body.store
       }
     })
 
@@ -246,7 +257,8 @@ exports.activateInvoiceFooterById = async (req, res, next) => {
         },
         {
           where: {
-            id: items
+            id: items,
+            store: body.store
           }
         }
       )
@@ -256,12 +268,13 @@ exports.activateInvoiceFooterById = async (req, res, next) => {
       const editInvoiceFooter = await InvoiceFooter?.update(
         {
           name: body.name,
-          isActive: true
+          isActive: body.isActive
         },
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
