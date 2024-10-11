@@ -28,23 +28,18 @@ router.get(
   productController?.getAllProductInTable
 )
 
-// Function Delete
-// router.post('/delete-product', productController?.deleteProduct)
-
 // Render Form Edit Product
-// router.get('/edit-product/:id', productController?.renderFormEdit)
+router.put(
+  '/edit-product/:id',
+  authorization,
+  productController?.editProductByLocationAndId
+)
 
-// Router delete Image
-// router.post('/delete-image', productController?.deleteImage)
-
-// Router Render Category
-// router.get('/add-category', productController?.renderAddCategory)
-
-// Function Post Edit Product
-// router.post(
-//   '/edit-product/:id',
-//   upload.single('image'),
-//   productController?.EditProduct
-// )
+// Function Delete
+router.delete(
+  '/delete-product/:id',
+  authorization,
+  productController?.deleteProductByIdAndLocation
+)
 
 module.exports = router

@@ -4,6 +4,7 @@
 const Product = require('../../db/models/product')
 const Category = require('../../db/models/category')
 const SubCategoryProduct = require('../../db/models/sub_category')
+const { compareProduct } = require('../../utils/compare-value')
 const { Op } = require('sequelize')
 
 // Get Product By Location Store
@@ -171,10 +172,9 @@ exports.getAllProductInTable = async (req, res, next) => {
               returning: true
             })
 
-            console.log('categoryData =>', categoryData)
-
             return categoryData
               ? {
+                  id: categoryData.id,
                   name: categoryData.nameSubCategory,
                   option: JSON.parse(categoryData.typeSubCategory),
                   isMultiple: categoryData.isMultiple
@@ -213,20 +213,19 @@ exports.getAllProductInTable = async (req, res, next) => {
 
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
+  const {
+    nameProduct,
+    category,
+    status,
+    description,
+    price,
+    createdBy,
+    image,
+    option,
+    isOption,
+    store
+  } = req.body
   try {
-    const {
-      nameProduct,
-      category,
-      status,
-      description,
-      price,
-      createdBy,
-      image,
-      option,
-      isOption,
-      store
-    } = req.body
-
     const postData = await Product.create({
       nameProduct: nameProduct,
       category: category,
@@ -256,165 +255,125 @@ exports.postAddProduct = async (req, res, next) => {
 }
 
 // Render Edit Form Product
-exports.renderFormEdit = (req, res, next) => {
-  //   const getProduct = product.filter(
-  //     (items) => items.id === Number(req.params.id)
-  //   )
-  //   const [prouduct] = getProduct
-  //   res.render('admin/formProduct.ejs', {
-  //     pageTitle: 'Edit Product',
-  //     admin: true,
-  //     url: req.protocol + '://' + req.header.host,
-  //     onPage: 'edit-product',
-  //     navigationActive: {
-  //       list: 'list',
-  //       cart: 'cart',
-  //       addProduct: 'add-product',
-  //       editProduct: 'edit-product',
-  //       reportSelling: 'report-selling'
-  //     },
-  //     urlNavigation: {
-  //       list: '/admin/list',
-  //       cart: '/admin/cart',
-  //       addProduct: '/admin/add-product',
-  //       editProduct: '/admin/edit-product',
-  //       reportSelling: '/admin/report-selling'
-  //     },
-  //     item: {
-  //       id: prouduct.id,
-  //       img: prouduct.img,
-  //       category: prouduct.category,
-  //       product: prouduct.productName,
-  //       price: prouduct.price
-  //     }
-  //   })
+exports.editProductByLocationAndId = async (req, res, next) => {
+  const {
+    id,
+    nameProduct,
+    category,
+    status,
+    description,
+    price,
+    createdBy,
+    image,
+    option,
+    isOption,
+    store,
+    modifiedBy
+  } = req.body
+  try {
+    const getAllProductByIdAndLocation = await Product.findOne({
+      where: {
+        id: id,
+        store: store
+      }
+    })
+
+    const reqBody = {
+      nameProduct: nameProduct,
+      image: image,
+      category: category,
+      description: description,
+      price: price,
+      isOption: isOption,
+      option: option,
+      status: status,
+      store: store
+    }
+
+    const duplicateData = {
+      nameProduct: getAllProductByIdAndLocation.nameProduct,
+      image: getAllProductByIdAndLocation.image,
+      category: getAllProductByIdAndLocation.category,
+      description: getAllProductByIdAndLocation.description,
+      price: getAllProductByIdAndLocation.price,
+      isOption: getAllProductByIdAndLocation.isOption,
+      option: getAllProductByIdAndLocation.option,
+      status: getAllProductByIdAndLocation.status,
+      store: getAllProductByIdAndLocation.store
+    }
+
+    const result = compareProduct(reqBody, duplicateData)
+
+    if (!result) {
+      const editLocation = await Product?.update(
+        {
+          nameProduct: nameProduct,
+          image: image,
+          category: category,
+          description: description,
+          price: price,
+          isOption: isOption,
+          option: option,
+          status: status,
+          store: store
+        },
+        {
+          returning: true,
+          where: {
+            id: id
+          }
+        }
+      ).then(([_, data]) => {
+        return data
+      })
+
+      return res.status(200).json({
+        message: 'Sukses Ubah Product',
+        data: editLocation?.dataValues
+      })
+    } else {
+      return res.status(403).json({
+        message: 'Product Sudah Terdaftar'
+      })
+    }
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
 }
 
-// Function Put Edit Form Product
-// exports.EditProduct = (req, res, next) => {
-//   const getIndexProduct = product.findIndex(
-//     (items) => items.id === Number(req.params.id)
-//   )
-//   console.log('getIndexProduct =>', getIndexProduct)
+exports.deleteProductByIdAndLocation = async (req, res, next) => {
+  const { id, nameProduct, store } = req.body
+  try {
+    const getId = await Product.destroy({
+      where: {
+        id: id,
+        nameProduct: nameProduct,
+        store: store
+      },
+      force: true
+    })
 
-//   product[getIndexProduct] = {
-//     id: req.params.id,
-//     img: req.body.image,
-//     category: req.body.category,
-//     productName: req.body.product,
-//     price: req.body.price
-//   }
-
-//   res.redirect('/admin/list')
-// }
-
-// Delete
-// exports.deleteProduct = (req, res, next) => {
-//   const products = product.filter((items) => items.id !== Number(req.body.id))
-//   console.log(products)
-//   product = products
-//   res.redirect('/admin/list')
-// }
-
-// Report Selling
-// exports.showGraph = (req, res, next) => {
-//   res.render('admin/reportSelling.ejs', {
-//     pageTitle: 'Report Selling',
-//     admin: true,
-//     url: req.protocol + '://' + req.header.host,
-//     onPage: 'report-selling',
-//     navigationActive: {
-//       list: 'list',
-//       cart: 'cart',
-//       addProduct: 'add-product',
-//       editProduct: 'edit-product',
-//       reportSelling: 'report-selling'
-//     },
-//     urlNavigation: {
-//       list: '/admin/list',
-//       cart: '/admin/cart',
-//       addProduct: '/admin/add-product',
-//       editProduct: '/admin/edit-product',
-//       reportSelling: '/admin/report-selling'
-//     },
-//     labels: [
-//       'Januari',
-//       'Februari',
-//       'Maret',
-//       'April',
-//       'Mei',
-//       'Juni',
-//       'Juli',
-//       'Agustus',
-//       'September',
-//       'Oktober',
-//       'November',
-//       'Desember'
-//     ],
-//     dataGraph: dataGraph.data[`${new Date().getFullYear()}`]
-//   })
-// }
-
-// Filter Report Selling By Year
-// exports.filterGraph = (req, res, next) => {
-//   const data = dataGraph.data[req.body.year]
-//   res.render('admin/reportSelling.ejs', {
-//     pageTitle: 'Report Selling',
-//     admin: true,
-//     url: req.protocol + '://' + req.header.host,
-//     onPage: 'report-selling',
-//     navigationActive: {
-//       list: 'list',
-//       cart: 'cart',
-//       addProduct: 'add-product',
-//       editProduct: 'edit-product',
-//       reportSelling: 'report-selling'
-//     },
-//     urlNavigation: {
-//       list: '/admin/list',
-//       cart: '/admin/cart',
-//       addProduct: '/admin/add-product',
-//       editProduct: '/admin/edit-product',
-//       reportSelling: '/admin/report-selling'
-//     },
-//     labels: [
-//       'Januari',
-//       'Februari',
-//       'Maret',
-//       'April',
-//       'Mei',
-//       'Juni',
-//       'Juli',
-//       'Agustus',
-//       'September',
-//       'Oktober',
-//       'November',
-//       'Desember'
-//     ],
-//     dataGraph: data
-//   })
-// }
-
-// Render Cart
-// exports.renderCart = (req, res, next) => {
-//   res.render('user/cart.ejs', {
-//     url: req.protocol + '://' + req.header.host,
-//     pageTitle: 'Cart Product',
-//     onPage: 'cart',
-//     admin: true,
-//     navigationActive: {
-//       list: 'list',
-//       cart: 'cart',
-//       addProduct: 'add-product',
-//       editProduct: 'edit-product',
-//       reportSelling: 'report-selling'
-//     },
-//     urlNavigation: {
-//       list: '/admin/list',
-//       cart: '/admin/cart',
-//       addProduct: '/admin/add-product',
-//       editProduct: '/admin/edit-product',
-//       reportSelling: '/admin/report-selling'
-//     }
-//   })
-// }
+    if (getId) {
+      return res.status(200).json({
+        message: 'Success Hapus Product'
+      })
+    } else {
+      return res.status(403).json({
+        message: 'Hapus Product Gagal'
+      })
+    }
+  } catch (error) {
+    console.log('ERROR =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
