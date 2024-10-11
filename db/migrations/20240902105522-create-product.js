@@ -28,8 +28,13 @@ module.exports = {
       price: {
         type: Sequelize.STRING
       },
+      isOption: {
+        allowNull: false,
+        type: Sequelize.BOOLEAN
+      },
       option: {
-        primaryKey: true,
+        allowNull: true,
+        defaultValue: [],
         type: Sequelize.ARRAY(Sequelize.INTEGER)
       },
       status: {

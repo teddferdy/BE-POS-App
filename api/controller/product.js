@@ -42,18 +42,24 @@ exports.getProductByLocationSuperAdmin = async (req, res, next) => {
 // Get All In Cashier List
 exports.getAllProduct = async (req, res, next) => {
   const { nameProduct, category, store } = req.query
+
   try {
     const filters = {}
-    if (nameProduct || category) {
+
+    if (nameProduct) {
       filters.nameProduct = {
         [Op.like]: `${nameProduct}%`
       }
-      filters.category = {
-        [Op.like]: `${category}%`
-      }
-      filters.store = store
-      filters.status = true
     }
+
+    if (Number(category)) {
+      filters.category = Number(category)
+    }
+    if (store) {
+      filters.store = store
+    }
+
+    filters.status = true
 
     const getAllProduct = await Product.findAll({
       where: filters
@@ -217,6 +223,7 @@ exports.postAddProduct = async (req, res, next) => {
       createdBy,
       image,
       option,
+      isOption,
       store
     } = req.body
 
@@ -226,7 +233,8 @@ exports.postAddProduct = async (req, res, next) => {
       description: description,
       price: price,
       status: status,
-      option: option,
+      isOption: isOption,
+      option: isOption ? option : [],
       createdBy: createdBy,
       image: image,
       store: store

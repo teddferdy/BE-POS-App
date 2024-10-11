@@ -28,8 +28,13 @@ module.exports = sequelize.define(
     price: {
       type: DataTypes.STRING
     },
+    isOption: {
+      allowNull: false,
+      type: DataTypes.BOOLEAN
+    },
     option: {
-      primaryKey: true,
+      allowNull: true,
+      defaultValue: [],
       type: DataTypes.ARRAY(DataTypes.INTEGER)
     },
     status: {

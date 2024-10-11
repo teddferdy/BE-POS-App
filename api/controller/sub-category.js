@@ -89,10 +89,10 @@ exports.postNewSubCategory = async (req, res, next) => {
 
 // Get All Sub-category By Category
 exports.getSubcategoryByCategory = async (req, res, next) => {
-  const { parentCategory } = req.query
+  const { idParentCategory, store } = req.query
   try {
     const getSubAllCategory = await SubCategoryProduct.findAll({
-      where: { idParentCategory: parentCategory }
+      where: { idParentCategory: idParentCategory, store: store }
     })
 
     return res.status(200).json({
