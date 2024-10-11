@@ -4,8 +4,13 @@ const Discount = require('../../db/models/discount')
 
 // Get All Discount
 exports.getAllDiscount = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const subCategory = await Discount.findAll()
+    const subCategory = await Discount.findAll({
+      where: {
+        store: store
+      }
+    })
     return res.status(200).json({
       message: 'Success',
       data:
@@ -31,11 +36,12 @@ exports.getAllDiscount = async (req, res, next) => {
 
 // Post New SUb Category
 exports.postNewDiscount = async (req, res, next) => {
+  const { description, percentage, isActive, createdBy, store } = req.body
   try {
-    const { description, percentage, isActive, createdBy } = req.body
     const findOneDiscount = await Discount?.findOne({
       where: {
-        description: description
+        description: description,
+        store: store
       }
     })
 
@@ -44,6 +50,7 @@ exports.postNewDiscount = async (req, res, next) => {
       const postData = await Discount.create({
         description: description,
         percentage: parseFloat(numbPercent) / 100.0,
+        store: store,
         isActive: isActive,
         createdBy: createdBy
       })
@@ -75,7 +82,8 @@ exports.editDiscountById = async (req, res, next) => {
     const getDuplicate = await Discount.findOne({
       where: {
         description: body.description,
-        percentage: parseFloat(numbPercent) / 100.0
+        percentage: parseFloat(numbPercent) / 100.0,
+        store: body.store
       }
     })
 
@@ -94,7 +102,8 @@ exports.editDiscountById = async (req, res, next) => {
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
@@ -128,7 +137,8 @@ exports.deleteDiscountById = async (req, res, next) => {
     const getId = await Discount.destroy({
       where: {
         id: body.id,
-        description: body.description
+        description: body.description,
+        store: body.store
       },
       force: true
     })
