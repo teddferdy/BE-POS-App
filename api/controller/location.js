@@ -1,7 +1,7 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const Location = require('../../db/models/location')
-const compareObjects = require('../../utils/compare-value')
+const { compareObjects } = require('../../utils/compare-value')
 
 // Get All List To Dropdown
 exports.getAllLocation = async (req, res, next) => {
@@ -136,9 +136,9 @@ exports.editLocationById = async (req, res, next) => {
     }
 
     // Compare Body Req & Duplicate
-    const resultValue = compareObjects(bodyReq, bodyReq)
+    const resultValue = compareObjects(dataExist, bodyReq)
 
-    if (resultValue) {
+    if (!resultValue) {
       const editLocation = await Location?.update(
         {
           id: body?.id,
