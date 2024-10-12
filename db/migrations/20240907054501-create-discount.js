@@ -20,7 +20,8 @@ module.exports = {
         type: Sequelize.DECIMAL
       },
       isActive: {
-        type: Sequelize.BOOLEAN
+        type: Sequelize.BOOLEAN,
+        primaryKey: true
       },
       store: {
         primaryKey: true,

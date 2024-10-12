@@ -129,14 +129,14 @@ exports.editSubcategoryById = async (req, res, next) => {
         nameSubCategory: nameSubCategory,
         typeSubCategory: typeSubCategory,
         isMultiple: isMultiple,
-        store: store,
         createdBy: createdBy,
         modifiedBy: modifiedBy
       },
       {
         returning: true,
         where: {
-          id: id
+          id: id,
+          store: store
         }
       }
     ).then(([_, data]) => {
@@ -164,7 +164,8 @@ exports.deleteSubcategoryById = async (req, res, next) => {
   try {
     const getId = await SubCategoryProduct.destroy({
       where: {
-        id: body.id
+        id: body.id,
+        store: body.store
       },
       force: true
     })

@@ -21,7 +21,8 @@ module.exports = sequelize.define(
       type: DataTypes.DECIMAL
     },
     isActive: {
-      type: DataTypes.BOOLEAN
+      type: DataTypes.BOOLEAN,
+      primaryKey: true
     },
     store: {
       primaryKey: true,

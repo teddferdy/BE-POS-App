@@ -6,7 +6,13 @@ const discountController = require('../controller/discount')
 const authorization = require('../../utils/authorization')
 
 // Get All Discount
-router.get('/get-discount', discountController?.getAllDiscount)
+router.get(
+  '/get-discount-by-location',
+  authorization,
+  discountController?.getAllDiscountByLocationAndActive
+)
+
+router.get('/get-discount', authorization, discountController?.getAllDiscount)
 
 // Add Discount
 router.post(

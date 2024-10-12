@@ -2,6 +2,39 @@
 /* eslint-disable no-unused-vars */
 const Discount = require('../../db/models/discount')
 
+// Get Discount By Location & Active
+exports.getAllDiscountByLocationAndActive = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const subCategory = await Discount.findAll({
+      where: {
+        store: store,
+        isActive: true
+      }
+    })
+    return res.status(200).json({
+      message: 'Success',
+      data:
+        subCategory?.length > 0
+          ? subCategory?.map((items) => {
+              return {
+                ...items?.dataValues,
+                percentage: `${Math.round(items.dataValues.percentage * 100)}%`
+              }
+            })
+          : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
 // Get All Discount
 exports.getAllDiscount = async (req, res, next) => {
   const { store } = req.query
