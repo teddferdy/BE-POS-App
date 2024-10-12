@@ -21,7 +21,8 @@ exports.addNewTransaction = async (id, order) => {
       const findBestSelling = await BestSelling?.findOne({
         where: {
           productId: order[index].idProduct,
-          nameProduct: order[index].orderName
+          nameProduct: order[index].orderName,
+          store: order[index].store
         }
       })
 
@@ -44,7 +45,8 @@ exports.addNewTransaction = async (id, order) => {
           productId: order[index].idProduct,
           nameProduct: order[index].orderName,
           image: order[index].img,
-          totalSelling: Number(order[index].count)
+          totalSelling: Number(order[index].count),
+          store: order[index].store
         })
       }
     } catch (error) {
@@ -91,7 +93,8 @@ exports.checkout = async (req, res, next) => {
   try {
     const findOneCheckout = await Checkout?.findOne({
       where: {
-        invoice: invoice
+        invoice: invoice,
+        store: body.store
       }
     })
 
@@ -101,6 +104,7 @@ exports.checkout = async (req, res, next) => {
         dateOrder: new Date(),
         dateCheckout: new Date(),
         totalPrice: body.totalPrice,
+        store: body.store,
         cashierName: body.cashierName,
         totalQuantity: body.totalQuantity,
         createdBy: body.createdBy
@@ -154,7 +158,8 @@ exports.editCheckout = async (req, res, next) => {
         returning: true,
         where: {
           id: body.id,
-          invoice: body.invoice
+          invoice: body.invoice,
+          store: body.store
         }
       }
     ).then(([_, data]) => {
@@ -184,7 +189,8 @@ exports.deleteCheckout = async (req, res, next) => {
     const getId = await Checkout.destroy({
       where: {
         id: body.id,
-        invoice: body.invoice
+        invoice: body.invoice,
+        store: body.store
       },
       force: true
     })
