@@ -18,6 +18,10 @@ module.exports = sequelize.define(
     description: {
       type: DataTypes.STRING
     },
+    store: {
+      primaryKey: true,
+      type: DataTypes.STRING
+    },
     status: {
       type: DataTypes.BOOLEAN
     },

@@ -17,6 +17,10 @@ module.exports = {
       description: {
         type: Sequelize.STRING
       },
+      store: {
+        primaryKey: true,
+        type: Sequelize.STRING
+      },
       status: {
         type: Sequelize.BOOLEAN
       },

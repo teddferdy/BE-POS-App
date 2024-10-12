@@ -2,10 +2,47 @@
 /* eslint-disable no-unused-vars */
 const TypePayment = require('../../db/models/type_payment')
 
+// Get Type Payment By Store And Active
+exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
+  const { store } = req.query
+  try {
+    const typePayment = await TypePayment.findAll({
+      where: {
+        store: store,
+        status: true
+      }
+    })
+    return res.status(200).json({
+      message: 'Success',
+      data:
+        typePayment?.length > 0
+          ? typePayment?.map((items) => {
+              return {
+                ...items?.dataValues
+              }
+            })
+          : []
+    })
+  } catch (error) {
+    console.log('Error =>', error)
+    return res.status(500).json({
+      error: 'Terjadi Kesalahan Internal Server'
+    })
+  } finally {
+    console.log('resEND')
+    return res.end()
+  }
+}
+
 // Get All TypePayment
 exports.getAllTypePayment = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const subCategory = await TypePayment.findAll()
+    const subCategory = await TypePayment.findAll({
+      where: {
+        store: store
+      }
+    })
     return res.status(200).json({
       message: 'Success',
       data:
@@ -30,11 +67,12 @@ exports.getAllTypePayment = async (req, res, next) => {
 
 // Post New Type Category
 exports.postNewTypePayment = async (req, res, next) => {
+  const { description, percentage, status, createdBy, store } = req.body
   try {
-    const { description, percentage, status, createdBy } = req.body
     const findOneTypePayment = await TypePayment?.findOne({
       where: {
-        description: description
+        description: description,
+        store: store
       }
     })
 
@@ -43,6 +81,7 @@ exports.postNewTypePayment = async (req, res, next) => {
       const postData = await TypePayment.create({
         description: description,
         percentage: parseFloat(numbPercent) / 100.0,
+        store: store,
         status: status,
         createdBy: createdBy
       })
@@ -74,7 +113,8 @@ exports.editTypePaymentById = async (req, res, next) => {
     const getDuplicate = await TypePayment.findOne({
       where: {
         description: body.description,
-        percentage: parseFloat(numbPercent) / 100.0
+        percentage: parseFloat(numbPercent) / 100.0,
+        store: body.store
       }
     })
 
@@ -93,7 +133,8 @@ exports.editTypePaymentById = async (req, res, next) => {
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body.store
           }
         }
       ).then(([_, data]) => {
@@ -127,7 +168,8 @@ exports.deleteTypePaymentById = async (req, res, next) => {
     const getId = await TypePayment.destroy({
       where: {
         id: body.id,
-        description: body.description
+        description: body.description,
+        store: body.store
       },
       force: true
     })
