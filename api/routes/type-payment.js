@@ -5,8 +5,19 @@ const typePaymentController = require('../controller/type-payment')
 // Authorization
 const authorization = require('../../utils/authorization')
 
+// get Type Payment By Location And Active
+router.get(
+  '/get-type-payment',
+  authorization,
+  typePaymentController?.getAllTypePaymentByLocationAndActive
+)
+
 // Get All Type Payment
-router.get('/get-type-payment', typePaymentController?.getAllTypePayment)
+router.get(
+  '/get-list-type-payment',
+  authorization,
+  typePaymentController?.getAllTypePayment
+)
 
 // Add Type Payment
 router.post(
