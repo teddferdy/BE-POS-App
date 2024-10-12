@@ -4,10 +4,12 @@ const Category = require('../../db/models/category')
 
 // Get All List To Cashier List
 exports.getAllCategory = async (req, res, next) => {
+  const { store } = req.query
   try {
     const getAllCategory = await Category.findAll({
       where: {
-        status: true
+        status: true,
+        store: store
       }
     }).then((res) =>
       res.map((items) => {
@@ -34,8 +36,13 @@ exports.getAllCategory = async (req, res, next) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const getAllCategory = await Category.findAll().then((res) =>
+    const getAllCategory = await Category.findAll({
+      where: {
+        store: store
+      }
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -65,7 +72,8 @@ exports.addNewCategory = async (req, res, next) => {
   try {
     const findOneCategory = await Category?.findOne({
       where: {
-        name: body?.name
+        name: body?.name,
+        store: body?.store
       }
     })
 
@@ -104,7 +112,8 @@ exports.editCategoryById = async (req, res, next) => {
   try {
     const getDuplicate = await Category.findOne({
       where: {
-        name: body.name
+        name: body.name,
+        store: body?.store
       }
     })
 
@@ -118,14 +127,14 @@ exports.editCategoryById = async (req, res, next) => {
           name: body?.name,
           value: body?.name?.toLowerCase(),
           status: body?.status,
-          store: body?.store,
           createdBy: body?.createdBy,
           modifiedBy: body?.modifiedBy
         },
         {
           returning: true,
           where: {
-            id: body.id
+            id: body.id,
+            store: body?.store
           }
         }
       ).then(([_, data]) => {
@@ -159,7 +168,8 @@ exports.deleteCategoryById = async (req, res, next) => {
     const getId = await Category.destroy({
       where: {
         id: body.id,
-        name: body.name
+        name: body.name,
+        store: body?.store
       },
       force: true
     })
