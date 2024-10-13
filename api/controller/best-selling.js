@@ -9,10 +9,10 @@ const sequelize = require('../../config/database')
 
 // Get All List
 exports.getAllBestSelling = async (req, res, next) => {
-  const { myStore } = req.query
+  const { store } = req.query
 
   try {
-    const whereClause = myStore ? { myStore } : {} // Add where clause if myStore is present
+    const whereClause = store ? { store } : {} // Add where clause if store is present
 
     const getAllBestSelling = await BestSelling.findAll({
       where: whereClause
@@ -42,7 +42,7 @@ exports.getAllBestSelling = async (req, res, next) => {
 // Chart get current year
 exports.chartDataByYear = async (req, res, next) => {
   const { query } = req
-  const { myStore } = query
+  const { store } = query
 
   try {
     const [result] = await sequelize.query(`
@@ -54,7 +54,7 @@ exports.chartDataByYear = async (req, res, next) => {
           (DATE '${query.year}-12-31'), 
           '1 month') AS months(month)
         LEFT JOIN checkout co ON date_trunc('month', co."dateCheckout") = months.month
-        ${myStore ? `AND co."myStore" = '${myStore}'` : ''}
+        ${store ? `AND co."store" = '${store}'` : ''}
         GROUP BY months.month
         ORDER BY months.month ASC
       `)
@@ -92,7 +92,7 @@ const getDateRange = (firstDate, lastDate) => {
 // Charts by Month from first to endDate in Current Month
 exports.chartDataByMonth = async (req, res, next) => {
   const { query } = req
-  const { myStore } = query
+  const { store } = query
   const date = new Date()
 
   const firstDay = query?.startDate
@@ -123,8 +123,8 @@ exports.chartDataByMonth = async (req, res, next) => {
       }
     }
 
-    if (myStore) {
-      whereClause.myStore = myStore // Add myStore condition if provided
+    if (store) {
+      whereClause.store = store // Add store condition if provided
     }
 
     const datas = await Checkout.findAll({
@@ -278,7 +278,7 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
 // Get Earning Today
 exports.getEarningToday = async (req, res, next) => {
   const NOW = moment(new Date()).format('YYYY-MM-DD')
-  const { myStore } = req.query
+  const { store } = req.query
 
   try {
     const whereClause = {
@@ -287,8 +287,8 @@ exports.getEarningToday = async (req, res, next) => {
       }
     }
 
-    if (myStore) {
-      whereClause.myStore = myStore // Add myStore filter if provided
+    if (store) {
+      whereClause.store = store // Add store filter if provided
     }
 
     const datas = await Checkout.findAll({
