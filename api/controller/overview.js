@@ -244,9 +244,13 @@ exports.getUser = async (req, res, next) => {
 
 // Get Best Selling By Count
 exports.getBestSellingByCount = async (req, res, next) => {
+  const { store } = req.query
   try {
     const getAllBestSelling = await BestSelling.findAll({
       order: [['totalSelling', 'DESC']],
+      where: {
+        store: store
+      },
       limit: 5
     }).then((res) =>
       res.map((items) => {
@@ -273,9 +277,14 @@ exports.getBestSellingByCount = async (req, res, next) => {
 
 // Get Member List By Descending / Latest
 exports.getMemberDescending = async (req, res, next) => {
+  const { store } = req.query
+
   try {
     const getAllMember = await Member.findAll({
       order: [['id', 'DESC']],
+      where: {
+        store: store
+      },
       limit: 5
     }).then((res) =>
       res.map((items) => {
@@ -303,9 +312,14 @@ exports.getMemberDescending = async (req, res, next) => {
 
 // get Category List By Descending / Latest
 exports.getCategoryDescending = async (req, res, next) => {
+  const { store } = req.query
+
   try {
     const getAllCategory = await Category.findAll({
       order: [['id', 'DESC']],
+      where: {
+        store: store
+      },
       limit: 5
     }).then((res) =>
       res.map((items) => {
@@ -363,9 +377,14 @@ exports.getLocationDescending = async (req, res, next) => {
 
 // Get Product List By Descending / Latest
 exports.getProductDescending = async (req, res, next) => {
+  const { store } = req.query
+
   try {
     const getAllProduct = await Product.findAll({
       order: [['id', 'DESC']],
+      where: {
+        store: store
+      },
       limit: 5
     }).then((res) =>
       res.map((items) => {
