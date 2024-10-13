@@ -9,8 +9,14 @@ const sequelize = require('../../config/database')
 
 // Get All List
 exports.getAllBestSelling = async (req, res, next) => {
+  const { myStore } = req.query
+
   try {
-    const getAllBestSelling = await BestSelling.findAll().then((res) =>
+    const whereClause = myStore ? { myStore } : {} // Add where clause if myStore is present
+
+    const getAllBestSelling = await BestSelling.findAll({
+      where: whereClause
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -36,19 +42,21 @@ exports.getAllBestSelling = async (req, res, next) => {
 // Chart get current year
 exports.chartDataByYear = async (req, res, next) => {
   const { query } = req
+  const { myStore } = query
 
   try {
     const [result] = await sequelize.query(`
         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month, 
           coalesce(sum(co."totalPrice"), 0) as "totalAmount",
           coalesce(COUNT(co."dateCheckout"), 0) AS "countCheckout"
-        from generate_series(
+        FROM generate_series(
           (DATE '${query.year}-01-01'), 
           (DATE '${query.year}-12-31'), 
-          '1 month') as months(month)
-        left join checkout co on date_trunc('month', co."dateCheckout") = months.month
-        group by months.month
-          order by months.month ASC 
+          '1 month') AS months(month)
+        LEFT JOIN checkout co ON date_trunc('month', co."dateCheckout") = months.month
+        ${myStore ? `AND co."myStore" = '${myStore}'` : ''}
+        GROUP BY months.month
+        ORDER BY months.month ASC
       `)
 
     return res.status(200).json({
@@ -84,6 +92,7 @@ const getDateRange = (firstDate, lastDate) => {
 // Charts by Month from first to endDate in Current Month
 exports.chartDataByMonth = async (req, res, next) => {
   const { query } = req
+  const { myStore } = query
   const date = new Date()
 
   const firstDay = query?.startDate
@@ -99,7 +108,7 @@ exports.chartDataByMonth = async (req, res, next) => {
   const numberLastDate = moment(lastDay).format('DD')
   const arrIntervalDate = getDateRange(firstDay, lastDay)
 
-  var dates = []
+  let dates = []
   for (let I = 0; I < Math.abs(arrIntervalDate.length); I++) {
     dates.push({
       date: moment(arrIntervalDate[I]).format('YYYY-MM-DD'),
@@ -108,12 +117,18 @@ exports.chartDataByMonth = async (req, res, next) => {
   }
 
   try {
+    const whereClause = {
+      dateCheckout: {
+        [Op.gte]: moment().subtract(numberLastDate, 'days').toDate()
+      }
+    }
+
+    if (myStore) {
+      whereClause.myStore = myStore // Add myStore condition if provided
+    }
+
     const datas = await Checkout.findAll({
-      where: {
-        dateCheckout: {
-          [Op.gte]: moment().subtract(numberLastDate, 'days').toDate()
-        }
-      },
+      where: whereClause,
       attributes: [
         [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
         [Sequelize.literal(`COUNT(*)`), 'count']
@@ -127,6 +142,7 @@ exports.chartDataByMonth = async (req, res, next) => {
       const result = Object.values(map)
       return result
     })
+
     return res.status(200).json({
       message: 'Success',
       data: datas.map((items) => {
@@ -262,13 +278,21 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
 // Get Earning Today
 exports.getEarningToday = async (req, res, next) => {
   const NOW = moment(new Date()).format('YYYY-MM-DD')
+  const { myStore } = req.query
+
   try {
-    const datas = await Checkout.findAll({
-      where: {
-        dateCheckout: {
-          [Op.gt]: NOW
-        }
+    const whereClause = {
+      dateCheckout: {
+        [Op.gt]: NOW
       }
+    }
+
+    if (myStore) {
+      whereClause.myStore = myStore // Add myStore filter if provided
+    }
+
+    const datas = await Checkout.findAll({
+      where: whereClause
     }).then((res) => {
       return res.map((items) => {
         const getData = {
