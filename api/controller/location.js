@@ -129,30 +129,8 @@ exports.editLocationById = async (req, res, next) => {
   try {
     // Check for an existing store with the same name
     const getDuplicate = await Location.findOne({
-      where: { nameStore: body.nameStore }
+      where: { id: body?.id }
     })
-
-    // Check if users are associated with the old store name
-    const checkUser = await User.findAll({
-      where: { location: body.oldStoreName }
-    })
-
-    // If users exist and confirmUserUpdate is not provided, prompt for confirmation
-    if (checkUser.length > 0 && !confirmUserUpdate) {
-      return res.status(200).json({
-        message:
-          'Users are already associated with this store. Do you want to update their store assignment?',
-        showUserUpdateDialog: true
-      })
-    }
-
-    // If confirmation is given, update user location to the new store name
-    if (confirmUserUpdate) {
-      await User.update(
-        { location: body.nameStore },
-        { where: { location: body.oldStoreName } }
-      )
-    }
 
     // Prepare the new location data for the update
     const bodyReq = {
@@ -181,239 +159,265 @@ exports.editLocationById = async (req, res, next) => {
     // Compare the old and new data to determine if changes are necessary
     const resultValue = compareObjects(dataExist, bodyReq)
 
+    console.log('resultValue =>', resultValue)
+
     if (resultValue) {
       return res.status(403).json({
         message: 'The location already exists.'
       })
-    }
+    } else {
+      // Check if users are associated with the old store name
+      const checkUser = await User.findAll({
+        where: { location: dataExist?.nameStore }
+      })
 
-    // Update the location in the Location table
-    const editLocation = await Location.update(
-      {
-        id: body.id,
-        image: body.image,
-        nameStore: body.nameStore,
-        address: body.address,
-        detailLocation: body.detailLocation,
-        phoneNumber: body.phoneNumber,
-        status: body.status,
-        createdBy: body.createdBy,
-        modifiedBy: body.modifiedBy
-      },
-      { returning: true, where: { id: body.id } }
-    ).then(([_, data]) => data)
+      // If users exist and confirmUserUpdate is not provided, prompt for confirmation
+      if (checkUser.length > 0 && !confirmUserUpdate) {
+        return res.status(200).json({
+          message:
+            'Users are already associated with this store. Do you want to update their store assignment?',
+          showUserUpdateDialog: true
+        })
+      }
 
-    // If the store status is inactive, update associated records one by one and check if there's data to update
-    if (body.status === false) {
-      const modelsToUpdate = [
-        {
-          model: User,
-          field: 'location',
-          value: body.nameStore,
-          updateFields: { statusActive: false }
-        },
-        {
-          model: Product,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: Transaction,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: BestSelling,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: Checkout,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: Category,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: SubCategoryProduct,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: Discount,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: InvoiceFooter,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: InvoiceLogo,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: InvoiceSocialMedia,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: Member,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: SocialMedia,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: TypePayment,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        },
-        {
-          model: Shift,
-          field: 'store',
-          value: body.nameStore,
-          updateFields: { status: false }
-        }
-      ]
+      // If confirmation is given, update user location to the new store name
+      if (confirmUserUpdate) {
+        await User.update(
+          { location: body.nameStore },
+          { where: { location: dataExist?.nameStore } }
+        )
+      }
 
-      for (const { model, field, value, updateFields } of modelsToUpdate) {
-        const record = await model.findOne({ where: { [field]: value } })
-        if (record) {
-          await model.update(updateFields, { where: { [field]: value } })
+      // Update the location in the Location table
+      const editLocation = await Location.update(
+        {
+          id: body.id,
+          image: body.image,
+          nameStore: body.nameStore,
+          address: body.address,
+          detailLocation: body.detailLocation,
+          phoneNumber: body.phoneNumber,
+          status: body.status,
+          createdBy: body.createdBy,
+          modifiedBy: body.modifiedBy
+        },
+        { returning: true, where: { id: body.id } }
+      ).then(([_, data]) => data)
+
+      // If the store status is inactive, update associated records one by one and check if there's data to update
+      if (body.status === false) {
+        const modelsToUpdate = [
+          {
+            model: User,
+            field: 'location',
+            value: body.nameStore,
+            updateFields: { statusActive: false }
+          },
+          {
+            model: Product,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: Transaction,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: BestSelling,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: Checkout,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: Category,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: SubCategoryProduct,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: Discount,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: InvoiceFooter,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: InvoiceLogo,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: InvoiceSocialMedia,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: Member,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: SocialMedia,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: TypePayment,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          },
+          {
+            model: Shift,
+            field: 'store',
+            value: body.nameStore,
+            updateFields: { status: false }
+          }
+        ]
+
+        for (const { model, field, value, updateFields } of modelsToUpdate) {
+          const record = await model.findOne({ where: { [field]: value } })
+          if (record) {
+            await model.update(updateFields, { where: { [field]: value } })
+          }
         }
       }
-    }
 
-    // If the store status is active and the nameStore has changed, update location/store fields for all related records
-    if (body.status === true && body.nameStore !== body.oldStoreName) {
-      const modelsToUpdate = [
-        {
-          model: User,
-          field: 'location',
-          value: body.oldStoreName,
-          updateFields: { location: body.nameStore }
-        },
-        {
-          model: Product,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: Transaction,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: BestSelling,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: Checkout,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: Category,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: SubCategoryProduct,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: Discount,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: InvoiceFooter,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: InvoiceLogo,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: InvoiceSocialMedia,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: Member,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: SocialMedia,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: TypePayment,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        },
-        {
-          model: Shift,
-          field: 'store',
-          value: body.oldStoreName,
-          updateFields: { store: body.nameStore }
-        }
-      ]
+      // If the store status is active and the nameStore has changed, update location/store fields for all related records
+      if (body.status === true && body.nameStore !== dataExist?.nameStore) {
+        const modelsToUpdate = [
+          {
+            model: User,
+            field: 'location',
+            value: dataExist?.nameStore,
+            updateFields: { location: body?.nameStore }
+          },
+          {
+            model: Product,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: Transaction,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: BestSelling,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: Checkout,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: Category,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: SubCategoryProduct,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: Discount,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: InvoiceFooter,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: InvoiceLogo,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: InvoiceSocialMedia,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: Member,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: SocialMedia,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: TypePayment,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          },
+          {
+            model: Shift,
+            field: 'store',
+            value: dataExist?.nameStore,
+            updateFields: { store: body?.nameStore }
+          }
+        ]
 
-      for (const { model, field, value, updateFields } of modelsToUpdate) {
-        const record = await model.findOne({ where: { [field]: value } })
-        if (record) {
-          await model.update(updateFields, { where: { [field]: value } })
+        for (const { model, field, value, updateFields } of modelsToUpdate) {
+          const record = await model.findOne({ where: { [field]: value } })
+          if (record) {
+            await model.update(updateFields, { where: { [field]: value } })
+          }
         }
       }
-    }
 
-    return res.status(200).json({
-      message: 'Successfully updated location.',
-      data: editLocation?.dataValues
-    })
+      return res.status(200).json({
+        message: 'Successfully updated location.',
+        data: editLocation?.dataValues
+      })
+    }
   } catch (error) {
+    console.log('ERROR =>', error)
+
     return res.status(500).json({
       error: 'Internal Server Error'
     })
