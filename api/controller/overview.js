@@ -9,8 +9,11 @@ const User = require('../../db/models/user')
 
 // get Product
 exports.getProduct = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const getAllProduct = await Product.findAll().then((res) =>
+    const getAllProduct = await Product.findAll({
+      store: store
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -22,6 +25,7 @@ exports.getProduct = async (req, res, next) => {
     // Get By True
     const getAllByTrue = await Product.findAll({
       where: {
+        store: store,
         status: true
       }
     }).then((res) =>
@@ -36,6 +40,7 @@ exports.getProduct = async (req, res, next) => {
     // Get By False
     const getAllByFalse = await Product.findAll({
       where: {
+        store: store,
         status: false
       }
     }).then((res) =>
@@ -68,8 +73,15 @@ exports.getProduct = async (req, res, next) => {
 
 // get Category
 exports.getCategory = async (req, res, next) => {
+  const { store } = req.query
+
+  //
   try {
-    const getAllCategory = await Category.findAll().then((res) =>
+    const getAllCategory = await Category.findAll({
+      where: {
+        store: store
+      }
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -81,6 +93,7 @@ exports.getCategory = async (req, res, next) => {
     // Get By True
     const getAllByTrue = await Category.findAll({
       where: {
+        store: store,
         status: true
       }
     }).then((res) =>
@@ -95,6 +108,7 @@ exports.getCategory = async (req, res, next) => {
     // Get By False
     const getAllByFalse = await Category.findAll({
       where: {
+        store: store,
         status: false
       }
     }).then((res) =>
@@ -186,8 +200,11 @@ exports.getLocation = async (req, res, next) => {
 
 // Get Member
 exports.getMember = async (req, res, next) => {
+  const { store } = req.query
   try {
-    const getAllMember = await Member.findAll().then((res) =>
+    const getAllMember = await Member.findAll({
+      store: store
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
