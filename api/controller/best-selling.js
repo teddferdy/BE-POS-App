@@ -42,7 +42,7 @@ exports.getAllBestSelling = async (req, res, next) => {
 // Chart get current year
 exports.chartDataByYear = async (req, res, next) => {
   const { query } = req
-  const { store } = query
+  const { store, year } = query
 
   try {
     const [result] = await sequelize.query(`
@@ -50,8 +50,8 @@ exports.chartDataByYear = async (req, res, next) => {
           coalesce(sum(co."totalPrice"), 0) as "totalAmount",
           coalesce(COUNT(co."dateCheckout"), 0) AS "countCheckout"
         FROM generate_series(
-          (DATE '${query.year}-01-01'), 
-          (DATE '${query.year}-12-31'), 
+          (DATE '${year}-01-01'), 
+          (DATE '${year}-12-31'), 
           '1 month') AS months(month)
         LEFT JOIN checkout co ON date_trunc('month', co."dateCheckout") = months.month
         ${store ? `AND co."store" = '${store}'` : ''}
