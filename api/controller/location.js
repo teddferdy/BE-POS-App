@@ -20,6 +20,70 @@ const Shift = require('../../db/models/shift')
 
 const { compareObjects } = require('../../utils/compare-value')
 
+const { google } = require('googleapis')
+const fs = require('fs')
+
+// Load Google API credentials
+const GOOGLE_API_CREDENTIALS = require('../../google_apis.json')
+
+// Authenticate with Google Drive API
+const auth = new google.auth.GoogleAuth({
+  credentials: {
+    client_email: GOOGLE_API_CREDENTIALS.client_email,
+    private_key: GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g, '\n')
+  },
+  scopes: ['https://www.googleapis.com/auth/drive.file']
+})
+
+const drive = google.drive({ version: 'v3', auth })
+
+// Middleware setup for image upload
+
+// Upload an image to Google Drive and return the URL
+const uploadImageToDrive = async (filePath, fileName) => {
+  const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM' // Use the correct folder ID
+
+  // Check if the file exists
+  if (!fs.existsSync(filePath)) {
+    console.error('File does not exist at the specified path:', filePath)
+    throw new Error('File not found')
+  }
+
+  const fileMetadata = {
+    name: fileName,
+    parents: [folderId]
+  }
+
+  const media = {
+    mimeType: 'image/jpeg', // Adjust MIME type if necessary
+    body: fs.createReadStream(filePath)
+  }
+
+  try {
+    const file = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id'
+    })
+
+    console.log('FILE =>', file)
+
+    await drive.permissions.create({
+      fileId: file.data.id,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone'
+      }
+    })
+
+    const publicUrl = `https://drive.google.com/uc?id=${file.data.id}`
+    return publicUrl
+  } catch (error) {
+    console.error('Error uploading image to Google Drive:', error)
+    throw new Error('Failed to upload image')
+  }
+}
+
 // Get All List To Dropdown
 exports.getAllLocation = async (req, res, next) => {
   try {
@@ -83,17 +147,23 @@ exports.getAllLocationInTable = async (req, res, next) => {
 // Add New Location
 exports.addNewLocation = async (req, res, next) => {
   const body = req.body
+  const imageFile = req.file // Get the image file from multer
 
   try {
-    const findOneLocation = await Location?.findOne({
-      where: {
-        nameStore: body?.nameStore
-      }
+    const findOneLocation = await Location.findOne({
+      where: { nameStore: body.nameStore }
     })
 
-    if (!findOneLocation?.getDataValue) {
-      const creadtedLocation = await Location.create({
-        image: body.image,
+    if (!findOneLocation) {
+      // Upload image to Google Drive and get the URL
+      const imageUrl = await uploadImageToDrive(
+        imageFile.path,
+        imageFile.originalname
+      )
+
+      // Create new location with uploaded image URL
+      const createdLocation = await Location.create({
+        image: imageUrl,
         nameStore: body.nameStore,
         address: body.address,
         detailLocation: body.detailLocation,
@@ -102,23 +172,24 @@ exports.addNewLocation = async (req, res, next) => {
         createdBy: body.createdBy
       })
 
-      if (creadtedLocation.getDataValue) {
+      if (createdLocation) {
         return res.status(200).json({
-          message: 'Location Berhasil Di Buat'
+          message: 'Location created successfully'
         })
       }
     } else {
       return res.status(403).json({
-        message: 'Location Sudah Terdaftar'
+        message: 'Location already exists'
       })
     }
   } catch (error) {
+    console.error('Internal server error:', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal server error'
     })
   } finally {
-    console.log('resEND')
-    return res.end()
+    console.log('Response end')
+    res.end()
   }
 }
 
@@ -132,7 +203,6 @@ exports.editLocationById = async (req, res, next) => {
       where: { id: body?.id }
     })
 
-    // Prepare the new location data for the update
     const bodyReq = {
       id: body?.id,
       image: body.image,
@@ -143,7 +213,6 @@ exports.editLocationById = async (req, res, next) => {
       status: body?.status
     }
 
-    // Check if there are existing records with the same store name
     const dataExist = getDuplicate
       ? {
           id: getDuplicate.dataValues.id,
@@ -156,9 +225,7 @@ exports.editLocationById = async (req, res, next) => {
         }
       : null
 
-    // Compare the old and new data to determine if changes are necessary
     const resultValue = compareObjects(dataExist, bodyReq)
-
     console.log('resultValue =>', resultValue)
 
     if (resultValue) {
@@ -171,7 +238,6 @@ exports.editLocationById = async (req, res, next) => {
         where: { location: dataExist?.nameStore }
       })
 
-      // If users exist and confirmUserUpdate is not provided, prompt for confirmation
       if (checkUser.length > 0 && !confirmUserUpdate) {
         return res.status(200).json({
           message:
@@ -180,7 +246,6 @@ exports.editLocationById = async (req, res, next) => {
         })
       }
 
-      // If confirmation is given, update user location to the new store name
       if (confirmUserUpdate) {
         await User.update(
           { location: body.nameStore },
@@ -188,10 +253,26 @@ exports.editLocationById = async (req, res, next) => {
         )
       }
 
+      // Check if the image has changed
+      if (body.image !== dataExist?.image) {
+        // Extract file ID from the existing image URL
+        const oldImageFileId = dataExist.image.split('id=')[1].split('&')[0]
+
+        // Delete the old image from Google Drive
+        await drive.files.delete({ fileId: oldImageFileId })
+        console.log(`Deleted old image with ID: ${oldImageFileId}`)
+
+        // Upload the new image and get the URL
+        const imageUrl = await uploadImageToDrive(
+          req.file.path, // Use the new image path
+          req.file.originalname
+        )
+        body.image = imageUrl // Update the body to use the new image URL
+      }
+
       // Update the location in the Location table
       const editLocation = await Location.update(
         {
-          id: body.id,
           image: body.image,
           nameStore: body.nameStore,
           address: body.address,
@@ -204,7 +285,7 @@ exports.editLocationById = async (req, res, next) => {
         { returning: true, where: { id: body.id } }
       ).then(([_, data]) => data)
 
-      // If the store status is inactive, update associated records one by one and check if there's data to update
+      // Handle status updates
       if (body.status === false) {
         const modelsToUpdate = [
           {
@@ -307,7 +388,6 @@ exports.editLocationById = async (req, res, next) => {
         }
       }
 
-      // If the store status is active and the nameStore has changed, update location/store fields for all related records
       if (body.status === true && body.nameStore !== dataExist?.nameStore) {
         const modelsToUpdate = [
           {
@@ -417,7 +497,6 @@ exports.editLocationById = async (req, res, next) => {
     }
   } catch (error) {
     console.log('ERROR =>', error)
-
     return res.status(500).json({
       error: 'Internal Server Error'
     })
