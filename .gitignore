@@ -1,6 +1,7 @@
 # dependencies
 /node_modules
 
+google_apis.json
 
 # misc
 .DS_Store
