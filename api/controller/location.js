@@ -30,7 +30,7 @@ const auth = new google.auth.GoogleAuth({
     client_email: GOOGLE_API_CREDENTIALS.client_email,
     private_key: GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g, '\n')
   },
-  scopes: ['https://www.googleapis.com/auth/drive.file']
+  scopes: ['https://www.googleapis.com/auth/drive']
 })
 
 const drive = google.drive({ version: 'v3', auth })
