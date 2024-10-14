@@ -1,6 +1,8 @@
+/* eslint-disable no-undef */
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const Location = require('../../db/models/location')
+require('dotenv').config({ path: `${process.cwd()}/.env` })
 // Need Update
 const User = require('../../db/models/user')
 const BestSelling = require('../../db/models/best_selling')
@@ -24,13 +26,17 @@ const { google } = require('googleapis')
 const fs = require('fs')
 
 // Load Google API credentials
-const GOOGLE_API_CREDENTIALS = require('../../google_apis.json')
+const GOOGLE_API_CLIENT_EMAIL = process.env.GOOGLE_API_CLIENT_EMAIL
+const GOOGLE_API_PRIVATE_KEY = process.env.GOOGLE_API_PRIVATE_KEY.replace(
+  /\\n/g,
+  '\n'
+)
 
 // Authenticate with Google Drive API
 const auth = new google.auth.GoogleAuth({
   credentials: {
-    client_email: GOOGLE_API_CREDENTIALS.client_email,
-    private_key: GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g, '\n')
+    client_email: GOOGLE_API_CLIENT_EMAIL,
+    private_key: GOOGLE_API_PRIVATE_KEY
   },
   scopes: ['https://www.googleapis.com/auth/drive.file']
 })
