@@ -25,6 +25,15 @@ const { compareObjects } = require('../../utils/compare-value')
 // Load Google API credentials
 const GOOGLE_API_CREDENTIALS = require('../../google_apis.json')
 
+console.log(
+  'GOOGLE_API_CREDENTIALS.client_email =>',
+  GOOGLE_API_CREDENTIALS.client_email
+)
+console.log(
+  'GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g) =>',
+  GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g, '\n')
+)
+
 const auth = new google.auth.GoogleAuth({
   credentials: {
     client_email: GOOGLE_API_CREDENTIALS.client_email,
@@ -32,6 +41,8 @@ const auth = new google.auth.GoogleAuth({
   },
   scopes: ['https://www.googleapis.com/auth/drive']
 })
+
+console.log('auth =>', auth)
 
 const drive = google.drive({ version: 'v3', auth })
 
@@ -77,7 +88,11 @@ const uploadImageToDrive = async (filePath, fileName) => {
     const publicUrl = `https://drive.google.com/uc?id=${file.data.id}`
     return publicUrl
   } catch (error) {
-    console.error('Error uploading image to Google Drive:', error)
+    console.error(
+      'Error uploading image to Google Drive:',
+      error.message,
+      error.stack
+    )
     throw new Error('Failed to upload image')
   }
 }
