@@ -1,17 +1,14 @@
 /* eslint-disable no-undef */
+require('dotenv').config()
 const express = require('express')
-const bodyParser = require('body-parser')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
-// const whatsappClient = require('./service/whatsappClient')
 
-// Routes
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
 const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
-// const messageRoutes = require('./routes/message')
 const checkoutRoutes = require('./routes/checkout')
 const subCategoryRoutes = require('./routes/sub-category')
 const discountRoutes = require('./routes/discount')
@@ -24,46 +21,53 @@ const otherRoutes = require('./routes/other')
 const socialMediaRoutes = require('./routes/social-media')
 const invoiceRoutes = require('./routes/invoice')
 const roleRoutes = require('./routes/role')
-const positionROutes = require('./routes/position')
+const positionRoutes = require('./routes/position')
 
+const app = express()
 const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200
 }
 
-// Error Controller
-const app = express()
-
+// Middleware
 app.use(cors(corsOptions))
-app.use(bodyParser.urlencoded({ extended: true }))
-app.use(bodyParser.json())
+app.use(express.urlencoded({ extended: true }))
+app.use(express.json())
 app.use(cookieParser())
-// whatsappClient.initialize()
 
-// app.use('/message', messageRoutes)
-app.use('/product', productRoutes)
-app.use('/auth', authRoutes)
-app.use('/category', categoryRoutes)
-app.use('/location', locationRoutes)
-app.use('/member', memberRoutes)
-app.use('/checkout', checkoutRoutes)
-app.use('/sub-category', subCategoryRoutes)
-app.use('/discount', discountRoutes)
-app.use('/employee', employeeRoutes)
-app.use('/shift', shiftRoutes)
-app.use('/type-payment', typePaymentRoutes)
-app.use('/best-selling', bestSellingRoutes)
-app.use('/overview', overviewRoutes)
-app.use('/other', otherRoutes)
-app.use('/social-media', socialMediaRoutes)
-app.use('/invoice', invoiceRoutes)
-app.use('/role', roleRoutes)
-app.use('/position', positionROutes)
+// Route setup
+const routes = [
+  { path: '/product', route: productRoutes },
+  { path: '/auth', route: authRoutes },
+  { path: '/category', route: categoryRoutes },
+  { path: '/location', route: locationRoutes },
+  { path: '/member', route: memberRoutes },
+  { path: '/checkout', route: checkoutRoutes },
+  { path: '/sub-category', route: subCategoryRoutes },
+  { path: '/discount', route: discountRoutes },
+  { path: '/employee', route: employeeRoutes },
+  { path: '/shift', route: shiftRoutes },
+  { path: '/type-payment', route: typePaymentRoutes },
+  { path: '/best-selling', route: bestSellingRoutes },
+  { path: '/overview', route: overviewRoutes },
+  { path: '/other', route: otherRoutes },
+  { path: '/social-media', route: socialMediaRoutes },
+  { path: '/invoice', route: invoiceRoutes },
+  { path: '/role', route: roleRoutes },
+  { path: '/position', route: positionRoutes }
+]
 
-// Generate Invoice
-// app.use('/generate')
+routes.forEach(({ path, route }) => app.use(path, route))
 
-const server = app.listen(process.env.POSTGRES_PORT || 5000, () => {
-  console.log('server running port 5000')
+// Error handling middleware
+app.use((err, req, res) => {
+  console.error(err.stack)
+  res.status(500).send({ error: 'Something went wrong!' })
 })
-server.timeout = 120000
+
+// Start server
+const port = process.env.POSTGRES_PORT || 5000
+const server = app.listen(port, () => {
+  console.log(`Server running on port ${port}`)
+})
+server.timeout = 120000 // Adjust if needed
