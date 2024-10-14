@@ -22,37 +22,37 @@ const Shift = require('../../db/models/shift')
 
 const { compareObjects } = require('../../utils/compare-value')
 
+const CLIENT_ID =
+  '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
+const CLIENT_SECRET = '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'
+const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
+const REFRESH_TOKEN =
+  '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
+
 // Load Google API credentials
 const GOOGLE_API_CREDENTIALS = require('../../google_apis.json')
 
-console.log(
-  'GOOGLE_API_CREDENTIALS.client_email =>',
-  GOOGLE_API_CREDENTIALS.client_email
-)
-console.log(
-  'GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g) =>',
-  GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g, '\n')
+// Load Google API credentials
+const oauth2Client = new google.auth.OAuth2(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  REDIRECT_URI
 )
 
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    client_email: GOOGLE_API_CREDENTIALS.client_email,
-    private_key: GOOGLE_API_CREDENTIALS.private_key.replace(/\\n/g, '\n')
-  },
-  scopes: ['https://www.googleapis.com/auth/drive']
-})
+// Set the credentials
+oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
 
-console.log('auth =>', auth)
-
-const drive = google.drive({ version: 'v3', auth })
-
-// Middleware setup for image upload
-
-// Upload an image to Google Drive and return the URL
 const uploadImageToDrive = async (filePath, fileName) => {
-  const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM' // Use the correct folder ID
+  // Automatically refresh access token before API call
+  const accessTokenInfo = await oauth2Client.getAccessToken()
 
-  // Check if the file exists
+  if (!accessTokenInfo.token) {
+    throw new Error('Failed to obtain access token')
+  }
+
+  const drive = google.drive({ version: 'v3', auth: oauth2Client })
+  const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM'
+
   if (!fs.existsSync(filePath)) {
     console.error('File does not exist at the specified path:', filePath)
     throw new Error('File not found')
@@ -64,7 +64,7 @@ const uploadImageToDrive = async (filePath, fileName) => {
   }
 
   const media = {
-    mimeType: 'image/jpeg', // Adjust MIME type if necessary
+    mimeType: 'image/jpeg',
     body: fs.createReadStream(filePath)
   }
 
@@ -96,6 +96,22 @@ const uploadImageToDrive = async (filePath, fileName) => {
     throw new Error('Failed to upload image')
   }
 }
+
+// Example usage of the function
+;(async () => {
+  try {
+    const publicUrl = await uploadImageToDrive(
+      '/path/to/your/image.jpg',
+      'image.jpg'
+    )
+    console.log('Uploaded image URL:', publicUrl)
+  } catch (error) {
+    console.error('Error:', error.message)
+  }
+})()
+
+// Use the access token for the Drive API
+const drive = google.drive({ version: 'v3', auth: oauth2Client })
 
 // Get All List To Dropdown
 exports.getAllLocation = async (req, res, next) => {
