@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "bisa-nota",
+  "private_key_id": "43edfed1823c19818039a1286f76cf7d2ea8dafb",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCEVinAFyVtafAY\nH9W0DxNPHN8lkdJOMAxZo3/qVPPIE+JKDXe3Jkx5GfH/7ctnniesQD6pLl9tqRR/\nBdym2tA+Y57wjhLwFKGNVjVCe2fhBmun+09iU2v5z+cxxcK8PUEoPJVqhUtO/gTO\nR9jrJkKOMZlC2RaXQ1/G2OKS2vww5Jfbh4JjMYibGioqjdDa6hGRFddytzB8BzCt\nSyb8RBoLDS1YO+vMFzTwMt4tyNTwDgkMKeEOLXTFHvJg4pkCLe2mesXdBp5nGHoF\nUNfaHwwrCW2PVkUYQH5GL/G0m+nTxjXU5cwlGQySniB38VxA9Si166wYmclfi1cT\nWexZ2SxPAgMBAAECggEAMp+9d/DCzhDFGo1vFGLh+ZUrXfVjFKr3xoCvycY2vbax\nja+KOONrRLZip4thkOFk/tVSwyhstAgGwbLN3nx9RiiY4CARaYsS4/zzAdwweFoa\n69dM3mnYN+fK4vTqklUCbHCEngugq/argvfkKMxpkHizzuk55aKN7IUCY7hm2hLD\nmPr6+F0glh4JukmGRDIRFEppKR4eTVC8Dnb8WD7xZb8txNGpHcf9/2s2ovrgY8QE\nVErIz9P6B+oNRbNXlqNBMtu/iD2dHs/zjytFBjorUJ8K09J/KvlydRZ5v29wKlv7\nwIbTN0UgRE8ZGamRmPeJobGBQD85MiT5dArb8lvI9QKBgQC6juHDpAOOCrlXQjeE\nDDW9wIJDNCr1rwuw8lA9Ccw8a+fWjoX3EyawMhZw52kGvG1TZB2aPBrxXbxM17o4\nUSaZSNy8EMiZ+7OTuz6yxGVKMkumCKYC98bmYSyRyw0GILi1EFXTP6xp7sf7ysoX\nogUmLpPzrKvxsisw2QWw1MTKQwKBgQC1mILDE/O4IJw2u+0OxaoBlIzN7/WhbIrV\nvhBAingihRNsXT4zGSDCLeLGGaYm2+d+IT5bPzjXrZOJNRKIcaY3slMuWVQ3xG4U\nrClVIOzigGdbfjMevs26sFwbSfHmv+Gw0Qja6PbSuvYN4JCpDDTNP9ZZoN/ajZTN\namz8DMTTBQKBgQCgO5J7N8b53AoegTgviVErPkpjsE3poMQ44Za7Jkwt5TxGEznK\n4b8L/Kk7pfaWG4cG5elrDI7Tmn/dvDgsoL63T1aPjRbO8tnlXCDY6EhbNuG0pJ75\n05kZTIM8YZs5FSewFGyyuXC7t6Q6ho2XSMiFZ+IZm8g/GplwJiZ2H/k6AwKBgDPg\nZ6qW7o7xMe8o7GXF7fUZnMfP/xmoSlkZPMdTR1KFNbFFSdmLGiKevSPee+qp843C\nrW+ftftXKMiPksXLwbIzjTO2bSqpQNFDBWO+Ti2+hMhMWwozc84bR5S8IRDMTAsZ\nDDCNUMWOh3AbcPf59rOTwwZDwO9Mdu/fsVanxyqJAoGAJEN+5bafTkaMhpowFWz6\nRuJOtFBIJfjprKBF+aZo2NHlJQxemX+uTfjjCY8S0VFHYBrLTZNxI99wEyj7FUYQ\nI888bR71qK4cary460ldeBY34tJsEOcI7r5FeTx6I0OQHE+RiyYGyHbvwucdpqCI\n4ql4yJ3g3CPwDtPljTGaPqA=\n-----END PRIVATE KEY-----\n",
+  "client_email": "uploadfiles@bisa-nota.iam.gserviceaccount.com",
+  "client_id": "103616336886091289985",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/uploadfiles%40bisa-nota.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
