@@ -1,7 +1,10 @@
+/* eslint-disable no-undef */
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const { google } = require('googleapis')
 const fs = require('fs')
+const path = require('path')
+const mime = require('mime')
 const Location = require('../../db/models/location')
 // Need Update
 const User = require('../../db/models/user')
@@ -22,41 +25,27 @@ const Shift = require('../../db/models/shift')
 
 const { compareObjects } = require('../../utils/compare-value')
 
-const CLIENT_ID =
-  '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
-const CLIENT_SECRET = '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'
-const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
-const REFRESH_TOKEN =
-  '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
+// Construct the absolute path to the 'google_apis.json' in the root folder
+const serviceAccountPath = path.join(__dirname, '../../google_apis.json')
 
-// Load Google API credentials
-const GOOGLE_API_CREDENTIALS = require('../../google_apis.json')
+// Load service account credentials
+const serviceAccount = require(serviceAccountPath)
 
-// Load Google API credentials
-const oauth2Client = new google.auth.OAuth2(
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REDIRECT_URI
-)
+// Authenticate with the service account
+const auth = new google.auth.GoogleAuth({
+  credentials: serviceAccount,
+  scopes: ['https://www.googleapis.com/auth/drive']
+})
 
-// Set the credentials
-oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
+const drive = google.drive({ version: 'v3', auth })
 
 const uploadImageToDrive = async (filePath, fileName) => {
-  // Automatically refresh access token before API call
-  const accessTokenInfo = await oauth2Client.getAccessToken()
-
-  if (!accessTokenInfo.token) {
-    throw new Error('Failed to obtain access token')
-  }
-
-  const drive = google.drive({ version: 'v3', auth: oauth2Client })
-  const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM'
-
   if (!fs.existsSync(filePath)) {
-    console.error('File does not exist at the specified path:', filePath)
-    throw new Error('File not found')
+    throw new Error(`File not found at path: ${filePath}`)
   }
+
+  const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM' // Replace with your folder ID
+  const mimeType = mime.lookup(filePath)
 
   const fileMetadata = {
     name: fileName,
@@ -64,7 +53,7 @@ const uploadImageToDrive = async (filePath, fileName) => {
   }
 
   const media = {
-    mimeType: 'image/jpeg',
+    mimeType: mimeType,
     body: fs.createReadStream(filePath)
   }
 
@@ -75,8 +64,6 @@ const uploadImageToDrive = async (filePath, fileName) => {
       fields: 'id'
     })
 
-    console.log('FILE =>', file)
-
     await drive.permissions.create({
       fileId: file.data.id,
       requestBody: {
@@ -86,32 +73,13 @@ const uploadImageToDrive = async (filePath, fileName) => {
     })
 
     const publicUrl = `https://drive.google.com/uc?id=${file.data.id}`
+    console.log('File uploaded successfully:', publicUrl)
     return publicUrl
   } catch (error) {
-    console.error(
-      'Error uploading image to Google Drive:',
-      error.message,
-      error.stack
-    )
+    console.error('Error uploading image to Google Drive:', error)
     throw new Error('Failed to upload image')
   }
 }
-
-// Example usage of the function
-;(async () => {
-  try {
-    const publicUrl = await uploadImageToDrive(
-      '/path/to/your/image.jpg',
-      'image.jpg'
-    )
-    console.log('Uploaded image URL:', publicUrl)
-  } catch (error) {
-    console.error('Error:', error.message)
-  }
-})()
-
-// Use the access token for the Drive API
-const drive = google.drive({ version: 'v3', auth: oauth2Client })
 
 // Get All List To Dropdown
 exports.getAllLocation = async (req, res, next) => {
@@ -179,6 +147,8 @@ exports.addNewLocation = async (req, res, next) => {
   const imageFile = req.file // Get the image file from multer
 
   try {
+    console.log('imageFile =>', imageFile)
+
     const findOneLocation = await Location.findOne({
       where: { nameStore: body.nameStore }
     })
@@ -190,6 +160,8 @@ exports.addNewLocation = async (req, res, next) => {
         imageFile.originalname
       )
 
+      console.log('imageUrl =>', imageUrl)
+
       // Create new location with uploaded image URL
       const createdLocation = await Location.create({
         image: imageUrl,
@@ -200,7 +172,6 @@ exports.addNewLocation = async (req, res, next) => {
         status: body.status,
         createdBy: body.createdBy
       })
-
       if (createdLocation) {
         return res.status(200).json({
           message: 'Location created successfully'
