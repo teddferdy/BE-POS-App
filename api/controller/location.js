@@ -32,8 +32,11 @@ const serviceAccount = require(serviceAccountPath)
 
 // Authenticate with the service account
 const auth = new google.auth.GoogleAuth({
-  credentials: serviceAccount,
-  scopes: ['https://www.googleapis.com/auth/drive']
+  credentials: {
+    client_email: serviceAccount.client_email,
+    private_key: serviceAccount.private_key.replace(/\\n/g, '\n')
+  },
+  scopes: ['https://www.googleapis.com/auth/drive.file']
 })
 
 const drive = google.drive({ version: 'v3', auth })
