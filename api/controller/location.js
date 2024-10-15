@@ -4,7 +4,7 @@
 const { google } = require('googleapis')
 const fs = require('fs')
 const path = require('path')
-const mime = require('mime')
+const mime = require('mime-types')
 const Location = require('../../db/models/location')
 // Need Update
 const User = require('../../db/models/user')
@@ -45,7 +45,7 @@ const uploadImageToDrive = async (filePath, fileName) => {
   }
 
   const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM' // Replace with your folder ID
-  const mimeType = mime.lookup(filePath)
+  const mimeType = mime.getType(filePath)
 
   const fileMetadata = {
     name: fileName,
