@@ -25,7 +25,6 @@ const Shift = require('../../db/models/shift')
 
 const { compareObjects } = require('../../utils/compare-value')
 
-// Construct the absolute path to the 'google_apis.json' in the root folder
 const serviceAccountPath = path.join(__dirname, '../../google_apis.json')
 
 // Load service account credentials
@@ -46,6 +45,10 @@ const uploadImageToDrive = async (filePath, fileName) => {
 
   const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM' // Replace with your folder ID
   const mimeType = mime.lookup(filePath)
+
+  if (!mimeType) {
+    throw new Error(`Could not determine MIME type for file: ${filePath}`)
+  }
 
   const fileMetadata = {
     name: fileName,
