@@ -45,7 +45,7 @@ const uploadImageToDrive = async (filePath, fileName) => {
   }
 
   const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM' // Replace with your folder ID
-  const mimeType = mime.getType(filePath)
+  const mimeType = mime.lookup(filePath)
 
   const fileMetadata = {
     name: fileName,
