@@ -17,7 +17,7 @@ exports.userByLocation = async (req, res) => {
     // Fetch users and location data in parallel
     const [users, locationData] = await Promise.all([
       User.findAll({
-        where: { id: location },
+        where: { store: location },
         attributes: { exclude: ['password'] } // Exclude password in query
       }),
       Location.findOne({
