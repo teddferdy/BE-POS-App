@@ -29,8 +29,9 @@ module.exports = {
         type: Sequelize.BOOLEAN
       },
       store: {
-        primaryKey: true,
-        type: Sequelize.STRING
+        allowNull: false,
+        type: Sequelize.INTEGER,
+        primaryKey: true
       },
       createdBy: {
         type: Sequelize.STRING

@@ -20,6 +20,9 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.BOOLEAN
       },
+      accessMenu: {
+        type: Sequelize.TEXT
+      },
       createdBy: {
         type: Sequelize.STRING
       },

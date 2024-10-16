@@ -11,8 +11,9 @@ module.exports = sequelize.define(
       type: DataTypes.INTEGER
     },
     store: {
-      primaryKey: true,
-      type: DataTypes.STRING
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      primaryKey: true
     },
     invoice: {
       primaryKey: true,
@@ -45,6 +46,9 @@ module.exports = sequelize.define(
     typePayment: {
       type: DataTypes.STRING
     },
+    createdBy: {
+      type: DataTypes.STRING
+    },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
@@ -55,9 +59,6 @@ module.exports = sequelize.define(
     updatedAt: {
       allowNull: false,
       type: DataTypes.DATE
-    },
-    modifiedAt: {
-      type: DataTypes.STRING
     },
     deletedAt: {
       type: DataTypes.STRING

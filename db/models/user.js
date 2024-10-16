@@ -36,8 +36,8 @@ module.exports = sequelize.define(
     },
     email: {
       allowNull: false,
-      type: DataTypes.STRING,
-      primaryKey: true
+      primaryKey: true,
+      type: DataTypes.STRING
     },
     address: {
       type: DataTypes.STRING
@@ -58,16 +58,26 @@ module.exports = sequelize.define(
     statusActive: {
       type: DataTypes.BOOLEAN
     },
-    location: {
-      allowNull: false,
-      primaryKey: true,
-      type: DataTypes.STRING
-    },
-    shiftName: {
-      type: DataTypes.STRING
-    },
     placeDateOfBirth: {
       type: DataTypes.STRING
+    },
+    store: {
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      primaryKey: true
+    },
+    shift: {
+      allowNull: true,
+      type: DataTypes.INTEGER,
+      primaryKey: true
+    },
+    position: {
+      allowNull: true,
+      type: DataTypes.INTEGER,
+      primaryKey: true
+    },
+    accessMenu: {
+      type: DataTypes.TEXT
     },
     createdAt: {
       allowNull: false,

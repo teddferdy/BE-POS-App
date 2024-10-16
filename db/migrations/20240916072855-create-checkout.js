@@ -10,8 +10,9 @@ module.exports = {
         type: Sequelize.INTEGER
       },
       store: {
-        primaryKey: true,
-        type: Sequelize.STRING
+        allowNull: false,
+        type: Sequelize.INTEGER,
+        primaryKey: true
       },
       invoice: {
         primaryKey: true,
@@ -44,6 +45,9 @@ module.exports = {
       typePayment: {
         type: Sequelize.STRING
       },
+      createdBy: {
+        type: Sequelize.STRING
+      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE
@@ -54,9 +58,6 @@ module.exports = {
       updatedAt: {
         allowNull: false,
         type: Sequelize.DATE
-      },
-      modifiedAt: {
-        type: Sequelize.STRING
       },
       deletedAt: {
         type: Sequelize.STRING

@@ -13,16 +13,17 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.STRING
       },
+      store: {
+        allowNull: false,
+        type: Sequelize.INTEGER,
+        primaryKey: true
+      },
       createdBy: {
         type: Sequelize.STRING
       },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE
-      },
-      store: {
-        primaryKey: true,
-        type: Sequelize.STRING
       },
       modifiedBy: {
         type: Sequelize.STRING

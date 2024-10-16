@@ -11,8 +11,9 @@ module.exports = sequelize.define(
       type: DataTypes.INTEGER
     },
     store: {
-      primaryKey: true,
-      type: DataTypes.STRING
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      primaryKey: true
     },
     masterId: {
       type: DataTypes.INTEGER
@@ -29,6 +30,9 @@ module.exports = sequelize.define(
     price: {
       type: DataTypes.STRING
     },
+    createdBy: {
+      type: DataTypes.STRING
+    },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
@@ -39,9 +43,6 @@ module.exports = sequelize.define(
     updatedAt: {
       allowNull: false,
       type: DataTypes.DATE
-    },
-    modifiedAt: {
-      type: DataTypes.STRING
     },
     deletedAt: {
       type: DataTypes.STRING

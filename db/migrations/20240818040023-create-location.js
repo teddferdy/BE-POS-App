@@ -13,6 +13,10 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.STRING
       },
+      imageName: {
+        primaryKey: true,
+        type: Sequelize.STRING
+      },
       nameStore: {
         type: Sequelize.STRING,
         primaryKey: true

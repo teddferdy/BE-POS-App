@@ -25,8 +25,8 @@ module.exports = sequelize.define(
       primaryKey: true
     },
     store: {
-      primaryKey: true,
-      type: DataTypes.STRING
+      type: DataTypes.INTEGER,
+      primaryKey: true
     },
     createdBy: {
       type: DataTypes.STRING

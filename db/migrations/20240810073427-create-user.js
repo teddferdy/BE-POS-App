@@ -49,13 +49,23 @@ module.exports = {
       placeDateOfBirth: {
         type: Sequelize.STRING
       },
-      location: {
+      store: {
         allowNull: false,
-        type: Sequelize.STRING,
+        type: Sequelize.INTEGER,
         primaryKey: true
       },
-      shiftName: {
-        type: Sequelize.STRING
+      shift: {
+        allowNull: true,
+        type: Sequelize.INTEGER,
+        primaryKey: true
+      },
+      position: {
+        allowNull: true,
+        type: Sequelize.INTEGER,
+        primaryKey: true
+      },
+      accessMenu: {
+        type: Sequelize.TEXT
       },
       createdAt: {
         allowNull: false,

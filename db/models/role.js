@@ -21,6 +21,9 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.BOOLEAN
     },
+    accessMenu: {
+      type: DataTypes.TEXT
+    },
     createdBy: {
       type: DataTypes.STRING
     },

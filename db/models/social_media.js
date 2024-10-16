@@ -14,16 +14,17 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.STRING
     },
+    store: {
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      primaryKey: true
+    },
     createdBy: {
       type: DataTypes.STRING
     },
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
-    },
-    store: {
-      primaryKey: true,
-      type: DataTypes.STRING
     },
     modifiedBy: {
       type: DataTypes.STRING

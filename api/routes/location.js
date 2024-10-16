@@ -49,7 +49,7 @@ router.post(
 
 // Edit Location
 router.put(
-  '/edit-location/:id',
+  '/edit-location',
   authorization,
   locationController?.editLocationById
 )
