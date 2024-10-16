@@ -2,63 +2,94 @@
 /* eslint-disable no-unused-vars */
 const User = require('../../db/models/user')
 const Location = require('../../db/models/location')
+const Position = require('../../db/models/position')
 const generateToken = require('../../utils/jwtConvert')
 const bcrypt = require('bcrypt')
 const moment = require('moment')
 const { Op } = require('sequelize')
 
 // Get User By Location
-exports.userByLocation = async (req, res, next) => {
-  // const { location } = req.query
+exports.userByLocation = async (req, res) => {
+  const { location } = req.query
+  console.log('Location query parameter:', location)
+
   try {
-    const getAllUser = await User.findAll().then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        delete getData.password
-        return getData
+    // Fetch users and location data in parallel
+    const [users, locationData] = await Promise.all([
+      User.findAll({
+        where: { id: location },
+        attributes: { exclude: ['password'] } // Exclude password in query
+      }),
+      Location.findOne({
+        where: { id: location }
       })
-    )
+    ])
+
+    // Check if location exists
+    if (!locationData) {
+      return res.status(404).json({
+        message: 'Location not found',
+        data: []
+      })
+    }
+
+    // Fetch all positions
+    const positions = await Position.findAll()
+    const positionMap = positions.reduce((acc, pos) => {
+      acc[pos.id] = pos.name // Map position id to position name
+      return acc
+    }, {})
+
+    // Add store name and replace position ID with name in user data
+    const usersWithStoreName = users.map((user) => ({
+      ...user.dataValues,
+      storeName: locationData.nameStore,
+      positionName: positionMap[user.position] || '' // Map position ID to name
+    }))
+
     res.status(200).json({
       message: 'Success',
-      data: getAllUser.length > 0 ? getAllUser : []
+      data: usersWithStoreName
     })
   } catch (error) {
+    console.error('Error in userByLocation:', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal Server Error'
     })
   } finally {
-    console.log('resEND')
-    return res.end()
+    console.log('Request handling completed')
   }
 }
 
 // Change User Role By Id & Location
 exports.changeUserByIdAndLocation = async (req, res, next) => {
-  const { userType, id } = req.body
+  const { store, id, userType, position } = req.body
+
   try {
-    const editCategory = await User?.update(
-      {
-        userType: userType
-      },
+    // Update the userType and position of the user with the given store and id
+    const [affectedRows, updatedUsers] = await User.update(
+      { userType, position },
       {
         returning: true,
-        where: {
-          id: id
-        }
+        where: { id, store }
       }
-    ).then(([_, data]) => {
-      return data
-    })
+    )
+
+    // Check if the update was successful
+    if (affectedRows === 0) {
+      return res.status(404).json({
+        message: 'User not found or no changes made.'
+      })
+    }
 
     return res.status(200).json({
-      message: 'Sukses Ubah Role User',
-      data: editCategory?.dataValues
+      message: 'User role updated successfully',
+      data: updatedUsers[0]?.dataValues || null
     })
   } catch (error) {
+    console.error('Error updating user role:', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal Server Error'
     })
   } finally {
     console.log('resEND')
@@ -139,12 +170,6 @@ exports.login = async (req, res, next) => {
     })
 
     // Set token in a cookie
-    res.cookie('token', getToken)
-
-    console.log('FIND USER =>', findUser)
-
-    console.log('FIND USER DATAS VALUES =>')
-
     if (
       findUser.dataValues.userType !== 'user' &&
       findUser.dataValues.userType !== 'admin'
@@ -161,12 +186,19 @@ exports.login = async (req, res, next) => {
         }
       })
 
+      const positionByIdUserLogin = await Position.findOne({
+        where: {
+          id: findUser.dataValues.position
+        }
+      })
+
       return res.status(200).json({
         message: 'Success Login',
         token: getToken,
         user: {
           ...findUser?.dataValues,
-          storeName: locationByIdUserLogin?.dataValues?.nameStore
+          storeName: locationByIdUserLogin?.dataValues?.nameStore ?? '',
+          positionName: positionByIdUserLogin?.dataValues?.name ?? ''
         }
       })
     }
