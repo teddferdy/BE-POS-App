@@ -38,6 +38,30 @@ const oauth2Client = new google.auth.OAuth2(
 
 // Set the credentials
 oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
+const folderId = '15L9FRd7LVo8iXS7_h06AV-5UVLmK5pOd'
+
+// Function to search for a file in Google Drive by name
+const findFileByName = async (fileName) => {
+  try {
+    const response = await drive.files.list({
+      q: `name='${fileName}' and '${folderId}' in parents`,
+      fields: 'files(id, name)',
+      spaces: 'drive'
+    })
+    return response.data.files[0] // Return the first matching file if found
+  } catch (error) {
+    throw new Error('Error searching for file on Google Drive')
+  }
+}
+
+// Function to delete a file by its Google Drive file ID
+const deleteFile = async (fileId) => {
+  try {
+    await drive.files.delete({ fileId })
+  } catch (error) {
+    throw new Error('Error deleting file from Google Drive')
+  }
+}
 
 const uploadImageToDrive = async (filePath, fileName) => {
   const accessTokenInfo = await oauth2Client.getAccessToken()
@@ -45,9 +69,6 @@ const uploadImageToDrive = async (filePath, fileName) => {
   if (!accessTokenInfo.token) {
     throw new Error('Failed to obtain access token')
   }
-
-  const drive = google.drive({ version: 'v3', auth: oauth2Client })
-  const folderId = '15L9FRd7LVo8iXS7_h06AV-5UVLmK5pOd'
 
   if (!fs.existsSync(filePath)) {
     throw new Error('File not found')
@@ -141,19 +162,28 @@ exports.addNewLocation = async (req, res) => {
   const imageFile = req.file
 
   try {
+    // Check if location with the same name already exists in the database
     const existingLocation = await Location.findOne({ where: { nameStore } })
 
     if (existingLocation) {
       return res.status(403).json({ message: 'Location already exists' })
     }
 
-    // Upload image to Google Drive and get URL
+    // Check if a file with the same name exists on Google Drive
+    const existingFile = await findFileByName(imageFile.originalname)
+
+    // If file exists, delete the old image from Google Drive
+    if (existingFile) {
+      await deleteFile(existingFile.id)
+    }
+
+    // Upload the new image to Google Drive and get the URL
     const imageUrl = await uploadImageToDrive(
       imageFile.path,
       imageFile.originalname
     )
 
-    // Create new location
+    // Create the new location in the database
     await Location.create({
       image: imageUrl,
       nameStore,

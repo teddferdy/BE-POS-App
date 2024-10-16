@@ -7,6 +7,96 @@ const SubCategoryProduct = require('../../db/models/sub_category')
 const { compareProduct } = require('../../utils/compare-value')
 const { Op } = require('sequelize')
 
+const { google } = require('googleapis')
+const fs = require('fs')
+const CLIENT_ID =
+  '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
+const CLIENT_SECRET = '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'
+const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
+const REFRESH_TOKEN =
+  '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
+
+// Load Google API credentials
+const oauth2Client = new google.auth.OAuth2(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  REDIRECT_URI
+)
+
+// Set the credentials
+oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
+
+const folderId = '14amtGW104xLNqImWsJX1EC3c0atYAu_M' // Replace with your Google Drive folder ID
+
+// Function to search for a file in Google Drive by name
+const findFileByName = async (fileName) => {
+  try {
+    const response = await drive.files.list({
+      q: `name='${fileName}' and '${folderId}' in parents`,
+      fields: 'files(id, name)',
+      spaces: 'drive'
+    })
+    return response.data.files[0] // Return the first matching file if found
+  } catch (error) {
+    throw new Error('Error searching for file on Google Drive')
+  }
+}
+
+// Function to delete a file by its Google Drive file ID
+const deleteFile = async (fileId) => {
+  try {
+    await drive.files.delete({ fileId })
+  } catch (error) {
+    throw new Error('Error deleting file from Google Drive')
+  }
+}
+
+// Function to upload an image to Google Drive
+const uploadImageToDrive = async (filePath, fileName) => {
+  const accessTokenInfo = await oauth2Client.getAccessToken()
+
+  if (!accessTokenInfo.token) {
+    throw new Error('Failed to obtain access token')
+  }
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error('File not found')
+  }
+
+  const fileMetadata = {
+    name: fileName,
+    parents: [folderId]
+  }
+
+  const media = {
+    mimeType: 'image/jpeg',
+    body: fs.createReadStream(filePath)
+  }
+
+  try {
+    const { data: file } = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id'
+    })
+
+    await drive.permissions.create({
+      fileId: file.id,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone'
+      }
+    })
+
+    return `https://drive.google.com/uc?id=${file.id}`
+  } catch (error) {
+    throw new Error('Failed to upload image')
+  }
+}
+
+// Use the access token for the Drive API
+const drive = google.drive({ version: 'v3', auth: oauth2Client })
+
 // Get Product By Location Store
 exports.getProductByLocationSuperAdmin = async (req, res, next) => {
   const { store } = req.query
@@ -225,18 +315,53 @@ exports.postAddProduct = async (req, res, next) => {
     isOption,
     store
   } = req.body
+
   try {
+    // Check if a product with the same name exists in the store
+    const existingProduct = await Product.findOne({
+      where: {
+        nameProduct,
+        store
+      }
+    })
+
+    if (existingProduct) {
+      return res.status(400).json({
+        message: 'Product with this name already exists in the store.'
+      })
+    }
+
+    const imageFile = req.file
+    let imageUrl = null
+
+    if (imageFile) {
+      // Check if a file with the same name exists on Google Drive
+      const existingFile = await findFileByName(imageFile.originalname)
+
+      // If file exists, delete the old image from Google Drive
+      if (existingFile) {
+        await deleteFile(existingFile.id)
+      }
+
+      // Upload the new image to Google Drive and get the URL
+      imageUrl = await uploadImageToDrive(
+        imageFile.path,
+        imageFile.originalname
+      )
+    }
+
+    // Create new product
     const postData = await Product.create({
-      nameProduct: nameProduct,
-      category: category,
-      description: description,
-      price: price,
-      status: status,
-      isOption: isOption,
+      nameProduct,
+      category,
+      description,
+      price,
+      status,
+      isOption,
       option: isOption ? option : [],
-      createdBy: createdBy,
-      image: image,
-      store: store
+      createdBy,
+      image: imageUrl || image, // Use the uploaded image URL or fallback to provided image
+      store
     })
 
     return res.status(200).json({
@@ -244,9 +369,9 @@ exports.postAddProduct = async (req, res, next) => {
       data: postData
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal Server Error'
     })
   } finally {
     console.log('resEND')
