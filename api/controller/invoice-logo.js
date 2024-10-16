@@ -6,6 +6,7 @@ const { Op } = require('sequelize')
 // Get Logo Using By Location
 exports.getInvoiceLogoByLocation = async (req, res, next) => {
   const { store } = req.query
+
   try {
     const invoiceLogo = await InvoiceLogo.findAll({
       where: {

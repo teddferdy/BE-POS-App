@@ -1,6 +1,7 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const User = require('../../db/models/user')
+const Location = require('../../db/models/location')
 const generateToken = require('../../utils/jwtConvert')
 const bcrypt = require('bcrypt')
 const moment = require('moment')
@@ -140,11 +141,35 @@ exports.login = async (req, res, next) => {
     // Set token in a cookie
     res.cookie('token', getToken)
 
-    return res.status(200).json({
-      message: 'Success Login',
-      token: getToken,
-      user: findUser?.dataValues
-    })
+    console.log('FIND USER =>', findUser)
+
+    console.log('FIND USER DATAS VALUES =>')
+
+    if (
+      findUser.dataValues.userType !== 'user' &&
+      findUser.dataValues.userType !== 'admin'
+    ) {
+      return res.status(200).json({
+        message: 'Success Login',
+        token: getToken,
+        user: findUser?.dataValues
+      })
+    } else {
+      const locationByIdUserLogin = await Location.findOne({
+        where: {
+          id: findUser.dataValues.store
+        }
+      })
+
+      return res.status(200).json({
+        message: 'Success Login',
+        token: getToken,
+        user: {
+          ...findUser?.dataValues,
+          storeName: locationByIdUserLogin?.dataValues?.nameStore
+        }
+      })
+    }
   } catch (error) {
     console.log('ERROR BRAY =>', error)
 
