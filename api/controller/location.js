@@ -40,7 +40,6 @@ const oauth2Client = new google.auth.OAuth2(
 oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
 
 const uploadImageToDrive = async (filePath, fileName) => {
-  // Automatically refresh access token before API call
   const accessTokenInfo = await oauth2Client.getAccessToken()
 
   if (!accessTokenInfo.token) {
@@ -51,7 +50,6 @@ const uploadImageToDrive = async (filePath, fileName) => {
   const folderId = '15L9FRd7LVo8iXS7_h06AV-5UVLmK5pOd'
 
   if (!fs.existsSync(filePath)) {
-    console.error('File does not exist at the specified path:', filePath)
     throw new Error('File not found')
   }
 
@@ -66,30 +64,22 @@ const uploadImageToDrive = async (filePath, fileName) => {
   }
 
   try {
-    const file = await drive.files.create({
+    const { data: file } = await drive.files.create({
       resource: fileMetadata,
       media: media,
       fields: 'id'
     })
 
-    console.log('FILE =>', file)
-
     await drive.permissions.create({
-      fileId: file.data.id,
+      fileId: file.id,
       requestBody: {
         role: 'reader',
         type: 'anyone'
       }
     })
 
-    const publicUrl = `https://drive.google.com/uc?id=${file.data.id}`
-    return publicUrl
+    return `https://drive.google.com/uc?id=${file.id}`
   } catch (error) {
-    console.error(
-      'Error uploading image to Google Drive:',
-      error.message,
-      error.stack
-    )
     throw new Error('Failed to upload image')
   }
 }
@@ -98,33 +88,20 @@ const uploadImageToDrive = async (filePath, fileName) => {
 const drive = google.drive({ version: 'v3', auth: oauth2Client })
 
 // Get All List To Dropdown
-exports.getAllLocation = async (req, res, next) => {
+exports.getAllLocation = async (req, res) => {
   try {
-    const getAllLocation = await Location.findAll({
-      where: {
-        status: true
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
+    const locations = await Location.findAll({
+      where: { status: true }
+    })
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllLocation?.length > 0 ? getAllLocation : []
+      data: locations
     })
   } catch (error) {
-    console.log('Error =>', error)
-
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
   } finally {
-    console.log('resEND')
     return res.end()
   }
 }
@@ -158,404 +135,183 @@ exports.getAllLocationInTable = async (req, res, next) => {
 }
 
 // Add New Location
-exports.addNewLocation = async (req, res, next) => {
-  const body = req.body
-  const imageFile = req.file // Get the image file from multer
+exports.addNewLocation = async (req, res) => {
+  const { nameStore, address, detailLocation, phoneNumber, status, createdBy } =
+    req.body
+  const imageFile = req.file
 
   try {
-    const findOneLocation = await Location.findOne({
-      where: { nameStore: body.nameStore }
-    })
+    const existingLocation = await Location.findOne({ where: { nameStore } })
 
-    if (!findOneLocation) {
-      // Upload image to Google Drive and get the URL
-      const imageUrl = await uploadImageToDrive(
-        imageFile.path,
-        imageFile.originalname
-      )
-
-      // Create new location with uploaded image URL
-      const createdLocation = await Location.create({
-        image: imageUrl,
-        nameStore: body.nameStore,
-        imageName: imageFile.originalname,
-        address: body.address,
-        detailLocation: body.detailLocation,
-        phoneNumber: body.phoneNumber,
-        status: body.status,
-        createdBy: body.createdBy
-      })
-
-      if (createdLocation) {
-        return res.status(200).json({
-          message: 'Location created successfully'
-        })
-      }
-    } else {
-      return res.status(403).json({
-        message: 'Location already exists'
-      })
+    if (existingLocation) {
+      return res.status(403).json({ message: 'Location already exists' })
     }
-  } catch (error) {
-    console.error('Internal server error:', error)
-    return res.status(500).json({
-      error: 'Internal server error'
+
+    // Upload image to Google Drive and get URL
+    const imageUrl = await uploadImageToDrive(
+      imageFile.path,
+      imageFile.originalname
+    )
+
+    // Create new location
+    await Location.create({
+      image: imageUrl,
+      nameStore,
+      imageName: imageFile.originalname,
+      address,
+      detailLocation,
+      phoneNumber,
+      status,
+      createdBy
     })
+
+    return res.status(200).json({ message: 'Location created successfully' })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
   } finally {
-    console.log('Response end')
-    res.end()
+    return res.end()
   }
 }
 
-exports.editLocationById = async (req, res, next) => {
+exports.editLocationById = async (req, res) => {
   const body = req.body
-  console.log('BODY =>', body)
+  const { id, confirmUserUpdate, nameStore, image, status } = body
 
-  const { confirmUserUpdate } = body
-
-  if (!body.id) {
-    return res.status(400).json({
-      error: 'ID is required to update the location.'
-    })
+  if (!id) {
+    return res
+      .status(400)
+      .json({ error: 'ID is required to update the location.' })
   }
 
   try {
-    // Check for an existing store with the same name
-    const getDuplicate = await Location.findOne({
-      where: { id: body?.id }
-    })
+    // Check for existing store
+    const getDuplicate = await Location.findOne({ where: { id } })
+    if (!getDuplicate) {
+      return res.status(404).json({ error: 'Location not found.' })
+    }
 
     const bodyReq = {
-      id: body?.id,
-      image: body.image,
-      nameStore: body?.nameStore,
-      address: body?.address,
-      detailLocation: body?.detailLocation,
-      phoneNumber: body?.phoneNumber,
-      status: body?.status
+      id,
+      image,
+      nameStore,
+      address: body.address,
+      detailLocation: body.detailLocation,
+      phoneNumber: body.phoneNumber,
+      status
     }
 
-    const dataExist = getDuplicate
-      ? {
-          id: getDuplicate.dataValues.id,
-          image: getDuplicate.dataValues.image,
-          nameStore: getDuplicate.dataValues.nameStore,
-          address: getDuplicate.dataValues.address,
-          detailLocation: getDuplicate.dataValues.detailLocation,
-          phoneNumber: getDuplicate.dataValues.phoneNumber,
-          status: getDuplicate.dataValues.status
-        }
-      : null
-
+    const dataExist = getDuplicate.dataValues
     const resultValue = compareObjects(dataExist, bodyReq)
-    console.log('resultValue =>', resultValue)
 
     if (resultValue) {
-      return res.status(403).json({
-        message: 'The location already exists.'
-      })
-    } else {
-      // Check if users are associated with the old store name
-      if (body.nameStore !== dataExist.nameStore) {
-        const checkUser = await User.findAll({
-          where: { store: body?.id }
-        })
-
-        if (checkUser.length > 0 && !confirmUserUpdate) {
-          return res.status(200).json({
-            message:
-              'Users are already associated with this store. Do you want to update their store assignment?',
-            showUserUpdateDialog: true
-          })
-        }
-
-        if (confirmUserUpdate) {
-          await User.update({ store: body?.id }, { where: { store: body?.id } })
-        }
-      }
-
-      // Check if the image has changed
-      if (body.image !== dataExist?.image) {
-        // Extract file ID from the existing image URL
-        const oldImageFileId = dataExist.image.split('id=')[1].split('&')[0]
-
-        // Delete the old image from Google Drive
-        await drive.files.delete({ fileId: oldImageFileId })
-        console.log(`Deleted old image with ID: ${oldImageFileId}`)
-
-        // Upload the new image and get the URL
-        const imageUrl = await uploadImageToDrive(
-          req.file.path, // Use the new image path
-          req.file.originalname
-        )
-        body.image = imageUrl // Update the body to use the new image URL
-      }
-
-      // Update the location in the Location table
-      const editLocation = await Location.update(
-        {
-          image: body.image,
-          nameStore: body.nameStore,
-          address: body.address,
-          detailLocation: body.detailLocation,
-          phoneNumber: body.phoneNumber,
-          status: body.status,
-          createdBy: body.createdBy,
-          modifiedBy: body.modifiedBy
-        },
-        { returning: true, where: { id: body.id } }
-      ).then(([_, data]) => data)
-
-      // Handle status updates
-      if (body.status === false) {
-        const modelsToUpdate = [
-          {
-            model: User,
-            field: 'nameStore',
-            value: body?.id,
-            updateFields: { statusActive: false }
-          },
-          {
-            model: Product,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: Transaction,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: BestSelling,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: Checkout,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: Category,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: SubCategoryProduct,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: Discount,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: InvoiceFooter,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: InvoiceLogo,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: InvoiceSocialMedia,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: Member,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: SocialMedia,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: TypePayment,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          },
-          {
-            model: Shift,
-            field: 'store',
-            value: body?.id,
-            updateFields: { status: false }
-          }
-        ]
-
-        for (const { model, field, value, updateFields } of modelsToUpdate) {
-          const record = await model.findOne({ where: { [field]: value } })
-          if (record) {
-            await model.update(updateFields, { where: { [field]: value } })
-          }
-        }
-      }
-
-      if (body.status === true && body?.nameStore !== dataExist?.nameStore) {
-        const modelsToUpdate = [
-          {
-            model: User,
-            field: 'location',
-            value: body?.id,
-            updateFields: { nameStore: body?.nameStore }
-          },
-          {
-            model: Product,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: Transaction,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: BestSelling,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: Checkout,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: Category,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: SubCategoryProduct,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: Discount,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: InvoiceFooter,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: InvoiceLogo,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: InvoiceSocialMedia,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: Member,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: SocialMedia,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: TypePayment,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          },
-          {
-            model: Shift,
-            field: 'store',
-            value: body?.id,
-            updateFields: { store: body?.id }
-          }
-        ]
-
-        for (const { model, field, value, updateFields } of modelsToUpdate) {
-          const record = await model.findOne({ where: { [field]: value } })
-          if (record) {
-            await model.update(updateFields, { where: { [field]: value } })
-          }
-        }
-      }
-
-      return res.status(200).json({
-        message: 'Successfully updated location.',
-        data: editLocation?.dataValues
-      })
+      return res.status(403).json({ message: 'The location already exists.' })
     }
-  } catch (error) {
-    console.log('ERROR =>', error)
-    return res.status(500).json({
-      error: 'Internal Server Error'
+
+    // Handle user store update confirmation
+    if (nameStore !== dataExist.nameStore) {
+      const usersInStore = await User.findAll({ where: { store: id } })
+
+      if (usersInStore.length > 0 && !confirmUserUpdate) {
+        return res.status(200).json({
+          message:
+            'Users are associated with this store. Do you want to update their store assignment?',
+          showUserUpdateDialog: true
+        })
+      }
+
+      if (confirmUserUpdate) {
+        await User.update({ store: id }, { where: { store: id } })
+      }
+    }
+
+    // Handle image update
+    if (image !== dataExist.image) {
+      const oldImageFileId = dataExist.image.split('id=')[1].split('&')[0]
+      await drive.files.delete({ fileId: oldImageFileId })
+      const newImageUrl = await uploadImageToDrive(
+        req.file.path,
+        req.file.originalname
+      )
+      body.image = newImageUrl
+    }
+
+    // Update the location
+    const [_, updatedLocation] = await Location.update(
+      { ...bodyReq, createdBy: body.createdBy, modifiedBy: body.modifiedBy },
+      { returning: true, where: { id } }
+    )
+
+    // Models to be updated based on store status
+    const modelsToUpdate = [
+      User,
+      Product,
+      Transaction,
+      BestSelling,
+      Checkout,
+      Category,
+      SubCategoryProduct,
+      Discount,
+      InvoiceFooter,
+      InvoiceLogo,
+      InvoiceSocialMedia,
+      Member,
+      SocialMedia,
+      TypePayment,
+      Shift
+    ]
+
+    // Update all relevant models' statuses based on location status
+    const updateFields = (isActive) => ({
+      status: isActive,
+      ...(nameStore && { nameStore })
     })
+
+    const updateRelatedModels = async (isActive) => {
+      for (const model of modelsToUpdate) {
+        const record = await model.findOne({ where: { store: id } })
+        if (record) {
+          await model.update(updateFields(isActive), { where: { store: id } })
+        }
+      }
+    }
+
+    // Handle status changes
+    if (status === false) {
+      await updateRelatedModels(false)
+    } else if (status === true && nameStore !== dataExist.nameStore) {
+      await updateRelatedModels(true)
+    }
+
+    return res.status(200).json({
+      message: 'Successfully updated location.',
+      data: updatedLocation?.dataValues
+    })
+  } catch (error) {
+    console.error('ERROR =>', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
   } finally {
-    console.log('resEND')
     return res.end()
   }
 }
 
 // Delete Location By Id
-exports.deleteLocationById = async (req, res, next) => {
-  const body = req.body
+exports.deleteLocationById = async (req, res) => {
+  const { id } = req.body
 
   try {
-    const getId = await Location.destroy({
-      where: {
-        id: body.id,
-        nameStore: body.nameStore
-      },
-      force: true
-    })
+    const location = await Location.findByPk(id)
+    if (!location)
+      return res.status(404).json({ message: 'Location not found' })
 
-    if (getId) {
-      return res.status(200).json({
-        message: 'Success Hapus Lokasi'
-      })
-    } else {
-      return res.status(403).json({
-        message: 'Hapus Lokasi Gagal'
-      })
-    }
+    // Delete the location
+    await Location.destroy({ where: { id }, force: true })
+
+    return res.status(200).json({ message: 'Location deleted successfully' })
   } catch (error) {
-    console.log('ERROR =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
   } finally {
-    console.log('resEND')
     return res.end()
   }
 }
