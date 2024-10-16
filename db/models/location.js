@@ -14,6 +14,9 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.STRING
     },
+    imageName: {
+      type: DataTypes.STRING
+    },
     nameStore: {
       type: DataTypes.STRING,
       primaryKey: true
@@ -28,8 +31,8 @@ module.exports = sequelize.define(
       type: DataTypes.STRING
     },
     status: {
-      primaryKey: true,
-      type: DataTypes.BOOLEAN
+      type: DataTypes.BOOLEAN,
+      primaryKey: true
     },
     createdBy: {
       type: DataTypes.STRING

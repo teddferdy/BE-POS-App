@@ -10,8 +10,9 @@ module.exports = {
         type: Sequelize.INTEGER
       },
       store: {
-        primaryKey: true,
-        type: Sequelize.STRING
+        allowNull: false,
+        type: Sequelize.INTEGER,
+        primaryKey: true
       },
       masterId: {
         type: Sequelize.INTEGER
@@ -28,6 +29,9 @@ module.exports = {
       price: {
         type: Sequelize.STRING
       },
+      createdBy: {
+        type: Sequelize.STRING
+      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE
@@ -38,9 +42,6 @@ module.exports = {
       updatedAt: {
         allowNull: false,
         type: Sequelize.DATE
-      },
-      modifiedAt: {
-        type: Sequelize.STRING
       },
       deletedAt: {
         type: Sequelize.STRING

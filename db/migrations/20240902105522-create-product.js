@@ -18,6 +18,9 @@ module.exports = {
         allowNull: false,
         type: Sequelize.STRING
       },
+      imageName: {
+        type: Sequelize.STRING
+      },
       category: {
         primaryKey: true,
         type: Sequelize.INTEGER
@@ -43,7 +46,7 @@ module.exports = {
       },
       store: {
         allowNull: false,
-        type: Sequelize.STRING,
+        type: Sequelize.INTEGER,
         primaryKey: true
       },
       createdBy: {
@@ -52,6 +55,9 @@ module.exports = {
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE
+      },
+      modifiedBy: {
+        type: Sequelize.STRING
       },
       updatedAt: {
         allowNull: false,

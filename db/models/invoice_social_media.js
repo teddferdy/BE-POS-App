@@ -21,13 +21,14 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.BOOLEAN
     },
-    store: {
-      primaryKey: true,
-      type: DataTypes.STRING
-    },
     isActive: {
       primaryKey: true,
       type: DataTypes.BOOLEAN
+    },
+    store: {
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      primaryKey: true
     },
     createdBy: {
       type: DataTypes.STRING

@@ -24,8 +24,8 @@ module.exports = {
         primaryKey: true
       },
       store: {
-        primaryKey: true,
-        type: Sequelize.STRING
+        type: Sequelize.INTEGER,
+        primaryKey: true
       },
       createdBy: {
         type: Sequelize.STRING

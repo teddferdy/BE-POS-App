@@ -1,20 +1,16 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
-
 const User = require('../../db/models/user')
 const generateToken = require('../../utils/jwtConvert')
 const bcrypt = require('bcrypt')
+const moment = require('moment')
 const { Op } = require('sequelize')
 
 // Get User By Location
 exports.userByLocation = async (req, res, next) => {
-  const { location } = req.query
+  // const { location } = req.query
   try {
-    const getAllUser = await User.findAll({
-      where: {
-        location: location
-      }
-    }).then((res) =>
+    const getAllUser = await User.findAll().then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -39,7 +35,7 @@ exports.userByLocation = async (req, res, next) => {
 
 // Change User Role By Id & Location
 exports.changeUserByIdAndLocation = async (req, res, next) => {
-  const { location, userType, id } = req.body
+  const { userType, id } = req.body
   try {
     const editCategory = await User?.update(
       {
@@ -48,8 +44,7 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
       {
         returning: true,
         where: {
-          id: id,
-          location: location
+          id: id
         }
       }
     ).then(([_, data]) => {
@@ -99,62 +94,57 @@ exports.getAllUser = async (req, res, next) => {
 
 exports.login = async (req, res, next) => {
   const body = req.body
-  const bodyUserNameOrEmail = body.email || body.userName
-  if (!bodyUserNameOrEmail || !body.password) {
-    return res.status(401).json({
-      message: 'User Name / Email & Password Tidak Boleh Kosong'
-    })
-  }
+  const bodyUserNameOrEmail = body.userName // userName input from FE
 
   try {
-    const findUser = body?.email
+    // Regex to check if the input is an email
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyUserNameOrEmail)
+
+    // Find user by either email or username
+    const findUser = isEmail
       ? await User.findOne({
           where: {
-            email: body.email
+            email: bodyUserNameOrEmail
           }
         })
       : await User.findOne({
           where: {
-            userName: body.userName
+            userName: bodyUserNameOrEmail
           }
         })
 
-    if (
-      !findUser ||
-      !(await bcrypt.compare(body.password, findUser.password))
-    ) {
+    console.log('findUser =>', findUser)
+
+    // If no user is found or password does not match
+    if (!findUser || !body.password === findUser.password) {
       return res.status(401).json({
         message: 'User Name / Email & Password Tidak Ditemukan'
       })
-    } else {
-      const updateUser = body?.email
-        ? await User.update(
-            { statusActive: true },
-            {
-              where: {
-                email: body.email
-              }
-            }
-          )
-        : await User.update(
-            { statusActive: true },
-            {
-              where: {
-                userName: body.userName
-              }
-            }
-          )
-
-      const getToken = generateToken({
-        id: updateUser.id
-      })
-      res.cookie('token', getToken)
-      return res.status(200).json({
-        message: 'Success Login',
-        token: getToken,
-        user: findUser?.dataValues
-      })
     }
+
+    // Update the user's status to active
+    await User.update(
+      { statusActive: true },
+      {
+        where: isEmail
+          ? { email: bodyUserNameOrEmail }
+          : { userName: bodyUserNameOrEmail }
+      }
+    )
+
+    // Generate a token for the user
+    const getToken = generateToken({
+      id: findUser.id
+    })
+
+    // Set token in a cookie
+    res.cookie('token', getToken)
+
+    return res.status(200).json({
+      message: 'Success Login',
+      token: getToken,
+      user: findUser?.dataValues
+    })
   } catch (error) {
     console.log('ERROR BRAY =>', error)
 
@@ -169,52 +159,67 @@ exports.login = async (req, res, next) => {
 
 // Register
 exports.registerNewUser = async (req, res, next) => {
-  const body = req?.body
+  const body = req.body
+  console.log('BODY =>', body)
 
   try {
-    if (!['admin', 'user']?.includes(body?.userType)) {
-      res.status(400).json({
-        message: 'Gagal Menyimpan User'
+    // Validate userType
+    if (!['admin', 'user'].includes(body?.userType)) {
+      return res.status(400).json({
+        message: 'Gagal Menyimpan User - Tipe Pengguna Salah'
       })
     }
 
-    // FInd One User Has Been Create
-    const findUser = await User?.findOne({
+    // Ensure password and confirmPassword match
+    if (body?.password !== body?.confirmPassword) {
+      return res.status(400).json({
+        message: 'Password dan Konfirmasi Password Tidak Cocok'
+      })
+    }
+
+    // Check if the user (either by email or userName) already exists
+    const findUser = await User.findOne({
       where: {
-        userName: body?.userName,
-        email: body?.email
+        [Op.or]: [{ userName: body?.userName }, { email: body?.email }]
       }
     })
 
-    if (!findUser?.dataValues) {
-      const createUser = await User?.create({
+    if (!findUser) {
+      // Generate Employee ID in the format BSN-XXXXX
+      const randomFiveNumber = Math.floor(10000 + Math.random() * 90000) // Random 5-digit number
+      const employeeID = `BSN-${randomFiveNumber}` // Create the Employee ID with 8 chars
+
+      // Provide default values for fields that may be null
+      const shift = body?.shift !== undefined ? body.shift : 0 // Set to 0 or a default valid value
+      const position = body?.position !== undefined ? body.position : 0 // Set to 0 or a default valid value
+
+      // Create new user in the database
+      const createUser = await User.create({
+        userType: body.userType || 'user', // Use the provided userType, default to 'user'
         userName: body?.userName,
         password: body?.password,
-        confirmPassword: body?.confirmPassword,
         email: body?.email,
-        location: body.location,
         address: body.address,
-        userType: 'user',
-        employeeID: '',
-        phoneNumber: '',
-        placeDateOfBirth: '',
+        employeeID: employeeID, // Assign generated Employee ID
+        phoneNumber: body?.phoneNumber || '',
+        gender: body?.gender || '',
+        store: body.store || null, // Store ID should not be null, ensure FE sends it
+        placeDateOfBirth: body?.placeDateOfBirth || '',
+        shift: shift, // Assign default value if undefined
+        position: position, // Assign default value if undefined
+        accessMenu: body?.accessMenu || null,
         statusEmployee: true,
         statusActive: true,
-        modifiedAt: ''
+        modifiedAt: moment().format('YYYY-MM-DD HH:mm:ss')
       })
 
       const result = createUser.toJSON()
-      delete result?.password
+      delete result.password // Remove the password before sending it back
 
-      result.token = generateToken({
-        id: result?.id
-      })
+      // Generate token
+      result.token = generateToken({ id: result?.id })
 
-      if (!result) {
-        return res.status(400).json({
-          message: 'Gagal Menyimpan User'
-        })
-      }
+      console.log('RESULT =>', result)
 
       return res.status(200).json({
         message: 'Success Menyimpan User',
@@ -226,14 +231,12 @@ exports.registerNewUser = async (req, res, next) => {
       })
     }
   } catch (error) {
-    console.log('INI ERROR REGISTER =>', error)
+    console.log('ERROR REGISTER =>', error)
 
     return res.status(500).json({
-      message: 'Terjadi Kesalahan Internal Server'
+      message: 'Terjadi Kesalahan Internal Server',
+      error: error.message
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
@@ -248,7 +251,6 @@ exports.editUser = async (req, res, next) => {
         gender: body?.gender,
         phoneNumber: body?.phoneNumber,
         placeDateOfBirth: body?.placeDateOfBirth,
-        location: body?.location,
         deletedAt: null
       },
       {
@@ -334,20 +336,58 @@ exports.resetPassword = async (req, res, next) => {
 // User Logout
 exports.logout = async (req, res, next) => {
   try {
-    const body = req?.body
-    const findUser = await User?.findOne({
-      where: {
-        id: body?.id
-      }
-    })
-    // const token = req?.cookies?.token
+    const body = req.body
+    const bodyUserNameOrEmail = body?.userName || body?.email
+    const storeId = body?.store // Store identifier passed from FE
+
+    if (!bodyUserNameOrEmail || !storeId) {
+      return res.status(400).json({
+        message: 'User Name / Email & Store ID Tidak Boleh Kosong'
+      })
+    }
+
+    // Check if the input is an email or username using a regex
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyUserNameOrEmail)
+
+    // Find user by email or userName and store ID
+    const findUser = isEmail
+      ? await User.findOne({
+          where: {
+            email: bodyUserNameOrEmail,
+            store: storeId // Ensure it matches the store
+          }
+        })
+      : await User.findOne({
+          where: {
+            userName: bodyUserNameOrEmail,
+            store: storeId
+          }
+        })
+
+    // If user is found, update status to inactive
     if (findUser) {
+      await User.update(
+        { statusActive: false }, // Set status to inactive
+        {
+          where: isEmail
+            ? { email: bodyUserNameOrEmail, store: storeId }
+            : { userName: bodyUserNameOrEmail, store: storeId }
+        }
+      )
+
+      // Clear the token cookie
       res.clearCookie('token')
-      return await res.status(200).json({
+
+      return res.status(200).json({
         message: 'User Berhasil Logout'
+      })
+    } else {
+      return res.status(404).json({
+        message: 'User Tidak Ditemukan'
       })
     }
   } catch (error) {
+    console.log('ERROR LOGOUT =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })

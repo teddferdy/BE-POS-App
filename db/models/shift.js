@@ -30,8 +30,9 @@ module.exports = sequelize.define(
       type: DataTypes.BOOLEAN
     },
     store: {
-      primaryKey: true,
-      type: DataTypes.STRING
+      allowNull: false,
+      type: DataTypes.INTEGER,
+      primaryKey: true
     },
     createdBy: {
       type: DataTypes.STRING

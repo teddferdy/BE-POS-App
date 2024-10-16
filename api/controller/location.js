@@ -30,9 +30,6 @@ const REFRESH_TOKEN =
   '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
 
 // Load Google API credentials
-const GOOGLE_API_CREDENTIALS = require('../../google_apis.json')
-
-// Load Google API credentials
 const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
   CLIENT_SECRET,
@@ -51,7 +48,7 @@ const uploadImageToDrive = async (filePath, fileName) => {
   }
 
   const drive = google.drive({ version: 'v3', auth: oauth2Client })
-  const folderId = '1yxoVp4CzYMtSpR6UX1pY1Dv2bajYMoCM'
+  const folderId = '15L9FRd7LVo8iXS7_h06AV-5UVLmK5pOd'
 
   if (!fs.existsSync(filePath)) {
     console.error('File does not exist at the specified path:', filePath)
@@ -96,19 +93,6 @@ const uploadImageToDrive = async (filePath, fileName) => {
     throw new Error('Failed to upload image')
   }
 }
-
-// Example usage of the function
-;(async () => {
-  try {
-    const publicUrl = await uploadImageToDrive(
-      '/path/to/your/image.jpg',
-      'image.jpg'
-    )
-    console.log('Uploaded image URL:', publicUrl)
-  } catch (error) {
-    console.error('Error:', error.message)
-  }
-})()
 
 // Use the access token for the Drive API
 const drive = google.drive({ version: 'v3', auth: oauth2Client })
@@ -194,6 +178,7 @@ exports.addNewLocation = async (req, res, next) => {
       const createdLocation = await Location.create({
         image: imageUrl,
         nameStore: body.nameStore,
+        imageName: imageFile.originalname,
         address: body.address,
         detailLocation: body.detailLocation,
         phoneNumber: body.phoneNumber,
@@ -224,7 +209,15 @@ exports.addNewLocation = async (req, res, next) => {
 
 exports.editLocationById = async (req, res, next) => {
   const body = req.body
+  console.log('BODY =>', body)
+
   const { confirmUserUpdate } = body
+
+  if (!body.id) {
+    return res.status(400).json({
+      error: 'ID is required to update the location.'
+    })
+  }
 
   try {
     // Check for an existing store with the same name
@@ -263,23 +256,22 @@ exports.editLocationById = async (req, res, next) => {
       })
     } else {
       // Check if users are associated with the old store name
-      const checkUser = await User.findAll({
-        where: { location: dataExist?.nameStore }
-      })
-
-      if (checkUser.length > 0 && !confirmUserUpdate) {
-        return res.status(200).json({
-          message:
-            'Users are already associated with this store. Do you want to update their store assignment?',
-          showUserUpdateDialog: true
+      if (body.nameStore !== dataExist.nameStore) {
+        const checkUser = await User.findAll({
+          where: { store: body?.id }
         })
-      }
 
-      if (confirmUserUpdate) {
-        await User.update(
-          { location: body.nameStore },
-          { where: { location: dataExist?.nameStore } }
-        )
+        if (checkUser.length > 0 && !confirmUserUpdate) {
+          return res.status(200).json({
+            message:
+              'Users are already associated with this store. Do you want to update their store assignment?',
+            showUserUpdateDialog: true
+          })
+        }
+
+        if (confirmUserUpdate) {
+          await User.update({ store: body?.id }, { where: { store: body?.id } })
+        }
       }
 
       // Check if the image has changed
@@ -319,92 +311,92 @@ exports.editLocationById = async (req, res, next) => {
         const modelsToUpdate = [
           {
             model: User,
-            field: 'location',
-            value: body.nameStore,
+            field: 'nameStore',
+            value: body?.id,
             updateFields: { statusActive: false }
           },
           {
             model: Product,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: Transaction,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: BestSelling,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: Checkout,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: Category,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: SubCategoryProduct,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: Discount,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: InvoiceFooter,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: InvoiceLogo,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: InvoiceSocialMedia,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: Member,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: SocialMedia,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: TypePayment,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           },
           {
             model: Shift,
             field: 'store',
-            value: body.nameStore,
+            value: body?.id,
             updateFields: { status: false }
           }
         ]
@@ -417,97 +409,97 @@ exports.editLocationById = async (req, res, next) => {
         }
       }
 
-      if (body.status === true && body.nameStore !== dataExist?.nameStore) {
+      if (body.status === true && body?.nameStore !== dataExist?.nameStore) {
         const modelsToUpdate = [
           {
             model: User,
             field: 'location',
-            value: dataExist?.nameStore,
-            updateFields: { location: body?.nameStore }
+            value: body?.id,
+            updateFields: { nameStore: body?.nameStore }
           },
           {
             model: Product,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: Transaction,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: BestSelling,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: Checkout,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: Category,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: SubCategoryProduct,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: Discount,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: InvoiceFooter,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: InvoiceLogo,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: InvoiceSocialMedia,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: Member,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: SocialMedia,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: TypePayment,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           },
           {
             model: Shift,
             field: 'store',
-            value: dataExist?.nameStore,
-            updateFields: { store: body?.nameStore }
+            value: body?.id,
+            updateFields: { store: body?.id }
           }
         ]
 

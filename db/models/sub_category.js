@@ -27,7 +27,7 @@ const SubCategory = sequelize.define(
     },
     store: {
       allowNull: false,
-      type: DataTypes.STRING,
+      type: DataTypes.INTEGER,
       primaryKey: true
     },
     createdBy: {
@@ -36,6 +36,9 @@ const SubCategory = sequelize.define(
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
+    },
+    modifiedBy: {
+      type: DataTypes.STRING
     },
     updatedAt: {
       allowNull: false,

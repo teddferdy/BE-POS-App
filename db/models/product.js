@@ -12,10 +12,14 @@ module.exports = sequelize.define(
     },
     nameProduct: {
       allowNull: false,
-      primaryKey: true,
-      type: DataTypes.STRING
+      type: DataTypes.STRING,
+      primaryKey: true
     },
     image: {
+      allowNull: false,
+      type: DataTypes.STRING
+    },
+    imageName: {
       type: DataTypes.STRING
     },
     category: {
@@ -43,7 +47,7 @@ module.exports = sequelize.define(
     },
     store: {
       allowNull: false,
-      type: DataTypes.STRING,
+      type: DataTypes.INTEGER,
       primaryKey: true
     },
     createdBy: {
@@ -52,6 +56,9 @@ module.exports = sequelize.define(
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
+    },
+    modifiedBy: {
+      type: DataTypes.STRING
     },
     updatedAt: {
       allowNull: false,

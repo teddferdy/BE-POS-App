@@ -18,8 +18,9 @@ module.exports = {
         primaryKey: true
       },
       store: {
-        primaryKey: true,
-        type: Sequelize.STRING
+        allowNull: false,
+        type: Sequelize.INTEGER,
+        primaryKey: true
       },
       status: {
         type: Sequelize.BOOLEAN
@@ -33,6 +34,9 @@ module.exports = {
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE
+      },
+      modifiedBy: {
+        type: Sequelize.STRING
       },
       updatedAt: {
         allowNull: false,
