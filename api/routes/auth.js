@@ -11,7 +11,7 @@ router.get('/get-user', authorization, authController?.userByLocation)
 
 // Change Role User By Id & Location
 router.put(
-  '/change-role-user',
+  '/change-profile-user',
   authorization,
   authController?.changeUserByIdAndLocation
 )
