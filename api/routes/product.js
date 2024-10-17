@@ -62,6 +62,7 @@ router.get(
 router.put(
   '/edit-product',
   authorization,
+  upload,
   productController?.editProductByLocationAndId
 )
 
