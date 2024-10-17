@@ -391,13 +391,12 @@ exports.editProductByLocationAndId = async (req, res, next) => {
     status,
     description,
     price,
-    createdBy,
-    image,
+    image: newImage,
     option,
     isOption,
-    store,
-    modifiedBy
+    store
   } = req.body
+
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
       where: {
@@ -406,21 +405,40 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       }
     })
 
+    if (!getAllProductByIdAndLocation) {
+      return res.status(404).json({ message: 'Product not found.' })
+    }
+
+    const oldImage = getAllProductByIdAndLocation.image
+    let imageUrl = oldImage
+
+    if (req.file) {
+      if (newImage && oldImage !== newImage) {
+        const oldImageFileId = oldImage.split('id=')[1].split('&')[0]
+        await drive.files.delete({ fileId: oldImageFileId })
+
+        imageUrl = await uploadImageToDrive(
+          req.file.path,
+          req.file.originalname
+        )
+      }
+    }
+
     const reqBody = {
-      nameProduct: nameProduct,
-      image: image,
-      category: category,
-      description: description,
-      price: price,
-      isOption: isOption,
-      option: option,
-      status: status,
-      store: store
+      nameProduct,
+      image: imageUrl,
+      category,
+      description,
+      price,
+      isOption,
+      option: option.split(','),
+      status,
+      store
     }
 
     const duplicateData = {
       nameProduct: getAllProductByIdAndLocation.nameProduct,
-      image: getAllProductByIdAndLocation.image,
+      image: imageUrl,
       category: getAllProductByIdAndLocation.category,
       description: getAllProductByIdAndLocation.description,
       price: getAllProductByIdAndLocation.price,
@@ -433,26 +451,11 @@ exports.editProductByLocationAndId = async (req, res, next) => {
     const result = compareProduct(reqBody, duplicateData)
 
     if (!result) {
-      const editLocation = await Product?.update(
-        {
-          nameProduct: nameProduct,
-          image: image,
-          category: category,
-          description: description,
-          price: price,
-          isOption: isOption,
-          option: option,
-          status: status,
-          store: store
-        },
-        {
-          returning: true,
-          where: {
-            id: id
-          }
+      const [_, editLocation] = await Product.update(reqBody, {
+        returning: true,
+        where: {
+          id: id
         }
-      ).then(([_, data]) => {
-        return data
       })
 
       return res.status(200).json({
@@ -465,6 +468,7 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       })
     }
   } catch (error) {
+    console.error('ERROR =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
