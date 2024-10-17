@@ -60,7 +60,7 @@ router.get(
 
 // Render Form Edit Product
 router.put(
-  '/edit-product/:id',
+  '/edit-product',
   authorization,
   productController?.editProductByLocationAndId
 )

@@ -51,6 +51,7 @@ router.post(
 router.put(
   '/edit-location',
   authorization,
+  upload,
   locationController?.editLocationById
 )
 

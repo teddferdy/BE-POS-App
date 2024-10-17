@@ -206,7 +206,7 @@ exports.addNewLocation = async (req, res) => {
 
 exports.editLocationById = async (req, res) => {
   const body = req.body
-  const { id, confirmUserUpdate, nameStore, image, status } = body
+  const { id, confirmUserUpdate, nameStore, status } = body
 
   if (!id) {
     return res
@@ -221,9 +221,36 @@ exports.editLocationById = async (req, res) => {
       return res.status(404).json({ error: 'Location not found.' })
     }
 
+    const dataExist = getDuplicate.dataValues
+
+    // Check if the request body has an image file to update
+    let imageUrl
+    if (req.file) {
+      const oldImageFileId = dataExist.image.split('id=')[1].split('&')[0]
+
+      // If the new image differs from the existing one, delete the old image
+      if (req.file && dataExist.image !== req.file.path) {
+        // Delete the old image from the drive
+        await drive.files.delete({ fileId: oldImageFileId })
+
+        // Upload the new image and update the URL
+        imageUrl = await uploadImageToDrive(
+          req.file.path,
+          req.file.originalname
+        )
+      } else {
+        // If the image has not changed, keep the old image
+        imageUrl = dataExist.image
+      }
+    } else {
+      // No new image file uploaded; keep the existing image
+      imageUrl = dataExist.image
+    }
+
+    // Prepare the request body
     const bodyReq = {
       id,
-      image,
+      image: imageUrl,
       nameStore,
       address: body.address,
       detailLocation: body.detailLocation,
@@ -231,9 +258,7 @@ exports.editLocationById = async (req, res) => {
       status
     }
 
-    const dataExist = getDuplicate.dataValues
     const resultValue = compareObjects(dataExist, bodyReq)
-
     if (resultValue) {
       return res.status(403).json({ message: 'The location already exists.' })
     }
@@ -255,24 +280,13 @@ exports.editLocationById = async (req, res) => {
       }
     }
 
-    // Handle image update
-    if (image !== dataExist.image) {
-      const oldImageFileId = dataExist.image.split('id=')[1].split('&')[0]
-      await drive.files.delete({ fileId: oldImageFileId })
-      const newImageUrl = await uploadImageToDrive(
-        req.file.path,
-        req.file.originalname
-      )
-      body.image = newImageUrl
-    }
-
     // Update the location
     const [_, updatedLocation] = await Location.update(
       { ...bodyReq, createdBy: body.createdBy, modifiedBy: body.modifiedBy },
       { returning: true, where: { id } }
     )
 
-    // Models to be updated based on store status
+    // Update related models based on location status
     const modelsToUpdate = [
       User,
       Product,
@@ -291,7 +305,6 @@ exports.editLocationById = async (req, res) => {
       Shift
     ]
 
-    // Update all relevant models' statuses based on location status
     const updateFields = (isActive) => ({
       status: isActive,
       ...(nameStore && { nameStore })
