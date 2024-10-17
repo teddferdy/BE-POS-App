@@ -303,6 +303,7 @@ exports.getAllProductInTable = async (req, res, next) => {
 
 // Function Post Add Form Product
 exports.postAddProduct = async (req, res, next) => {
+  console.log('req.body =>', req.body)
   const {
     nameProduct,
     category,
@@ -320,8 +321,8 @@ exports.postAddProduct = async (req, res, next) => {
     // Check if a product with the same name exists in the store
     const existingProduct = await Product.findOne({
       where: {
-        nameProduct,
-        store
+        store,
+        nameProduct
       }
     })
 
@@ -350,6 +351,8 @@ exports.postAddProduct = async (req, res, next) => {
       )
     }
 
+    const optionsArray = isOption && Array.isArray(option) ? option : []
+
     // Create new product
     const postData = await Product.create({
       nameProduct,
@@ -358,7 +361,7 @@ exports.postAddProduct = async (req, res, next) => {
       price,
       status,
       isOption,
-      option: isOption ? option : [],
+      option: optionsArray, // Ensure it's an array
       createdBy,
       image: imageUrl || image, // Use the uploaded image URL or fallback to provided image
       store

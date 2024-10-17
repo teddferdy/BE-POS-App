@@ -68,10 +68,10 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
   try {
     // Update the userType and position of the user with the given store and id
     const [affectedRows, updatedUsers] = await User.update(
-      { userType, position },
+      { userType, position, store },
       {
         returning: true,
-        where: { id, store }
+        where: { id }
       }
     )
 
