@@ -67,7 +67,7 @@ exports.getAllTypePayment = async (req, res, next) => {
 
 // Post New Type Category
 exports.postNewTypePayment = async (req, res, next) => {
-  const { description, percentage, status, createdBy, store } = req.body
+  const { name, description, store, status, createdBy } = req.body
   try {
     const findOneTypePayment = await TypePayment?.findOne({
       where: {
@@ -77,10 +77,9 @@ exports.postNewTypePayment = async (req, res, next) => {
     })
 
     if (!findOneTypePayment?.getDataValue) {
-      const numbPercent = percentage.replace('%', '')
       const postData = await TypePayment.create({
+        name: name,
         description: description,
-        percentage: parseFloat(numbPercent) / 100.0,
         store: store,
         status: status,
         createdBy: createdBy
@@ -108,13 +107,13 @@ exports.postNewTypePayment = async (req, res, next) => {
 // Edit TypePayment By Id
 exports.editTypePaymentById = async (req, res, next) => {
   const body = req.body
-  const numbPercent = body.percentage.replace('%', '')
   try {
     const getDuplicate = await TypePayment.findOne({
       where: {
+        name: body.name,
         description: body.description,
-        percentage: parseFloat(numbPercent) / 100.0,
-        store: body.store
+        store: body.store,
+        status: body.status
       }
     })
 
@@ -124,8 +123,8 @@ exports.editTypePaymentById = async (req, res, next) => {
     ) {
       const editTypePayment = await TypePayment?.update(
         {
+          name: body.name,
           description: body.description,
-          percentage: parseFloat(numbPercent) / 100.0,
           status: body.status,
           createdBy: body.createdBy,
           modifiedBy: body?.modifiedBy
