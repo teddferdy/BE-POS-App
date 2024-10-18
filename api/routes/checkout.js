@@ -12,14 +12,14 @@ router.post('/checkout-item', authorization, checkoutController?.checkout)
 
 // Edit Checkout
 router.put(
-  '/edit-checkout-item/:id',
+  '/edit-checkout-item',
   authorization,
   checkoutController?.editCheckout
 )
 
 // Delete Checkout By Invoice & id
 router.delete(
-  '/delete-checkout-item/:id',
+  '/delete-checkout-item',
   authorization,
   checkoutController?.deleteCheckout
 )
