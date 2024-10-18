@@ -208,6 +208,8 @@ exports.getAllProduct = async (req, res, next) => {
       }
     })
 
+    console.log('responseData =>', responseData)
+
     return res.status(200).json({
       message: 'Success',
       data: responseData.length > 0 ? responseData : []
@@ -232,6 +234,8 @@ exports.getAllProductInTable = async (req, res, next) => {
         store: store
       }
     })
+
+    console.log('getAllProduct =>', getAllProduct)
 
     // Fetch categories and resolve subcategories
     const resolvedSubCategories = await Promise.all(
@@ -285,6 +289,8 @@ exports.getAllProductInTable = async (req, res, next) => {
         ...items
       }
     })
+
+    console.log('responseData =>', responseData)
 
     return res.status(200).json({
       message: 'Success',
@@ -351,7 +357,14 @@ exports.postAddProduct = async (req, res, next) => {
       )
     }
 
-    const optionsArray = isOption && Array.isArray(option) ? option : []
+    const optionsArray =
+      isOption === 'true' && typeof option === 'string'
+        ? option.split(',').map((opt) => {
+            const numOpt = Number(opt)
+            console.log(`Converted ${opt} to ${numOpt}`)
+            return numOpt
+          })
+        : []
 
     // Create new product
     const postData = await Product.create({
@@ -397,6 +410,8 @@ exports.editProductByLocationAndId = async (req, res, next) => {
     store
   } = req.body
 
+  console.log('req.body =>', req.body)
+
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
       where: {
@@ -424,6 +439,15 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       }
     }
 
+    const optionsArray =
+      isOption === 'true' && typeof option === 'string'
+        ? option.split(',').map((opt) => {
+            const numOpt = Number(opt)
+            console.log(`Converted ${opt} to ${numOpt}`)
+            return numOpt
+          })
+        : []
+
     const reqBody = {
       nameProduct,
       image: imageUrl,
@@ -431,7 +455,7 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       description,
       price,
       isOption,
-      option: option.split(','),
+      option: optionsArray, // Ensure it's an array
       status,
       store
     }
