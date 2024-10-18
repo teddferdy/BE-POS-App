@@ -262,33 +262,31 @@ exports.getUser = async (req, res, next) => {
 // Get Best Selling By Count
 exports.getBestSellingByCount = async (req, res, next) => {
   const { store } = req.query
+
   try {
-    const getAllBestSelling = await BestSelling.findAll({
+    const whereCondition = store ? { store } : {}
+
+    const bestSellingItems = await BestSelling.findAll({
       order: [['totalSelling', 'DESC']],
-      where: {
-        store: store
-      },
+      where: whereCondition,
       limit: 5
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
+    })
+
+    const formattedItems = bestSellingItems.map((item) => {
+      return { ...item.dataValues }
+    })
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllBestSelling?.length > 0 ? getAllBestSelling : []
+      data: formattedItems.length > 0 ? formattedItems : []
     })
   } catch (error) {
+    console.error(error) // Log the error for debugging
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
   } finally {
     console.log('resEND')
-    return res.end()
   }
 }
 
