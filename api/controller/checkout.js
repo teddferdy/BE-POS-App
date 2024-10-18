@@ -6,15 +6,18 @@ const BestSelling = require('../../db/models/best_selling')
 
 // Add Transaction DB
 exports.addNewTransaction = async (id, order) => {
-  order.forEach((element) => {
-    Transaction.create({
+  // Loop through the order array
+  for (const element of order) {
+    // Create transaction records with the necessary fields, including store
+    await Transaction.create({
       masterId: id,
       productId: element.idProduct,
       quantityPerProduct: element.count,
       productName: element.orderName,
-      price: element.price
+      price: element.price,
+      store: element.store // Ensure store is included
     })
-  })
+  }
 
   for (let index = 0; index < order.length; index++) {
     try {
@@ -22,7 +25,7 @@ exports.addNewTransaction = async (id, order) => {
         where: {
           productId: order[index].idProduct,
           nameProduct: order[index].orderName,
-          store: order[index].store
+          store: order[index].store // Ensure store is used in the query
         }
       })
 
@@ -46,15 +49,11 @@ exports.addNewTransaction = async (id, order) => {
           nameProduct: order[index].orderName,
           image: order[index].img,
           totalSelling: Number(order[index].count),
-          store: order[index].store
+          store: order[index].store // Ensure store is included when creating
         })
       }
     } catch (error) {
       console.log(error)
-
-      // return res.status(500).json({
-      //   error: 'Terjadi Kesalahan Internal Server'
-      // })
     }
   }
 }
@@ -138,6 +137,9 @@ exports.editCheckout = async (req, res, next) => {
   const body = req.body
 
   try {
+    console.log('body =>', body)
+    console.log('body?.order =>', body?.order)
+
     await this.addNewTransaction(body.id, body?.order)
 
     const editCheckout = await Checkout?.update(
