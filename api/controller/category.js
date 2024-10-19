@@ -36,12 +36,17 @@ exports.getAllCategory = async (req, res, next) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, pageSize = 10 } = req.query // Default values: page = 1, pageSize = 10
+
   try {
+    const offset = (page - 1) * pageSize // Calculate offset for pagination
+
     const getAllCategory = await Category.findAll({
       where: {
         store: store
-      }
+      },
+      limit: parseInt(pageSize), // Limit number of results
+      offset: parseInt(offset) // Offset based on the current page
     }).then((res) =>
       res.map((items) => {
         const getData = {
@@ -51,11 +56,24 @@ exports.getAllCategoryInTable = async (req, res, next) => {
       })
     )
 
+    // Get the total count of categories for the store to include in the response
+    const totalCategories = await Category.count({
+      where: { store: store }
+    })
+
     return res.status(200).json({
       message: 'Success',
-      data: getAllCategory?.length > 0 ? getAllCategory : []
+      data: getAllCategory?.length > 0 ? getAllCategory : [],
+      pagination: {
+        currentPage: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalItems: totalCategories, // Total number of items
+        totalPages: Math.ceil(totalCategories / pageSize) // Calculate total pages
+      }
     })
   } catch (error) {
+    console.log('ERROR =>', error)
+
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })

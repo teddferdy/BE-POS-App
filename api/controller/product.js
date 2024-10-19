@@ -227,12 +227,18 @@ exports.getAllProduct = async (req, res, next) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, pageSize = 10 } = req.query // Default page = 1, pageSize = 10
+
   try {
+    const offset = (page - 1) * pageSize // Calculate the offset for pagination
+
+    // Fetch products with pagination
     const getAllProduct = await Product.findAll({
       where: {
         store: store
-      }
+      },
+      limit: parseInt(pageSize), // Limit number of products per page
+      offset: parseInt(offset) // Offset based on the current page
     })
 
     console.log('getAllProduct =>', getAllProduct)
@@ -243,8 +249,7 @@ exports.getAllProductInTable = async (req, res, next) => {
         const categoryData = await Category.findOne({
           where: {
             id: items.dataValues.category
-          },
-          returning: true
+          }
         })
 
         return {
@@ -262,8 +267,7 @@ exports.getAllProductInTable = async (req, res, next) => {
             const categoryData = await SubCategoryProduct.findOne({
               where: {
                 id: val
-              },
-              returning: true
+              }
             })
 
             return categoryData
@@ -292,9 +296,20 @@ exports.getAllProductInTable = async (req, res, next) => {
 
     console.log('responseData =>', responseData)
 
+    // Get the total count of products for pagination
+    const totalProducts = await Product.count({
+      where: { store: store }
+    })
+
     return res.status(200).json({
       message: 'Success',
-      data: responseData.length > 0 ? responseData : []
+      data: responseData.length > 0 ? responseData : [],
+      pagination: {
+        currentPage: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalItems: totalProducts, // Total number of products
+        totalPages: Math.ceil(totalProducts / pageSize) // Total pages
+      }
     })
   } catch (error) {
     console.log('Error =>', error)

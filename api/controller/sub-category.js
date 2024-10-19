@@ -5,22 +5,27 @@ const Category = require('../../db/models/category')
 
 // Get All Sub-category
 exports.getAllSubCategory = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, pageSize = 10 } = req.query // Default values: page = 1, pageSize = 10
+
   try {
+    const offset = (page - 1) * pageSize // Calculate offset for pagination
+
+    // Fetch sub-categories with pagination
     const subCategory = await SubCategoryProduct.findAll({
       where: {
         store: store
       },
-      returning: true
+      limit: parseInt(pageSize), // Limit the number of results per page
+      offset: parseInt(offset) // Offset based on the current page
     })
 
+    // Fetch associated category data for each sub-category
     const resolvedSubCategories = await Promise.all(
       subCategory.map(async (items) => {
         const categoryData = await Category.findOne({
           where: {
             id: items.dataValues.idParentCategory
-          },
-          returning: true
+          }
         })
 
         return {
@@ -30,6 +35,7 @@ exports.getAllSubCategory = async (req, res, next) => {
       })
     )
 
+    // Parse JSON fields (if necessary) and construct the final response data
     const responseData = resolvedSubCategories.map((items) => {
       return {
         ...items,
@@ -37,9 +43,21 @@ exports.getAllSubCategory = async (req, res, next) => {
       }
     })
 
+    // Get the total count of sub-categories for the store
+    const totalSubCategories = await SubCategoryProduct.count({
+      where: { store: store }
+    })
+
+    // Return the paginated response
     return res.status(200).json({
       message: 'Success',
-      data: responseData.length > 0 ? responseData : []
+      data: responseData.length > 0 ? responseData : [],
+      pagination: {
+        currentPage: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalItems: totalSubCategories, // Total number of sub-categories
+        totalPages: Math.ceil(totalSubCategories / pageSize) // Total pages
+      }
     })
   } catch (error) {
     console.log('Error =>', error)

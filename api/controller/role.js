@@ -37,24 +37,45 @@ exports.getAllRole = async (req, res, next) => {
 // Get All Role To Table
 exports.getAllRoleInTable = async (req, res, next) => {
   try {
-    const getAllRole = await Role.findAll().then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
+    // Extract query parameters for pagination and status filtering
+    const { page = 1, limit = 10, status = 'all' } = req.query
+    const offset = (page - 1) * limit
+    const whereCondition = {}
+
+    // Set where condition based on status
+    if (status === 'true') {
+      whereCondition.status = true
+    } else if (status === 'false') {
+      whereCondition.status = false
+    }
+
+    // Fetch roles with pagination and filtering
+    const { rows: roles, count: totalRoles } = await Role.findAndCountAll({
+      where: whereCondition,
+      offset: parseInt(offset),
+      limit: parseInt(limit)
+    })
+
+    // Transform data (if needed)
+    const getAllRole = roles.map((items) => {
+      return { ...items.dataValues }
+    })
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllRole?.length > 0 ? getAllRole : []
+      data: getAllRole.length > 0 ? getAllRole : [],
+      pagination: {
+        total: totalRoles,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(totalRoles / limit)
+      }
     })
   } catch (error) {
     console.log('Error =>', error)
 
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      error: 'Internal Server Error'
     })
   } finally {
     console.log('resEND')
