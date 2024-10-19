@@ -36,13 +36,25 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
 
 // Get All TypePayment
 exports.getAllTypePayment = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, pageSize = 10 } = req.query // Default page = 1, pageSize = 10
+
   try {
+    const offset = (page - 1) * pageSize // Calculate offset for pagination
+
+    // Fetch type payments with pagination
     const subCategory = await TypePayment.findAll({
       where: {
         store: store
-      }
+      },
+      limit: parseInt(pageSize), // Limit the number of results per page
+      offset: parseInt(offset) // Offset based on the current page
     })
+
+    // Get the total count of type payments for pagination
+    const totalTypePayments = await TypePayment.count({
+      where: { store: store }
+    })
+
     return res.status(200).json({
       message: 'Success',
       data:
@@ -52,7 +64,13 @@ exports.getAllTypePayment = async (req, res, next) => {
                 ...items?.dataValues
               }
             })
-          : []
+          : [],
+      pagination: {
+        currentPage: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalItems: totalTypePayments, // Total number of payment types
+        totalPages: Math.ceil(totalTypePayments / pageSize) // Total pages
+      }
     })
   } catch (error) {
     console.log('Error =>', error)

@@ -37,18 +37,39 @@ exports.getAllPosition = async (req, res, next) => {
 // Get All Position To Table
 exports.getAllPositionInTable = async (req, res, next) => {
   try {
-    const getAllPosition = await Position.findAll().then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
+    // Extract pagination and status from query params
+    const { page = 1, limit = 10, status = 'all' } = req.query
+
+    const offset = (page - 1) * limit // Calculate offset for pagination
+
+    // Define where condition based on status filter
+    let whereCondition = {}
+    if (status === 'true') {
+      whereCondition = { status: true }
+    } else if (status === 'false') {
+      whereCondition = { status: false }
+    }
+
+    // Query the database with pagination and filtering
+    const { rows: getAllPosition, count: totalItems } =
+      await Position.findAndCountAll({
+        where: whereCondition,
+        offset: parseInt(offset),
+        limit: parseInt(limit)
       })
-    )
+
+    // Calculate total pages
+    const totalPages = Math.ceil(totalItems / limit)
 
     return res.status(200).json({
       message: 'Success',
-      data: getAllPosition?.length > 0 ? getAllPosition : []
+      data: getAllPosition?.length > 0 ? getAllPosition : [],
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: parseInt(page),
+        limit: parseInt(limit)
+      }
     })
   } catch (error) {
     console.log('Error =>', error)
@@ -58,7 +79,6 @@ exports.getAllPositionInTable = async (req, res, next) => {
     })
   } finally {
     console.log('resEND')
-    return res.end()
   }
 }
 
