@@ -122,8 +122,35 @@ exports.getAllLocation = async (req, res) => {
 // Get All Locations for Table
 exports.getAllLocationInTable = async (req, res) => {
   try {
-    const locations = await Location.findAll()
-    return res.status(200).json({ message: 'Success', data: locations })
+    // Pagination parameters
+    const { page = 1, limit = 10, status = 'all' } = req.query
+
+    // Calculate offset for pagination
+    const offset = (page - 1) * limit
+
+    // Filter based on status
+    let whereClause = {}
+    if (status === 'true') {
+      whereClause.status = true
+    } else if (status === 'false') {
+      whereClause.status = false
+    }
+
+    // Fetch locations with pagination and optional status filter
+    const { rows: locations, count } = await Location.findAndCountAll({
+      where: whereClause, // Apply status filter if any
+      limit: parseInt(limit), // Limit per page
+      offset: parseInt(offset) // Offset based on page number
+    })
+
+    // Return paginated and filtered results
+    return res.status(200).json({
+      message: 'Success',
+      data: locations,
+      total: count, // Total records count
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(count / limit)
+    })
   } catch (error) {
     console.log('Error =>', error)
     return res.status(500).json({ error: 'Internal Server Error' })
