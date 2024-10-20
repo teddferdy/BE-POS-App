@@ -4,14 +4,23 @@ const TypePayment = require('../../db/models/type_payment')
 
 // Get Type Payment By Store And Active
 exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, limit = 10 } = req.query // Get store, page, and limit from query params
+
   try {
-    const typePayment = await TypePayment.findAll({
+    // Calculate offset for pagination
+    const offset = (page - 1) * limit
+
+    // Fetch the type payments based on store, status, with pagination
+    const { rows: typePayment, count } = await TypePayment.findAndCountAll({
       where: {
         store: store,
         status: true
-      }
+      },
+      limit: parseInt(limit), // Number of items per page
+      offset: parseInt(offset) // Starting position for the current page
     })
+
+    // Return the paginated and filtered results
     return res.status(200).json({
       message: 'Success',
       data:
@@ -21,7 +30,10 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
                 ...items?.dataValues
               }
             })
-          : []
+          : [],
+      total: count, // Total number of records
+      currentPage: parseInt(page), // Current page number
+      totalPages: Math.ceil(count / limit) // Total number of pages
     })
   } catch (error) {
     console.log('Error =>', error)
@@ -36,23 +48,33 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
 
 // Get All TypePayment
 exports.getAllTypePayment = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10 } = req.query // Default page = 1, pageSize = 10
+  const { store, page = 1, pageSize = 10, status } = req.query // Default page = 1, pageSize = 10
 
   try {
     const offset = (page - 1) * pageSize // Calculate offset for pagination
 
-    // Fetch type payments with pagination
+    // Prepare the query conditions
+    const queryConditions = {
+      store: store
+    }
+
+    // Add status filter if specified
+    if (status === 'true') {
+      queryConditions.status = true // Filter for active status
+    } else if (status === 'false') {
+      queryConditions.status = false // Filter for inactive status
+    }
+
+    // Fetch type payments with pagination and status filtering
     const subCategory = await TypePayment.findAll({
-      where: {
-        store: store
-      },
+      where: queryConditions,
       limit: parseInt(pageSize), // Limit the number of results per page
       offset: parseInt(offset) // Offset based on the current page
     })
 
     // Get the total count of type payments for pagination
     const totalTypePayments = await TypePayment.count({
-      where: { store: store }
+      where: queryConditions
     })
 
     return res.status(200).json({
