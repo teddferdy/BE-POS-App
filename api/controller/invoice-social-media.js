@@ -71,16 +71,44 @@ exports.getInvoiceSocialMediaByIsActive = async (req, res, next) => {
 
 // Get All Social Media Invoice
 exports.getAllInvoiceSocialMedia = async (req, res, next) => {
-  const { store } = req.query
+  const {
+    store,
+    page = 1,
+    size = 10,
+    status = 'all',
+    isActive = 'all'
+  } = req.query // Default page = 1, size = 10
+  const limit = parseInt(size)
+  const offset = (parseInt(page) - 1) * limit
+
+  // Build dynamic filter based on status and isActive
+  let whereCondition = { store: store }
+
+  if (status === 'true') {
+    whereCondition.status = true
+  } else if (status === 'false') {
+    whereCondition.status = false
+  }
+
+  if (isActive === 'true') {
+    whereCondition.isActive = true
+  } else if (isActive === 'false') {
+    whereCondition.isActive = false
+  }
+
   try {
-    const socialMedia = await InvoiceSocialMedia.findAll({
-      where: {
-        store: store
-      }
-    })
+    const { count, rows: socialMedia } =
+      await InvoiceSocialMedia.findAndCountAll({
+        where: whereCondition,
+        limit: limit,
+        offset: offset
+      })
 
     return res.status(200).json({
       message: 'Success',
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
       data:
         socialMedia?.length > 0
           ? socialMedia?.map((items) => {

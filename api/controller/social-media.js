@@ -4,23 +4,24 @@ const SocialMedia = require('../../db/models/social_media')
 
 // Get All List To Cashier List
 exports.getAllSocialMedia = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, size = 10 } = req.query // Default page = 1, size = 10
+  const limit = parseInt(size)
+  const offset = (parseInt(page) - 1) * limit
+
   try {
-    const getAllCategory = await SocialMedia.findAll({
+    const { count, rows: getAllCategory } = await SocialMedia.findAndCountAll({
       where: {
         store: store
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
+      },
+      limit: limit,
+      offset: offset
+    })
 
     return res.status(200).json({
       message: 'Success',
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
       data: getAllCategory?.length > 0 ? getAllCategory : []
     })
   } catch (error) {
