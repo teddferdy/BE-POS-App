@@ -4,11 +4,44 @@ const Shift = require('../../db/models/shift')
 
 // Get All Shift
 exports.getAllShift = async (req, res, next) => {
+  const { page = 1, pageSize = 10, status = 'all' } = req.query // Default page = 1, pageSize = 10, status = 'all'
+
   try {
-    const shiftCategory = await Shift.findAll()
+    const offset = (page - 1) * pageSize // Calculate the offset for pagination
+
+    // Build the where condition based on the status filter
+    let statusCondition = {}
+    if (status === 'true') {
+      statusCondition = { status: true }
+    } else if (status === 'false') {
+      statusCondition = { status: false }
+    }
+
+    // Fetch shifts with pagination and status filter
+    const shiftCategory = await Shift.findAll({
+      where: {
+        ...statusCondition // Add the status condition if applicable
+      },
+      limit: parseInt(pageSize), // Limit number of shifts per page
+      offset: parseInt(offset) // Offset based on the current page
+    })
+
+    // Get the total count of shifts for pagination, considering the status filter
+    const totalShifts = await Shift.count({
+      where: {
+        ...statusCondition // Count based on the status filter
+      }
+    })
+
     return res.status(200).json({
       message: 'Success',
-      data: shiftCategory
+      data: shiftCategory,
+      pagination: {
+        currentPage: parseInt(page),
+        pageSize: parseInt(pageSize),
+        totalItems: totalShifts, // Total number of shifts
+        totalPages: Math.ceil(totalShifts / pageSize) // Total pages
+      }
     })
   } catch (error) {
     console.log('Error =>', error)

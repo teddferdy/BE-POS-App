@@ -227,16 +227,28 @@ exports.getAllProduct = async (req, res, next) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10 } = req.query // Default page = 1, pageSize = 10
+  const { store, page = 1, pageSize = 10, status = 'all' } = req.query // Default page = 1, pageSize = 10, status = 'all'
 
   try {
     const offset = (page - 1) * pageSize // Calculate the offset for pagination
 
-    // Fetch products with pagination
+    // Build the where condition based on the status filter
+    let statusCondition = {}
+    if (status === 'true') {
+      statusCondition = { status: true }
+    } else if (status === 'false') {
+      statusCondition = { status: false }
+    }
+
+    // Combine store and status filter
+    const whereCondition = {
+      store: store,
+      ...statusCondition // Add the status condition if applicable
+    }
+
+    // Fetch products with pagination and status filter
     const getAllProduct = await Product.findAll({
-      where: {
-        store: store
-      },
+      where: whereCondition,
       limit: parseInt(pageSize), // Limit number of products per page
       offset: parseInt(offset) // Offset based on the current page
     })
@@ -296,9 +308,9 @@ exports.getAllProductInTable = async (req, res, next) => {
 
     console.log('responseData =>', responseData)
 
-    // Get the total count of products for pagination
+    // Get the total count of products for pagination, considering the status filter
     const totalProducts = await Product.count({
-      where: { store: store }
+      where: whereCondition
     })
 
     return res.status(200).json({

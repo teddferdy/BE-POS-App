@@ -36,15 +36,22 @@ exports.getAllCategory = async (req, res, next) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10 } = req.query // Default values: page = 1, pageSize = 10
+  const { store, page = 1, pageSize = 10, status = 'all' } = req.query // Default values: page = 1, pageSize = 10
 
   try {
     const offset = (page - 1) * pageSize // Calculate offset for pagination
 
+    let whereClause = {}
+    if (status === 'true') {
+      whereClause.status = true
+    } else if (status === 'false') {
+      whereClause.status = false
+    }
+
+    whereClause.store = store
+
     const getAllCategory = await Category.findAll({
-      where: {
-        store: store
-      },
+      where: whereClause,
       limit: parseInt(pageSize), // Limit number of results
       offset: parseInt(offset) // Offset based on the current page
     }).then((res) =>
