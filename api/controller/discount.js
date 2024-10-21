@@ -4,16 +4,25 @@ const Discount = require('../../db/models/discount')
 
 // Get Discount By Location & Active
 exports.getAllDiscountByLocationAndActive = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, size = 10 } = req.query // Default page is 1, size is 10
+  const limit = parseInt(size)
+  const offset = (parseInt(page) - 1) * limit
+
   try {
-    const subCategory = await Discount.findAll({
+    const { count, rows: subCategory } = await Discount.findAndCountAll({
       where: {
         store: store,
         isActive: true
-      }
+      },
+      limit: limit,
+      offset: offset
     })
+
     return res.status(200).json({
       message: 'Success',
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
       data:
         subCategory?.length > 0
           ? subCategory?.map((items) => {
@@ -37,15 +46,31 @@ exports.getAllDiscountByLocationAndActive = async (req, res, next) => {
 
 // Get All Discount
 exports.getAllDiscount = async (req, res, next) => {
-  const { store } = req.query
+  const { store, page = 1, size = 10, status = 'all' } = req.query // Default page = 1, size = 10, status = 'all'
+  const limit = parseInt(size)
+  const offset = (parseInt(page) - 1) * limit
+
+  // Build dynamic filter based on status
+  let whereCondition = { store: store }
+
+  if (status === 'true') {
+    whereCondition.isActive = true
+  } else if (status === 'false') {
+    whereCondition.isActive = false
+  }
+
   try {
-    const subCategory = await Discount.findAll({
-      where: {
-        store: store
-      }
+    const { count, rows: subCategory } = await Discount.findAndCountAll({
+      where: whereCondition,
+      limit: limit,
+      offset: offset
     })
+
     return res.status(200).json({
       message: 'Success',
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
       data:
         subCategory?.length > 0
           ? subCategory?.map((items) => {
