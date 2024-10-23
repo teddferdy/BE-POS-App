@@ -8,6 +8,97 @@ const bcrypt = require('bcrypt')
 const moment = require('moment')
 const { Op } = require('sequelize')
 
+const { google } = require('googleapis')
+const path = require('path')
+const fs = require('fs')
+const CLIENT_ID =
+  '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
+const CLIENT_SECRET = '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'
+const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
+const REFRESH_TOKEN =
+  '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
+
+// Load Google API credentials
+const oauth2Client = new google.auth.OAuth2(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  REDIRECT_URI
+)
+
+// Set the credentials
+oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
+
+const folderId = '17ilBFQ8WOvIT40Fnkh5DegSqapImMZhh' // Replace with your Google Drive folder ID
+
+// Function to search for a file in Google Drive by name
+const findFileByName = async (fileName) => {
+  try {
+    const response = await drive.files.list({
+      q: `name='${fileName}' and '${folderId}' in parents`,
+      fields: 'files(id, name)',
+      spaces: 'drive'
+    })
+    return response.data.files[0] // Return the first matching file if found
+  } catch (error) {
+    throw new Error('Error searching for file on Google Drive')
+  }
+}
+
+// Function to delete a file by its Google Drive file ID
+const deleteFile = async (fileId) => {
+  try {
+    await drive.files.delete({ fileId })
+  } catch (error) {
+    throw new Error('Error deleting file from Google Drive')
+  }
+}
+
+// Function to upload an image to Google Drive
+const uploadImageToDrive = async (filePath, fileName) => {
+  const accessTokenInfo = await oauth2Client.getAccessToken()
+
+  if (!accessTokenInfo.token) {
+    throw new Error('Failed to obtain access token')
+  }
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error('File not found')
+  }
+
+  const fileMetadata = {
+    name: fileName,
+    parents: [folderId]
+  }
+
+  const media = {
+    mimeType: 'image/jpeg',
+    body: fs.createReadStream(filePath)
+  }
+
+  try {
+    const { data: file } = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id'
+    })
+
+    await drive.permissions.create({
+      fileId: file.id,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone'
+      }
+    })
+
+    return `https://drive.google.com/uc?id=${file.id}`
+  } catch (error) {
+    throw new Error('Failed to upload image')
+  }
+}
+
+// Use the access token for the Drive API
+const drive = google.drive({ version: 'v3', auth: oauth2Client })
+
 // Get User By Location
 exports.userByLocation = async (req, res) => {
   const { location } = req.query
@@ -300,46 +391,54 @@ exports.registerNewUser = async (req, res, next) => {
 // Edit User
 exports.editUser = async (req, res, next) => {
   try {
-    const body = req.body
-    const getUser = await User.update(
-      {
-        userName: body?.userName,
-        address: body?.address,
-        gender: body?.gender,
-        phoneNumber: body?.phoneNumber,
-        placeDateOfBirth: body?.placeDateOfBirth,
-        deletedAt: null
-      },
-      {
-        returning: true,
-        where: {
-          email: body.email,
-          id: body.id
-        }
-      }
-    ).then(([_, data]) => {
-      return data
+    const { body } = req
+    const imageFile = req.file
+    const existingUser = await User.findOne({
+      where: { email: body.email, id: body.id }
     })
 
-    if (getUser?.dataValues) {
-      return res.status(200).json({
-        message: 'Sukses Ubah Profile User',
-        data: []
-      })
-    } else {
-      return res.status(401).json({
-        message: 'User Tidak Ditemukan'
-      })
+    if (!existingUser) {
+      return res.status(404).json({ message: 'User not found' })
     }
-  } catch (error) {
-    console.log('ERROR BRAY', error)
 
-    return res.status(500).json({
-      message: 'Terjadi Kesalahan Internal Server'
+    let imageUrl = existingUser.imageUrl // Keep current image URL by default
+    let oldFileId
+
+    if (req.file) {
+      const oldImageName = path.basename(existingUser.imageUrl)
+      const uploadedImage = await uploadImageToDrive(
+        imageFile.path,
+        imageFile.originalname
+      )
+
+      if (oldImageName !== req.file.originalname) {
+        const oldImage = await findFileByName(oldImageName)
+        if (oldImage) oldFileId = oldImage.id
+        imageUrl = uploadedImage
+      }
+    }
+
+    const updatedUser = await existingUser.update({
+      userName: body.userName,
+      address: body.address,
+      gender: body.gender,
+      phoneNumber: body.phoneNumber,
+      placeDateOfBirth: body.placeDateOfBirth,
+      imageUrl: imageUrl,
+      deletedAt: null
     })
+
+    if (oldFileId) await deleteFile(oldFileId) // Delete old image if a new one was uploaded
+
+    return res.status(200).json({
+      message: 'Successfully updated user profile',
+      data: updatedUser
+    })
+  } catch (error) {
+    console.error('ERROR:', error)
+    return res.status(500).json({ message: 'Internal server error' })
   } finally {
-    console.log('resEND')
-    return res.end()
+    res.end()
   }
 }
 
