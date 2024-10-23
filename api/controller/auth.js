@@ -423,7 +423,7 @@ exports.editUser = async (req, res, next) => {
       address: body.address,
       gender: body.gender,
       phoneNumber: body.phoneNumber,
-      placeDateOfBirth: body.placeDateOfBirth,
+      placeDateOfBirth: body.placeDateOfBirth ? body.placeDateOfBirth : null,
       imageUrl: imageUrl,
       deletedAt: null
     })
