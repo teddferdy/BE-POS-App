@@ -11,6 +11,9 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.INTEGER
     },
+    image: {
+      type: DataTypes.STRING
+    },
     userType: {
       type: DataTypes.STRING,
       primaryKey: true
