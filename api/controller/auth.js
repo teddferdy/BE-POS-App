@@ -404,14 +404,14 @@ exports.editUser = async (req, res, next) => {
     let imageUrl = existingUser.imageUrl // Keep current image URL by default
     let oldFileId
 
-    if (req.file) {
+    if (imageFile) {
       const oldImageName = path.basename(existingUser.imageUrl)
       const uploadedImage = await uploadImageToDrive(
         imageFile.path,
         imageFile.originalname
       )
 
-      if (oldImageName !== req.file.originalname) {
+      if (oldImageName !== imageFile.originalname) {
         const oldImage = await findFileByName(oldImageName)
         if (oldImage) oldFileId = oldImage.id
         imageUrl = uploadedImage
@@ -430,9 +430,28 @@ exports.editUser = async (req, res, next) => {
 
     if (oldFileId) await deleteFile(oldFileId) // Delete old image if a new one was uploaded
 
+    const token = generateToken({ id: updatedUser.id })
+
+    const locationByIdUserLogin = await Location.findOne({
+      where: {
+        id: updatedUser.dataValues.store
+      }
+    })
+
+    const positionByIdUserLogin = await Position.findOne({
+      where: {
+        id: updatedUser.dataValues.position
+      }
+    })
+
     return res.status(200).json({
-      message: 'Successfully updated user profile',
-      data: updatedUser
+      message: 'Success Login',
+      token: token,
+      user: {
+        ...updatedUser?.dataValues,
+        storeName: locationByIdUserLogin?.dataValues?.nameStore ?? '',
+        positionName: positionByIdUserLogin?.dataValues?.name ?? ''
+      }
     })
   } catch (error) {
     console.error('ERROR:', error)
