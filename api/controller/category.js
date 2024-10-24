@@ -1,6 +1,8 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
 const Category = require('../../db/models/category')
+const excelJS = require('exceljs')
+const fs = require('fs')
 
 // Get All List To Cashier List
 exports.getAllCategory = async (req, res, next) => {
@@ -215,5 +217,50 @@ exports.deleteCategoryById = async (req, res, next) => {
   } finally {
     console.log('resEND')
     return res.end()
+  }
+}
+
+// Download Excel Template By Excel
+exports.exportCategory = async (req, res) => {
+  const workbook = new excelJS.Workbook() // Create a new workbook
+  const worksheet = workbook.addWorksheet('Category') // New Worksheet
+  const path = './files' // Path to download excel
+
+  const fs = require('fs')
+  if (!fs.existsSync(path)) {
+    fs.mkdirSync(path)
+  }
+
+  // Column for data in excel. key must match data key
+  worksheet.columns = [
+    { header: 'No.', key: 's_no', width: 10 },
+    { header: 'Category', key: 'category', width: 20 }
+  ]
+
+  // Making first line in excel bold
+  worksheet.getRow(1).eachCell((cell) => {
+    cell.font = { bold: true }
+  })
+
+  try {
+    // Write to buffer instead of saving to file
+    const buffer = await workbook.xlsx.writeBuffer()
+
+    // Set the correct headers for Excel
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader('Content-Disposition', 'attachment; filename=category.xlsx')
+
+    // Send the buffer as a response
+    res.send(buffer)
+  } catch (err) {
+    console.error('Error writing Excel file: ', err)
+    res.send({
+      status: 'error',
+      message: 'Something went wrong',
+      error: err.message
+    })
   }
 }
