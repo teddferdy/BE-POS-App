@@ -38,4 +38,7 @@ router.delete(
   categoryController?.deleteCategoryById
 )
 
+// Adding Download Excel
+router.get('/download-excel', authorization, categoryController?.exportCategory)
+
 module.exports = router
