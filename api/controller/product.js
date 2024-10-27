@@ -6,9 +6,11 @@ const Category = require('../../db/models/category')
 const SubCategoryProduct = require('../../db/models/sub_category')
 const { compareProduct } = require('../../utils/compare-value')
 const { Op } = require('sequelize')
-
-const { google } = require('googleapis')
+const excelJS = require('exceljs')
 const fs = require('fs')
+const { google } = require('googleapis')
+
+const path = './files'
 const CLIENT_ID =
   '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
 const CLIENT_SECRET = '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'
@@ -558,5 +560,80 @@ exports.deleteProductByIdAndLocation = async (req, res, next) => {
   } finally {
     console.log('resEND')
     return res.end()
+  }
+}
+
+// Download Excel Template By Excel with dropdown list of categories by storeId
+exports.exportProduct = async (req, res) => {
+  const { storeId } = req.params // Get storeId from the request parameters
+
+  // Create new workbook and worksheet
+  const workbook = new excelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Product')
+
+  // Ensure the download path exists
+  if (!fs.existsSync(path)) {
+    fs.mkdirSync(path, { recursive: true })
+  }
+
+  // Define columns for the worksheet
+  worksheet.columns = [
+    { header: 'No.', key: 's_no', width: 10 },
+    { header: 'Name Product', key: 'nameProduct', width: 20 },
+    { header: 'Image', key: 'image', width: 20 },
+    { header: 'Name', key: 'name', width: 20 },
+    { header: 'Description', key: 'description', width: 20 },
+    { header: 'Category', key: 'category', width: 20 },
+    { header: 'Price', key: 'price', width: 20 }
+  ]
+
+  // Make the header row bold
+  worksheet.getRow(1).font = { bold: true }
+
+  try {
+    // Fetch categories filtered by storeId
+    const categories = await Category.findAll({
+      where: { storeId },
+      attributes: ['name'] // Only select the 'name' field
+    })
+
+    if (!categories.length) {
+      return res
+        .status(404)
+        .json({ message: 'No categories found for this store' })
+    }
+
+    // Prepare the category names for the dropdown list
+    const categoryList = categories.map((cat) => cat.name).join(',')
+
+    // Set data validation (dropdown list) for the 'Category' column (B2 onward)
+    worksheet.getCell('F2').dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formula1: `"${categoryList}"`, // Excel requires the list to be in double quotes
+      showDropDown: true
+    }
+
+    // Generate the Excel file in memory (buffer)
+    const buffer = await workbook.xlsx.writeBuffer()
+
+    // Set headers and send the Excel file as a response
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=product_template.xlsx'
+    )
+
+    res.send(buffer)
+  } catch (err) {
+    console.error('Error exporting product Excel file: ', err)
+    res.status(500).send({
+      status: 'error',
+      message: 'Something went wrong while generating the Excel file',
+      error: err.message
+    })
   }
 }
