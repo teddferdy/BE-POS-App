@@ -12,11 +12,11 @@ const { google } = require('googleapis')
 
 const path = './files'
 const CLIENT_ID =
-  '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
-const CLIENT_SECRET = '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'
+  '141136956429-99c0hj1rcg4hej4dvain1vsb3lh53o54.apps.googleusercontent.com'
+const CLIENT_SECRET = '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'
 const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
 const REFRESH_TOKEN =
-  '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
+  '1//04agsjRIkIgjFCgYIARAAGAQSNwF-L9IrSZdY-uNDJ6D9aYguj1DSiu_D1JDDrTPuF5-ChsfT73f8wFNOWNizxeFSzDiY3ZmQ-8c'
 
 // Load Google API credentials
 const oauth2Client = new google.auth.OAuth2(
