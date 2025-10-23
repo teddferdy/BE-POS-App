@@ -7,86 +7,80 @@ module.exports = {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
-        type: Sequelize.INTEGER
+        type: Sequelize.INTEGER,
       },
       image: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       userType: {
-        primaryKey: true,
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       userName: {
         allowNull: false,
         type: Sequelize.STRING,
-        primaryKey: true
+        unique: true, // ✅ unique instead of primaryKey
       },
       password: {
         allowNull: false,
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       email: {
         allowNull: false,
-        primaryKey: true,
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        unique: true, // ✅ unique instead of primaryKey
       },
       address: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       gender: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       phoneNumber: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       employeeID: {
         type: Sequelize.STRING,
-        primaryKey: true
+        unique: true, // ✅ unique instead of primaryKey
       },
       statusEmployee: {
-        type: Sequelize.BOOLEAN
+        type: Sequelize.BOOLEAN,
       },
       statusActive: {
-        type: Sequelize.BOOLEAN
+        type: Sequelize.BOOLEAN,
       },
       placeDateOfBirth: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       store: {
-        allowNull: false,
         type: Sequelize.INTEGER,
-        primaryKey: true
       },
       shift: {
-        allowNull: true,
         type: Sequelize.INTEGER,
-        primaryKey: true
       },
       position: {
-        allowNull: true,
         type: Sequelize.INTEGER,
-        primaryKey: true
       },
       accessMenu: {
-        type: Sequelize.TEXT
+        type: Sequelize.TEXT,
       },
       createdAt: {
         allowNull: false,
-        type: Sequelize.DATE
+        type: Sequelize.DATE,
       },
       updatedAt: {
         allowNull: false,
-        type: Sequelize.DATE
+        type: Sequelize.DATE,
       },
       modifiedAt: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       deletedAt: {
-        type: Sequelize.STRING
-      }
+        type: Sequelize.STRING,
+      },
     })
   },
+
   async down(queryInterface) {
     await queryInterface.dropTable('user')
-  }
+  },
 }

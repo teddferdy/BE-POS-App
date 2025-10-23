@@ -25,8 +25,10 @@ const positionRoutes = require('./routes/position')
 
 const app = express()
 const corsOptions = {
-  credentials: true,
-  optionsSuccessStatus: 200
+  origin: 'http://localhost:3000', // your frontend URL
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }
 
 // Middleware
@@ -66,7 +68,7 @@ app.use((err, req, res) => {
 })
 
 // Start server
-const port = process.env.POSTGRES_PORT || 5000
+const port = process.env.POSTGRES_PORT || 5001
 const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`)
 })

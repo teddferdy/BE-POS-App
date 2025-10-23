@@ -12,11 +12,11 @@ const { google } = require('googleapis')
 const path = require('path')
 const fs = require('fs')
 const CLIENT_ID =
-  '1039712103717-fl89g0bcmekc2lqeajtdnp1ka11u0s6u.apps.googleusercontent.com'
-const CLIENT_SECRET = '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'
+  '141136956429-99c0hj1rcg4hej4dvain1vsb3lh53o54.apps.googleusercontent.com'
+const CLIENT_SECRET = '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'
 const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
 const REFRESH_TOKEN =
-  '1//04J2pW5UoO4JOCgYIARAAGAQSNwF-L9IreIexo4pOeEPsEMjKXcyFDmPcoTL8pLWD8YCo0-wTfdSIGG2_MGSZDHLa8E3AIXDNpAg'
+  '1//04agsjRIkIgjFCgYIARAAGAQSNwF-L9IrSZdY-uNDJ6D9aYguj1DSiu_D1JDDrTPuF5-ChsfT73f8wFNOWNizxeFSzDiY3ZmQ-8c'
 
 // Load Google API credentials
 const oauth2Client = new google.auth.OAuth2(
@@ -215,93 +215,78 @@ exports.getAllUser = async (req, res, next) => {
   }
 }
 
-exports.login = async (req, res, next) => {
-  const body = req.body
-  const bodyUserNameOrEmail = body.userName // userName input from FE
+exports.login = async (req, res) => {
+  const { userName, password } = req.body
 
   try {
-    // Regex to check if the input is an email
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyUserNameOrEmail)
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userName)
 
-    // Find user by either email or username
-    const findUser = isEmail
-      ? await User.findOne({
-          where: {
-            email: bodyUserNameOrEmail
-          }
-        })
-      : await User.findOne({
-          where: {
-            userName: bodyUserNameOrEmail
-          }
-        })
+    // Cari user berdasarkan email atau username
+    const findUser = await User.findOne({
+      where: isEmail
+        ? { email: userName.toLowerCase() }
+        : { userName: userName.toLowerCase() },
+      paranoid: false // opsional untuk test
+    })
 
-    console.log('findUser =>', findUser)
+    console.log('findUser =>', findUser?.dataValues || null)
 
-    // If no user is found or password does not match
-    if (!findUser || !body.password === findUser.password) {
+    if (!findUser) {
       return res.status(401).json({
-        message: 'User Name / Email & Password Tidak Ditemukan'
+        message: 'User Name / Email Tidak Ditemukan'
       })
     }
 
-    // Update the user's status to active
+    // Cocokkan password
+    const isPasswordValid = await bcrypt.compare(password, findUser.password)
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        message: 'Password Salah'
+      })
+    }
+
+    // Update status active
     await User.update(
       { statusActive: true },
       {
-        where: isEmail
-          ? { email: bodyUserNameOrEmail }
-          : { userName: bodyUserNameOrEmail }
+        where: { id: findUser.id }
       }
     )
 
-    // Generate a token for the user
-    const getToken = generateToken({
-      id: findUser.id
-    })
+    // Generate token
+    const getToken = generateToken({ id: findUser.id })
 
-    // Set token in a cookie
-    if (
-      findUser.dataValues.userType !== 'user' &&
-      findUser.dataValues.userType !== 'admin'
-    ) {
+    // Jika userType bukan admin/user
+    if (!['admin', 'user'].includes(findUser.userType)) {
       return res.status(200).json({
         message: 'Success Login',
         token: getToken,
-        user: findUser?.dataValues
-      })
-    } else {
-      const locationByIdUserLogin = await Location.findOne({
-        where: {
-          id: findUser.dataValues.store
-        }
-      })
-
-      const positionByIdUserLogin = await Position.findOne({
-        where: {
-          id: findUser.dataValues.position
-        }
-      })
-
-      return res.status(200).json({
-        message: 'Success Login',
-        token: getToken,
-        user: {
-          ...findUser?.dataValues,
-          storeName: locationByIdUserLogin?.dataValues?.nameStore ?? '',
-          positionName: positionByIdUserLogin?.dataValues?.name ?? ''
-        }
+        user: findUser
       })
     }
-  } catch (error) {
-    console.log('ERROR BRAY =>', error)
 
+    // Ambil data tambahan
+    const location = await Location.findOne({ where: { id: findUser.store } })
+    const position = await Position.findOne({
+      where: { id: findUser.position }
+    })
+
+    return res.status(200).json({
+      message: 'Success Login',
+      token: getToken,
+      user: {
+        ...findUser.toJSON(),
+        storeName: location?.nameStore ?? '',
+        positionName: position?.name ?? ''
+      }
+    })
+  } catch (error) {
+    console.error('ERROR LOGIN =>', error)
     return res.status(500).json({
       message: 'Terjadi Kesalahan Internal Server'
     })
   } finally {
     console.log('resEND')
-    return res.end()
   }
 }
 
