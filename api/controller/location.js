@@ -22,8 +22,8 @@ const Shift = require('../../db/models/shift')
 
 const { compareObjects } = require('../../utils/compare-value')
 
-const CLIENT_ID =
-  '141136956429-99c0hj1rcg4hej4dvain1vsb3lh53o54.apps.googleusercontent.com'
+const process = require('process')
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const CLIENT_SECRET = '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'
 const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
 const REFRESH_TOKEN =
