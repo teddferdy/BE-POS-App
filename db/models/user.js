@@ -2,7 +2,8 @@
 const { DataTypes } = require('sequelize')
 const bcrypt = require('bcrypt')
 const sequelize = require('../../config/database')
-module.exports = sequelize.define(
+
+const User = sequelize.define(
   'user',
   {
     id: {
@@ -11,77 +12,44 @@ module.exports = sequelize.define(
       primaryKey: true,
       type: DataTypes.INTEGER
     },
-    image: {
-      type: DataTypes.STRING
-    },
-    userType: {
-      type: DataTypes.STRING,
-      primaryKey: true
-    },
+    image: DataTypes.STRING,
+    userType: DataTypes.STRING,
     userName: {
       allowNull: false,
       type: DataTypes.STRING,
-      primaryKey: true
+      unique: true
     },
     password: {
+      allowNull: false,
       type: DataTypes.STRING
     },
     confirmPassword: {
       type: DataTypes.VIRTUAL,
       set(value) {
-        if (value === this.password) {
-          const hashPassword = bcrypt.hashSync(value, 10)
-          this.setDataValue('password', hashPassword)
-        } else {
+        if (value !== this.password) {
           throw new Error('Password & Confirmation Password Tidak Sama')
         }
       }
     },
     email: {
       allowNull: false,
-      primaryKey: true,
-      type: DataTypes.STRING
+      type: DataTypes.STRING,
+      unique: true
     },
-    address: {
-      type: DataTypes.STRING
-    },
-    gender: {
-      type: DataTypes.STRING
-    },
-    phoneNumber: {
-      type: DataTypes.STRING
-    },
+    address: DataTypes.STRING,
+    gender: DataTypes.STRING,
+    phoneNumber: DataTypes.STRING,
     employeeID: {
       type: DataTypes.STRING,
-      primaryKey: true
+      unique: true
     },
-    statusEmployee: {
-      type: DataTypes.BOOLEAN
-    },
-    statusActive: {
-      type: DataTypes.BOOLEAN
-    },
-    placeDateOfBirth: {
-      type: DataTypes.STRING
-    },
-    store: {
-      allowNull: false,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    shift: {
-      allowNull: true,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    position: {
-      allowNull: true,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    accessMenu: {
-      type: DataTypes.TEXT
-    },
+    statusEmployee: DataTypes.BOOLEAN,
+    statusActive: DataTypes.BOOLEAN,
+    placeDateOfBirth: DataTypes.STRING,
+    store: DataTypes.INTEGER,
+    shift: DataTypes.INTEGER,
+    position: DataTypes.INTEGER,
+    accessMenu: DataTypes.TEXT,
     createdAt: {
       allowNull: false,
       type: DataTypes.DATE
@@ -90,16 +58,21 @@ module.exports = sequelize.define(
       allowNull: false,
       type: DataTypes.DATE
     },
-    modifiedAt: {
-      type: DataTypes.STRING
-    },
-    deletedAt: {
-      type: DataTypes.STRING
-    }
+    modifiedAt: DataTypes.STRING,
+    deletedAt: DataTypes.STRING
   },
   {
     paranoid: true,
     freezeTableName: true,
-    modelName: 'user'
+    modelName: 'user',
+    hooks: {
+      beforeSave: async (user) => {
+        if (user.changed('password')) {
+          user.password = await bcrypt.hash(user.password, 10)
+        }
+      }
+    }
   }
 )
+
+module.exports = User
