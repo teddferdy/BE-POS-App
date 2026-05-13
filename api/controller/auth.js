@@ -182,9 +182,6 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
     return res.status(500).json({
       error: 'Internal Server Error'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
@@ -209,9 +206,6 @@ exports.getAllUser = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
@@ -327,10 +321,11 @@ exports.registerNewUser = async (req, res, next) => {
       const position = body?.position !== undefined ? body.position : 0 // Set to 0 or a default valid value
 
       // Create new user in the database
+      const hashedPassword = bcrypt.hashSync(body?.password, 10)
       const createUser = await User.create({
         userType: body.userType || 'user', // Use the provided userType, default to 'user'
         userName: body?.userName,
-        password: body?.password,
+        password: hashedPassword,
         email: body?.email,
         address: body.address,
         employeeID: employeeID, // Assign generated Employee ID
@@ -441,33 +436,56 @@ exports.editUser = async (req, res, next) => {
   } catch (error) {
     console.error('ERROR:', error)
     return res.status(500).json({ message: 'Internal server error' })
-  } finally {
-    res.end()
   }
 }
 
 // Reset Password
 exports.resetPassword = async (req, res, next) => {
   const body = req?.body
+  console.log('BODY', body)
+
+  const data = await User.findAll()
+  console.log('data =>', data)
+
+  if (!body?.userName || !body?.password) {
+    return res.status(400).json({
+      error: 'Username dan Password tidak boleh kosong'
+    })
+  }
+
   try {
+    const usernameLower = body.userName.toLowerCase()
+
+    const existingUser = await User.findOne({
+      where: { userName: usernameLower }
+    })
+
+    if (!existingUser) {
+      return res.status(404).json({
+        error: 'User tidak ditemukan'
+      })
+    }
+
     await User.update(
       {
-        password: bcrypt.hashSync(body?.password, 10)
+        password: bcrypt.hashSync(body.password, 10)
       },
       {
         where: {
-          userName: body?.userName
+          userName: usernameLower
         }
       }
     )
 
     const findUser = await User.findOne({
       where: {
-        userName: body?.userName
+        userName: usernameLower
       }
     })
 
-    if (findUser.dataValues) {
+    console.log('FIND USER =>', findUser)
+
+    if (findUser?.dataValues) {
       const result = findUser.toJSON()
 
       result.token = generateToken({
@@ -484,12 +502,10 @@ exports.resetPassword = async (req, res, next) => {
       })
     }
   } catch (error) {
+    console.log('ERROR =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
@@ -551,8 +567,5 @@ exports.logout = async (req, res, next) => {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
