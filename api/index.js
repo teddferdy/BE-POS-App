@@ -1,8 +1,12 @@
+/* eslint-disable no-unused-vars */
 /* eslint-disable no-undef */
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
+const rateLimit = require('express-rate-limit')
+const helmet = require('helmet')
+const compression = require('compression')
 
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
@@ -31,7 +35,20 @@ const corsOptions = {
   credentials: true
 }
 
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: {
+    success: false,
+    message: 'Too many requests, please try again later.'
+  }
+})
+
 // Middleware
+app.set('trust proxy', 1)
+app.use(helmet())
+app.use(compression())
+app.use(limiter)
 app.use(cors(corsOptions))
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
@@ -62,9 +79,20 @@ const routes = [
 routes.forEach(({ path, route }) => app.use(path, route))
 
 // Error handling middleware
-app.use((err, req, res) => {
+app.use((err, req, res, next) => {
   console.error(err.stack)
-  res.status(500).send({ error: 'Something went wrong!' })
+
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal Server Error'
+  })
+})
+
+app.get('/', (_, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'API is running'
+  })
 })
 
 // Start server
