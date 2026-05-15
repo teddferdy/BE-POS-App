@@ -1,426 +1,317 @@
-/* eslint-disable no-unused-vars */
-/* eslint-disable no-unsafe-finally */
-const Product = require('../../db/models/product')
-const BestSelling = require('../../db/models/best_selling')
-const Category = require('../../db/models/category')
-const Location = require('../../db/models/location')
-const Member = require('../../db/models/member')
-const User = require('../../db/models/user')
+const db = require('../../db/models')
+const { Op } = require('sequelize')
 
-// get Product
-exports.getProduct = async (req, res, next) => {
-  const { store } = req.query
-  try {
-    const getAllProduct = await Product.findAll({
-      store: store
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
+const overviewController = {
+  async getDashboard(req, res) {
+    try {
+      const { store } = req.query
+
+      const [
+        products,
+        categories,
+        locations,
+        members,
+        users,
+        bestSelling
+      ] = await Promise.all([
+        db.product.findAll({ where: { store }, attributes: ['id', 'status'] }),
+        db.category.findAll({ where: { store }, attributes: ['id', 'status'] }),
+        db.location.findAll({ attributes: ['id', 'status'] }),
+        db.member.findAll({ where: { store }, attributes: ['id'] }),
+        db.user.findAll({ attributes: ['id'] }),
+        db.best_selling.findAll({
+          where: store ? { store } : {},
+          order: [['totalSelling', 'DESC']],
+          limit: 5
+        })
+      ])
+
+      const counts = {
+        products: {
+          total: products.length,
+          active: products.filter(p => p.status).length,
+          inactive: products.filter(p => !p.status).length
+        },
+        categories: {
+          total: categories.length,
+          active: categories.filter(c => c.status).length,
+          inactive: categories.filter(c => !c.status).length
+        },
+        locations: {
+          total: locations.length,
+          active: locations.filter(l => l.status).length,
+          inactive: locations.filter(l => !l.status).length
+        },
+        members: {
+          total: members.length
+        },
+        users: {
+          total: users.length
         }
-        return getData
-      })
-    )
-
-    // Get By True
-    const getAllByTrue = await Product.findAll({
-      where: {
-        store: store,
-        status: true
       }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get dashboard data',
+        data: {
+          counts,
+          bestSelling
         }
-        return getData
       })
-    )
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
 
-    // Get By False
-    const getAllByFalse = await Product.findAll({
-      where: {
-        store: store,
-        status: false
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
+  async getProductSummary(req, res) {
+    try {
+      const { store } = req.query
+
+      const products = await db.product.findAll({
+        where: { store },
+        attributes: ['id', 'status']
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get product summary',
+        data: {
+          total: products.length,
+          active: products.filter(p => p.status).length,
+          inactive: products.filter(p => !p.status).length
         }
-        return getData
       })
-    )
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
 
-    return res.status(200).json({
-      message: 'Success',
-      data: {
-        total: getAllProduct?.length || 0,
-        active: getAllByTrue?.length || 0,
-        notActive: getAllByFalse?.length || 0
-      }
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  async getCategorySummary(req, res) {
+    try {
+      const { store } = req.query
+
+      const categories = await db.category.findAll({
+        where: { store },
+        attributes: ['id', 'status']
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get category summary',
+        data: {
+          total: categories.length,
+          active: categories.filter(c => c.status).length,
+          inactive: categories.filter(c => !c.status).length
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getLocationSummary(req, res) {
+    try {
+      const locations = await db.location.findAll({
+        attributes: ['id', 'status']
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get location summary',
+        data: {
+          total: locations.length,
+          active: locations.filter(l => l.status).length,
+          inactive: locations.filter(l => !l.status).length
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getMemberSummary(req, res) {
+    try {
+      const { store } = req.query
+
+      const members = await db.member.findAll({
+        where: { store },
+        attributes: ['id']
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get member summary',
+        data: {
+          total: members.length
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getUserSummary(req, res) {
+    try {
+      const users = await db.user.findAll({
+        attributes: ['id']
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get user summary',
+        data: {
+          total: users.length
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getBestSelling(req, res) {
+    try {
+      const { store, limit = 5 } = req.query
+
+      const where = store ? { store } : {}
+
+      const bestSelling = await db.best_selling.findAll({
+        where,
+        order: [['totalSelling', 'DESC']],
+        limit: parseInt(limit)
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get best selling',
+        data: bestSelling
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getLatestMembers(req, res) {
+    try {
+      const { store, limit = 5 } = req.query
+
+      const members = await db.member.findAll({
+        where: { store },
+        order: [['id', 'DESC']],
+        limit: parseInt(limit)
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get latest members',
+        data: members
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getLatestCategories(req, res) {
+    try {
+      const { store, limit = 5 } = req.query
+
+      const categories = await db.category.findAll({
+        where: { store },
+        order: [['id', 'DESC']],
+        limit: parseInt(limit)
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get latest categories',
+        data: categories
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getLatestLocations(req, res) {
+    try {
+      const limit = parseInt(req.query.limit) || 5
+
+      const locations = await db.location.findAll({
+        order: [['id', 'DESC']],
+        limit
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get latest locations',
+        data: locations
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getLatestProducts(req, res) {
+    try {
+      const { store, limit = 5 } = req.query
+
+      const products = await db.product.findAll({
+        where: { store },
+        order: [['id', 'DESC']],
+        limit: parseInt(limit)
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get latest products',
+        data: products
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
   }
 }
 
-// get Category
-exports.getCategory = async (req, res, next) => {
-  const { store } = req.query
-
-  //
-  try {
-    const getAllCategory = await Category.findAll({
-      where: {
-        store: store
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    // Get By True
-    const getAllByTrue = await Category.findAll({
-      where: {
-        store: store,
-        status: true
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    // Get By False
-    const getAllByFalse = await Category.findAll({
-      where: {
-        store: store,
-        status: false
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: {
-        total: getAllCategory?.length || 0,
-        active: getAllByTrue?.length || 0,
-        notActive: getAllByFalse?.length || 0
-      }
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// Get Location
-exports.getLocation = async (req, res, next) => {
-  try {
-    const getAllLocation = await Location.findAll().then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    // Get By True
-    const getAllByTrue = await Location.findAll({
-      where: {
-        status: true
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    // Get By False
-    const getAllByFalse = await Location.findAll({
-      where: {
-        status: false
-      }
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: {
-        total: getAllLocation?.length || 0,
-        active: getAllByTrue?.length || 0,
-        notActive: getAllByFalse?.length || 0
-      }
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// Get Member
-exports.getMember = async (req, res, next) => {
-  const { store } = req.query
-  try {
-    const getAllMember = await Member.findAll({
-      store: store
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: {
-        total: getAllMember.length || 0
-      }
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// Get User
-exports.getUser = async (req, res, next) => {
-  try {
-    const getAllUser = await User.findAll().then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: {
-        total: getAllUser.length || 0
-      }
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// Get Best Selling By Count
-exports.getBestSellingByCount = async (req, res, next) => {
-  const { store } = req.query
-
-  try {
-    const whereCondition = store ? { store } : {}
-
-    const bestSellingItems = await BestSelling.findAll({
-      order: [['totalSelling', 'DESC']],
-      where: whereCondition,
-      limit: 5
-    })
-
-    const formattedItems = bestSellingItems.map((item) => {
-      return { ...item.dataValues }
-    })
-
-    return res.status(200).json({
-      message: 'Success',
-      data: formattedItems.length > 0 ? formattedItems : []
-    })
-  } catch (error) {
-    console.error(error) // Log the error for debugging
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-  }
-}
-
-// Get Member List By Descending / Latest
-exports.getMemberDescending = async (req, res, next) => {
-  const { store } = req.query
-
-  try {
-    const getAllMember = await Member.findAll({
-      order: [['id', 'DESC']],
-      where: {
-        store: store
-      },
-      limit: 5
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: getAllMember
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// get Category List By Descending / Latest
-exports.getCategoryDescending = async (req, res, next) => {
-  const { store } = req.query
-
-  try {
-    const getAllCategory = await Category.findAll({
-      order: [['id', 'DESC']],
-      where: {
-        store: store
-      },
-      limit: 5
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: getAllCategory
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// Get Location List By Descending / Latest
-exports.getLocationDescending = async (req, res, next) => {
-  try {
-    const getAllLocation = await Location.findAll({
-      order: [['id', 'DESC']],
-      limit: 5
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: getAllLocation
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
-
-// Get Product List By Descending / Latest
-exports.getProductDescending = async (req, res, next) => {
-  const { store } = req.query
-
-  try {
-    const getAllProduct = await Product.findAll({
-      order: [['id', 'DESC']],
-      where: {
-        store: store
-      },
-      limit: 5
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      message: 'Success',
-      data: getAllProduct
-    })
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
-    })
-  } finally {
-    console.log('resEND')
-    return res.end()
-  }
-}
+module.exports = overviewController

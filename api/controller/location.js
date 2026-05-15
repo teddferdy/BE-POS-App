@@ -1,7 +1,5 @@
 /* eslint-disable no-unsafe-finally */
 /* eslint-disable no-unused-vars */
-const { google } = require('googleapis')
-const fs = require('fs')
 const Location = require('../../db/models/location')
 // Need Update
 const User = require('../../db/models/user')
@@ -21,92 +19,8 @@ const Transaction = require('../../db/models/transaction')
 const Shift = require('../../db/models/shift')
 
 const { compareObjects } = require('../../utils/compare-value')
-
-const process = require('process')
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID
-const CLIENT_SECRET = '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'
-const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
-const REFRESH_TOKEN =
-  '1//04agsjRIkIgjFCgYIARAAGAQSNwF-L9IrSZdY-uNDJ6D9aYguj1DSiu_D1JDDrTPuF5-ChsfT73f8wFNOWNizxeFSzDiY3ZmQ-8c'
-
-// Load Google API credentials
-const oauth2Client = new google.auth.OAuth2(
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REDIRECT_URI
-)
-
-// Set the credentials
-oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
-const folderId = '15L9FRd7LVo8iXS7_h06AV-5UVLmK5pOd'
-
-// Function to search for a file in Google Drive by name
-const findFileByName = async (fileName) => {
-  try {
-    const response = await drive.files.list({
-      q: `name='${fileName}' and '${folderId}' in parents`,
-      fields: 'files(id, name)',
-      spaces: 'drive'
-    })
-    return response.data.files[0] // Return the first matching file if found
-  } catch (error) {
-    throw new Error('Error searching for file on Google Drive')
-  }
-}
-
-// Function to delete a file by its Google Drive file ID
-const deleteFile = async (fileId) => {
-  try {
-    await drive.files.delete({ fileId })
-  } catch (error) {
-    throw new Error('Error deleting file from Google Drive')
-  }
-}
-
-const uploadImageToDrive = async (filePath, fileName) => {
-  const accessTokenInfo = await oauth2Client.getAccessToken()
-
-  if (!accessTokenInfo.token) {
-    throw new Error('Failed to obtain access token')
-  }
-
-  if (!fs.existsSync(filePath)) {
-    throw new Error('File not found')
-  }
-
-  const fileMetadata = {
-    name: fileName,
-    parents: [folderId]
-  }
-
-  const media = {
-    mimeType: 'image/jpeg',
-    body: fs.createReadStream(filePath)
-  }
-
-  try {
-    const { data: file } = await drive.files.create({
-      resource: fileMetadata,
-      media: media,
-      fields: 'id'
-    })
-
-    await drive.permissions.create({
-      fileId: file.id,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone'
-      }
-    })
-
-    return `https://drive.google.com/uc?id=${file.id}`
-  } catch (error) {
-    throw new Error('Failed to upload image')
-  }
-}
-
-// Use the access token for the Drive API
-const drive = google.drive({ version: 'v3', auth: oauth2Client })
+const { uploadToCloudinary, deleteFromCloudinary } = require('../../utils/cloudinaryStorage')
+const { downloadLocationTemplate, parseLocationTemplate } = require('../../utils/excelTemplate')
 
 // Get All Locations for Dropdown
 exports.getAllLocation = async (req, res) => {
@@ -168,12 +82,9 @@ exports.addNewLocation = async (req, res) => {
     if (existingLocation)
       return res.status(403).json({ message: 'Location already exists' })
 
-    const existingFile = await findFileByName(imageFile.originalname)
-    if (existingFile) await drive.files.delete({ fileId: existingFile.id })
-
-    const imageUrl = await uploadImageToDrive(
+    const imageUrl = await uploadToCloudinary(
       imageFile.path,
-      imageFile.originalname
+      'pos-app-locations'
     )
 
     await Location.create({
@@ -209,9 +120,10 @@ exports.editLocationById = async (req, res) => {
 
     let imageUrl = dataExist.image
     if (req.file) {
-      const oldImageFileId = dataExist.image.split('id=')[1].split('&')[0]
-      await drive.files.delete({ fileId: oldImageFileId })
-      imageUrl = await uploadImageToDrive(req.file.path, req.file.originalname)
+      if (dataExist.image) {
+        await deleteFromCloudinary(dataExist.image)
+      }
+      imageUrl = await uploadToCloudinary(req.file.path, 'pos-app-locations')
     }
 
     const updatedData = { ...rest, image: imageUrl, nameStore, status }
@@ -282,5 +194,221 @@ const batchUpdateModels = async (id, updateFields) => {
 
   for (const model of modelsToUpdate) {
     await model.update(updateFields, { where: { store: id } })
+  }
+}
+
+// Download Location Template
+exports.downloadTemplate = async (req, res) => {
+  try {
+    const existingLocations = await Location.findAll({
+      attributes: ['id', 'nameStore', 'image', 'address', 'detailLocation', 'phoneNumber', 'status']
+    })
+
+    const buffer = await downloadLocationTemplate(existingLocations)
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=template_lokasi.xlsx'
+    )
+
+    res.send(buffer)
+  } catch (err) {
+    console.error('Error downloading template:', err)
+    res.status(500).json({
+      status: 'error',
+      message: 'Gagal mengunduh template',
+      error: err.message
+    })
+  }
+}
+
+// Import Location from Excel Template
+exports.importLocation = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'File Excel diperlukan'
+    })
+  }
+
+  try {
+    const locations = await parseLocationTemplate(req.file.buffer)
+
+    if (!locations.length) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Data lokasi tidak ditemukan di file Excel'
+      })
+    }
+
+    const imageFiles = req.files || []
+    const imageMap = {}
+    imageFiles.forEach(file => {
+      const baseName = file.originalname.replace(/\.[^/.]+$/, '').toLowerCase()
+      imageMap[baseName] = file.path
+    })
+
+    const results = {
+      created: [],
+      updated: [],
+      errors: []
+    }
+
+    for (const location of locations) {
+      try {
+        if (!location.nameStore) {
+          results.errors.push({
+            no: location.no,
+            message: 'Nama toko kosong'
+          })
+          continue
+        }
+
+        const statusValue = location.status.toLowerCase() === 'aktif'
+        const locationFileName = location.nameStore.toLowerCase().replace(/\s+/g, '-')
+
+        if (location.id) {
+          const existingLocation = await Location.findOne({
+            where: { id: location.id }
+          })
+
+          if (existingLocation) {
+            const updateData = {
+              nameStore: location.nameStore,
+              address: location.address,
+              detailLocation: location.detailLocation,
+              phoneNumber: location.phoneNumber,
+              status: statusValue
+            }
+
+            let imageUrl = location.image
+
+            if (imageMap[locationFileName]) {
+              if (existingLocation.image) {
+                await deleteFromCloudinary(existingLocation.image)
+              }
+              imageUrl = await uploadToCloudinary(imageMap[locationFileName], 'pos-app-locations')
+            } else if (location.image && location.image !== existingLocation.image) {
+              if (existingLocation.image) {
+                await deleteFromCloudinary(existingLocation.image)
+              }
+              imageUrl = location.image
+            } else if (!location.image) {
+              imageUrl = existingLocation.image
+            }
+
+            if (imageUrl) {
+              updateData.image = imageUrl
+            }
+
+            await existingLocation.update(updateData)
+            results.updated.push({
+              id: location.id,
+              nameStore: location.nameStore
+            })
+          } else {
+            let imageUrl = location.image
+
+            if (imageMap[locationFileName]) {
+              imageUrl = await uploadToCloudinary(imageMap[locationFileName], 'pos-app-locations')
+            }
+
+            const newLocation = await Location.create({
+              id: location.id,
+              nameStore: location.nameStore,
+              image: imageUrl || location.image,
+              address: location.address,
+              detailLocation: location.detailLocation,
+              phoneNumber: location.phoneNumber,
+              status: statusValue
+            })
+            results.created.push({
+              id: newLocation.id,
+              nameStore: newLocation.nameStore
+            })
+          }
+        } else {
+          const existingByName = await Location.findOne({
+            where: { nameStore: location.nameStore }
+          })
+
+          if (existingByName) {
+            const updateData = {
+              address: location.address,
+              detailLocation: location.detailLocation,
+              phoneNumber: location.phoneNumber,
+              status: statusValue
+            }
+
+            let imageUrl = location.image
+
+            if (imageMap[locationFileName]) {
+              if (existingByName.image) {
+                await deleteFromCloudinary(existingByName.image)
+              }
+              imageUrl = await uploadToCloudinary(imageMap[locationFileName], 'pos-app-locations')
+            } else if (location.image && location.image !== existingByName.image) {
+              if (existingByName.image) {
+                await deleteFromCloudinary(existingByName.image)
+              }
+              imageUrl = location.image
+            } else if (!location.image) {
+              imageUrl = existingByName.image
+            }
+
+            if (imageUrl) {
+              updateData.image = imageUrl
+            }
+
+            await existingByName.update(updateData)
+            results.updated.push({
+              id: existingByName.id,
+              nameStore: location.nameStore
+            })
+          } else {
+            let imageUrl = location.image
+
+            if (imageMap[locationFileName]) {
+              imageUrl = await uploadToCloudinary(imageMap[locationFileName], 'pos-app-locations')
+            }
+
+            const newLocation = await Location.create({
+              nameStore: location.nameStore,
+              image: imageUrl || location.image,
+              address: location.address,
+              detailLocation: location.detailLocation,
+              phoneNumber: location.phoneNumber,
+              status: statusValue
+            })
+            results.created.push({
+              id: newLocation.id,
+              nameStore: newLocation.nameStore
+            })
+          }
+        }
+      } catch (err) {
+        results.errors.push({
+          no: location.no,
+          message: err.message
+        })
+      }
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: `Berhasil import ${results.created.length} lokasi baru dan ${results.updated.length} lokasi diupdate`,
+      data: results
+    })
+  } catch (err) {
+    console.error('Error importing locations:', err)
+    res.status(500).json({
+      status: 'error',
+      message: 'Gagal mengimport lokasi',
+      error: err.message
+    })
   }
 }
