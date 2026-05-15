@@ -5,99 +5,18 @@ const Product = require('../../db/models/product')
 const Category = require('../../db/models/category')
 const SubCategoryProduct = require('../../db/models/sub_category')
 const { compareProduct } = require('../../utils/compare-value')
-const process = require('process')
-const { Op } = require('sequelize')
-const excelJS = require('exceljs')
+const path = require('path')
 const fs = require('fs')
-const { google } = require('googleapis')
-
-const path = './files'
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID
-const CLIENT_SECRET = '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'
-const REDIRECT_URI = 'https://developers.google.com/oauthplayground'
-const REFRESH_TOKEN =
-  '1//04agsjRIkIgjFCgYIARAAGAQSNwF-L9IrSZdY-uNDJ6D9aYguj1DSiu_D1JDDrTPuF5-ChsfT73f8wFNOWNizxeFSzDiY3ZmQ-8c'
-
-// Load Google API credentials
-const oauth2Client = new google.auth.OAuth2(
-  CLIENT_ID,
-  CLIENT_SECRET,
-  REDIRECT_URI
-)
-
-// Set the credentials
-oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN })
-
-const folderId = '14amtGW104xLNqImWsJX1EC3c0atYAu_M' // Replace with your Google Drive folder ID
-
-// Function to search for a file in Google Drive by name
-const findFileByName = async (fileName) => {
-  try {
-    const response = await drive.files.list({
-      q: `name='${fileName}' and '${folderId}' in parents`,
-      fields: 'files(id, name)',
-      spaces: 'drive'
-    })
-    return response.data.files[0] // Return the first matching file if found
-  } catch (error) {
-    throw new Error('Error searching for file on Google Drive')
-  }
-}
-
-// Function to delete a file by its Google Drive file ID
-const deleteFile = async (fileId) => {
-  try {
-    await drive.files.delete({ fileId })
-  } catch (error) {
-    throw new Error('Error deleting file from Google Drive')
-  }
-}
-
-// Function to upload an image to Google Drive
-const uploadImageToDrive = async (filePath, fileName) => {
-  const accessTokenInfo = await oauth2Client.getAccessToken()
-
-  if (!accessTokenInfo.token) {
-    throw new Error('Failed to obtain access token')
-  }
-
-  if (!fs.existsSync(filePath)) {
-    throw new Error('File not found')
-  }
-
-  const fileMetadata = {
-    name: fileName,
-    parents: [folderId]
-  }
-
-  const media = {
-    mimeType: 'image/jpeg',
-    body: fs.createReadStream(filePath)
-  }
-
-  try {
-    const { data: file } = await drive.files.create({
-      resource: fileMetadata,
-      media: media,
-      fields: 'id'
-    })
-
-    await drive.permissions.create({
-      fileId: file.id,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone'
-      }
-    })
-
-    return `https://drive.google.com/uc?id=${file.id}`
-  } catch (error) {
-    throw new Error('Failed to upload image')
-  }
-}
-
-// Use the access token for the Drive API
-const drive = google.drive({ version: 'v3', auth: oauth2Client })
+const excelJS = require('exceljs')
+const { Op } = require('sequelize')
+const {
+  uploadToCloudinary,
+  deleteFromCloudinary
+} = require('../../utils/cloudinaryStorage')
+const {
+  downloadProductTemplate,
+  parseProductTemplate
+} = require('../../utils/excelTemplate')
 
 // Get Product By Location Store
 exports.getProductByLocationSuperAdmin = async (req, res, next) => {
@@ -371,19 +290,7 @@ exports.postAddProduct = async (req, res, next) => {
     let imageUrl = null
 
     if (imageFile) {
-      // Check if a file with the same name exists on Google Drive
-      const existingFile = await findFileByName(imageFile.originalname)
-
-      // If file exists, delete the old image from Google Drive
-      if (existingFile) {
-        await deleteFile(existingFile.id)
-      }
-
-      // Upload the new image to Google Drive and get the URL
-      imageUrl = await uploadImageToDrive(
-        imageFile.path,
-        imageFile.originalname
-      )
+      imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-products')
     }
 
     const optionsArray =
@@ -457,15 +364,11 @@ exports.editProductByLocationAndId = async (req, res, next) => {
     let imageUrl = oldImage
 
     if (req.file) {
-      if (newImage && oldImage !== newImage) {
-        const oldImageFileId = oldImage.split('id=')[1].split('&')[0]
-        await drive.files.delete({ fileId: oldImageFileId })
-
-        imageUrl = await uploadImageToDrive(
-          req.file.path,
-          req.file.originalname
-        )
+      if (oldImage) {
+        await deleteFromCloudinary(oldImage)
       }
+
+      imageUrl = await uploadToCloudinary(req.file.path, 'pos-app-products')
     }
 
     const optionsArray =
@@ -633,6 +536,275 @@ exports.exportProduct = async (req, res) => {
     res.status(500).send({
       status: 'error',
       message: 'Something went wrong while generating the Excel file',
+      error: err.message
+    })
+  }
+}
+
+// Download Product Template
+exports.downloadTemplate = async (req, res) => {
+  const { storeId } = req.params
+
+  try {
+    const categories = await Category.findAll({
+      where: { storeId },
+      attributes: ['name']
+    })
+
+    if (!categories.length) {
+      return res.status(404).json({
+        message:
+          'Tidak ada kategori untuk store ini. Silakan buat kategori terlebih dahulu.'
+      })
+    }
+
+    const existingProducts = await Product.findAll({
+      where: { store: storeId },
+      include: [
+        {
+          model: Category,
+          as: 'categoryData',
+          attributes: ['name']
+        }
+      ]
+    })
+
+    const productsWithCategory = existingProducts.map((p) => ({
+      id: p.id,
+      nameProduct: p.nameProduct,
+      image: p.image || '',
+      description: p.description,
+      categoryName: p.categoryData?.name || '',
+      price: p.price,
+      status: p.status,
+      isOption: p.isOption,
+      option: p.option || []
+    }))
+
+    const buffer = await downloadProductTemplate(
+      categories,
+      productsWithCategory
+    )
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=template_produk.xlsx'
+    )
+
+    res.send(buffer)
+  } catch (err) {
+    console.error('Error downloading template:', err)
+    res.status(500).json({
+      status: 'error',
+      message: 'Gagal mengunduh template',
+      error: err.message
+    })
+  }
+}
+
+// Import Product from Excel Template
+exports.importProduct = async (req, res) => {
+  const { storeId } = req.body
+
+  if (!req.file) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'File Excel diperlukan'
+    })
+  }
+
+  try {
+    const products = await parseProductTemplate(req.file.buffer)
+
+    if (!products.length) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Data produk tidak ditemukan di file Excel'
+      })
+    }
+
+    const imageFiles = req.files || []
+    const imageMap = {}
+    imageFiles.forEach((file) => {
+      const baseName = file.originalname.replace(/\.[^/.]+$/, '').toLowerCase()
+      imageMap[baseName] = file.path
+    })
+
+    const categories = await Category.findAll({
+      where: { store: storeId },
+      attributes: ['id', 'name']
+    })
+    const categoryMap = categories.reduce((acc, cat) => {
+      acc[cat.name.toLowerCase()] = cat.id
+      return acc
+    }, {})
+
+    const results = {
+      created: [],
+      updated: [],
+      errors: []
+    }
+
+    for (const product of products) {
+      try {
+        if (!product.nameProduct) {
+          results.errors.push({
+            no: product.no,
+            message: 'Nama produk kosong'
+          })
+          continue
+        }
+
+        const categoryId = product.category
+          ? categoryMap[product.category.toLowerCase()]
+          : null
+
+        if (!categoryId && product.category) {
+          results.errors.push({
+            no: product.no,
+            message: `Kategori "${product.category}" tidak ditemukan`
+          })
+          continue
+        }
+
+        const statusValue = product.status.toLowerCase() === 'aktif'
+        const isOptionValue = product.isOption.toLowerCase() === 'ya'
+        const optionsArray = product.option
+          ? product.option.split(',').map((o) => o.trim())
+          : []
+
+        if (product.id) {
+          const existingProduct = await Product.findOne({
+            where: {
+              id: product.id,
+              store: storeId
+            }
+          })
+
+          if (existingProduct) {
+            const updateData = {
+              nameProduct: product.nameProduct,
+              description: product.description,
+              category: categoryId,
+              price: product.price,
+              status: statusValue,
+              isOption: isOptionValue,
+              option: optionsArray
+            }
+
+            let imageUrl = product.image
+
+            const productFileName = product.nameProduct
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+            if (imageMap[productFileName]) {
+              if (existingProduct.image) {
+                await deleteFromCloudinary(existingProduct.image)
+              }
+              imageUrl = await uploadToCloudinary(
+                imageMap[productFileName],
+                'pos-app-products'
+              )
+            } else if (
+              product.image &&
+              product.image !== existingProduct.image
+            ) {
+              if (existingProduct.image) {
+                await deleteFromCloudinary(existingProduct.image)
+              }
+              imageUrl = product.image
+            }
+
+            if (imageUrl) {
+              updateData.image = imageUrl
+            }
+
+            await existingProduct.update(updateData)
+            results.updated.push({
+              id: product.id,
+              nameProduct: product.nameProduct
+            })
+          } else {
+            let imageUrl = product.image
+
+            const productFileName = product.nameProduct
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+            if (imageMap[productFileName]) {
+              imageUrl = await uploadToCloudinary(
+                imageMap[productFileName],
+                'pos-app-products'
+              )
+            }
+
+            const newProduct = await Product.create({
+              id: product.id,
+              nameProduct: product.nameProduct,
+              image: imageUrl || null,
+              description: product.description,
+              category: categoryId,
+              price: product.price,
+              status: statusValue,
+              isOption: isOptionValue,
+              option: optionsArray,
+              store: storeId
+            })
+            results.created.push({
+              id: newProduct.id,
+              nameProduct: newProduct.nameProduct
+            })
+          }
+        } else {
+          let imageUrl = product.image
+
+          const productFileName = product.nameProduct
+            .toLowerCase()
+            .replace(/\s+/g, '-')
+          if (imageMap[productFileName]) {
+            imageUrl = await uploadToCloudinary(
+              imageMap[productFileName],
+              'pos-app-products'
+            )
+          }
+
+          const newProduct = await Product.create({
+            nameProduct: product.nameProduct,
+            image: imageUrl || null,
+            description: product.description,
+            category: categoryId,
+            price: product.price,
+            status: statusValue,
+            isOption: isOptionValue,
+            option: optionsArray,
+            store: storeId
+          })
+          results.created.push({
+            id: newProduct.id,
+            nameProduct: newProduct.nameProduct
+          })
+        }
+      } catch (err) {
+        results.errors.push({
+          no: product.no,
+          message: err.message
+        })
+      }
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: `Berhasil import ${results.created.length} produk baru dan ${results.updated.length} produk diupdate`,
+      data: results
+    })
+  } catch (err) {
+    console.error('Error importing products:', err)
+    res.status(500).json({
+      status: 'error',
+      message: 'Gagal mengimport produk',
       error: err.message
     })
   }

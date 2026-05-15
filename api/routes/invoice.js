@@ -1,190 +1,66 @@
 const express = require('express')
 const router = express.Router()
-
-const invoiceLogoController = require('../controller/invoice-logo')
-const invoiceSocialMediaController = require('../controller/invoice-social-media')
-const invoiceFooterController = require('../controller/invoice-footer')
-
-// Authorization
+const invoiceController = require('../controller/invoice')
 const authorization = require('../../utils/authorization')
 
-const fs = require('fs')
 const multer = require('multer')
+const fs = require('fs')
 
-// Define the writable upload directory for serverless environments
 const uploadDir = '/tmp/uploads'
-
-// Ensure the /tmp/uploads directory exists (required for AWS Lambda)
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true })
 }
 
-// Set up multer storage using /tmp/uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir) // Save files to /tmp/uploads
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + '-' + file.originalname)
-  }
-})
-
 const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 } // Set file size limit to 5MB
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only image files allowed'))
+    }
+  }
 }).single('image')
 
-// ***************************** LOGO START *************************************
+const uploadExcel = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.includes('sheet') || file.originalname.endsWith('.xlsx') || file.originalname.endsWith('.xls')) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only Excel files allowed'))
+    }
+  }
+}).single('file')
 
-// Get Invoice Logo By Location
-router.get(
-  '/get-invoice-logo-by-location',
-  authorization,
-  invoiceLogoController?.getInvoiceLogoByLocation
-)
+router.get('/logo', authorization, invoiceController.getLogo)
+router.get('/logo/active', authorization, invoiceController.getLogoActive)
+router.post('/logo', authorization, upload, invoiceController.createLogo)
+router.put('/logo/:id', authorization, upload, invoiceController.updateLogo)
+router.delete('/logo/:id', authorization, invoiceController.deleteLogo)
+router.put('/logo/:id/activate', authorization, invoiceController.activateLogo)
+router.get('/logo/template', authorization, invoiceController.downloadLogoTemplate)
+router.post('/logo/import', authorization, uploadExcel, invoiceController.importLogo)
 
-// Get Invoice Logo By Active
-router.get(
-  '/get-invoice-logo-by-active',
-  authorization,
-  invoiceLogoController?.getInvoiceLogoByIsActive
-)
+router.get('/social-media', authorization, invoiceController.getSocialMedia)
+router.get('/social-media/active', authorization, invoiceController.getSocialMediaActive)
+router.post('/social-media', authorization, invoiceController.createSocialMedia)
+router.put('/social-media/:id', authorization, invoiceController.updateSocialMedia)
+router.delete('/social-media/:id', authorization, invoiceController.deleteSocialMedia)
+router.put('/social-media/:id/activate', authorization, invoiceController.activateSocialMedia)
 
-// Get All Invoice Logo
-router.get(
-  '/get-invoice-logo',
-  authorization,
-  invoiceLogoController?.getAllInvoiceLogo
-)
+router.get('/footer', authorization, invoiceController.getFooter)
+router.get('/footer/active', authorization, invoiceController.getFooterActive)
+router.post('/footer', authorization, invoiceController.createFooter)
+router.put('/footer/:id', authorization, invoiceController.updateFooter)
+router.delete('/footer/:id', authorization, invoiceController.deleteFooter)
+router.put('/footer/:id/activate', authorization, invoiceController.activateFooter)
 
-// Add Invoice Logo
-router.post(
-  '/add-new-invoice-logo',
-  authorization,
-  upload,
-  invoiceLogoController?.postNewInvoiceLogo
-)
-
-// Edit Invoice Logo
-router.put(
-  '/edit-invoice-logo',
-  authorization,
-  upload,
-  invoiceLogoController?.editInvoiceLogoById
-)
-
-// Delete Invoice Logo
-router.delete(
-  '/delete-invoice-logo/:id',
-  authorization,
-  invoiceLogoController?.deleteInvoiceLogoById
-)
-
-// Activate / Not Activate Invoice Logo
-router.put(
-  '/activate-invoice-logo/:id',
-  authorization,
-  invoiceLogoController?.activateInvoiceLogoById
-)
-// ***************************** LOGO END *************************************
-
-// ***************************** SOCIAL MEDIA START *************************************
-router.get(
-  '/get-invoice-social-media-by-location',
-  authorization,
-  invoiceSocialMediaController?.getInvoiceSocialMediaByLocation
-)
-
-router.get(
-  '/get-invoice-social-media-by-active',
-  authorization,
-  invoiceSocialMediaController?.getInvoiceSocialMediaByIsActive
-)
-
-// Get All Invoice Logo
-router.get(
-  '/get-invoice-social-media',
-  authorization,
-  invoiceSocialMediaController?.getAllInvoiceSocialMedia
-)
-
-// Add Invoice Logo
-router.post(
-  '/add-new-invoice-social-media',
-  authorization,
-  invoiceSocialMediaController?.postNewInvoiceSocialMedia
-)
-
-// Edit Invoice Logo
-router.put(
-  '/edit-invoice-social-media/:id',
-  authorization,
-  invoiceSocialMediaController?.editInvoiceSocialMediaById
-)
-
-// Delete Invoice Logo
-router.delete(
-  '/delete-invoice-social-media/:id',
-  authorization,
-  invoiceSocialMediaController?.deleteInvoiceSocialMediaById
-)
-
-// Activate / Not Activate Invoice Logo
-router.put(
-  '/activate-invoice-social-media/:id',
-  authorization,
-  invoiceSocialMediaController?.activateInvoiceSocialMediaById
-)
-// ***************************** SOCIAL MEDIA END *************************************
-
-// ***************************** FOOTER START *************************************
-router.get(
-  '/get-invoice-footer-by-location',
-  authorization,
-  invoiceFooterController?.getInvoiceFooterByLocation
-)
-
-router.get(
-  '/get-invoice-footer-by-active',
-  authorization,
-  invoiceFooterController?.getInvoiceFooterByIsActive
-)
-
-// Get All Invoice Logo
-router.get(
-  '/get-invoice-footer',
-  authorization,
-  invoiceFooterController?.getAllInvoiceFooter
-)
-
-// Add Invoice Logo
-router.post(
-  '/add-new-invoice-footer',
-  authorization,
-  invoiceFooterController?.postNewInvoiceFooter
-)
-
-// Edit Invoice Logo
-router.put(
-  '/edit-invoice-footer/:id',
-  authorization,
-  invoiceFooterController?.editInvoiceFooterById
-)
-
-// Delete Invoice Logo
-router.delete(
-  '/delete-invoice-footer/:id',
-  authorization,
-  invoiceFooterController?.deleteInvoiceFooterById
-)
-
-// Activate / Not Activate Invoice Logo
-router.put(
-  '/activate-invoice-footer/:id',
-  authorization,
-  invoiceFooterController?.activateInvoiceFooterById
-)
-
-// ***************************** FOOTER END *************************************
+router.get('/all', authorization, invoiceController.getAll)
 
 module.exports = router

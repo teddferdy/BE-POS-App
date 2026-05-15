@@ -1,59 +1,18 @@
 const express = require('express')
 const router = express.Router()
-
 const overviewController = require('../controller/overview')
-
-// Authorization
 const authorization = require('../../utils/authorization')
 
-// Get Product
-router.get('/get-product', authorization, overviewController?.getProduct)
-
-// Get Category
-router.get('/get-category', authorization, overviewController?.getCategory)
-
-// Get Location
-router.get('/get-location', authorization, overviewController?.getLocation)
-
-// Get Member
-router.get('/get-member', authorization, overviewController?.getMember)
-
-// Get User
-router.get('/get-user', authorization, overviewController?.getUser)
-
-// Get Member List By Latest For Table
-router.get(
-  '/get-best-selling',
-  authorization,
-  overviewController?.getBestSellingByCount
-)
-
-// Get Member List By Latest For Table
-router.get(
-  '/get-member-latest',
-  authorization,
-  overviewController?.getMemberDescending
-)
-
-// Get Category List By Latest For Table
-router.get(
-  '/get-category-latest',
-  authorization,
-  overviewController?.getCategoryDescending
-)
-
-// Get Location List By Latest For Table
-router.get(
-  '/get-location-latest',
-  authorization,
-  overviewController?.getLocationDescending
-)
-
-// Get Product List By Latest For Table
-router.get(
-  '/get-product-latest',
-  authorization,
-  overviewController?.getProductDescending
-)
+router.get('/dashboard', authorization, overviewController.getDashboard)
+router.get('/product', authorization, overviewController.getProductSummary)
+router.get('/category', authorization, overviewController.getCategorySummary)
+router.get('/location', authorization, overviewController.getLocationSummary)
+router.get('/member', authorization, overviewController.getMemberSummary)
+router.get('/user', authorization, overviewController.getUserSummary)
+router.get('/best-selling', authorization, overviewController.getBestSelling)
+router.get('/members/latest', authorization, overviewController.getLatestMembers)
+router.get('/categories/latest', authorization, overviewController.getLatestCategories)
+router.get('/locations/latest', authorization, overviewController.getLatestLocations)
+router.get('/products/latest', authorization, overviewController.getLatestProducts)
 
 module.exports = router
