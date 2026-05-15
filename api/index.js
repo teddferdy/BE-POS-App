@@ -1,12 +1,13 @@
-/* eslint-disable no-unused-vars */
-/* eslint-disable no-undef */
 require('dotenv').config()
 const express = require('express')
+const http = require('http')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
 const rateLimit = require('express-rate-limit')
 const helmet = require('helmet')
 const compression = require('compression')
+
+const { initSocket } = require('./service/socket')
 
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
@@ -16,20 +17,33 @@ const memberRoutes = require('./routes/member')
 const checkoutRoutes = require('./routes/checkout')
 const subCategoryRoutes = require('./routes/sub-category')
 const discountRoutes = require('./routes/discount')
-const employeeRoutes = require('./routes/employee')
 const shiftRoutes = require('./routes/shift')
 const typePaymentRoutes = require('./routes/type-payment')
 const bestSellingRoutes = require('./routes/best-selling')
 const overviewRoutes = require('./routes/overview')
-const otherRoutes = require('./routes/other')
 const socialMediaRoutes = require('./routes/social-media')
 const invoiceRoutes = require('./routes/invoice')
 const roleRoutes = require('./routes/role')
 const positionRoutes = require('./routes/position')
+const tableRoutes = require('./routes/table')
+const orderRoutes = require('./routes/order')
+const supplierRoutes = require('./routes/supplier')
+const purchaseOrderRoutes = require('./routes/purchaseOrder')
+const ingredientRoutes = require('./routes/ingredient')
+const stockHistoryRoutes = require('./routes/stockHistory')
+const stockOpnameRoutes = require('./routes/stockOpname')
+const expenseCategoryRoutes = require('./routes/expenseCategory')
+const expenseRoutes = require('./routes/expense')
+const cashRegisterRoutes = require('./routes/cashRegister')
+const reportRoutes = require('./routes/report')
+const splitBillRoutes = require('./routes/splitBill')
+const memberTierRoutes = require('./routes/memberTier')
 
 const app = express()
+const server = http.createServer(app)
+
 const corsOptions = {
-  origin: 'http://localhost:3000', // your frontend URL
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -44,7 +58,6 @@ const limiter = rateLimit({
   }
 })
 
-// Middleware
 app.set('trust proxy', 1)
 app.use(helmet())
 app.use(compression())
@@ -54,34 +67,42 @@ app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(cookieParser())
 
-// Route setup
 const routes = [
-  { path: '/product', route: productRoutes },
   { path: '/auth', route: authRoutes },
+  { path: '/product', route: productRoutes },
   { path: '/category', route: categoryRoutes },
+  { path: '/sub-category', route: subCategoryRoutes },
   { path: '/location', route: locationRoutes },
   { path: '/member', route: memberRoutes },
+  { path: '/order', route: orderRoutes },
+  { path: '/table', route: tableRoutes },
   { path: '/checkout', route: checkoutRoutes },
-  { path: '/sub-category', route: subCategoryRoutes },
   { path: '/discount', route: discountRoutes },
-  { path: '/employee', route: employeeRoutes },
   { path: '/shift', route: shiftRoutes },
   { path: '/type-payment', route: typePaymentRoutes },
   { path: '/best-selling', route: bestSellingRoutes },
   { path: '/overview', route: overviewRoutes },
-  { path: '/other', route: otherRoutes },
   { path: '/social-media', route: socialMediaRoutes },
   { path: '/invoice', route: invoiceRoutes },
   { path: '/role', route: roleRoutes },
-  { path: '/position', route: positionRoutes }
+  { path: '/position', route: positionRoutes },
+  { path: '/supplier', route: supplierRoutes },
+  { path: '/purchase-order', route: purchaseOrderRoutes },
+  { path: '/ingredient', route: ingredientRoutes },
+  { path: '/stock-history', route: stockHistoryRoutes },
+  { path: '/stock-opname', route: stockOpnameRoutes },
+  { path: '/expense-category', route: expenseCategoryRoutes },
+  { path: '/expense', route: expenseRoutes },
+  { path: '/cash-register', route: cashRegisterRoutes },
+  { path: '/report', route: reportRoutes },
+  { path: '/split-bill', route: splitBillRoutes },
+  { path: '/member-tier', route: memberTierRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack)
-
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error'
@@ -91,13 +112,16 @@ app.use((err, req, res, next) => {
 app.get('/', (_, res) => {
   res.status(200).json({
     success: true,
-    message: 'API is running'
+    message: 'POS API is running',
+    socket: '/socket.io'
   })
 })
 
-// Start server
-const port = process.env.POSTGRES_PORT || 5001
-const server = app.listen(port, () => {
+const port = process.env.PORT || 5001
+
+initSocket(server)
+
+server.listen(port, () => {
   console.log(`Server running on port ${port}`)
+  console.log(`Socket.IO enabled`)
 })
-server.timeout = 120000 // Adjust if needed

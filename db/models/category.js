@@ -1,53 +1,47 @@
 'use strict'
-const { DataTypes } = require('sequelize')
-const sequelize = require('../../config/database')
-module.exports = sequelize.define(
-  'category',
-  {
-    id: {
-      allowNull: false,
-      autoIncrement: true,
-      primaryKey: true,
-      type: DataTypes.INTEGER
+module.exports = (sequelize, DataTypes) => {
+  return sequelize.define(
+    'category',
+    {
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: DataTypes.INTEGER
+      },
+      store: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      name: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      value: {
+        type: DataTypes.STRING
+      },
+      image: {
+        type: DataTypes.STRING
+      },
+      imageName: {
+        type: DataTypes.STRING
+      },
+      status: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
+      createdBy: {
+        type: DataTypes.STRING
+      },
+      modifiedBy: {
+        type: DataTypes.STRING
+      }
     },
-    name: {
-      allowNull: false,
-      type: DataTypes.STRING,
-      primaryKey: true
-    },
-    value: {
-      type: DataTypes.STRING
-    },
-    status: {
-      primaryKey: true,
-      type: DataTypes.BOOLEAN
-    },
-    store: {
-      allowNull: false,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    createdBy: {
-      type: DataTypes.STRING
-    },
-    createdAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    modifiedBy: {
-      type: DataTypes.STRING
-    },
-    updatedAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    deletedAt: {
-      type: DataTypes.STRING
+    {
+      paranoid: true,
+      freezeTableName: true,
+      modelName: 'category',
+      tableName: 'category'
     }
-  },
-  {
-    paranoid: true,
-    freezeTableName: true,
-    modelName: 'category'
-  }
-)
+  )
+}

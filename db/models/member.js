@@ -1,55 +1,68 @@
 'use strict'
-const { DataTypes } = require('sequelize')
-const sequelize = require('../../config/database')
-module.exports = sequelize.define(
-  'member',
-  {
-    id: {
-      allowNull: false,
-      autoIncrement: true,
-      primaryKey: true,
-      type: DataTypes.INTEGER
+module.exports = (sequelize, DataTypes) => {
+  return sequelize.define(
+    'member',
+    {
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: DataTypes.INTEGER
+      },
+      store: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      name: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      phoneNumber: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      email: {
+        type: DataTypes.STRING
+      },
+      address: {
+        type: DataTypes.STRING
+      },
+      tier: {
+        type: DataTypes.INTEGER
+      },
+      totalPoints: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      lifetimePoints: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      dateOfBirth: {
+        type: DataTypes.DATEONLY
+      },
+      gender: {
+        type: DataTypes.STRING
+      },
+      notes: {
+        type: DataTypes.TEXT
+      },
+      status: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
+      createdBy: {
+        type: DataTypes.INTEGER
+      },
+      modifiedBy: {
+        type: DataTypes.INTEGER
+      }
     },
-    nameMember: {
-      type: DataTypes.STRING,
-      primaryKey: true
-    },
-    phoneNumber: {
-      type: DataTypes.STRING,
-      primaryKey: true
-    },
-    store: {
-      allowNull: false,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    status: {
-      type: DataTypes.BOOLEAN
-    },
-    point: {
-      type: DataTypes.BIGINT
-    },
-    createdBy: {
-      type: DataTypes.STRING
-    },
-    createdAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    modifiedBy: {
-      type: DataTypes.STRING
-    },
-    updatedAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    deletedAt: {
-      type: DataTypes.STRING
+    {
+      paranoid: true,
+      freezeTableName: true,
+      modelName: 'member',
+      tableName: 'member'
     }
-  },
-  {
-    paranoid: true,
-    freezeTableName: true,
-    modelName: 'member'
-  }
-)
+  )
+}
