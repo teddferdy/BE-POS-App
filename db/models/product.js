@@ -1,76 +1,99 @@
 'use strict'
-const { DataTypes } = require('sequelize')
-const sequelize = require('../../config/database')
-module.exports = sequelize.define(
-  'product',
-  {
-    id: {
-      allowNull: false,
-      autoIncrement: true,
-      primaryKey: true,
-      type: DataTypes.INTEGER
+module.exports = (sequelize, DataTypes) => {
+  return sequelize.define(
+    'product',
+    {
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: DataTypes.INTEGER
+      },
+      store: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      nameProduct: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      image: {
+        type: DataTypes.STRING
+      },
+      imageName: {
+        type: DataTypes.STRING
+      },
+      category: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      subCategory: {
+        type: DataTypes.INTEGER
+      },
+      description: {
+        type: DataTypes.TEXT
+      },
+      price: {
+        allowNull: false,
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      costPrice: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      isOption: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+      },
+      options: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+      },
+      hasModifiers: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+      },
+      modifiers: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+      },
+      stock: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      minStock: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      unit: {
+        type: DataTypes.STRING,
+        defaultValue: 'pcs'
+      },
+      status: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
+      isAvailable: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
+      preparationTime: {
+        type: DataTypes.INTEGER,
+        defaultValue: 15
+      },
+      createdBy: {
+        type: DataTypes.INTEGER
+      },
+      modifiedBy: {
+        type: DataTypes.INTEGER
+      }
     },
-    nameProduct: {
-      allowNull: false,
-      type: DataTypes.STRING,
-      primaryKey: true
-    },
-    image: {
-      allowNull: false,
-      type: DataTypes.STRING
-    },
-    imageName: {
-      type: DataTypes.STRING
-    },
-    category: {
-      primaryKey: true,
-      type: DataTypes.INTEGER
-    },
-    description: {
-      type: DataTypes.STRING
-    },
-    price: {
-      type: DataTypes.STRING
-    },
-    isOption: {
-      allowNull: false,
-      type: DataTypes.BOOLEAN
-    },
-    option: {
-      allowNull: true,
-      defaultValue: [],
-      type: DataTypes.ARRAY(DataTypes.INTEGER)
-    },
-    status: {
-      primaryKey: true,
-      type: DataTypes.BOOLEAN
-    },
-    store: {
-      allowNull: false,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    createdBy: {
-      type: DataTypes.STRING
-    },
-    createdAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    modifiedBy: {
-      type: DataTypes.STRING
-    },
-    updatedAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    deletedAt: {
-      type: DataTypes.STRING
+    {
+      paranoid: true,
+      freezeTableName: true,
+      modelName: 'product',
+      tableName: 'product'
     }
-  },
-  {
-    paranoid: true,
-    freezeTableName: true,
-    modelName: 'product'
-  }
-)
+  )
+}

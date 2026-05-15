@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const Sequelize = require('sequelize')
 const process = require('process')
+
 const basename = path.basename(__filename)
 const env = process.env.NODE_ENV || 'development'
 const config = require(__dirname + '/../../config/config.js')[env]
@@ -32,11 +33,18 @@ fs.readdirSync(__dirname)
     )
   })
   .forEach((file) => {
-    const model = require(path.join(__dirname, file))(
-      sequelize,
-      Sequelize.DataTypes
-    )
-    db[model.name] = model
+    const modelDef = require(path.join(__dirname, file))
+
+    let model
+    if (typeof modelDef === 'function') {
+      model = modelDef(sequelize, Sequelize.DataTypes)
+    } else if (modelDef && typeof modelDef === 'object') {
+      model = modelDef
+    }
+
+    if (model && model.name) {
+      db[model.name] = model
+    }
   })
 
 Object.keys(db).forEach((modelName) => {

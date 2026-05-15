@@ -1,56 +1,47 @@
 'use strict'
-const { DataTypes } = require('sequelize')
-const sequelize = require('../../config/database')
-module.exports = sequelize.define(
-  'transaction',
-  {
-    id: {
-      allowNull: false,
-      autoIncrement: true,
-      primaryKey: true,
-      type: DataTypes.INTEGER
+module.exports = (sequelize, DataTypes) => {
+  return sequelize.define(
+    'transaction',
+    {
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: DataTypes.INTEGER
+      },
+      order: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      typePayment: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      amount: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      cardNumber: {
+        type: DataTypes.STRING
+      },
+      cardType: {
+        type: DataTypes.STRING
+      },
+      referenceNumber: {
+        type: DataTypes.STRING
+      },
+      notes: {
+        type: DataTypes.TEXT
+      },
+      createdBy: {
+        type: DataTypes.INTEGER
+      }
     },
-    store: {
-      allowNull: false,
-      type: DataTypes.INTEGER,
-      primaryKey: true
-    },
-    masterId: {
-      type: DataTypes.INTEGER
-    },
-    productId: {
-      type: DataTypes.INTEGER
-    },
-    quantityPerProduct: {
-      type: DataTypes.INTEGER
-    },
-    productName: {
-      type: DataTypes.STRING
-    },
-    price: {
-      type: DataTypes.STRING
-    },
-    createdBy: {
-      type: DataTypes.STRING
-    },
-    createdAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    modifiedBy: {
-      type: DataTypes.STRING
-    },
-    updatedAt: {
-      allowNull: false,
-      type: DataTypes.DATE
-    },
-    deletedAt: {
-      type: DataTypes.STRING
+    {
+      paranoid: true,
+      freezeTableName: true,
+      modelName: 'transaction',
+      tableName: 'transaction'
     }
-  },
-  {
-    paranoid: true,
-    freezeTableName: true,
-    modelName: 'transaction'
-  }
-)
+  )
+}
