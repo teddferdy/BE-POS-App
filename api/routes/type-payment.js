@@ -9,35 +9,35 @@ const authorization = require('../../utils/authorization')
 router.get(
   '/get-type-payment',
   authorization,
-  typePaymentController?.getAllTypePaymentByLocationAndActive
+  typePaymentController.getAllTypePaymentByLocationAndActive
 )
 
 // Get All Type Payment
 router.get(
   '/get-list-type-payment',
   authorization,
-  typePaymentController?.getAllTypePayment
+  typePaymentController.getAllTypePayment
 )
 
 // Add Type Payment
 router.post(
   '/add-new-type-payment',
   authorization,
-  typePaymentController?.postNewTypePayment
+  typePaymentController.postNewTypePayment
 )
 
 // Edit Type Payment
 router.put(
   '/edit-type-payment/:id',
   authorization,
-  typePaymentController?.editTypePaymentById
+  typePaymentController.editTypePaymentById
 )
 
 // Delete Type Payment
 router.delete(
   '/delete-type-payment/:id',
   authorization,
-  typePaymentController?.deleteTypePaymentById
+  typePaymentController.deleteTypePaymentById
 )
 
 module.exports = router

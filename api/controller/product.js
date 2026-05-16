@@ -1,9 +1,7 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-// Connect DB
-const Product = require('../../db/models/product')
-const Category = require('../../db/models/category')
-const SubCategoryProduct = require('../../db/models/sub_category')
+const db = require('../../db/models')
+const Product = db.product
+const Category = db.category
+const SubCategoryProduct = db.sub_category
 const { compareProduct } = require('../../utils/compare-value')
 const path = require('path')
 const fs = require('fs')
@@ -18,8 +16,7 @@ const {
   parseProductTemplate
 } = require('../../utils/excelTemplate')
 
-// Get Product By Location Store
-exports.getProductByLocationSuperAdmin = async (req, res, next) => {
+exports.getProductByLocationSuperAdmin = async (req, res) => {
   const { store } = req.query
   try {
     const getAllProduct = await Product.findAll({
@@ -37,22 +34,21 @@ exports.getProductByLocationSuperAdmin = async (req, res, next) => {
     )
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllProduct?.length > 0 ? getAllProduct : []
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Get All In Cashier List
-exports.getAllProduct = async (req, res, next) => {
+exports.getAllProduct = async (req, res) => {
   const { nameProduct, category, store } = req.query
 
   try {
@@ -77,7 +73,6 @@ exports.getAllProduct = async (req, res, next) => {
       where: filters
     })
 
-    // Fetch categories and resolve subcategories
     const resolvedSubCategories = await Promise.all(
       getAllProduct.map(async (items) => {
         const categoryData = await Category.findOne({
@@ -94,7 +89,6 @@ exports.getAllProduct = async (req, res, next) => {
       })
     )
 
-    // Resolve subcategory options for each product
     const dataNewFormat = await Promise.all(
       resolvedSubCategories.map(async (items) => {
         const resolvedOptions = await Promise.all(
@@ -129,31 +123,27 @@ exports.getAllProduct = async (req, res, next) => {
       }
     })
 
-    console.log('responseData =>', responseData)
-
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: responseData.length > 0 ? responseData : []
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Get All In Table
-exports.getAllProductInTable = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10, status = 'all' } = req.query // Default page = 1, pageSize = 10, status = 'all'
+exports.getAllProductInTable = async (req, res) => {
+  const { store, page = 1, pageSize = 10, status = 'all' } = req.query
 
   try {
-    const offset = (page - 1) * pageSize // Calculate the offset for pagination
+    const offset = (page - 1) * pageSize
 
-    // Build the where condition based on the status filter
     let statusCondition = {}
     if (status === 'true') {
       statusCondition = { status: true }
@@ -161,22 +151,17 @@ exports.getAllProductInTable = async (req, res, next) => {
       statusCondition = { status: false }
     }
 
-    // Combine store and status filter
     const whereCondition = {
       store: store,
-      ...statusCondition // Add the status condition if applicable
+      ...statusCondition
     }
 
-    // Fetch products with pagination and status filter
     const getAllProduct = await Product.findAll({
       where: whereCondition,
-      limit: parseInt(pageSize), // Limit number of products per page
-      offset: parseInt(offset) // Offset based on the current page
+      limit: parseInt(pageSize),
+      offset: parseInt(offset)
     })
 
-    console.log('getAllProduct =>', getAllProduct)
-
-    // Fetch categories and resolve subcategories
     const resolvedSubCategories = await Promise.all(
       getAllProduct.map(async (items) => {
         const categoryData = await Category.findOne({
@@ -192,7 +177,6 @@ exports.getAllProductInTable = async (req, res, next) => {
       })
     )
 
-    // Resolve subcategory options for each product
     const dataNewFormat = await Promise.all(
       resolvedSubCategories.map(async (items) => {
         const resolvedOptions = await Promise.all(
@@ -227,37 +211,32 @@ exports.getAllProductInTable = async (req, res, next) => {
       }
     })
 
-    console.log('responseData =>', responseData)
-
-    // Get the total count of products for pagination, considering the status filter
     const totalProducts = await Product.count({
       where: whereCondition
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: responseData.length > 0 ? responseData : [],
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalItems: totalProducts, // Total number of products
-        totalPages: Math.ceil(totalProducts / pageSize) // Total pages
+        totalItems: totalProducts,
+        totalPages: Math.ceil(totalProducts / pageSize)
       }
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Internal Server Error'
+      success: false,
+      message: 'Internal Server Error'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Function Post Add Form Product
-exports.postAddProduct = async (req, res, next) => {
-  console.log('req.body =>', req.body)
+exports.postAddProduct = async (req, res) => {
   const {
     nameProduct,
     category,
@@ -272,7 +251,6 @@ exports.postAddProduct = async (req, res, next) => {
   } = req.body
 
   try {
-    // Check if a product with the same name exists in the store
     const existingProduct = await Product.findOne({
       where: {
         store,
@@ -282,6 +260,7 @@ exports.postAddProduct = async (req, res, next) => {
 
     if (existingProduct) {
       return res.status(400).json({
+        success: false,
         message: 'Product with this name already exists in the store.'
       })
     }
@@ -297,12 +276,10 @@ exports.postAddProduct = async (req, res, next) => {
       isOption === 'true' && typeof option === 'string'
         ? option.split(',').map((opt) => {
             const numOpt = Number(opt)
-            console.log(`Converted ${opt} to ${numOpt}`)
             return numOpt
           })
         : []
 
-    // Create new product
     const postData = await Product.create({
       nameProduct,
       category,
@@ -310,29 +287,28 @@ exports.postAddProduct = async (req, res, next) => {
       price,
       status,
       isOption,
-      option: optionsArray, // Ensure it's an array
+      option: optionsArray,
       createdBy,
-      image: imageUrl || image, // Use the uploaded image URL or fallback to provided image
+      image: imageUrl || image,
       store
     })
 
     return res.status(200).json({
-      status: 'success',
+      success: true,
+      message: 'Success',
       data: postData
     })
   } catch (error) {
     console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Internal Server Error'
+      success: false,
+      message: 'Internal Server Error'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Render Edit Form Product
-exports.editProductByLocationAndId = async (req, res, next) => {
+exports.editProductByLocationAndId = async (req, res) => {
   const {
     id,
     nameProduct,
@@ -346,8 +322,6 @@ exports.editProductByLocationAndId = async (req, res, next) => {
     store
   } = req.body
 
-  console.log('req.body =>', req.body)
-
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
       where: {
@@ -357,7 +331,10 @@ exports.editProductByLocationAndId = async (req, res, next) => {
     })
 
     if (!getAllProductByIdAndLocation) {
-      return res.status(404).json({ message: 'Product not found.' })
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found.'
+      })
     }
 
     const oldImage = getAllProductByIdAndLocation.image
@@ -375,7 +352,6 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       isOption === 'true' && typeof option === 'string'
         ? option.split(',').map((opt) => {
             const numOpt = Number(opt)
-            console.log(`Converted ${opt} to ${numOpt}`)
             return numOpt
           })
         : []
@@ -387,7 +363,7 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       description,
       price,
       isOption,
-      option: optionsArray, // Ensure it's an array
+      option: optionsArray,
       status,
       store
     }
@@ -415,26 +391,26 @@ exports.editProductByLocationAndId = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Product',
         data: editLocation?.dataValues
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Product Sudah Terdaftar'
       })
     }
   } catch (error) {
     console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-exports.deleteProductByIdAndLocation = async (req, res, next) => {
+exports.deleteProductByIdAndLocation = async (req, res) => {
   const { id, nameProduct, store } = req.body
   try {
     const getId = await Product.destroy({
@@ -448,38 +424,35 @@ exports.deleteProductByIdAndLocation = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Product'
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Hapus Product Gagal'
       })
     }
   } catch (error) {
-    console.log('ERROR =>', error)
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Download Excel Template By Excel with dropdown list of categories by storeId
 exports.exportProduct = async (req, res) => {
-  const { storeId } = req.params // Get storeId from the request parameters
+  const { storeId } = req.params
 
-  // Create new workbook and worksheet
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Product')
 
-  // Ensure the download path exists
   if (!fs.existsSync(path)) {
     fs.mkdirSync(path, { recursive: true })
   }
 
-  // Define columns for the worksheet
   worksheet.columns = [
     { header: 'No.', key: 's_no', width: 10 },
     { header: 'Name Product', key: 'nameProduct', width: 20 },
@@ -490,37 +463,31 @@ exports.exportProduct = async (req, res) => {
     { header: 'Price', key: 'price', width: 20 }
   ]
 
-  // Make the header row bold
   worksheet.getRow(1).font = { bold: true }
 
   try {
-    // Fetch categories filtered by storeId
     const categories = await Category.findAll({
       where: { storeId },
-      attributes: ['name'] // Only select the 'name' field
+      attributes: ['name']
     })
 
     if (!categories.length) {
       return res
         .status(404)
-        .json({ message: 'No categories found for this store' })
+        .json({ success: false, message: 'No categories found for this store' })
     }
 
-    // Prepare the category names for the dropdown list
     const categoryList = categories.map((cat) => cat.name).join(',')
 
-    // Set data validation (dropdown list) for the 'Category' column (B2 onward)
     worksheet.getCell('F2').dataValidation = {
       type: 'list',
       allowBlank: true,
-      formula1: `"${categoryList}"`, // Excel requires the list to be in double quotes
+      formula1: `"${categoryList}"`,
       showDropDown: true
     }
 
-    // Generate the Excel file in memory (buffer)
     const buffer = await workbook.xlsx.writeBuffer()
 
-    // Set headers and send the Excel file as a response
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -534,7 +501,7 @@ exports.exportProduct = async (req, res) => {
   } catch (err) {
     console.error('Error exporting product Excel file: ', err)
     res.status(500).send({
-      status: 'error',
+      success: false,
       message: 'Something went wrong while generating the Excel file',
       error: err.message
     })
@@ -553,8 +520,8 @@ exports.downloadTemplate = async (req, res) => {
 
     if (!categories.length) {
       return res.status(404).json({
-        message:
-          'Tidak ada kategori untuk store ini. Silakan buat kategori terlebih dahulu.'
+        success: false,
+        message: 'Tidak ada kategori untuk store ini. Silakan buat kategori terlebih dahulu.'
       })
     }
 
@@ -599,7 +566,7 @@ exports.downloadTemplate = async (req, res) => {
   } catch (err) {
     console.error('Error downloading template:', err)
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Gagal mengunduh template',
       error: err.message
     })
@@ -612,7 +579,7 @@ exports.importProduct = async (req, res) => {
 
   if (!req.file) {
     return res.status(400).json({
-      status: 'error',
+      success: false,
       message: 'File Excel diperlukan'
     })
   }
@@ -622,7 +589,7 @@ exports.importProduct = async (req, res) => {
 
     if (!products.length) {
       return res.status(400).json({
-        status: 'error',
+        success: false,
         message: 'Data produk tidak ditemukan di file Excel'
       })
     }
@@ -796,14 +763,14 @@ exports.importProduct = async (req, res) => {
     }
 
     res.status(200).json({
-      status: 'success',
+      success: true,
       message: `Berhasil import ${results.created.length} produk baru dan ${results.updated.length} produk diupdate`,
       data: results
     })
   } catch (err) {
     console.error('Error importing products:', err)
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Gagal mengimport produk',
       error: err.message
     })

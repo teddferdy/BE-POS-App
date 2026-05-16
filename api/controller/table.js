@@ -1,5 +1,6 @@
-const Table = require('../../db/models/table')
-const Order = require('../../db/models/order')
+const db = require('../../db/models')
+const Table = db.table
+const Order = db.order
 
 exports.getTablesByStore = async (req, res) => {
   const { store } = req.query

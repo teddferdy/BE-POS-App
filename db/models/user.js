@@ -14,6 +14,17 @@ module.exports = (sequelize, DataTypes) => {
       image: {
         type: DataTypes.STRING
       },
+      roleType: {
+        type: DataTypes.ENUM('super_admin', 'admin', 'user'),
+        defaultValue: 'user'
+      },
+      roleId: {
+        type: DataTypes.INTEGER,
+        references: {
+          model: 'role',
+          key: 'id'
+        }
+      },
       userType: {
         type: DataTypes.STRING
       },
@@ -87,6 +98,12 @@ module.exports = (sequelize, DataTypes) => {
       }
     }
   )
+
+  User.associate = (models) => {
+    User.belongsTo(models.role, { foreignKey: 'roleId', as: 'role' })
+    User.belongsTo(models.location, { foreignKey: 'store', as: 'storeData' })
+    User.belongsTo(models.position, { foreignKey: 'position', as: 'positionData' })
+  }
 
   return User
 }

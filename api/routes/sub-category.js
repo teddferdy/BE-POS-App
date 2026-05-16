@@ -11,35 +11,35 @@ const controllerSubCategory = require('../controller/sub-category')
 router.get(
   '/get-all-sub-category',
   authorization,
-  controllerSubCategory?.getAllSubCategory
+  controllerSubCategory.getAllSubCategory
 )
 
 // Adding Option By Id Product
 router.post(
   '/add-subcategory',
   authorization,
-  controllerSubCategory?.postNewSubCategory
+  controllerSubCategory.postNewSubCategory
 )
 
 // Get Sub Category By idCategory
 router.get(
   '/get-subcategory-by-category',
   authorization,
-  controllerSubCategory?.getSubcategoryByCategory
+  controllerSubCategory.getSubcategoryByCategory
 )
 
 // Edit Location
 router.put(
   '/edit-subcategory/:id',
   authorization,
-  controllerSubCategory?.editSubcategoryById
+  controllerSubCategory.editSubcategoryById
 )
 
 // Delete Location
 router.delete(
   '/delete-subcategory/:id',
   authorization,
-  controllerSubCategory?.deleteSubcategoryById
+  controllerSubCategory.deleteSubcategoryById
 )
 
 module.exports = router

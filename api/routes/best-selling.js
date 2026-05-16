@@ -1,52 +1,16 @@
 const express = require('express')
 const router = express.Router()
 
-// Controller
 const besSellingController = require('../controller/best-selling')
-
-// Authorization
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 
-// Get All List Category
-router.get(
-  '/get-best-selling',
-  authorization,
-  besSellingController?.getAllBestSelling
-)
-
-// Chart By Year
-router.get(
-  '/get-chart-by-year',
-  authorization,
-  besSellingController.chartDataByYear
-)
-
-// Chart By Month
-router.get(
-  '/get-chart-by-month',
-  authorization,
-  besSellingController?.chartDataByMonth
-)
-
-// Chart Current Now & 2 Days Before
-router.get(
-  '/get-chart-current-and-two-days-before',
-  authorization,
-  besSellingController?.chartDataByCurrentDateAndTwoDaysBefore
-)
-
-// Chart Current Now & 7 Days Before
-router.get(
-  '/get-chart-current-and-seven-days-before',
-  authorization,
-  besSellingController?.chartDataByCurrentDateAndSevenDaysBefore
-)
-
-// Get Earning today
-router.get(
-  '/get-earning-today',
-  authorization,
-  besSellingController?.getEarningToday
-)
+// Best selling data - Admin & Super Admin only (report data)
+router.get('/get-best-selling', requireRole('super_admin', 'admin'), besSellingController.getAllBestSelling)
+router.get('/get-chart-by-year', requireRole('super_admin', 'admin'), besSellingController.chartDataByYear)
+router.get('/get-chart-by-month', requireRole('super_admin', 'admin'), besSellingController.chartDataByMonth)
+router.get('/get-chart-current-and-two-days-before', requireRole('super_admin', 'admin'), besSellingController.chartDataByCurrentDateAndTwoDaysBefore)
+router.get('/get-chart-current-and-seven-days-before', requireRole('super_admin', 'admin'), besSellingController.chartDataByCurrentDateAndSevenDaysBefore)
+router.get('/get-earning-today', requireRole('super_admin', 'admin'), besSellingController.getEarningToday)
 
 module.exports = router

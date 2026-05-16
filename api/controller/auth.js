@@ -1,8 +1,7 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const User = require('../../db/models/user')
-const Location = require('../../db/models/location')
-const Position = require('../../db/models/position')
+const db = require('../../db/models')
+const User = db.user
+const Location = db.location
+const Position = db.position
 const generateToken = require('../../utils/jwtConvert')
 const bcrypt = require('bcrypt')
 const moment = require('moment')
@@ -13,6 +12,18 @@ const { uploadToCloudinary, deleteFromCloudinary } = require('../../utils/cloudi
 // Get User By Location
 exports.userByLocation = async (req, res) => {
   const { location } = req.query
+  const userRole = req.user?.roleType
+  const userStore = req.user?.store
+
+  // Admin and User can only access users in their store
+  if (userRole === 'admin' || userRole === 'user') {
+    if (location && parseInt(location) !== userStore) {
+      return res.status(403).json({
+        message: 'Anda hanya dapat mengakses user di toko Anda'
+      })
+    }
+  }
+
   console.log('Location query parameter:', location)
 
   try {
@@ -65,28 +76,71 @@ exports.userByLocation = async (req, res) => {
 
 // Change User Role By Id & Location
 exports.changeUserByIdAndLocation = async (req, res, next) => {
-  const { store, id, userType, position } = req.body
+  const { store, id, userType, position, roleId, roleType } = req.body
+  const currentUserRole = req.user?.roleType
+  const currentUserStore = req.user?.store
 
   try {
-    // Update the userType and position of the user with the given store and id
+    const targetUser = await User.findByPk(id)
+
+    if (!targetUser) {
+      return res.status(404).json({
+        message: 'User tidak ditemukan'
+      })
+    }
+
+    // Validation: Admin can only manage users in their store
+    if (currentUserRole === 'admin') {
+      if (targetUser.store !== currentUserStore && targetUser.roleType !== 'user') {
+        return res.status(403).json({
+          message: 'Anda hanya dapat mengubah user di toko Anda'
+        })
+      }
+      // Admin can't change super_admin
+      if (targetUser.roleType === 'super_admin') {
+        return res.status(403).json({
+          message: 'Tidak dapat mengubah Super Admin'
+        })
+      }
+    }
+
+    // Update the userType, position, store, roleId and roleType
+    const updateData = { userType, position, store }
+
+    if (roleId || roleType) {
+      if (roleId) {
+        const role = await db.role.findByPk(roleId)
+        if (role) {
+          updateData.roleId = roleId
+          updateData.roleType = role.roleType
+        }
+      } else if (roleType) {
+        updateData.roleType = roleType
+        // Clear roleId if changing to custom or different type
+        updateData.roleId = null
+      }
+    }
+
     const [affectedRows, updatedUsers] = await User.update(
-      { userType, position, store },
+      updateData,
       {
         returning: true,
         where: { id }
       }
     )
 
-    // Check if the update was successful
     if (affectedRows === 0) {
       return res.status(404).json({
         message: 'User not found or no changes made.'
       })
     }
 
+    const result = updatedUsers[0]?.dataValues
+    delete result.password
+
     return res.status(200).json({
       message: 'User role updated successfully',
-      data: updatedUsers[0]?.dataValues || null
+      data: result
     })
   } catch (error) {
     console.error('Error updating user role:', error)
@@ -99,7 +153,20 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
 // Get All List User
 exports.getAllUser = async (req, res, next) => {
   try {
-    const getAllUser = await User.findAll().then((res) =>
+    const currentUserRole = req.user?.roleType
+    const currentUserStore = req.user?.store
+
+    const whereCondition = {}
+
+    // Admin can only see users in their store
+    if (currentUserRole === 'admin') {
+      whereCondition.store = currentUserStore
+      whereCondition.roleType = { [Op.ne]: 'super_admin' }
+    }
+
+    const getAllUser = await User.findAll({
+      where: whereCondition
+    }).then((res) =>
       res.map((items) => {
         const getData = {
           ...items.dataValues
@@ -158,15 +225,36 @@ exports.login = async (req, res) => {
       }
     )
 
-    // Generate token
-    const getToken = generateToken({ id: findUser.id })
+    // Generate token dengan role info
+    const getToken = generateToken({
+      id: findUser.id,
+      roleType: findUser.roleType || 'user',
+      roleId: findUser.roleId,
+      store: findUser.store
+    })
+
+    // Ambil role dan accessMenu
+    let roleData = null
+    let accessMenu = findUser.accessMenu
+
+    if (findUser.roleId) {
+      roleData = await db.role.findByPk(findUser.roleId)
+      if (roleData && !accessMenu) {
+        accessMenu = roleData.accessMenu
+      }
+    }
 
     // Jika userType bukan admin/user
     if (!['admin', 'user'].includes(findUser.userType)) {
       return res.status(200).json({
         message: 'Success Login',
         token: getToken,
-        user: findUser
+        user: {
+          ...findUser.toJSON(),
+          roleType: findUser.roleType || 'user',
+          roleName: roleData?.name || 'Staff/Karyawan',
+          accessMenu: accessMenu
+        }
       })
     }
 
@@ -181,6 +269,9 @@ exports.login = async (req, res) => {
       token: getToken,
       user: {
         ...findUser.toJSON(),
+        roleType: findUser.roleType || 'user',
+        roleName: roleData?.name || 'Staff/Karyawan',
+        accessMenu: accessMenu,
         storeName: location?.nameStore ?? '',
         positionName: position?.name ?? ''
       }
@@ -231,9 +322,16 @@ exports.registerNewUser = async (req, res, next) => {
       const shift = body?.shift !== undefined ? body.shift : 0 // Set to 0 or a default valid value
       const position = body?.position !== undefined ? body.position : 0 // Set to 0 or a default valid value
 
+      // Get default role (Staff/Karyawan) - roleType 'user'
+      const defaultRole = await db.role.findOne({
+        where: { roleType: 'user' }
+      })
+
       // Create new user in the database
       const hashedPassword = bcrypt.hashSync(body?.password, 10)
       const createUser = await User.create({
+        roleType: 'user', // Default role is user
+        roleId: defaultRole?.id || null, // Assign default role ID
         userType: body.userType || 'user', // Use the provided userType, default to 'user'
         userName: body?.userName,
         password: hashedPassword,

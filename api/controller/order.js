@@ -1,11 +1,12 @@
-const Order = require('../../db/models/order')
-const OrderItem = require('../../db/models/order_item')
-const OrderStatus = require('../../db/models/order_status')
-const Table = require('../../db/models/table')
-const Product = require('../../db/models/product')
-const Discount = require('../../db/models/discount')
-const Transaction = require('../../db/models/transaction')
-const BestSelling = require('../../db/models/best_selling')
+const db = require('../../db/models')
+const Order = db.order
+const OrderItem = db.order_item
+const OrderStatus = db.order_status
+const Table = db.table
+const Product = db.product
+const Discount = db.discount
+const Transaction = db.transaction
+const BestSelling = db.best_selling
 
 const generateOrderNumber = () => {
   const date = new Date()

@@ -1,25 +1,21 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const SubCategoryProduct = require('../../db/models/sub_category')
-const Category = require('../../db/models/category')
+const db = require('../../db/models')
+const SubCategoryProduct = db.sub_category
+const Category = db.category
 
-// Get All Sub-category
-exports.getAllSubCategory = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10 } = req.query // Default values: page = 1, pageSize = 10
+exports.getAllSubCategory = async (req, res) => {
+  const { store, page = 1, pageSize = 10 } = req.query
 
   try {
-    const offset = (page - 1) * pageSize // Calculate offset for pagination
+    const offset = (page - 1) * pageSize
 
-    // Fetch sub-categories with pagination
     const subCategory = await SubCategoryProduct.findAll({
       where: {
         store: store
       },
-      limit: parseInt(pageSize), // Limit the number of results per page
-      offset: parseInt(offset) // Offset based on the current page
+      limit: parseInt(pageSize),
+      offset: parseInt(offset)
     })
 
-    // Fetch associated category data for each sub-category
     const resolvedSubCategories = await Promise.all(
       subCategory.map(async (items) => {
         const categoryData = await Category.findOne({
@@ -35,7 +31,6 @@ exports.getAllSubCategory = async (req, res, next) => {
       })
     )
 
-    // Parse JSON fields (if necessary) and construct the final response data
     const responseData = resolvedSubCategories.map((items) => {
       return {
         ...items,
@@ -43,35 +38,31 @@ exports.getAllSubCategory = async (req, res, next) => {
       }
     })
 
-    // Get the total count of sub-categories for the store
     const totalSubCategories = await SubCategoryProduct.count({
       where: { store: store }
     })
 
-    // Return the paginated response
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: responseData.length > 0 ? responseData : [],
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalItems: totalSubCategories, // Total number of sub-categories
-        totalPages: Math.ceil(totalSubCategories / pageSize) // Total pages
+        totalItems: totalSubCategories,
+        totalPages: Math.ceil(totalSubCategories / pageSize)
       }
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Internal Server Error'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Post New SUb Category
-exports.postNewSubCategory = async (req, res, next) => {
+exports.postNewSubCategory = async (req, res) => {
   const {
     parentCategory,
     nameSubCategory,
@@ -91,22 +82,20 @@ exports.postNewSubCategory = async (req, res, next) => {
     })
 
     return res.status(200).json({
-      status: 'success',
+      success: true,
+      message: 'Success',
       data: postData
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Get All Sub-category By Category
-exports.getSubcategoryByCategory = async (req, res, next) => {
+exports.getSubcategoryByCategory = async (req, res) => {
   const { idParentCategory, store } = req.query
   try {
     const getSubAllCategory = await SubCategoryProduct.findAll({
@@ -114,22 +103,20 @@ exports.getSubcategoryByCategory = async (req, res, next) => {
     })
 
     return res.status(200).json({
-      status: 'success',
+      success: true,
+      message: 'Success',
       data: getSubAllCategory.map((items) => ({ ...items.dataValues }))
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Edit Sub Category By ID
-exports.editSubcategoryById = async (req, res, next) => {
+exports.editSubcategoryById = async (req, res) => {
   const {
     id,
     parentCategory,
@@ -162,21 +149,20 @@ exports.editSubcategoryById = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Sukses Ubah Sub Category',
       data: editSubCategory?.dataValues
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-exports.deleteSubcategoryById = async (req, res, next) => {
+exports.deleteSubcategoryById = async (req, res) => {
   const body = req.body
 
   try {
@@ -190,20 +176,20 @@ exports.deleteSubcategoryById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Sub Category'
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Hapus Category Gagal'
       })
     }
   } catch (error) {
-    console.log('ERROR =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }

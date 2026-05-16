@@ -6,34 +6,34 @@ const positionController = require('../controller/position')
 const authorization = require('../../utils/authorization')
 
 // Get All position
-router.get('/get-position', positionController?.getAllPosition)
+router.get('/get-position', positionController.getAllPosition)
 
 // Get All List To Table
 router.get(
   '/get-position-all',
   authorization,
-  positionController?.getAllPositionInTable
+  positionController.getAllPositionInTable
 )
 
 // Add position
 router.post(
   '/add-new-position',
   authorization,
-  positionController?.addNewPosition
+  positionController.addNewPosition
 )
 
 // Edit position
 router.put(
   '/edit-position/:id',
   authorization,
-  positionController?.editPositionById
+  positionController.editPositionById
 )
 
 // Delete position
 router.delete(
   '/delete-position/:id',
   authorization,
-  positionController?.deletePositionById
+  positionController.deletePositionById
 )
 
 module.exports = router

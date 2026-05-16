@@ -1,27 +1,23 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const TypePayment = require('../../db/models/type_payment')
+const db = require('../../db/models')
+const TypePayment = db.type_payment
 
-// Get Type Payment By Store And Active
-exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
-  const { store, page = 1, limit = 10 } = req.query // Get store, page, and limit from query params
+exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
+  const { store, page = 1, limit = 10 } = req.query
 
   try {
-    // Calculate offset for pagination
     const offset = (page - 1) * limit
 
-    // Fetch the type payments based on store, status, with pagination
     const { rows: typePayment, count } = await TypePayment.findAndCountAll({
       where: {
         store: store,
         status: true
       },
-      limit: parseInt(limit), // Number of items per page
-      offset: parseInt(offset) // Starting position for the current page
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     })
 
-    // Return the paginated and filtered results
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data:
         typePayment?.length > 0
@@ -31,53 +27,47 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res, next) => {
               }
             })
           : [],
-      total: count, // Total number of records
-      currentPage: parseInt(page), // Current page number
-      totalPages: Math.ceil(count / limit) // Total number of pages
+      total: count,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(count / limit)
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Get All TypePayment
-exports.getAllTypePayment = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10, status } = req.query // Default page = 1, pageSize = 10
+exports.getAllTypePayment = async (req, res) => {
+  const { store, page = 1, pageSize = 10, status } = req.query
 
   try {
-    const offset = (page - 1) * pageSize // Calculate offset for pagination
+    const offset = (page - 1) * pageSize
 
-    // Prepare the query conditions
     const queryConditions = {
       store: store
     }
 
-    // Add status filter if specified
     if (status === 'true') {
-      queryConditions.status = true // Filter for active status
+      queryConditions.status = true
     } else if (status === 'false') {
-      queryConditions.status = false // Filter for inactive status
+      queryConditions.status = false
     }
 
-    // Fetch type payments with pagination and status filtering
     const subCategory = await TypePayment.findAll({
       where: queryConditions,
-      limit: parseInt(pageSize), // Limit the number of results per page
-      offset: parseInt(offset) // Offset based on the current page
+      limit: parseInt(pageSize),
+      offset: parseInt(offset)
     })
 
-    // Get the total count of type payments for pagination
     const totalTypePayments = await TypePayment.count({
       where: queryConditions
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data:
         subCategory?.length > 0
@@ -90,23 +80,20 @@ exports.getAllTypePayment = async (req, res, next) => {
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalItems: totalTypePayments, // Total number of payment types
-        totalPages: Math.ceil(totalTypePayments / pageSize) // Total pages
+        totalItems: totalTypePayments,
+        totalPages: Math.ceil(totalTypePayments / pageSize)
       }
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Post New Type Category
-exports.postNewTypePayment = async (req, res, next) => {
+exports.postNewTypePayment = async (req, res) => {
   const { name, description, store, status, createdBy } = req.body
   try {
     const findOneTypePayment = await TypePayment?.findOne({
@@ -125,27 +112,26 @@ exports.postNewTypePayment = async (req, res, next) => {
         createdBy: createdBy
       })
       return res.status(200).json({
-        status: 'success',
+        success: true,
+        message: 'Success',
         data: postData
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'TypePayment Sudah Terdaftar'
       })
     }
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Edit TypePayment By Id
-exports.editTypePaymentById = async (req, res, next) => {
+exports.editTypePaymentById = async (req, res) => {
   const body = req.body
   try {
     const getDuplicate = await TypePayment.findOne({
@@ -181,26 +167,25 @@ exports.editTypePaymentById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah TypePayment',
         data: editTypePayment?.dataValues
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'TypePayment Sudah Tersedia'
       })
     }
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Delete TypePayment By Id
-exports.deleteTypePaymentById = async (req, res, next) => {
+exports.deleteTypePaymentById = async (req, res) => {
   const body = req.body
 
   try {
@@ -215,20 +200,20 @@ exports.deleteTypePaymentById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus TypePayment'
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Hapus TypePayment Gagal'
       })
     }
   } catch (error) {
-    console.log('ERROR =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }

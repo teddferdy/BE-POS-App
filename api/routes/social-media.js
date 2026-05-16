@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 const express = require('express')
 
 const router = express.Router()
@@ -12,28 +11,28 @@ const authorization = require('../../utils/authorization')
 router.get(
   '/get-social-media',
   authorization,
-  SocialMediaController?.getAllSocialMedia
+  SocialMediaController.getAllSocialMedia
 )
 
 // Post Social Media
 router.post(
   '/add-social-media',
   authorization,
-  SocialMediaController?.addNewSocialMedia
+  SocialMediaController.addNewSocialMedia
 )
 
 // Edit Social Media
 router.put(
   '/edit-social-media/:id',
   authorization,
-  SocialMediaController?.editSocialMediaById
+  SocialMediaController.editSocialMediaById
 )
 
 // Delete Social Media
 router.delete(
   '/delete-social-media/:id',
   authorization,
-  SocialMediaController?.deleteSocialMediaById
+  SocialMediaController.deleteSocialMediaById
 )
 
 module.exports = router

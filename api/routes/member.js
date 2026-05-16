@@ -2,18 +2,16 @@ const express = require('express')
 const router = express.Router()
 
 const memberController = require('../controller/member')
-
-// Authorization
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 
-router.get('/get-member', authorization, memberController?.getAllMember)
+// Get Members - All authenticated users
+router.get('/get-member', authorization, memberController.getAllMember)
 
-router.post('/add-new-member', authorization, memberController?.addNewMember)
+// Add Member - Admin & Super Admin only
+router.post('/add-new-member', requireRole('super_admin', 'admin'), memberController.addNewMember)
 
-router.put(
-  '/edit-point-member/:phoneNumber',
-  authorization,
-  memberController.editMemberById
-)
+// Edit Member Point - Admin & Super Admin only
+router.put('/edit-point-member/:phoneNumber', requireRole('super_admin', 'admin'), memberController.editMemberById)
 
 module.exports = router

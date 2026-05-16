@@ -1,10 +1,8 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Member = require('../../db/models/member')
+const db = require('../../db/models')
+const Member = db.member
 const { Op } = require('sequelize')
 
-// Get All List
-exports.getAllMember = async (req, res, next) => {
+exports.getAllMember = async (req, res) => {
   try {
     const { nameMember, phoneNumber } = req.query
     const filters = {}
@@ -27,23 +25,21 @@ exports.getAllMember = async (req, res, next) => {
     )
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllMember?.length > 0 ? getAllMember : []
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
 
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Add New Member
-exports.addNewMember = async (req, res, next) => {
+exports.addNewMember = async (req, res) => {
   const body = req.body
 
   try {
@@ -67,26 +63,25 @@ exports.addNewMember = async (req, res, next) => {
 
       if (creadtedMember.getDataValue) {
         return res.status(200).json({
+          success: true,
           message: 'Member Berhasil Di Buat'
         })
       }
     } else {
       return res.status(403).json({
+        success: false,
         message: `Member Sudah Terdaftar di ${findOneMember?.getDataValue?.location}`
       })
     }
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Edit Member By Id
-exports.editMemberById = async (req, res, next) => {
+exports.editMemberById = async (req, res) => {
   const body = req.body
   try {
     const getMember = await Member.findOne({
@@ -115,22 +110,22 @@ exports.editMemberById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses',
         data: editMember?.dataValues
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Member Tidak Ditemukan'
       })
     }
   } catch (error) {
-    console.log('ERROR BRAY =>', error)
+    console.error('Error =>', error)
 
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }

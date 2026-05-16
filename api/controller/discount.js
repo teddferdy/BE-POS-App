@@ -1,10 +1,8 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Discount = require('../../db/models/discount')
+const db = require('../../db/models')
+const Discount = db.discount
 
-// Get Discount By Location & Active
-exports.getAllDiscountByLocationAndActive = async (req, res, next) => {
-  const { store, page = 1, size = 10 } = req.query // Default page is 1, size is 10
+exports.getAllDiscountByLocationAndActive = async (req, res) => {
+  const { store, page = 1, size = 10 } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
@@ -19,6 +17,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       totalItems: count,
       totalPages: Math.ceil(count / limit),
@@ -34,23 +33,19 @@ exports.getAllDiscountByLocationAndActive = async (req, res, next) => {
           : []
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Get All Discount
-exports.getAllDiscount = async (req, res, next) => {
-  const { store, page = 1, size = 10, status = 'all' } = req.query // Default page = 1, size = 10, status = 'all'
+exports.getAllDiscount = async (req, res) => {
+  const { store, page = 1, size = 10, status = 'all' } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
-  // Build dynamic filter based on status
   let whereCondition = { store: store }
 
   if (status === 'true') {
@@ -67,6 +62,7 @@ exports.getAllDiscount = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       totalItems: count,
       totalPages: Math.ceil(count / limit),
@@ -82,18 +78,15 @@ exports.getAllDiscount = async (req, res, next) => {
           : []
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Post New SUb Category
-exports.postNewDiscount = async (req, res, next) => {
+exports.postNewDiscount = async (req, res) => {
   const { description, percentage, isActive, createdBy, store } = req.body
   try {
     const findOneDiscount = await Discount?.findOne({
@@ -113,27 +106,25 @@ exports.postNewDiscount = async (req, res, next) => {
         createdBy: createdBy
       })
       return res.status(200).json({
-        status: 'success',
+        success: true,
+        message: 'Success',
         data: postData
       })
-    } else {
-      return res.status(403).json({
-        message: 'Discount Sudah Terdaftar'
-      })
     }
-  } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Discount Sudah Terdaftar'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Edit Discount By Id
-exports.editDiscountById = async (req, res, next) => {
+exports.editDiscountById = async (req, res) => {
   const body = req.body
   const numbPercent = body.percentage.replace('%', '')
   try {
@@ -169,26 +160,25 @@ exports.editDiscountById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Discount',
         data: editDiscount?.dataValues
       })
-    } else {
-      return res.status(403).json({
-        message: 'Discount Sudah Tersedia'
-      })
     }
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Discount Sudah Tersedia'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Delete Discount By Id
-exports.deleteDiscountById = async (req, res, next) => {
+exports.deleteDiscountById = async (req, res) => {
   const body = req.body
 
   try {
@@ -203,20 +193,19 @@ exports.deleteDiscountById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Discount'
       })
-    } else {
-      return res.status(403).json({
-        message: 'Hapus Discount Gagal'
-      })
     }
-  } catch (error) {
-    console.log('ERROR =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Hapus Discount Gagal'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('ERROR =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
