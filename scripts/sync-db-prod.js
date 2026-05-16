@@ -1,0 +1,115 @@
+require('dotenv').config({ path: __dirname + '/../.env' })
+const { Sequelize } = require('sequelize')
+
+const devConfig = {
+  username: process.env.DB_DEV_USERNAME || 'postgres',
+  password: process.env.DB_DEV_PASSWORD || 'teddyferdian98',
+  database: process.env.DB_DEV_DATABASE || 'cashier_app',
+  host: process.env.DB_DEV_HOST || '127.0.0.1',
+  port: parseInt(process.env.DB_DEV_PORT) || 5432,
+  dialect: 'postgres',
+  logging: false
+}
+
+const prodConfig = {
+  username: process.env.POSTGRES_USER,
+  password: process.env.POSTGRES_PASSWORD,
+  database: process.env.POSTGRES_DATABASE,
+  host: process.env.POSTGRES_HOST,
+  port: 5432,
+  dialect: 'postgres',
+  dialectModule: require('pg'),
+  protocol: 'postgres',
+  dialectOptions: {
+    ssl: { require: true, rejectUnauthorized: false }
+  },
+  logging: false
+}
+
+const sequelizeDev = new Sequelize(devConfig)
+const sequelizeProd = new Sequelize(prodConfig)
+
+async function getTables() {
+  const [results] = await sequelizeDev.query(`
+    SELECT table_name 
+    FROM information_schema.tables 
+    WHERE table_schema = 'public'
+    ORDER BY table_name
+  `)
+  return results.map(r => r.table_name)
+}
+
+async function syncTable(table) {
+  console.log(`📥 Syncing table: ${table}...`)
+  
+  const [rows] = await sequelizeDev.query(`SELECT * FROM "${table}"`)
+  
+  if (rows.length === 0) {
+    console.log(`   ⏭️  No data, skipping...`)
+    return
+  }
+
+  await sequelizeProd.query(`TRUNCATE TABLE "${table}" RESTART IDENTITY CASCADE`)
+
+  const batchSize = 100
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize)
+    const columns = Object.keys(batch[0])
+    
+    const colList = columns.map(c => `"${c}"`).join(', ')
+    const placeholders = batch.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ')
+    const values = batch.flatMap(row => columns.map(col => row[col]))
+    
+    try {
+      await sequelizeProd.query(
+        `INSERT INTO "${table}" (${colList}) VALUES ${placeholders}`,
+        { replacements: values }
+      )
+    } catch (err) {
+      console.log(`   ⚠️  Error: ${err.message}`)
+      for (let j = 0; j < batch.length; j++) {
+        const row = batch[j]
+        const rowValues = columns.map(c => row[c])
+        try {
+          await sequelizeProd.query(
+            `INSERT INTO "${table}" (${colList}) VALUES (${columns.map(() => '?').join(', ')})`,
+            { replacements: rowValues }
+          )
+        } catch (rowErr) {
+          console.log(`   ⚠️  Row ${i + j + 1} error: ${rowErr.message}`)
+        }
+      }
+    }
+  }
+  
+  console.log(`   ✅ Synced ${rows.length} rows`)
+}
+
+async function syncDatabase() {
+  console.log('🔄 Starting database sync from DEV → PROD\n')
+
+  try {
+    console.log('🔌 Connecting to databases...')
+    await sequelizeDev.authenticate()
+    console.log('✅ DEV database connected')
+    await sequelizeProd.authenticate()
+    console.log('✅ PROD database connected\n')
+
+    const tables = await getTables()
+    console.log(`📋 Found ${tables.length} tables: ${tables.join(', ')}\n`)
+
+    for (const table of tables) {
+      await syncTable(table)
+    }
+
+    console.log('\n🎉 Database sync completed!')
+  } catch (error) {
+    console.error('❌ Sync failed:', error.message)
+    process.exit(1)
+  } finally {
+    await sequelizeDev.close()
+    await sequelizeProd.close()
+  }
+}
+
+syncDatabase()
