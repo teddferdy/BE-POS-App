@@ -1,9 +1,7 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Position = require('../../db/models/position')
+const db = require('../../db/models')
+const Position = db.position
 
-// Get All List To Dropdown
-exports.getAllPosition = async (req, res, next) => {
+exports.getAllPosition = async (req, res) => {
   try {
     const getAllPosition = await Position.findAll({
       where: {
@@ -19,30 +17,24 @@ exports.getAllPosition = async (req, res, next) => {
     )
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllPosition?.length > 0 ? getAllPosition : []
     })
   } catch (error) {
-    console.log('Error =>', error)
-
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Get All Position To Table
-exports.getAllPositionInTable = async (req, res, next) => {
+exports.getAllPositionInTable = async (req, res) => {
   try {
-    // Extract pagination and status from query params
     const { page = 1, limit = 10, status = 'all' } = req.query
+    const offset = (page - 1) * limit
 
-    const offset = (page - 1) * limit // Calculate offset for pagination
-
-    // Define where condition based on status filter
     let whereCondition = {}
     if (status === 'true') {
       whereCondition = { status: true }
@@ -50,18 +42,16 @@ exports.getAllPositionInTable = async (req, res, next) => {
       whereCondition = { status: false }
     }
 
-    // Query the database with pagination and filtering
-    const { rows: getAllPosition, count: totalItems } =
-      await Position.findAndCountAll({
-        where: whereCondition,
-        offset: parseInt(offset),
-        limit: parseInt(limit)
-      })
+    const { rows: getAllPosition, count: totalItems } = await Position.findAndCountAll({
+      where: whereCondition,
+      offset: parseInt(offset),
+      limit: parseInt(limit)
+    })
 
-    // Calculate total pages
     const totalPages = Math.ceil(totalItems / limit)
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllPosition?.length > 0 ? getAllPosition : [],
       pagination: {
@@ -72,18 +62,15 @@ exports.getAllPositionInTable = async (req, res, next) => {
       }
     })
   } catch (error) {
-    console.log('Error =>', error)
-
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
   }
 }
 
-// Add New Position
-exports.addNewPosition = async (req, res, next) => {
+exports.addNewPosition = async (req, res) => {
   const body = req.body
 
   try {
@@ -103,26 +90,25 @@ exports.addNewPosition = async (req, res, next) => {
 
       if (creadtedPosition.getDataValue) {
         return res.status(200).json({
+          success: true,
           message: 'Position Berhasil Di Buat'
         })
       }
-    } else {
-      return res.status(403).json({
-        message: 'Position Sudah Terdaftar'
-      })
     }
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Position Sudah Terdaftar'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Edit Position By Id
-exports.editPositionById = async (req, res, next) => {
+exports.editPositionById = async (req, res) => {
   const body = req.body
   try {
     const getDuplicate = await Position.findOne({
@@ -155,28 +141,25 @@ exports.editPositionById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Position',
         data: editPosition?.dataValues
       })
-    } else {
-      return res.status(403).json({
-        message: 'Position Sudah Tersedia'
-      })
     }
-  } catch (error) {
-    console.log(error)
-
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Position Sudah Tersedia'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Delete Position By Id
-exports.deletePositionById = async (req, res, next) => {
+exports.deletePositionById = async (req, res) => {
   const body = req.body
 
   try {
@@ -190,20 +173,19 @@ exports.deletePositionById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Position'
       })
-    } else {
-      return res.status(403).json({
-        message: 'Hapus Position Gagal'
-      })
     }
-  } catch (error) {
-    console.log('ERROR =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Hapus Position Gagal'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('ERROR =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }

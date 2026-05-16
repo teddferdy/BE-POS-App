@@ -1,18 +1,15 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-constant-condition */
-/* eslint-disable no-unused-vars */
-const BestSelling = require('../../db/models/best_selling')
-const Checkout = require('../../db/models/checkout')
+const db = require('../../db/models')
+const BestSelling = db.best_selling
+const Checkout = db.checkout
 const { Op, Sequelize } = require('sequelize')
 const moment = require('moment')
 const sequelize = require('../../config/database')
 
-// Get All List
-exports.getAllBestSelling = async (req, res, next) => {
+exports.getAllBestSelling = async (req, res) => {
   const { store } = req.query
 
   try {
-    const whereClause = store ? { store } : {} // Add where clause if store is present
+    const whereClause = store ? { store } : {}
 
     const getAllBestSelling = await BestSelling.findAll({
       where: whereClause
@@ -26,21 +23,20 @@ exports.getAllBestSelling = async (req, res, next) => {
     )
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllBestSelling?.length > 0 ? getAllBestSelling : []
     })
   } catch (error) {
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Chart get current year
-exports.chartDataByYear = async (req, res, next) => {
+exports.chartDataByYear = async (req, res) => {
   const { query } = req
   const { store, year } = query
 
@@ -60,14 +56,15 @@ exports.chartDataByYear = async (req, res, next) => {
       `)
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: result
     })
   } catch (error) {
-    console.log('ERROR =>', error)
-
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
   }
 }
@@ -89,22 +86,17 @@ const getDateRange = (firstDate, lastDate) => {
   return dates
 }
 
-// Charts by Month from first to endDate in Current Month
-exports.chartDataByMonth = async (req, res, next) => {
+exports.chartDataByMonth = async (req, res) => {
   const { query } = req
   const { store } = query
   const date = new Date()
 
   const firstDay = query?.startDate
     ? moment(query?.startDate).format('YYYY/MM/DD')
-    : moment(new Date(date.getFullYear(), date.getMonth(), 1)).format(
-        'YYYY/MM/DD'
-      )
+    : moment(new Date(date.getFullYear(), date.getMonth(), 1)).format('YYYY/MM/DD')
   const lastDay = query?.endDate
     ? moment(query?.endDate).format('YYYY/MM/DD')
-    : moment(new Date(date.getFullYear(), date.getMonth() + 1, 0)).format(
-        'YYYY/MM/DD'
-      )
+    : moment(new Date(date.getFullYear(), date.getMonth() + 1, 0)).format('YYYY/MM/DD')
   const numberLastDate = moment(lastDay).format('DD')
   const arrIntervalDate = getDateRange(firstDay, lastDay)
 
@@ -124,7 +116,7 @@ exports.chartDataByMonth = async (req, res, next) => {
     }
 
     if (store) {
-      whereClause.store = store // Add store condition if provided
+      whereClause.store = store
     }
 
     const datas = await Checkout.findAll({
@@ -144,6 +136,7 @@ exports.chartDataByMonth = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: datas.map((items) => {
         return {
@@ -153,19 +146,16 @@ exports.chartDataByMonth = async (req, res, next) => {
       })
     })
   } catch (error) {
-    console.log('ERROR =>', error)
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Chart from now and 7 Days Before
-exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
-  var dates = []
+exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res) => {
+  const dates = []
   for (let I = 0; I < Math.abs(7); I++) {
     dates.push({
       date: moment(
@@ -199,6 +189,7 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: datas.map((items) => {
         return {
@@ -208,20 +199,16 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res, next) => {
       })
     })
   } catch (error) {
-    console.log('ERROR =>', error)
-
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Chart from now and 2 Days Before
-exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
-  var dates = []
+exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res) => {
+  const dates = []
   for (let I = 0; I < Math.abs(2); I++) {
     dates.push({
       date: moment(
@@ -255,6 +242,7 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: datas.map((items) => {
         return {
@@ -264,19 +252,15 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res, next) => {
       })
     })
   } catch (error) {
-    console.log('ERROR =>', error)
-
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Get Earning Today
-exports.getEarningToday = async (req, res, next) => {
+exports.getEarningToday = async (req, res) => {
   const NOW = moment(new Date()).format('YYYY-MM-DD')
   const { store } = req.query
 
@@ -288,7 +272,7 @@ exports.getEarningToday = async (req, res, next) => {
     }
 
     if (store) {
-      whereClause.store = store // Add store filter if provided
+      whereClause.store = store
     }
 
     const datas = await Checkout.findAll({
@@ -309,6 +293,7 @@ exports.getEarningToday = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: {
         totalEarningToday: totalEarningToday,
@@ -316,13 +301,10 @@ exports.getEarningToday = async (req, res, next) => {
       }
     })
   } catch (error) {
-    console.log('ERROR =>', error)
-
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }

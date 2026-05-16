@@ -2,37 +2,20 @@ const express = require('express')
 const router = express.Router()
 
 const discountController = require('../controller/discount')
-// Authorization
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 
-// Get All Discount
-router.get(
-  '/get-discount-by-location',
-  authorization,
-  discountController?.getAllDiscountByLocationAndActive
-)
+// Get All Discount - All authenticated users
+router.get('/get-discount-by-location', authorization, discountController.getAllDiscountByLocationAndActive)
+router.get('/get-discount', authorization, discountController.getAllDiscount)
 
-router.get('/get-discount', authorization, discountController?.getAllDiscount)
+// Add Discount - Admin & Super Admin only
+router.post('/add-new-discount', requireRole('super_admin', 'admin'), discountController.postNewDiscount)
 
-// Add Discount
-router.post(
-  '/add-new-discount',
-  authorization,
-  discountController?.postNewDiscount
-)
+// Edit Discount - Admin & Super Admin only
+router.put('/edit-discount/:id', requireRole('super_admin', 'admin'), discountController.editDiscountById)
 
-// Edit Location
-router.put(
-  '/edit-discount/:id',
-  authorization,
-  discountController?.editDiscountById
-)
-
-// Delete Location
-router.delete(
-  '/delete-discount/:id',
-  authorization,
-  discountController?.deleteDiscountById
-)
+// Delete Discount - Admin & Super Admin only
+router.delete('/delete-discount/:id', requireRole('super_admin', 'admin'), discountController.deleteDiscountById)
 
 module.exports = router

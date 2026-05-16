@@ -1,21 +1,17 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Checkout = require('../../db/models/checkout')
-const Transaction = require('../../db/models/transaction')
-const BestSelling = require('../../db/models/best_selling')
+const db = require('../../db/models')
+const Checkout = db.checkout
+const Transaction = db.transaction
+const BestSelling = db.best_selling
 
-// Add Transaction DB
 exports.addNewTransaction = async (id, order) => {
-  // Loop through the order array
   for (const element of order) {
-    // Create transaction records with the necessary fields, including store
     await Transaction.create({
       masterId: id,
       productId: element.idProduct,
       quantityPerProduct: element.count,
       productName: element.orderName,
       price: element.price,
-      store: element.store // Ensure store is included
+      store: element.store
     })
   }
 
@@ -25,7 +21,7 @@ exports.addNewTransaction = async (id, order) => {
         where: {
           productId: order[index].idProduct,
           nameProduct: order[index].orderName,
-          store: order[index].store // Ensure store is used in the query
+          store: order[index].store
         }
       })
 
@@ -49,44 +45,38 @@ exports.addNewTransaction = async (id, order) => {
           nameProduct: order[index].orderName,
           image: order[index].img,
           totalSelling: Number(order[index].count),
-          store: order[index].store // Ensure store is included when creating
+          store: order[index].store
         })
       }
     } catch (error) {
-      console.log(error)
+      console.error(error)
     }
   }
 }
 
-// Generate Invoice
-exports.generateInvoice = async (req, res, next) => {
+exports.generateInvoice = async () => {
   const COMP_NAME = 'BISA NOTA'
   const date = new Date()
   const lengthChara = 5
   const charSet =
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  var randomString = ''
+  let randomString = ''
 
-  for (var i = 0; i < lengthChara; i++) {
-    var randomPoz = Math.floor(Math.random() * charSet.length)
+  for (let i = 0; i < lengthChara; i++) {
+    const randomPoz = Math.floor(Math.random() * charSet.length)
     randomString += charSet.substring(randomPoz, randomPoz + 1)
   }
 
   const INV = 'INV'
-
   const subStringCompName = COMP_NAME.substring(0, 3)
   const timeStampDate = date.getTime()
   const chara = randomString
   const invoice = `${INV}${subStringCompName}#${timeStampDate}#${chara}`
-  if (invoice) {
-    return invoice
-  }
+  return invoice
 }
 
-// Post Checkout
-exports.checkout = async (req, res, next) => {
+exports.checkout = async (req, res) => {
   const body = req.body
-
   const invoice = await this.generateInvoice()
 
   try {
@@ -111,35 +101,29 @@ exports.checkout = async (req, res, next) => {
 
       if (creadtedCheckout?.getDataValue) {
         return res.status(200).json({
+          success: true,
           message: 'Success',
           data: creadtedCheckout.dataValues
         })
       }
-    } else {
-      return res.status(403).json({
-        message: 'Location Sudah Terdaftar'
-      })
     }
-  } catch (error) {
-    console.log('ERROR =>', error)
-
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Location Sudah Terdaftar'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('ERROR =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Edit Checkout
-exports.editCheckout = async (req, res, next) => {
+exports.editCheckout = async (req, res) => {
   const body = req.body
 
   try {
-    console.log('body =>', body)
-    console.log('body?.order =>', body?.order)
-
     await this.addNewTransaction(body.id, body?.order)
 
     const editCheckout = await Checkout?.update(
@@ -169,22 +153,20 @@ exports.editCheckout = async (req, res, next) => {
     })
 
     return res.status(200).json({
-      message: 'Sukses Ubah Discount',
+      success: true,
+      message: 'Sukses Ubah Checkout',
       data: editCheckout?.dataValues
     })
   } catch (error) {
-    console.log('ERROR =>', error)
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Delete Checkout
-exports.deleteCheckout = async (req, res, next) => {
+exports.deleteCheckout = async (req, res) => {
   const body = req.body
 
   try {
@@ -199,20 +181,19 @@ exports.deleteCheckout = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Items'
       })
-    } else {
-      return res.status(403).json({
-        message: 'Hapus Items Gagal'
-      })
     }
-  } catch (error) {
-    console.log('ERROR =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Hapus Items Gagal'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('ERROR =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }

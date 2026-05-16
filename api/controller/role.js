@@ -1,9 +1,8 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Role = require('../../db/models/role')
+const db = require('../../db/models')
+const Role = db.role
+const { Op } = db.Sequelize
 
-// Get All List To Dropdown
-exports.getAllRole = async (req, res, next) => {
+exports.getAllRole = async (req, res) => {
   try {
     const getAllRole = await Role.findAll({
       where: {
@@ -19,49 +18,43 @@ exports.getAllRole = async (req, res, next) => {
     )
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllRole?.length > 0 ? getAllRole : []
     })
   } catch (error) {
-    console.log('Error =>', error)
-
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Get All Role To Table
-exports.getAllRoleInTable = async (req, res, next) => {
+exports.getAllRoleInTable = async (req, res) => {
   try {
-    // Extract query parameters for pagination and status filtering
     const { page = 1, limit = 10, status = 'all' } = req.query
     const offset = (page - 1) * limit
     const whereCondition = {}
 
-    // Set where condition based on status
     if (status === 'true') {
       whereCondition.status = true
     } else if (status === 'false') {
       whereCondition.status = false
     }
 
-    // Fetch roles with pagination and filtering
     const { rows: roles, count: totalRoles } = await Role.findAndCountAll({
       where: whereCondition,
       offset: parseInt(offset),
       limit: parseInt(limit)
     })
 
-    // Transform data (if needed)
     const getAllRole = roles.map((items) => {
       return { ...items.dataValues }
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllRole.length > 0 ? getAllRole : [],
       pagination: {
@@ -72,19 +65,15 @@ exports.getAllRoleInTable = async (req, res, next) => {
       }
     })
   } catch (error) {
-    console.log('Error =>', error)
-
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Internal Server Error'
+      success: false,
+      message: 'Internal Server Error'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Add New Role
-exports.addNewRole = async (req, res, next) => {
+exports.addNewRole = async (req, res) => {
   const body = req.body
 
   try {
@@ -104,26 +93,25 @@ exports.addNewRole = async (req, res, next) => {
 
       if (creadtedRole.getDataValue) {
         return res.status(200).json({
+          success: true,
           message: 'Role Berhasil Di Buat'
         })
       }
-    } else {
-      return res.status(403).json({
-        message: 'Role Sudah Terdaftar'
-      })
     }
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Role Sudah Terdaftar'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Edit Role By Id
-exports.editRoleById = async (req, res, next) => {
+exports.editRoleById = async (req, res) => {
   const body = req.body
   try {
     const getDuplicate = await Role.findOne({
@@ -156,28 +144,25 @@ exports.editRoleById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Role',
         data: editRole?.dataValues
       })
-    } else {
-      return res.status(403).json({
-        message: 'Role Sudah Tersedia'
-      })
     }
-  } catch (error) {
-    console.log(error)
-
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Role Sudah Tersedia'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
-// Delete Role By Id
-exports.deleteRoleById = async (req, res, next) => {
+exports.deleteRoleById = async (req, res) => {
   const body = req.body
 
   try {
@@ -191,20 +176,198 @@ exports.deleteRoleById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Role'
       })
-    } else {
-      return res.status(403).json({
-        message: 'Hapus Role Gagal'
+    }
+    return res.status(403).json({
+      success: false,
+      message: 'Hapus Role Gagal'
+    })
+  } catch (error) {
+    console.error('ERROR =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.getRoleById = async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const role = await Role.findByPk(id)
+
+    if (!role) {
+      return res.status(404).json({
+        success: false,
+        message: 'Role Tidak Ditemukan'
       })
     }
-  } catch (error) {
-    console.log('ERROR =>', error)
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: role
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.updateUserRole = async (req, res) => {
+  const { userId, roleId, accessMenu } = req.body
+  const currentUserRole = req.user?.roleType
+
+  try {
+    const user = await db.user.findByPk(userId)
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User Tidak Ditemukan'
+      })
+    }
+
+    const role = await Role.findByPk(roleId)
+
+    if (!role) {
+      return res.status(404).json({
+        success: false,
+        message: 'Role Tidak Ditemukan'
+      })
+    }
+
+    if (user.roleType === 'super_admin' && role.roleType !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Tidak dapat downgrade Super Admin'
+      })
+    }
+
+    if (currentUserRole === 'admin' && (user.roleType === 'super_admin' || role.roleType === 'super_admin')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki akses untuk mengubah role Super Admin'
+      })
+    }
+
+    if (currentUserRole === 'admin' && role.roleType === 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Tidak dapat memberikan role Super Admin'
+      })
+    }
+
+    if (currentUserRole === 'admin') {
+      if (user.store !== req.user.store) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengelola user di toko Anda'
+        })
+      }
+    }
+
+    await user.update({
+      roleType: role.roleType,
+      roleId: roleId,
+      accessMenu: accessMenu || role.accessMenu
+    })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success Ubah Role User',
+      data: {
+        id: user.id,
+        userName: user.userName,
+        roleType: user.roleType,
+        roleId: user.roleId,
+        accessMenu: user.accessMenu
+      }
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.getUsersByRole = async (req, res) => {
+  const { roleType } = req.query
+  const currentUserRole = req.user?.roleType
+  const currentUserStore = req.user?.store
+
+  try {
+    const whereCondition = {}
+
+    if (roleType) {
+      whereCondition.roleType = roleType
+    }
+
+    if (currentUserRole === 'admin') {
+      whereCondition.store = currentUserStore
+      whereCondition.roleType = { [Op.ne]: 'super_admin' }
+    }
+
+    const users = await db.user.findAll({
+      where: whereCondition,
+      attributes: { exclude: ['password'] },
+      include: [
+        { model: Role, as: 'role', attributes: ['id', 'name', 'roleType', 'accessMenu'] }
+      ]
+    })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: users
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.updateRoleAccessMenu = async (req, res) => {
+  const { roleId, accessMenu } = req.body
+
+  try {
+    const role = await Role.findByPk(roleId)
+
+    if (!role) {
+      return res.status(404).json({
+        success: false,
+        message: 'Role Tidak Ditemukan'
+      })
+    }
+
+    await role.update({ accessMenu: accessMenu })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success Update Akses Menu',
+      data: {
+        id: role.id,
+        name: role.name,
+        roleType: role.roleType,
+        accessMenu: role.accessMenu
+      }
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }

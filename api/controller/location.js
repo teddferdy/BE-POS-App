@@ -1,48 +1,49 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Location = require('../../db/models/location')
-// Need Update
-const User = require('../../db/models/user')
-const BestSelling = require('../../db/models/best_selling')
-const Checkout = require('../../db/models/checkout')
-const Product = require('../../db/models/product')
-const Category = require('../../db/models/category')
-const SubCategoryProduct = require('../../db/models/sub_category')
-const Discount = require('../../db/models/discount')
-const InvoiceFooter = require('../../db/models/invoice_footer')
-const InvoiceLogo = require('../../db/models/invoice_logo')
-const InvoiceSocialMedia = require('../../db/models/invoice_social_media')
-const Member = require('../../db/models/member')
-const SocialMedia = require('../../db/models/social_media')
-const TypePayment = require('../../db/models/type_payment')
-const Transaction = require('../../db/models/transaction')
-const Shift = require('../../db/models/shift')
+const db = require('../../db/models')
+const Location = db.location
+const User = db.user
+const BestSelling = db.best_selling
+const Checkout = db.checkout
+const Product = db.product
+const Category = db.category
+const SubCategoryProduct = db.sub_category
+const Discount = db.discount
+const InvoiceFooter = db.invoice_footer
+const InvoiceLogo = db.invoice_logo
+const InvoiceSocialMedia = db.invoice_social_media
+const Member = db.member
+const SocialMedia = db.social_media
+const TypePayment = db.type_payment
+const Transaction = db.transaction
+const Shift = db.shift
 
 const { compareObjects } = require('../../utils/compare-value')
 const { uploadToCloudinary, deleteFromCloudinary } = require('../../utils/cloudinaryStorage')
 const { downloadLocationTemplate, parseLocationTemplate } = require('../../utils/excelTemplate')
 
-// Get All Locations for Dropdown
 exports.getAllLocation = async (req, res) => {
   try {
-    const locations = await Location.findAll({ where: { status: true } })
-    return res.status(200).json({ message: 'Success', data: locations })
+    const userRole = req.user?.roleType
+    const userStore = req.user?.store
+
+    const whereCondition = { status: true }
+
+    if (userRole === 'admin' || userRole === 'user') {
+      whereCondition.id = userStore
+    }
+
+    const locations = await Location.findAll({ where: whereCondition })
+    return res.status(200).json({ success: true, message: 'Success', data: locations })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    return res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }
 
-// Get All Locations for Table
 exports.getAllLocationInTable = async (req, res) => {
   try {
-    // Pagination parameters
     const { page = 1, limit = 10, status = 'all' } = req.query
-
-    // Calculate offset for pagination
     const offset = (page - 1) * limit
 
-    // Filter based on status
     let whereClause = {}
     if (status === 'true') {
       whereClause.status = true
@@ -50,42 +51,37 @@ exports.getAllLocationInTable = async (req, res) => {
       whereClause.status = false
     }
 
-    // Fetch locations with pagination and optional status filter
     const { rows: locations, count } = await Location.findAndCountAll({
-      where: whereClause, // Apply status filter if any
-      limit: parseInt(limit), // Limit per page
-      offset: parseInt(offset) // Offset based on page number
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
     })
 
-    // Return paginated and filtered results
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: locations,
-      total: count, // Total records count
+      total: count,
       currentPage: parseInt(page),
       totalPages: Math.ceil(count / limit)
     })
   } catch (error) {
-    console.log('Error =>', error)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    console.error('Error =>', error)
+    return res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }
 
-// Add New Location
 exports.addNewLocation = async (req, res) => {
-  const { nameStore, address, detailLocation, phoneNumber, status, createdBy } =
-    req.body
+  const { nameStore, address, detailLocation, phoneNumber, status, createdBy } = req.body
   const imageFile = req.file
 
   try {
     const existingLocation = await Location.findOne({ where: { nameStore } })
-    if (existingLocation)
-      return res.status(403).json({ message: 'Location already exists' })
+    if (existingLocation) {
+      return res.status(403).json({ success: false, message: 'Location already exists' })
+    }
 
-    const imageUrl = await uploadToCloudinary(
-      imageFile.path,
-      'pos-app-locations'
-    )
+    const imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-locations')
 
     await Location.create({
       image: imageUrl,
@@ -98,26 +94,26 @@ exports.addNewLocation = async (req, res) => {
       createdBy
     })
 
-    return res.status(200).json({ message: 'Location created successfully' })
+    return res.status(200).json({ success: true, message: 'Location created successfully' })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ error: 'Internal server error' })
+    return res.status(500).json({ success: false, message: 'Internal server error' })
   }
 }
 
 exports.editLocationById = async (req, res) => {
   const { id, nameStore, status, confirmUserUpdate, ...rest } = req.body
-  if (!id)
-    return res
-      .status(400)
-      .json({ error: 'ID is required to update the location.' })
+  if (!id) {
+    return res.status(400).json({ success: false, message: 'ID is required to update the location.' })
+  }
 
   try {
     const location = await Location.findByPk(id)
-    if (!location) return res.status(404).json({ error: 'Location not found.' })
+    if (!location) {
+      return res.status(404).json({ success: false, message: 'Location not found.' })
+    }
 
     const dataExist = location.dataValues
-
     let imageUrl = dataExist.image
     if (req.file) {
       if (dataExist.image) {
@@ -129,7 +125,7 @@ exports.editLocationById = async (req, res) => {
     const updatedData = { ...rest, image: imageUrl, nameStore, status }
 
     if (compareObjects(dataExist, updatedData)) {
-      return res.status(403).json({ message: 'The location already exists.' })
+      return res.status(403).json({ success: false, message: 'The location already exists.' })
     }
 
     if (nameStore !== dataExist.nameStore && confirmUserUpdate) {
@@ -144,35 +140,33 @@ exports.editLocationById = async (req, res) => {
     await batchUpdateModels(id, { status, nameStore })
 
     return res.status(200).json({
+      success: true,
       message: 'Successfully updated location.',
       data: updatedLocation.dataValues
     })
   } catch (error) {
     console.error('ERROR =>', error)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    return res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }
 
-// Delete Location By ID
 exports.deleteLocationById = async (req, res) => {
   const { id } = req.body
 
   try {
     const location = await Location.findByPk(id)
-    if (!location)
-      return res.status(404).json({ message: 'Location not found' })
+    if (!location) {
+      return res.status(404).json({ success: false, message: 'Location not found' })
+    }
 
     await Location.destroy({ where: { id }, force: true })
-    return res.status(200).json({ message: 'Location deleted successfully' })
+    return res.status(200).json({ success: true, message: 'Location deleted successfully' })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ error: 'Internal server error' })
-  } finally {
-    return res.end()
+    return res.status(500).json({ success: false, message: 'Internal server error' })
   }
 }
 
-// Batch update related models
 const batchUpdateModels = async (id, updateFields) => {
   const modelsToUpdate = [
     User,
@@ -197,7 +191,6 @@ const batchUpdateModels = async (id, updateFields) => {
   }
 }
 
-// Download Location Template
 exports.downloadTemplate = async (req, res) => {
   try {
     const existingLocations = await Location.findAll({
@@ -219,18 +212,17 @@ exports.downloadTemplate = async (req, res) => {
   } catch (err) {
     console.error('Error downloading template:', err)
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Gagal mengunduh template',
       error: err.message
     })
   }
 }
 
-// Import Location from Excel Template
 exports.importLocation = async (req, res) => {
   if (!req.file) {
     return res.status(400).json({
-      status: 'error',
+      success: false,
       message: 'File Excel diperlukan'
     })
   }
@@ -240,7 +232,7 @@ exports.importLocation = async (req, res) => {
 
     if (!locations.length) {
       return res.status(400).json({
-        status: 'error',
+        success: false,
         message: 'Data lokasi tidak ditemukan di file Excel'
       })
     }
@@ -399,14 +391,14 @@ exports.importLocation = async (req, res) => {
     }
 
     res.status(200).json({
-      status: 'success',
+      success: true,
       message: `Berhasil import ${results.created.length} lokasi baru dan ${results.updated.length} lokasi diupdate`,
       data: results
     })
   } catch (err) {
     console.error('Error importing locations:', err)
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Gagal mengimport lokasi',
       error: err.message
     })

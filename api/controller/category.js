@@ -1,11 +1,10 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Category = require('../../db/models/category')
+const db = require('../../db/models')
+const Category = db.category
 const excelJS = require('exceljs')
 const fs = require('fs')
 
 // Get All List To Cashier List
-exports.getAllCategory = async (req, res, next) => {
+exports.getAllCategory = async (req, res) => {
   const { store } = req.query
   try {
     const getAllCategory = await Category.findAll({
@@ -23,25 +22,25 @@ exports.getAllCategory = async (req, res, next) => {
     )
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllCategory?.length > 0 ? getAllCategory : []
     })
   } catch (error) {
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Get All List To Table Cashier List
-exports.getAllCategoryInTable = async (req, res, next) => {
-  const { store, page = 1, pageSize = 10, status = 'all' } = req.query // Default values: page = 1, pageSize = 10
+exports.getAllCategoryInTable = async (req, res) => {
+  const { store, page = 1, pageSize = 10, status = 'all' } = req.query
 
   try {
-    const offset = (page - 1) * pageSize // Calculate offset for pagination
+    const offset = (page - 1) * pageSize
 
     let whereClause = {}
     if (status === 'true') {
@@ -54,8 +53,8 @@ exports.getAllCategoryInTable = async (req, res, next) => {
 
     const getAllCategory = await Category.findAll({
       where: whereClause,
-      limit: parseInt(pageSize), // Limit number of results
-      offset: parseInt(offset) // Offset based on the current page
+      limit: parseInt(pageSize),
+      offset: parseInt(offset)
     }).then((res) =>
       res.map((items) => {
         const getData = {
@@ -65,35 +64,32 @@ exports.getAllCategoryInTable = async (req, res, next) => {
       })
     )
 
-    // Get the total count of categories for the store to include in the response
     const totalCategories = await Category.count({
       where: { store: store }
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: getAllCategory?.length > 0 ? getAllCategory : [],
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalItems: totalCategories, // Total number of items
-        totalPages: Math.ceil(totalCategories / pageSize) // Calculate total pages
+        totalItems: totalCategories,
+        totalPages: Math.ceil(totalCategories / pageSize)
       }
     })
   } catch (error) {
-    console.log('ERROR =>', error)
-
+    console.error('ERROR =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
 // Add New Category
-exports.addNewCategory = async (req, res, next) => {
+exports.addNewCategory = async (req, res) => {
   const body = req.body
 
   try {
@@ -115,26 +111,26 @@ exports.addNewCategory = async (req, res, next) => {
 
       if (creadtedCategory.getDataValue) {
         return res.status(200).json({
+          success: true,
           message: 'Category Berhasil Di Buat'
         })
       }
-    } else {
-      return res.status(403).json({
-        message: 'Category Sudah Terdaftar'
-      })
     }
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Category Sudah Terdaftar'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
 // Edit Category By Id
-exports.editCategoryById = async (req, res, next) => {
+exports.editCategoryById = async (req, res) => {
   const body = req.body
   try {
     const getDuplicate = await Category.findOne({
@@ -169,26 +165,26 @@ exports.editCategoryById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Kategori',
         data: editCategory?.dataValues
       })
-    } else {
-      return res.status(403).json({
-        message: 'Kategori Sudah Tersedia'
-      })
     }
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Kategori Sudah Tersedia'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 
 // Delete Category By Id
-exports.deleteCategoryById = async (req, res, next) => {
+exports.deleteCategoryById = async (req, res) => {
   const body = req.body
 
   try {
@@ -203,20 +199,20 @@ exports.deleteCategoryById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Kategori'
       })
-    } else {
-      return res.status(403).json({
-        message: 'Gagal Hapus Kategori'
-      })
     }
-  } catch (error) {
-    return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+    return res.status(403).json({
+      success: false,
+      message: 'Gagal Hapus Kategori'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
   }
 }
 

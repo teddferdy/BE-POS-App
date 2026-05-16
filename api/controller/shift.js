@@ -1,15 +1,12 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const Shift = require('../../db/models/shift')
+const db = require('../../db/models')
+const Shift = db.shift
 
-// Get All Shift
-exports.getAllShift = async (req, res, next) => {
-  const { page = 1, pageSize = 10, status = 'all' } = req.query // Default page = 1, pageSize = 10, status = 'all'
+exports.getAllShift = async (req, res) => {
+  const { page = 1, pageSize = 10, status = 'all' } = req.query
 
   try {
-    const offset = (page - 1) * pageSize // Calculate the offset for pagination
+    const offset = (page - 1) * pageSize
 
-    // Build the where condition based on the status filter
     let statusCondition = {}
     if (status === 'true') {
       statusCondition = { status: true }
@@ -17,45 +14,41 @@ exports.getAllShift = async (req, res, next) => {
       statusCondition = { status: false }
     }
 
-    // Fetch shifts with pagination and status filter
     const shiftCategory = await Shift.findAll({
       where: {
-        ...statusCondition // Add the status condition if applicable
+        ...statusCondition
       },
-      limit: parseInt(pageSize), // Limit number of shifts per page
-      offset: parseInt(offset) // Offset based on the current page
+      limit: parseInt(pageSize),
+      offset: parseInt(offset)
     })
 
-    // Get the total count of shifts for pagination, considering the status filter
     const totalShifts = await Shift.count({
       where: {
-        ...statusCondition // Count based on the status filter
+        ...statusCondition
       }
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       data: shiftCategory,
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
-        totalItems: totalShifts, // Total number of shifts
-        totalPages: Math.ceil(totalShifts / pageSize) // Total pages
+        totalItems: totalShifts,
+        totalPages: Math.ceil(totalShifts / pageSize)
       }
     })
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Post New Shift
-exports.postNewShift = async (req, res, next) => {
+exports.postNewShift = async (req, res) => {
   try {
     const { nameShift, description, startHour, endHour, createdBy } = req.body
     const findOneShift = await Shift?.findOne({
@@ -72,27 +65,26 @@ exports.postNewShift = async (req, res, next) => {
         createdBy: createdBy
       })
       return res.status(200).json({
-        status: 'success',
+        success: true,
+        message: 'Success',
         data: postData
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Shift Sudah Terdaftar'
       })
     }
   } catch (error) {
-    console.log('Error =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Edit Shift By Id
-exports.editShiftById = async (req, res, next) => {
+exports.editShiftById = async (req, res) => {
   const {
     id,
     nameShift,
@@ -132,26 +124,25 @@ exports.editShiftById = async (req, res, next) => {
         return data
       })
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Shift',
         data: editShift?.dataValues
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Shift Sudah Tersedia'
       })
     }
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Delete Shift By Id
-exports.deleteShiftById = async (req, res, next) => {
+exports.deleteShiftById = async (req, res) => {
   const { id, nameShift } = req.body
   try {
     const getId = await Shift.destroy({
@@ -163,20 +154,20 @@ exports.deleteShiftById = async (req, res, next) => {
     })
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Shift'
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Hapus Shift Gagal'
       })
     }
   } catch (error) {
-    console.log('ERROR =>', error)
+    console.error('Error =>', error)
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }

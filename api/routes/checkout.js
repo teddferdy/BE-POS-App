@@ -8,20 +8,20 @@ const checkoutController = require('../controller/checkout')
 const authorization = require('../../utils/authorization')
 
 // Add New Checkout
-router.post('/checkout-item', authorization, checkoutController?.checkout)
+router.post('/checkout-item', authorization, checkoutController.checkout)
 
 // Edit Checkout
 router.put(
   '/edit-checkout-item',
   authorization,
-  checkoutController?.editCheckout
+  checkoutController.editCheckout
 )
 
 // Delete Checkout By Invoice & id
 router.delete(
   '/delete-checkout-item',
   authorization,
-  checkoutController?.deleteCheckout
+  checkoutController.deleteCheckout
 )
 
 module.exports = router

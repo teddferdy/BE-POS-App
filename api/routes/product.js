@@ -1,8 +1,8 @@
-/* eslint-disable no-undef */
 const express = require('express')
 const router = express.Router()
 const productController = require('../controller/product')
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -46,16 +46,19 @@ const uploadImages = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 }).array('images', 50)
 
-// Product Template
-router.get('/template/:storeId', authorization, productController.downloadTemplate)
-router.post('/import', authorization, uploadExcel.single('file'), uploadImages, productController.importProduct)
+// Product Template - Admin & Super Admin only
+router.get('/template/:storeId', requireRole('super_admin', 'admin'), productController.downloadTemplate)
+router.post('/import', requireRole('super_admin', 'admin'), uploadExcel.single('file'), uploadImages, productController.importProduct)
 
 // Product CRUD
-router.post('/add-product', authorization, upload, productController.postAddProduct)
+// Read products - All authenticated users
 router.get('/get-product', authorization, productController.getAllProduct)
 router.get('/get-product-by-super-admin', authorization, productController.getProductByLocationSuperAdmin)
 router.get('/get-product-all', authorization, productController.getAllProductInTable)
-router.put('/edit-product', authorization, upload, productController.editProductByLocationAndId)
-router.delete('/delete-product/:id', authorization, productController.deleteProductByIdAndLocation)
+
+// Create/Update/Delete - Admin & Super Admin only
+router.post('/add-product', requireRole('super_admin', 'admin'), upload, productController.postAddProduct)
+router.put('/edit-product', requireRole('super_admin', 'admin'), upload, productController.editProductByLocationAndId)
+router.delete('/delete-product/:id', requireRole('super_admin', 'admin'), productController.deleteProductByIdAndLocation)
 
 module.exports = router

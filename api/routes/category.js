@@ -1,44 +1,26 @@
 const express = require('express')
 const router = express.Router()
 
-// Controller
 const categoryController = require('../controller/category')
-
-// Authorization
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 
-// Get All List Category
-router.get('/get-category', authorization, categoryController?.getAllCategory)
+// Get All List Category - All authenticated users
+router.get('/get-category', authorization, categoryController.getAllCategory)
 
 // Get All List To Table
-router.get(
-  '/get-category-all',
-  authorization,
-  categoryController?.getAllCategoryInTable
-)
+router.get('/get-category-all', authorization, categoryController.getAllCategoryInTable)
 
-// Add New Category
-router.post(
-  '/add-new-category',
-  authorization,
-  categoryController?.addNewCategory
-)
+// Add New Category - Admin & Super Admin only
+router.post('/add-new-category', requireRole('super_admin', 'admin'), categoryController.addNewCategory)
 
-// Edit Category
-router.put(
-  '/edit-category/:id',
-  authorization,
-  categoryController?.editCategoryById
-)
+// Edit Category - Admin & Super Admin only
+router.put('/edit-category/:id', requireRole('super_admin', 'admin'), categoryController.editCategoryById)
 
-// Delete Category
-router.delete(
-  '/delete-category/:id',
-  authorization,
-  categoryController?.deleteCategoryById
-)
+// Delete Category - Admin & Super Admin only
+router.delete('/delete-category/:id', requireRole('super_admin', 'admin'), categoryController.deleteCategoryById)
 
-// Adding Download Excel
-router.get('/download-excel', authorization, categoryController?.exportCategory)
+// Download Excel - Admin & Super Admin only
+router.get('/download-excel', requireRole('super_admin', 'admin'), categoryController.exportCategory)
 
 module.exports = router

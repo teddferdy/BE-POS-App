@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const locationController = require('../controller/location')
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -45,15 +46,26 @@ const uploadImages = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 }).array('images', 50)
 
-// Location Template
-router.get('/template', authorization, locationController.downloadTemplate)
-router.post('/import', authorization, uploadExcel.single('file'), uploadImages, locationController.importLocation)
+// Location Template - Super Admin only
+router.get('/template', requireRole('super_admin'), locationController.downloadTemplate)
+
+// Import Location - Super Admin only
+router.post('/import', requireRole('super_admin'), uploadExcel.single('file'), uploadImages, locationController.importLocation)
 
 // Location CRUD
-router.get('/get-location', locationController?.getAllLocation)
-router.get('/get-location-all', authorization, locationController?.getAllLocationInTable)
-router.post('/add-new-location', authorization, upload, locationController?.addNewLocation)
-router.put('/edit-location', authorization, upload, locationController?.editLocationById)
-router.delete('/delete-location/:id', authorization, locationController?.deleteLocationById)
+// Get all locations (for dropdown) - all authenticated users
+router.get('/get-location', authorization, locationController.getAllLocation)
+
+// Get all locations in table - Super Admin only
+router.get('/get-location-all', requireRole('super_admin'), locationController.getAllLocationInTable)
+
+// Add new location - Super Admin only
+router.post('/add-new-location', requireRole('super_admin'), upload, locationController.addNewLocation)
+
+// Edit location - Super Admin only
+router.put('/edit-location', requireRole('super_admin'), upload, locationController.editLocationById)
+
+// Delete location - Super Admin only
+router.delete('/delete-location/:id', requireRole('super_admin'), locationController.deleteLocationById)
 
 module.exports = router

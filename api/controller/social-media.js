@@ -1,10 +1,8 @@
-/* eslint-disable no-unsafe-finally */
-/* eslint-disable no-unused-vars */
-const SocialMedia = require('../../db/models/social_media')
+const db = require('../../db/models')
+const SocialMedia = db.social_media
 
-// Get All List To Cashier List
-exports.getAllSocialMedia = async (req, res, next) => {
-  const { store, page = 1, size = 10 } = req.query // Default page = 1, size = 10
+exports.getAllSocialMedia = async (req, res) => {
+  const { store, page = 1, size = 10 } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
@@ -18,6 +16,7 @@ exports.getAllSocialMedia = async (req, res, next) => {
     })
 
     return res.status(200).json({
+      success: true,
       message: 'Success',
       totalItems: count,
       totalPages: Math.ceil(count / limit),
@@ -26,16 +25,13 @@ exports.getAllSocialMedia = async (req, res, next) => {
     })
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Add New Social Media
-exports.addNewSocialMedia = async (req, res, next) => {
+exports.addNewSocialMedia = async (req, res) => {
   const body = req.body
 
   try {
@@ -55,26 +51,25 @@ exports.addNewSocialMedia = async (req, res, next) => {
 
       if (creadtedCategory.getDataValue) {
         return res.status(200).json({
+          success: true,
           message: 'Social Media Berhasil Di Buat'
         })
       }
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Social Media Sudah Terdaftar'
       })
     }
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Edit Socia Media By Id
-exports.editSocialMediaById = async (req, res, next) => {
+exports.editSocialMediaById = async (req, res) => {
   const body = req.body
   try {
     const getDuplicate = await SocialMedia.findOne({
@@ -102,26 +97,25 @@ exports.editSocialMediaById = async (req, res, next) => {
       })
 
       return res.status(200).json({
+        success: true,
         message: 'Sukses Ubah Social Media',
         data: editCategory?.dataValues
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Social Media Sudah Tersedia'
       })
     }
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }
 
-// Delete Socia Media By Id
-exports.deleteSocialMediaById = async (req, res, next) => {
+exports.deleteSocialMediaById = async (req, res) => {
   const body = req.body
 
   try {
@@ -136,19 +130,19 @@ exports.deleteSocialMediaById = async (req, res, next) => {
 
     if (getId) {
       return res.status(200).json({
+        success: true,
         message: 'Success Hapus Social Media'
       })
     } else {
       return res.status(403).json({
+        success: false,
         message: 'Gagal Hapus Social Media'
       })
     }
   } catch (error) {
     return res.status(500).json({
-      error: 'Terjadi Kesalahan Internal Server'
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
-  } finally {
-    console.log('resEND')
-    return res.end()
   }
 }

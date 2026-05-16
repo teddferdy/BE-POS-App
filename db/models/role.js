@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const Role = sequelize.define(
     'role',
     {
       id: {
@@ -10,12 +10,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       store: {
-        allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.INTEGER,
+        allowNull: true
       },
       name: {
         allowNull: false,
         type: DataTypes.STRING
+      },
+      roleType: {
+        type: DataTypes.ENUM('super_admin', 'admin', 'user'),
+        defaultValue: 'user'
       },
       accessMenu: {
         type: DataTypes.JSONB,
@@ -39,4 +43,11 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'role'
     }
   )
+
+  Role.associate = (models) => {
+    Role.belongsTo(models.location, { foreignKey: 'store', as: 'storeData' })
+    Role.hasMany(models.user, { foreignKey: 'roleId', as: 'users' })
+  }
+
+  return Role
 }
