@@ -7,7 +7,10 @@ const bcrypt = require('bcrypt')
 const moment = require('moment')
 const { Op } = require('sequelize')
 
-const { uploadToCloudinary, deleteFromCloudinary } = require('../../utils/cloudinaryStorage')
+const {
+  uploadToCloudinary,
+  deleteFromCloudinary
+} = require('../../utils/cloudinaryStorage')
 
 // Get User By Location
 exports.userByLocation = async (req, res) => {
@@ -56,7 +59,7 @@ exports.userByLocation = async (req, res) => {
     // Add store name and replace position ID with name in user data
     const usersWithStoreName = users.map((user) => ({
       ...user.dataValues,
-      storeName: locationData.nameStore,
+      storeName: locationData.name,
       positionName: positionMap[user.position] || '' // Map position ID to name
     }))
 
@@ -91,7 +94,10 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
 
     // Validation: Admin can only manage users in their store
     if (currentUserRole === 'admin') {
-      if (targetUser.store !== currentUserStore && targetUser.roleType !== 'user') {
+      if (
+        targetUser.store !== currentUserStore &&
+        targetUser.roleType !== 'user'
+      ) {
         return res.status(403).json({
           message: 'Anda hanya dapat mengubah user di toko Anda'
         })
@@ -121,13 +127,10 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
       }
     }
 
-    const [affectedRows, updatedUsers] = await User.update(
-      updateData,
-      {
-        returning: true,
-        where: { id }
-      }
-    )
+    const [affectedRows, updatedUsers] = await User.update(updateData, {
+      returning: true,
+      where: { id }
+    })
 
     if (affectedRows === 0) {
       return res.status(404).json({
@@ -272,7 +275,7 @@ exports.login = async (req, res) => {
         roleType: findUser.roleType || 'user',
         roleName: roleData?.name || 'Staff/Karyawan',
         accessMenu: accessMenu,
-        storeName: location?.nameStore ?? '',
+        storeName: location?.name ?? '',
         positionName: position?.name ?? ''
       }
     })
@@ -433,7 +436,7 @@ exports.editUser = async (req, res, next) => {
       token: token,
       user: {
         ...updatedUser?.dataValues,
-        storeName: locationByIdUserLogin?.dataValues?.nameStore ?? '',
+        storeName: locationByIdUserLogin?.dataValues?.name ?? '',
         positionName: positionByIdUserLogin?.dataValues?.name ?? ''
       }
     })

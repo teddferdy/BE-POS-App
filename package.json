@@ -8,7 +8,9 @@
     "start": "nodemon api/index.js",
     "dev": "nodemon api/index.js",
     "sync": "node scripts/migrate.js",
-    "sync:inventory": "node scripts/migrate-inventory.js"
+    "sync:inventory": "node scripts/migrate-inventory.js",
+    "migrate": "npx sequelize-cli db:migrate",
+    "migrate:create": "npx sequelize-cli migration:generate"
   },
   "author": "",
   "license": "ISC",

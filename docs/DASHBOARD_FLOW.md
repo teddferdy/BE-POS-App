@@ -96,15 +96,26 @@ LOGIN
   │     │     ├── Tambah Member
   │     │     └── Edit Points
   │     │
+  │     ├── Tingkatan Pelanggan (Member-Tier)
+  │     │     ├── List Member Tier
+  │     │     ├── Tambah Member Tier
+  │     │     └── Delete Member Tier 
+  │     │
   │     ├── Laporan Global
   │     │     ├── Penjualan Semua Toko
   │     │     ├── Produk Terlaris Global
   │     │     └── Ekspor Laporan
   │     │
   │     └── Pengaturan Sistem
-  │           ├── Logo & Branding
-  │           ├── Konfigurasi Global
-  │           └── Kelola Role
+  │          ├── Pengaturan Toko
+  │          │      ├── Invoice & Struk
+  │          │      ├── Logo
+  │          │      ├── Footer
+  │          │      └── Social Media
+  │          ├── Jam Buka/Tutup
+  │          ├── Logo & Branding
+  │          ├── Konfigurasi Global
+  │          └── Kelola Role
   │
   ├── Admin Toko
   │     │

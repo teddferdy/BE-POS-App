@@ -59,6 +59,9 @@ router.get('/get-location', authorization, locationController.getAllLocation)
 // Get all locations in table - Super Admin only
 router.get('/get-location-all', requireRole('super_admin'), locationController.getAllLocationInTable)
 
+// Generate location ID - Super Admin only
+router.get('/generate-id', requireRole('super_admin'), locationController.generateLocationId)
+
 // Add new location - Super Admin only
 router.post('/add-new-location', requireRole('super_admin'), upload, locationController.addNewLocation)
 
