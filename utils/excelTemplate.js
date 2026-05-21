@@ -13,18 +13,29 @@ const TEMPLATE_HEADERS = [
   { key: 'option', header: 'Daftar Opsi', width: 25 }
 ]
 
-const REQUIRED_HEADERS = ['No.', 'ID', 'Nama Produk', 'Gambar (URL)', 'Deskripsi', 'Kategori', 'Harga', 'Status', 'Opsi', 'Daftar Opsi']
+const REQUIRED_HEADERS = [
+  'No.',
+  'ID',
+  'Nama Produk',
+  'Gambar (URL)',
+  'Deskripsi',
+  'Kategori',
+  'Harga',
+  'Status',
+  'Opsi',
+  'Daftar Opsi'
+]
 
 const validateTemplateHeaders = (headers) => {
-  const headerNames = headers.map(h => h.toString().trim())
-  return REQUIRED_HEADERS.every(required => headerNames.includes(required))
+  const headerNames = headers.map((h) => h.toString().trim())
+  return REQUIRED_HEADERS.every((required) => headerNames.includes(required))
 }
 
 const downloadProductTemplate = async (categories, existingProducts = []) => {
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Produk')
 
-  worksheet.columns = TEMPLATE_HEADERS.map(h => ({
+  worksheet.columns = TEMPLATE_HEADERS.map((h) => ({
     header: h.header,
     key: h.key,
     width: h.width
@@ -40,7 +51,7 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
   headerRow.alignment = { horizontal: 'center' }
   headerRow.height = 25
 
-  const categoryList = categories.map(c => c.name).join(',')
+  const categoryList = categories.map((c) => c.name).join(',')
   worksheet.getCell('E2').dataValidation = {
     type: 'list',
     allowBlank: true,
@@ -95,7 +106,9 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
     worksheet.getCell(`G${rowNum}`).value = prod.price || 0
     worksheet.getCell(`H${rowNum}`).value = prod.status ? 'Aktif' : 'Nonaktif'
     worksheet.getCell(`I${rowNum}`).value = prod.isOption ? 'Ya' : 'Tidak'
-    worksheet.getCell(`J${rowNum}`).value = prod.option ? prod.option.join(',') : ''
+    worksheet.getCell(`J${rowNum}`).value = prod.option
+      ? prod.option.join(',')
+      : ''
   })
 
   return workbook.xlsx.writeBuffer()
@@ -111,12 +124,14 @@ const parseProductTemplate = async (buffer) => {
   }
 
   const headers = []
-  worksheet.getRow(1).eachCell(cell => {
+  worksheet.getRow(1).eachCell((cell) => {
     headers.push(cell.value)
   })
 
   if (!validateTemplateHeaders(headers)) {
-    throw new Error('Header template tidak valid. Pastikan menggunakan template yang benar')
+    throw new Error(
+      'Header template tidak valid. Pastikan menggunakan template yang benar'
+    )
   }
 
   const products = []
@@ -148,7 +163,7 @@ const parseProductTemplate = async (buffer) => {
 const LOCATION_HEADERS = [
   { key: 'no', header: 'No.', width: 8 },
   { key: 'id', header: 'ID', width: 15 },
-  { key: 'nameStore', header: 'Nama Toko', width: 25 },
+  { key: 'name', header: 'Nama Toko', width: 25 },
   { key: 'image', header: 'Gambar (URL)', width: 30 },
   { key: 'address', header: 'Alamat', width: 30 },
   { key: 'detailLocation', header: 'Detail Lokasi', width: 25 },
@@ -156,18 +171,29 @@ const LOCATION_HEADERS = [
   { key: 'status', header: 'Status', width: 12 }
 ]
 
-const LOCATION_REQUIRED_HEADERS = ['No.', 'ID', 'Nama Toko', 'Gambar (URL)', 'Alamat', 'Detail Lokasi', 'No. Telepon', 'Status']
+const LOCATION_REQUIRED_HEADERS = [
+  'No.',
+  'ID',
+  'Nama Toko',
+  'Gambar (URL)',
+  'Alamat',
+  'Detail Lokasi',
+  'No. Telepon',
+  'Status'
+]
 
 const validateLocationHeaders = (headers) => {
-  const headerNames = headers.map(h => h.toString().trim())
-  return LOCATION_REQUIRED_HEADERS.every(required => headerNames.includes(required))
+  const headerNames = headers.map((h) => h.toString().trim())
+  return LOCATION_REQUIRED_HEADERS.every((required) =>
+    headerNames.includes(required)
+  )
 }
 
 const downloadLocationTemplate = async (existingLocations = []) => {
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Lokasi')
 
-  worksheet.columns = LOCATION_HEADERS.map(h => ({
+  worksheet.columns = LOCATION_HEADERS.map((h) => ({
     header: h.header,
     key: h.key,
     width: h.width
@@ -197,7 +223,7 @@ const downloadLocationTemplate = async (existingLocations = []) => {
   existingLocations.forEach((loc, index) => {
     const rowNum = index + 2
     worksheet.getCell(`B${rowNum}`).value = loc.id
-    worksheet.getCell(`C${rowNum}`).value = loc.nameStore
+    worksheet.getCell(`C${rowNum}`).value = loc.name
     worksheet.getCell(`D${rowNum}`).value = loc.image || ''
     worksheet.getCell(`E${rowNum}`).value = loc.address || ''
     worksheet.getCell(`F${rowNum}`).value = loc.detailLocation || ''
@@ -218,12 +244,14 @@ const parseLocationTemplate = async (buffer) => {
   }
 
   const headers = []
-  worksheet.getRow(1).eachCell(cell => {
+  worksheet.getRow(1).eachCell((cell) => {
     headers.push(cell.value)
   })
 
   if (!validateLocationHeaders(headers)) {
-    throw new Error('Header template tidak valid. Pastikan menggunakan template yang benar')
+    throw new Error(
+      'Header template tidak valid. Pastikan menggunakan template yang benar'
+    )
   }
 
   const locations = []
@@ -236,7 +264,7 @@ const parseLocationTemplate = async (buffer) => {
         locations.push({
           no: rowData[1],
           id: rowData[2] ? String(rowData[2]).trim() : null,
-          nameStore: rowData[3] ? String(rowData[3]).trim() : '',
+          name: rowData[3] ? String(rowData[3]).trim() : '',
           image: rowData[4] ? String(rowData[4]).trim() : '',
           address: rowData[5] ? String(rowData[5]).trim() : '',
           detailLocation: rowData[6] ? String(rowData[6]).trim() : '',
@@ -260,18 +288,28 @@ const INVOICE_LOGO_HEADERS = [
   { key: 'createdBy', header: 'Dibuat Oleh', width: 20 }
 ]
 
-const INVOICE_LOGO_REQUIRED_HEADERS = ['No.', 'ID', 'Store ID', 'Gambar (URL)', 'Aktif', 'Status', 'Dibuat Oleh']
+const INVOICE_LOGO_REQUIRED_HEADERS = [
+  'No.',
+  'ID',
+  'Store ID',
+  'Gambar (URL)',
+  'Aktif',
+  'Status',
+  'Dibuat Oleh'
+]
 
 const validateInvoiceLogoHeaders = (headers) => {
-  const headerNames = headers.map(h => h.toString().trim())
-  return INVOICE_LOGO_REQUIRED_HEADERS.every(required => headerNames.includes(required))
+  const headerNames = headers.map((h) => h.toString().trim())
+  return INVOICE_LOGO_REQUIRED_HEADERS.every((required) =>
+    headerNames.includes(required)
+  )
 }
 
 const downloadInvoiceLogoTemplate = async (existingLogos = []) => {
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Logo')
 
-  worksheet.columns = INVOICE_LOGO_HEADERS.map(h => ({
+  worksheet.columns = INVOICE_LOGO_HEADERS.map((h) => ({
     header: h.header,
     key: h.key,
     width: h.width
@@ -327,12 +365,14 @@ const parseInvoiceLogoTemplate = async (buffer) => {
   }
 
   const headers = []
-  worksheet.getRow(1).eachCell(cell => {
+  worksheet.getRow(1).eachCell((cell) => {
     headers.push(cell.value)
   })
 
   if (!validateInvoiceLogoHeaders(headers)) {
-    throw new Error('Header template tidak valid. Pastikan menggunakan template yang benar')
+    throw new Error(
+      'Header template tidak valid. Pastikan menggunakan template yang benar'
+    )
   }
 
   const logos = []

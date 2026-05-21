@@ -1,16 +1,32 @@
 const jwt = require('jsonwebtoken')
 
-const authorization = (req, res, next) => {
-  const getToken = req?.cookies?.token
+const getToken = (req) => {
+  let token = req?.cookies?.token
+  if (!token) {
+    const authHeader = req?.headers?.authorization
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7)
+    }
+  }
+  return token
+}
 
-  if (!getToken) {
+const authorization = (req, res, next) => {
+  console.log('REQ =>', req)
+  const getTokenValue = getToken(req)
+  console.log('getTokenValue =>', getTokenValue)
+
+  if (!getTokenValue) {
     return res.status(401).json({
       message: 'User Belum Login'
     })
   }
 
   try {
-    const decoded = jwt.verify(getToken, process.env.JWT_SECRET || 'pos-app-secret-key')
+    const decoded = jwt.verify(
+      getTokenValue,
+      process.env.JWT_SECRET_KEY || 'secret-key-user'
+    )
     req.user = decoded
     return next()
   } catch (error) {
@@ -22,16 +38,19 @@ const authorization = (req, res, next) => {
 
 const requireRole = (...roles) => {
   return (req, res, next) => {
-    const getToken = req?.cookies?.token
+    const token = getToken(req)
 
-    if (!getToken) {
+    if (!token) {
       return res.status(401).json({
         message: 'User Belum Login'
       })
     }
 
     try {
-      const decoded = jwt.verify(getToken, process.env.JWT_SECRET || 'pos-app-secret-key')
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET_KEY || 'secret-key-user'
+      )
       req.user = decoded
 
       if (!roles.includes(decoded.roleType)) {

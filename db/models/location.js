@@ -16,16 +16,53 @@ module.exports = (sequelize, DataTypes) => {
       image: {
         type: DataTypes.STRING
       },
-      imageName: {
-        type: DataTypes.STRING
-      },
-      nameStore: {
+      name: {
         type: DataTypes.STRING
       },
       address: {
         type: DataTypes.STRING
       },
       detailLocation: {
+        type: DataTypes.STRING
+      },
+      city: {
+        type: DataTypes.STRING
+      },
+      province: {
+        type: DataTypes.STRING
+      },
+      district: {
+        type: DataTypes.STRING
+      },
+      village: {
+        type: DataTypes.STRING
+      },
+      postalCode: {
+        type: DataTypes.STRING
+      },
+      latitude: {
+        type: DataTypes.FLOAT
+      },
+      longitude: {
+        type: DataTypes.FLOAT
+      },
+      mainBranch: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+      },
+      description: {
+        type: DataTypes.TEXT
+      },
+      openingHours: {
+        type: DataTypes.JSONB
+      },
+      managerName: {
+        type: DataTypes.STRING
+      },
+      email: {
+        type: DataTypes.STRING
+      },
+      category: {
         type: DataTypes.STRING
       },
       phoneNumber: {
