@@ -6,7 +6,7 @@ module.exports = {
   up: async (queryInterface, Sequelize) => {
     // Check if super admin role exists
     const roles = await queryInterface.sequelize.query(
-      `SELECT id FROM roles WHERE "roleType" = 'super_admin' LIMIT 1;`,
+      `SELECT id FROM role WHERE "roleType" = 'super_admin' LIMIT 1;`,
       { type: Sequelize.QueryTypes.SELECT }
     )
 
@@ -19,7 +19,7 @@ module.exports = {
 
     // Check if super admin user already exists
     const existingUser = await queryInterface.sequelize.query(
-      `SELECT id FROM users WHERE "roleType" = 'super_admin' LIMIT 1;`,
+      `SELECT id FROM "user" WHERE "roleType" = 'super_admin' LIMIT 1;`,
       { type: Sequelize.QueryTypes.SELECT }
     )
 
