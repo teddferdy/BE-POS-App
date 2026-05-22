@@ -32,13 +32,11 @@ exports.getAllLocation = async (req, res) => {
     const userRole = req.user?.roleType
     const userStore = req.user?.store
 
-    const whereCondition = { status: true }
-
     if (userRole === 'admin' || userRole === 'user') {
       whereCondition.id = userStore
     }
 
-    const locations = await Location.findAll({ where: whereCondition })
+    const locations = await Location.findAll()
     return res
       .status(200)
       .json({ success: true, message: 'Success', data: locations })
@@ -157,7 +155,21 @@ exports.generateLocationId = async (req, res) => {
 }
 
 exports.addNewLocation = async (req, res) => {
+  let bodyData = req.body
+  if (req.body.data) {
+    try {
+      bodyData =
+        typeof req.body.data === 'string'
+          ? JSON.parse(req.body.data)
+          : req.body.data
+    } catch {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid JSON format in data field' })
+    }
+  }
   const {
+    locationId,
     name,
     phoneNumber,
     email,
@@ -174,15 +186,47 @@ exports.addNewLocation = async (req, res) => {
     managerName,
     latitude,
     longitude,
+    coordinates,
     mainBranch,
     openingHours,
     createdBy
-  } = req.body
+  } = bodyData
+
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Name is required' })
+  }
+
+  // Handle coordinates mapping
+  const finalLatitude = coordinates?.lat ?? latitude ?? null
+  const finalLongitude = coordinates?.lng ?? longitude ?? null
+
   const imageFile = req.file
 
   try {
-    const existingLocation = await Location.findOne({ where: { name } })
-    if (existingLocation) {
+    // If locationId is provided, use it; otherwise generate new ID
+    let nextId
+    if (locationId) {
+      nextId = parseInt(locationId.replace('loc-', ''))
+
+      // Check if location with this ID already exists
+      const existingLocation = await Location.findOne({ where: { id: nextId } })
+      if (existingLocation) {
+        return res
+          .status(403)
+          .json({ success: false, message: 'Location ID already exists' })
+      }
+    } else {
+      // Generate new ID based on current max
+      const lastLocation = await Location.findOne({
+        order: [['id', 'DESC']],
+        attributes: ['id']
+      })
+      nextId = (lastLocation?.id || 0) + 1
+    }
+
+    // Check for duplicate name
+    const existingLocationByName = await Location.findOne({ where: { name } })
+    if (existingLocationByName) {
       return res
         .status(403)
         .json({ success: false, message: 'Location already exists' })
@@ -190,13 +234,12 @@ exports.addNewLocation = async (req, res) => {
 
     let imageUrl = null
     if (imageFile) {
-      imageUrl = await uploadToCloudinary(
-        imageFile.path,
-        'pos-app-locations'
-      )
+      imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-locations')
     }
 
     const newLocation = await Location.create({
+      id: nextId,
+      store: nextId,
       image: imageUrl,
       name,
       phoneNumber,
@@ -212,14 +255,14 @@ exports.addNewLocation = async (req, res) => {
       status: isActive !== undefined ? isActive : true,
       category,
       managerName,
-      latitude,
-      longitude,
+      latitude: finalLatitude,
+      longitude: finalLongitude,
       mainBranch: mainBranch || false,
       openingHours: openingHours || [],
       createdBy
     })
 
-    const locationId = `loc-${String(newLocation.id).padStart(3, '0')}`
+    const newLocationId = `loc-${String(newLocation.id).padStart(3, '0')}`
     const storeId = `ST-${String(newLocation.id).padStart(3, '0')}`
 
     return res.status(200).json({
@@ -227,7 +270,7 @@ exports.addNewLocation = async (req, res) => {
       message: 'Location created successfully',
       data: {
         id: newLocation.id,
-        locationId,
+        locationId: newLocationId,
         storeId,
         ...newLocation.dataValues
       }
@@ -241,7 +284,37 @@ exports.addNewLocation = async (req, res) => {
 }
 
 exports.editLocationById = async (req, res) => {
-  const { id, name, status, confirmUserUpdate, ...rest } = req.body
+  let bodyData = req.body
+  if (req.body.data) {
+    try {
+      bodyData =
+        typeof req.body.data === 'string'
+          ? JSON.parse(req.body.data)
+          : req.body.data
+    } catch {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid JSON format in data field' })
+    }
+  }
+  const {
+    locationId: rawId,
+    id: rawIdAlt,
+    name,
+    status,
+    confirmUserUpdate,
+    coordinates,
+    image,
+    storeId,
+    location: locationField,
+    isActive,
+    ...rest
+  } = bodyData
+  const id = rawId
+    ? parseInt(rawId.replace('loc-', ''))
+    : rawIdAlt
+      ? parseInt(rawIdAlt.replace('loc-', ''))
+      : null
   if (!id) {
     return res.status(400).json({
       success: false,
@@ -267,6 +340,17 @@ exports.editLocationById = async (req, res) => {
     }
 
     const updatedData = { ...rest, image: imageUrl, name, status }
+
+    // Handle coordinates mapping
+    if (coordinates) {
+      if (coordinates.lat) updatedData.latitude = coordinates.lat
+      if (coordinates.lng) updatedData.longitude = coordinates.lng
+    }
+
+    // Map isActive to status
+    if (isActive !== undefined) {
+      updatedData.status = isActive
+    }
 
     if (compareObjects(dataExist, updatedData)) {
       return res
@@ -302,14 +386,16 @@ exports.deleteLocationById = async (req, res) => {
   const { id } = req.body
 
   try {
-    const location = await Location.findByPk(id)
+    const dbId = parseInt(id.replace('loc-', ''))
+
+    const location = await Location.findByPk(dbId)
     if (!location) {
       return res
         .status(404)
         .json({ success: false, message: 'Location not found' })
     }
 
-    await Location.destroy({ where: { id }, force: true })
+    await Location.destroy({ where: { id: dbId }, force: true })
     return res
       .status(200)
       .json({ success: true, message: 'Location deleted successfully' })
@@ -378,6 +464,61 @@ exports.downloadTemplate = async (req, res) => {
       message: 'Gagal mengunduh template',
       error: err.message
     })
+  }
+}
+
+exports.getLocationById = async (req, res) => {
+  const { locationId } = req.params
+
+  try {
+    const dbId = parseInt(locationId.replace('loc-', ''))
+
+    const location = await Location.findByPk(dbId)
+    if (!location) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Location not found' })
+    }
+
+    const data = {
+      id: `loc-${String(location.id).padStart(3, '0')}`,
+      storeId: `ST-${String(location.id).padStart(3, '0')}`,
+      name: location.name,
+      address: location.address,
+      detailLocation: location.detailLocation,
+      phoneNumber: location.phoneNumber,
+      email: location.email,
+      image: location.image,
+      isActive: location.status,
+      status: location.status ? 'active' : 'inactive',
+      city: location.city,
+      province: location.province,
+      district: location.district,
+      village: location.village,
+      postalCode: location.postalCode,
+      category: location.category || 'Main Branch',
+      managerName: location.managerName,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      mainBranch: location.mainBranch,
+      openingHours: location.openingHours || [
+        { day: 'Monday', open: null, close: null },
+        { day: 'Tuesday', open: null, close: null },
+        { day: 'Wednesday', open: null, close: null },
+        { day: 'Thursday', open: null, close: null },
+        { day: 'Friday', open: null, close: null },
+        { day: 'Saturday', open: null, close: null },
+        { day: 'Sunday', open: null, close: null }
+      ]
+    }
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    return res.status(200).json({ success: true, message: 'Success', data })
+  } catch (error) {
+    console.error('Error:', error)
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
