@@ -2,7 +2,9 @@ const db = require('../../db/models')
 const Shift = db.shift
 
 exports.getAllShift = async (req, res) => {
-  const { page = 1, pageSize = 10, status = 'all' } = req.query
+  const { page: rawPage, pageSize: rawPageSize, status = 'all' } = req.query
+  const page = Math.max(1, parseInt(rawPage) || 1)
+  const pageSize = Math.max(1, parseInt(rawPageSize) || 10)
 
   try {
     const offset = (page - 1) * pageSize
@@ -18,8 +20,8 @@ exports.getAllShift = async (req, res) => {
       where: {
         ...statusCondition
       },
-      limit: parseInt(pageSize),
-      offset: parseInt(offset)
+      limit: pageSize,
+      offset
     })
 
     const totalShifts = await Shift.count({
@@ -33,11 +35,50 @@ exports.getAllShift = async (req, res) => {
       message: 'Success',
       data: shiftCategory,
       pagination: {
-        currentPage: parseInt(page),
-        pageSize: parseInt(pageSize),
+        currentPage: page,
+        pageSize: pageSize,
         totalItems: totalShifts,
         totalPages: Math.ceil(totalShifts / pageSize)
       }
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.getShiftDropdown = async (req, res) => {
+  const { store, status } = req.query
+
+  try {
+    const whereCondition = {}
+    if (store) whereCondition.store = parseInt(store)
+    if (status === 'active') {
+      whereCondition.status = true
+    } else if (status === 'inactive') {
+      whereCondition.status = false
+    }
+
+    const shifts = await Shift.findAll({
+      where: whereCondition,
+      attributes: ['id', 'store', 'name', 'startTime', 'endTime', 'status']
+    })
+
+    const data = shifts.map((shift) => ({
+      id: shift.id,
+      storeId: shift.store,
+      shiftName: shift.name,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      statusShift: shift.status ? 'active' : 'inactive'
+    }))
+
+    return res.status(200).json({
+      status: 200,
+      data
     })
   } catch (error) {
     console.error('Error =>', error)

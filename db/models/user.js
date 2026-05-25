@@ -28,13 +28,16 @@ module.exports = (sequelize, DataTypes) => {
       userType: {
         type: DataTypes.STRING
       },
+      fullName: {
+        type: DataTypes.STRING
+      },
       userName: {
-        allowNull: false,
+        allowNull: true,
         type: DataTypes.STRING,
         unique: true
       },
       password: {
-        allowNull: false,
+        allowNull: true,
         type: DataTypes.STRING
       },
       confirmPassword: {
@@ -63,13 +66,25 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         unique: true
       },
+      department: {
+        type: DataTypes.STRING
+      },
+      employmentType: {
+        type: DataTypes.STRING
+      },
+      startDate: {
+        type: DataTypes.DATEONLY
+      },
       statusEmployee: {
         type: DataTypes.BOOLEAN
       },
       statusActive: {
         type: DataTypes.BOOLEAN
       },
-      placeDateOfBirth: {
+      dateOfBirth: {
+        type: DataTypes.DATEONLY
+      },
+      placeOfBirth: {
         type: DataTypes.STRING
       },
       store: {
@@ -102,7 +117,10 @@ module.exports = (sequelize, DataTypes) => {
   User.associate = (models) => {
     User.belongsTo(models.role, { foreignKey: 'roleId', as: 'role' })
     User.belongsTo(models.location, { foreignKey: 'store', as: 'storeData' })
-    User.belongsTo(models.position, { foreignKey: 'position', as: 'positionData' })
+    User.belongsTo(models.position, {
+      foreignKey: 'position',
+      as: 'positionData'
+    })
   }
 
   return User

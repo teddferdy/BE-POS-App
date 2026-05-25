@@ -501,6 +501,8 @@ exports.getLocationById = async (req, res) => {
       latitude: location.latitude,
       longitude: location.longitude,
       mainBranch: location.mainBranch,
+      createdAt: location.createdAt,
+      updatedAt: location.updatedAt,
       openingHours: location.openingHours || [
         { day: 'Monday', open: null, close: null },
         { day: 'Tuesday', open: null, close: null },
