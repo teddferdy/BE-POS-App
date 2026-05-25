@@ -48,6 +48,9 @@ router.put(
   authController.changeUserByIdAndLocation
 )
 
+// Generate Employee ID
+router.get('/generate-employee-id', authorization, authController.generateEmployeeId)
+
 // Reset Password
 router.post('/reset-password', authController.resetPassword)
 

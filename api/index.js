@@ -38,6 +38,7 @@ const cashRegisterRoutes = require('./routes/cashRegister')
 const reportRoutes = require('./routes/report')
 const splitBillRoutes = require('./routes/splitBill')
 const memberTierRoutes = require('./routes/memberTier')
+const employeeRoutes = require('./routes/employee')
 
 const app = express()
 const server = http.createServer(app)
@@ -96,7 +97,8 @@ const routes = [
   { path: '/cash-register', route: cashRegisterRoutes },
   { path: '/report', route: reportRoutes },
   { path: '/split-bill', route: splitBillRoutes },
-  { path: '/member-tier', route: memberTierRoutes }
+  { path: '/member-tier', route: memberTierRoutes },
+  { path: '/employee', route: employeeRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
