@@ -317,9 +317,7 @@ exports.registerNewUser = async (req, res, next) => {
     })
 
     if (!findUser) {
-      // Generate Employee ID in the format BSN-XXXXX
-      const randomFiveNumber = Math.floor(10000 + Math.random() * 90000) // Random 5-digit number
-      const employeeID = `BSN-${randomFiveNumber}` // Create the Employee ID with 8 chars
+      const employeeID = String(Math.floor(100000 + Math.random() * 900000))
 
       // Provide default values for fields that may be null
       const shift = body?.shift !== undefined ? body.shift : 0 // Set to 0 or a default valid value
@@ -341,10 +339,12 @@ exports.registerNewUser = async (req, res, next) => {
         email: body?.email,
         address: body.address,
         employeeID: employeeID, // Assign generated Employee ID
+        fullName: body?.fullName || '',
         phoneNumber: body?.phoneNumber || '',
         gender: body?.gender || '',
+        dateOfBirth: body?.dateOfBirth || null,
+        placeOfBirth: body?.placeOfBirth || '',
         store: body.store || null, // Store ID should not be null, ensure FE sends it
-        placeDateOfBirth: body?.placeDateOfBirth || '',
         shift: shift, // Assign default value if undefined
         position: position, // Assign default value if undefined
         accessMenu: body?.accessMenu || null,
@@ -409,10 +409,12 @@ exports.editUser = async (req, res, next) => {
 
     const updatedUser = await existingUser.update({
       userName: body.userName,
+      fullName: body.fullName || existingUser.fullName,
       address: body.address,
       gender: body.gender,
       phoneNumber: body.phoneNumber,
-      placeDateOfBirth: body.placeDateOfBirth ? body.placeDateOfBirth : null,
+      dateOfBirth: body.dateOfBirth ? body.dateOfBirth : null,
+      placeOfBirth: body.placeOfBirth || existingUser.placeOfBirth,
       imageUrl: imageUrl,
       deletedAt: null
     })
@@ -512,6 +514,24 @@ exports.resetPassword = async (req, res, next) => {
     console.log('ERROR =>', error)
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Generate Employee ID
+exports.generateEmployeeId = async (req, res) => {
+  try {
+    const employeeId = String(Math.floor(100000 + Math.random() * 900000))
+
+    return res.status(200).json({
+      success: true,
+      data: { employeeId }
+    })
+  } catch (error) {
+    console.error('Error generate employee ID:', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
     })
   }
 }
