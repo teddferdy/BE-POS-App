@@ -193,6 +193,12 @@ exports.getAllUser = async (req, res, next) => {
 exports.login = async (req, res) => {
   const { userName, password } = req.body
 
+  if (!userName || !password) {
+    return res
+      .status(400)
+      .json({ message: 'Username dan Password harus diisi' })
+  }
+
   try {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userName)
 
