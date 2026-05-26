@@ -96,6 +96,12 @@ module.exports = (sequelize, DataTypes) => {
       position: {
         type: DataTypes.INTEGER
       },
+      contractDuration: {
+        type: DataTypes.STRING
+      },
+      endDate: {
+        type: DataTypes.DATEONLY
+      },
       accessMenu: {
         type: DataTypes.TEXT
       }

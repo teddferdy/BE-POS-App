@@ -6,7 +6,7 @@ const Shift = db.shift
 const bcrypt = require('bcrypt')
 const { Op } = require('sequelize')
 const {
-  uploadToCloudinary,
+  uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 
@@ -43,7 +43,20 @@ exports.addEmployee = async (req, res) => {
 
     let imageUrl = null
     if (imageFile) {
-      imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-users')
+      const { url, hash } = await uploadToCloudinaryWithDedup(
+        imageFile.path,
+        'pos-app-users'
+      )
+      const duplicate = await User.findOne({
+        where: { image: url }
+      })
+      if (duplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'Gambar sudah digunakan oleh karyawan lain'
+        })
+      }
+      imageUrl = url
     }
 
     const role = body?.roleId
@@ -76,7 +89,9 @@ exports.addEmployee = async (req, res) => {
       store: body?.store || null,
       shift: body?.shift || null,
       position: body?.position || null,
-      accessMenu: body?.accessMenu || null
+      accessMenu: body?.accessMenu || null,
+      contractDuration: body?.contractDuration || null,
+      endDate: body?.endDate || null
     })
 
     const result = createUser.toJSON()
@@ -240,10 +255,23 @@ exports.updateEmployee = async (req, res) => {
 
     let imageUrl = employee.image
     if (imageFile) {
-      if (employee.image) {
+      const { url, hash } = await uploadToCloudinaryWithDedup(
+        imageFile.path,
+        'pos-app-users'
+      )
+      const duplicate = await User.findOne({
+        where: { image: url, id: { [Op.ne]: body.id } }
+      })
+      if (duplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'Gambar sudah digunakan oleh karyawan lain'
+        })
+      }
+      if (employee.image && employee.image !== url) {
         await deleteFromCloudinary(employee.image)
       }
-      imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-users')
+      imageUrl = url
     }
 
     const updateData = {
@@ -268,7 +296,9 @@ exports.updateEmployee = async (req, res) => {
       shift: body?.shift ?? employee.shift,
       position: body?.position ?? employee.position,
       accessMenu: body?.accessMenu ?? employee.accessMenu,
-      roleId: body?.roleId ?? employee.roleId
+      roleId: body?.roleId ?? employee.roleId,
+      contractDuration: body?.contractDuration ?? employee.contractDuration,
+      endDate: body?.endDate ?? employee.endDate
     }
 
     if (body?.password) {
