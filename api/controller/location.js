@@ -1,3 +1,4 @@
+const { Op } = require('sequelize')
 const db = require('../../db/models')
 const Location = db.location
 const sequelize = db.sequelize
@@ -20,6 +21,7 @@ const Shift = db.shift
 const { compareObjects } = require('../../utils/compare-value')
 const {
   uploadToCloudinary,
+  uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const {
@@ -121,10 +123,11 @@ exports.getAllLocationInTable = async (req, res) => {
       }
     })
   } catch (error) {
-    console.error('Error =>', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal Server Error' })
+    console.error('Error:', error)
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    })
   }
 }
 
@@ -196,11 +199,16 @@ exports.addNewLocation = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Name is required' })
   }
 
+  const imageFile = req.file
+  if (!imageFile) {
+    return res
+      .status(400)
+      .json({ success: false, message: 'Image is required' })
+  }
+
   // Handle coordinates mapping
   const finalLatitude = coordinates?.lat ?? latitude ?? null
   const finalLongitude = coordinates?.lng ?? longitude ?? null
-
-  const imageFile = req.file
 
   try {
     // If locationId is provided, use it; otherwise generate new ID
@@ -234,7 +242,20 @@ exports.addNewLocation = async (req, res) => {
 
     let imageUrl = null
     if (imageFile) {
-      imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-locations')
+      const { url, hash } = await uploadToCloudinaryWithDedup(
+        imageFile.path,
+        'pos-app-locations'
+      )
+      const duplicate = await Location.findOne({
+        where: { image: url, id: { [Op.ne]: nextId } }
+      })
+      if (duplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'Gambar sudah digunakan oleh lokasi lain'
+        })
+      }
+      imageUrl = url
     }
 
     const newLocation = await Location.create({
@@ -277,9 +298,10 @@ exports.addNewLocation = async (req, res) => {
     })
   } catch (error) {
     console.error('Error:', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal server error' })
+    const message = error.http_code
+      ? `Gagal upload gambar: ${error.message}`
+      : error.message || 'Internal server error'
+    return res.status(500).json({ success: false, message })
   }
 }
 
@@ -333,10 +355,23 @@ exports.editLocationById = async (req, res) => {
     const dataExist = location.dataValues
     let imageUrl = dataExist.image
     if (req.file) {
-      if (dataExist.image) {
+      const { url, hash } = await uploadToCloudinaryWithDedup(
+        req.file.path,
+        'pos-app-locations'
+      )
+      const duplicate = await Location.findOne({
+        where: { image: url, id: { [Op.ne]: id } }
+      })
+      if (duplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'Gambar sudah digunakan oleh lokasi lain'
+        })
+      }
+      if (dataExist.image && dataExist.image !== url) {
         await deleteFromCloudinary(dataExist.image)
       }
-      imageUrl = await uploadToCloudinary(req.file.path, 'pos-app-locations')
+      imageUrl = url
     }
 
     const updatedData = { ...rest, image: imageUrl, name, status }
@@ -375,10 +410,11 @@ exports.editLocationById = async (req, res) => {
       data: updatedLocation.dataValues
     })
   } catch (error) {
-    console.error('ERROR =>', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal Server Error' })
+    console.error('Error:', error)
+    const message = error.http_code
+      ? `Gagal upload gambar: ${error.message}`
+      : error.message || 'Internal server error'
+    return res.status(500).json({ success: false, message })
   }
 }
 
@@ -393,6 +429,10 @@ exports.deleteLocationById = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: 'Location not found' })
+    }
+
+    if (location.image) {
+      await deleteFromCloudinary(location.image)
     }
 
     await Location.destroy({ where: { id: dbId }, force: true })

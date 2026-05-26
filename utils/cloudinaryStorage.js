@@ -1,5 +1,6 @@
 const cloudinary = require('cloudinary').v2
 const fs = require('fs')
+const crypto = require('crypto')
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -15,12 +16,31 @@ const uploadToCloudinary = async (filePath, folder = 'pos-app') => {
   const result = await cloudinary.uploader.upload(filePath, {
     folder: folder,
     resource_type: 'auto',
-    transformation: [
-      { quality: 'auto', fetch_format: 'auto' }
-    ]
+    transformation: [{ quality: 'auto', fetch_format: 'auto' }]
   })
 
   return result.secure_url
+}
+
+const uploadToCloudinaryWithDedup = async (filePath, folder = 'pos-app') => {
+  if (!fs.existsSync(filePath)) {
+    throw new Error('File not found')
+  }
+
+  const fileBuffer = fs.readFileSync(filePath)
+  const hash = crypto.createHash('md5').update(fileBuffer).digest('hex')
+
+  const result = await cloudinary.uploader.upload(filePath, {
+    public_id: hash,
+    folder: folder,
+    resource_type: 'auto',
+    overwrite: false,
+    unique_filename: false,
+    invalidate: false,
+    transformation: [{ quality: 'auto', fetch_format: 'auto' }]
+  })
+
+  return { url: result.secure_url, hash }
 }
 
 const deleteFromCloudinary = async (imageUrl) => {
@@ -36,5 +56,6 @@ const deleteFromCloudinary = async (imageUrl) => {
 
 module.exports = {
   uploadToCloudinary,
+  uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 }
