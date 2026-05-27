@@ -104,6 +104,15 @@ module.exports = (sequelize, DataTypes) => {
       },
       accessMenu: {
         type: DataTypes.TEXT
+      },
+      monthlySalary: {
+        type: DataTypes.DECIMAL(15, 2)
+      },
+      dailySalary: {
+        type: DataTypes.DECIMAL(15, 2)
+      },
+      documents: {
+        type: DataTypes.TEXT
       }
     },
     {

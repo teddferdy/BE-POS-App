@@ -1,20 +1,10 @@
 const db = require('../../db/models')
-const { Op } = db.Sequelize
-const Position = db.position
+const Department = db.department
 
-const positionInclude = [
-  {
-    model: db.department,
-    as: 'departmentData',
-    attributes: ['id', 'name']
-  }
-]
-
-exports.getAllPosition = async (req, res) => {
+exports.getAllDepartment = async (req, res) => {
   try {
-    const getAllPosition = await Position.findAll({
-      where: { status: true },
-      include: positionInclude
+    const getAllDepartment = await Department.findAll({
+      where: { status: true }
     }).then((res) =>
       res.map((items) => {
         const getData = { ...items.dataValues }
@@ -25,7 +15,7 @@ exports.getAllPosition = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: getAllPosition?.length > 0 ? getAllPosition : []
+      data: getAllDepartment?.length > 0 ? getAllDepartment : []
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -36,9 +26,9 @@ exports.getAllPosition = async (req, res) => {
   }
 }
 
-exports.getAllPositionInTable = async (req, res) => {
+exports.getAllDepartmentInTable = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status = 'all', search = '' } = req.query
+    const { page = 1, limit = 10, status = 'all' } = req.query
     const offset = (page - 1) * limit
 
     let whereCondition = {}
@@ -48,72 +38,24 @@ exports.getAllPositionInTable = async (req, res) => {
       whereCondition = { status: false }
     }
 
-    if (search) {
-      whereCondition = {
-        ...whereCondition,
-        [Op.or]: [
-          { name: { [Op.iLike]: `%${search}%` } },
-          { description: { [Op.iLike]: `%${search}%` } },
-          { '$departmentData.name$': { [Op.iLike]: `%${search}%` } }
-        ]
-      }
-    }
-
-    const { rows: getAllPosition, count: totalItems } =
-      await Position.findAndCountAll({
+    const { rows: getAllDepartment, count: totalItems } =
+      await Department.findAndCountAll({
         where: whereCondition,
-        include: positionInclude,
         offset: parseInt(offset),
         limit: parseInt(limit)
       })
 
     const totalPages = Math.ceil(totalItems / limit)
 
-    let statsWhere = {}
-    if (status === 'true') {
-      statsWhere = { status: true }
-    } else if (status === 'false') {
-      statsWhere = { status: false }
-    }
-
-    const totalPositions = await Position.count({ where: statsWhere })
-
-    const totalDepartemenResult = await Position.findAll({
-      attributes: [
-        [
-          db.Sequelize.fn('DISTINCT', db.Sequelize.col('departmentId')),
-          'departmentId'
-        ]
-      ],
-      where: {
-        departmentId: { [Op.ne]: null },
-        ...statsWhere
-      },
-      raw: true
-    })
-    const totalDepartemenAktif = totalDepartemenResult.length
-
-    const totalTanpaDeskripsi = await Position.count({
-      where: {
-        [Op.or]: [{ description: null }, { description: '' }],
-        ...statsWhere
-      }
-    })
-
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: getAllPosition?.length > 0 ? getAllPosition : [],
+      data: getAllDepartment?.length > 0 ? getAllDepartment : [],
       pagination: {
         totalItems,
         totalPages,
         currentPage: parseInt(page),
         limit: parseInt(limit)
-      },
-      stats: {
-        totalPositions,
-        totalDepartemenAktif,
-        totalTanpaDeskripsi
       }
     })
   } catch (error) {
@@ -125,34 +67,32 @@ exports.getAllPositionInTable = async (req, res) => {
   }
 }
 
-exports.addNewPosition = async (req, res) => {
+exports.addNewDepartment = async (req, res) => {
   const body = req.body
 
   try {
-    const findOnePosition = await Position?.findOne({
+    const findOneDepartment = await Department?.findOne({
       where: { name: body?.name }
     })
 
-    if (!findOnePosition?.getDataValue) {
-      const creadtedPosition = await Position.create({
+    if (!findOneDepartment?.getDataValue) {
+      const creadtedDepartment = await Department.create({
         name: body.name,
-        departmentId: body.departmentId,
         description: body.description,
         status: body.status,
-        store: body.store,
         createdBy: body.createdBy
       })
 
-      if (creadtedPosition.getDataValue) {
+      if (creadtedDepartment.getDataValue) {
         return res.status(200).json({
           success: true,
-          message: 'Position Berhasil Di Buat'
+          message: 'Department Berhasil Di Buat'
         })
       }
     }
     return res.status(403).json({
       success: false,
-      message: 'Position Sudah Terdaftar'
+      message: 'Department Sudah Terdaftar'
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -163,26 +103,24 @@ exports.addNewPosition = async (req, res) => {
   }
 }
 
-exports.editPositionById = async (req, res) => {
+exports.editDepartmentById = async (req, res) => {
   const body = req.body
   const id = req.params.id || body.id
 
   try {
-    const getDuplicate = await Position.findOne({
+    const getDuplicate = await Department.findOne({
       where: {
         name: body.name,
-        id: { [Op.ne]: id }
+        id: { [db.Sequelize.Op.ne]: id }
       }
     })
 
     if (!getDuplicate?.dataValues) {
-      const editPosition = await Position?.update(
+      const editDepartment = await Department?.update(
         {
           name: body.name,
-          departmentId: body.departmentId,
           description: body.description,
           status: body.status,
-          store: body.store,
           modifiedBy: body?.modifiedBy
         },
         {
@@ -195,13 +133,13 @@ exports.editPositionById = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-        message: 'Sukses Ubah Position',
-        data: editPosition?.dataValues
+        message: 'Sukses Ubah Department',
+        data: editDepartment?.dataValues
       })
     }
     return res.status(403).json({
       success: false,
-      message: 'Position Sudah Tersedia'
+      message: 'Department Sudah Tersedia'
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -212,11 +150,11 @@ exports.editPositionById = async (req, res) => {
   }
 }
 
-exports.deletePositionById = async (req, res) => {
+exports.deleteDepartmentById = async (req, res) => {
   const body = req.body
 
   try {
-    const getId = await Position.destroy({
+    const getId = await Department.destroy({
       where: {
         id: body.id,
         name: body.name
@@ -227,12 +165,12 @@ exports.deletePositionById = async (req, res) => {
     if (getId) {
       return res.status(200).json({
         success: true,
-        message: 'Success Hapus Position'
+        message: 'Success Hapus Department'
       })
     }
     return res.status(403).json({
       success: false,
-      message: 'Hapus Position Gagal'
+      message: 'Hapus Department Gagal'
     })
   } catch (error) {
     console.error('ERROR =>', error)

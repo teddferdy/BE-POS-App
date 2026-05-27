@@ -31,7 +31,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       pointMultiplier: {
         type: DataTypes.DECIMAL(3, 2),
-        defaultValue: 1.00
+        defaultValue: 1.0
       },
       benefits: {
         type: DataTypes.JSONB,

@@ -12,7 +12,8 @@ const {
 
 exports.addEmployee = async (req, res) => {
   const body = req.body
-  const imageFile = req.file
+  const imageFile = req.files?.['image']?.[0]
+  const documentFiles = req.files?.['documents'] || []
 
   try {
     if (!body?.password || !body?.userName) {
@@ -37,8 +38,32 @@ exports.addEmployee = async (req, res) => {
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'Email sudah terdaftar'
+        message: 'Username atau Email sudah terdaftar'
       })
+    }
+
+    if (body?.employeeID) {
+      const existingEmployeeID = await User.findOne({
+        where: { employeeID: body.employeeID }
+      })
+      if (existingEmployeeID) {
+        return res.status(409).json({
+          success: false,
+          message: 'Employee ID sudah digunakan'
+        })
+      }
+    }
+
+    if (body?.phoneNumber) {
+      const existingPhone = await User.findOne({
+        where: { phoneNumber: body.phoneNumber }
+      })
+      if (existingPhone) {
+        return res.status(409).json({
+          success: false,
+          message: 'Nomor telepon sudah digunakan'
+        })
+      }
     }
 
     let imageUrl = null
@@ -57,6 +82,17 @@ exports.addEmployee = async (req, res) => {
         })
       }
       imageUrl = url
+    }
+
+    let documentUrls = []
+    if (documentFiles.length > 0) {
+      for (const doc of documentFiles) {
+        const { url } = await uploadToCloudinaryWithDedup(
+          doc.path,
+          'pos-app-documents'
+        )
+        documentUrls.push(url)
+      }
     }
 
     const role = body?.roleId
@@ -91,7 +127,10 @@ exports.addEmployee = async (req, res) => {
       position: body?.position || null,
       accessMenu: body?.accessMenu || null,
       contractDuration: body?.contractDuration || null,
-      endDate: body?.endDate || null
+      endDate: body?.endDate || null,
+      monthlySalary: body?.monthlySalary || null,
+      dailySalary: body?.dailySalary || null,
+      documents: documentUrls.length > 0 ? JSON.stringify(documentUrls) : null
     })
 
     const result = createUser.toJSON()
@@ -241,7 +280,8 @@ exports.getEmployeeByEmployeeID = async (req, res) => {
 
 exports.updateEmployee = async (req, res) => {
   const body = req.body
-  const imageFile = req.file
+  const imageFile = req.files?.['image']?.[0]
+  const documentFiles = req.files?.['documents'] || []
 
   try {
     const employee = await User.findByPk(body?.id)
@@ -251,6 +291,54 @@ exports.updateEmployee = async (req, res) => {
         success: false,
         message: 'Karyawan tidak ditemukan'
       })
+    }
+
+    if (body?.userName && body.userName !== employee.userName) {
+      const existing = await User.findOne({
+        where: { userName: body.userName, id: { [Op.ne]: body.id } }
+      })
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Username sudah digunakan'
+        })
+      }
+    }
+
+    if (body?.email && body.email !== employee.email) {
+      const existing = await User.findOne({
+        where: { email: body.email, id: { [Op.ne]: body.id } }
+      })
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Email sudah digunakan'
+        })
+      }
+    }
+
+    if (body?.employeeID && body.employeeID !== employee.employeeID) {
+      const existing = await User.findOne({
+        where: { employeeID: body.employeeID, id: { [Op.ne]: body.id } }
+      })
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Employee ID sudah digunakan'
+        })
+      }
+    }
+
+    if (body?.phoneNumber && body.phoneNumber !== employee.phoneNumber) {
+      const existing = await User.findOne({
+        where: { phoneNumber: body.phoneNumber, id: { [Op.ne]: body.id } }
+      })
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Nomor telepon sudah digunakan'
+        })
+      }
     }
 
     let imageUrl = employee.image
@@ -272,6 +360,33 @@ exports.updateEmployee = async (req, res) => {
         await deleteFromCloudinary(employee.image)
       }
       imageUrl = url
+    }
+
+    let documentUrls = employee.documents ? JSON.parse(employee.documents) : []
+
+    const deletedDocuments = body?.deletedDocuments
+      ? typeof body.deletedDocuments === 'string'
+        ? JSON.parse(body.deletedDocuments)
+        : body.deletedDocuments
+      : []
+
+    if (deletedDocuments.length > 0) {
+      for (const docUrl of deletedDocuments) {
+        await deleteFromCloudinary(docUrl)
+      }
+      documentUrls = documentUrls.filter(
+        (url) => !deletedDocuments.includes(url)
+      )
+    }
+
+    if (documentFiles.length > 0) {
+      for (const doc of documentFiles) {
+        const { url } = await uploadToCloudinaryWithDedup(
+          doc.path,
+          'pos-app-documents'
+        )
+        documentUrls.push(url)
+      }
     }
 
     const updateData = {
@@ -298,7 +413,13 @@ exports.updateEmployee = async (req, res) => {
       accessMenu: body?.accessMenu ?? employee.accessMenu,
       roleId: body?.roleId ?? employee.roleId,
       contractDuration: body?.contractDuration ?? employee.contractDuration,
-      endDate: body?.endDate ?? employee.endDate
+      endDate: body?.endDate ?? employee.endDate,
+      monthlySalary: body?.monthlySalary ?? employee.monthlySalary,
+      dailySalary: body?.dailySalary ?? employee.dailySalary,
+      documents:
+        deletedDocuments.length > 0 || documentFiles.length > 0
+          ? JSON.stringify(documentUrls)
+          : employee.documents
     }
 
     if (body?.password) {

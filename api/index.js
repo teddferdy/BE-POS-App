@@ -39,6 +39,7 @@ const reportRoutes = require('./routes/report')
 const splitBillRoutes = require('./routes/splitBill')
 const memberTierRoutes = require('./routes/memberTier')
 const employeeRoutes = require('./routes/employee')
+const departmentRoutes = require('./routes/department')
 
 const app = express()
 const server = http.createServer(app)
@@ -62,8 +63,8 @@ const limiter = rateLimit({
 app.set('trust proxy', 1)
 app.use(helmet())
 app.use(compression())
-app.use(limiter)
 app.use(cors(corsOptions))
+app.use(limiter)
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(cookieParser())
@@ -98,7 +99,8 @@ const routes = [
   { path: '/report', route: reportRoutes },
   { path: '/split-bill', route: splitBillRoutes },
   { path: '/member-tier', route: memberTierRoutes },
-  { path: '/employee', route: employeeRoutes }
+  { path: '/employee', route: employeeRoutes },
+  { path: '/department', route: departmentRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
