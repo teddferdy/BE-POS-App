@@ -48,8 +48,15 @@ const deleteFromCloudinary = async (imageUrl) => {
     return
   }
 
-  const publicId = imageUrl.split('/').pop().split('.')[0]
-  const fullPublicId = `pos-app/${publicId}`
+  const parts = imageUrl.split('/')
+  const fileName = parts.pop()
+  const publicId = fileName.split('.')[0]
+
+  const uploadIndex = parts.findIndex((p) => p.startsWith('upload'))
+  if (uploadIndex === -1 || uploadIndex >= parts.length - 2) return
+
+  const folderPath = parts.slice(uploadIndex + 2).join('/')
+  const fullPublicId = folderPath ? `${folderPath}/${publicId}` : publicId
 
   await cloudinary.uploader.destroy(fullPublicId)
 }

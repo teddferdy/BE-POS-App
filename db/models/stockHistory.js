@@ -21,7 +21,13 @@ module.exports = (sequelize, DataTypes) => {
       },
       referenceType: {
         allowNull: false,
-        type: DataTypes.ENUM('purchase', 'sale', 'adjustment', 'opname', 'return')
+        type: DataTypes.ENUM(
+          'purchase',
+          'sale',
+          'adjustment',
+          'opname',
+          'return'
+        )
       },
       referenceId: {
         type: DataTypes.INTEGER

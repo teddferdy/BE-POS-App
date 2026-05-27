@@ -22,7 +22,12 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 4
       },
       status: {
-        type: DataTypes.ENUM('available', 'occupied', 'reserved', 'maintenance'),
+        type: DataTypes.ENUM(
+          'available',
+          'occupied',
+          'reserved',
+          'maintenance'
+        ),
         defaultValue: 'available'
       },
       createdBy: {

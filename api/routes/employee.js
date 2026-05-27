@@ -24,7 +24,10 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 }
-}).single('image')
+}).fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'documents', maxCount: 10 }
+])
 
 router.post(
   '/add-employee',
@@ -33,11 +36,7 @@ router.post(
   employeeController.addEmployee
 )
 
-router.get(
-  '/get-employee',
-  authorization,
-  employeeController.getAllEmployee
-)
+router.get('/get-employee', authorization, employeeController.getAllEmployee)
 
 router.get(
   '/get-employee/:id',

@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const Position = sequelize.define(
     'position',
     {
       id: {
@@ -16,6 +16,9 @@ module.exports = (sequelize, DataTypes) => {
       name: {
         allowNull: false,
         type: DataTypes.STRING
+      },
+      departmentId: {
+        type: DataTypes.INTEGER
       },
       description: {
         type: DataTypes.STRING
@@ -38,4 +41,13 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'position'
     }
   )
+
+  Position.associate = (models) => {
+    Position.belongsTo(models.department, {
+      foreignKey: 'departmentId',
+      as: 'departmentData'
+    })
+  }
+
+  return Position
 }

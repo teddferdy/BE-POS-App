@@ -38,7 +38,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       status: {
-        type: DataTypes.ENUM('pending', 'confirmed', 'preparing', 'ready', 'served', 'paid', 'cancelled', 'void'),
+        type: DataTypes.ENUM(
+          'pending',
+          'confirmed',
+          'preparing',
+          'ready',
+          'served',
+          'paid',
+          'cancelled',
+          'void'
+        ),
         defaultValue: 'pending'
       },
       subTotal: {
