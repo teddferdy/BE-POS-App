@@ -9,8 +9,20 @@ router.get('/get-all', authorization, supplierController.getAll)
 router.get('/get-by-id/:id', authorization, supplierController.getById)
 
 // Create/Edit/Delete - Admin & Super Admin only
-router.post('/add', requireRole('super_admin', 'admin'), supplierController.create)
-router.put('/edit/:id', requireRole('super_admin', 'admin'), supplierController.update)
-router.delete('/delete/:id', requireRole('super_admin', 'admin'), supplierController.delete)
+router.post(
+  '/add',
+  requireRole('super_admin', 'admin'),
+  supplierController.create
+)
+router.put(
+  '/edit/:id',
+  requireRole('super_admin', 'admin'),
+  supplierController.update
+)
+router.delete(
+  '/delete/:id',
+  requireRole('super_admin', 'admin'),
+  supplierController.delete
+)
 
 module.exports = router

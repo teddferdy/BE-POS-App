@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'stock_opname',
+  const stockOpname = sequelize.define(
+    'stockOpname',
     {
       id: {
         allowNull: false,
@@ -20,6 +20,12 @@ module.exports = (sequelize, DataTypes) => {
       date: {
         allowNull: false,
         type: DataTypes.DATE
+      },
+      auditDate: {
+        type: DataTypes.DATEONLY
+      },
+      auditor: {
+        type: DataTypes.STRING
       },
       totalAdjustment: {
         type: DataTypes.INTEGER,
@@ -42,8 +48,21 @@ module.exports = (sequelize, DataTypes) => {
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'stock_opname',
+      modelName: 'stockOpname',
       tableName: 'stock_opname'
     }
   )
+
+  stockOpname.associate = (models) => {
+    stockOpname.hasMany(models.stockOpnameItem, {
+      foreignKey: 'stockOpname',
+      as: 'items'
+    })
+    stockOpname.belongsTo(models.location, {
+      foreignKey: 'store',
+      as: 'storeData'
+    })
+  }
+
+  return stockOpname
 }

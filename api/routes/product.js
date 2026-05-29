@@ -30,7 +30,11 @@ const uploadExcel = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.includes('sheet') || file.originalname.endsWith('.xlsx') || file.originalname.endsWith('.xls')) {
+    if (
+      file.mimetype.includes('sheet') ||
+      file.originalname.endsWith('.xlsx') ||
+      file.originalname.endsWith('.xls')
+    ) {
       cb(null, true)
     } else {
       cb(new Error('Hanya file Excel yang diperbolehkan'))
@@ -47,18 +51,50 @@ const uploadImages = multer({
 }).array('images', 50)
 
 // Product Template - Admin & Super Admin only
-router.get('/template/:storeId', requireRole('super_admin', 'admin'), productController.downloadTemplate)
-router.post('/import', requireRole('super_admin', 'admin'), uploadExcel.single('file'), uploadImages, productController.importProduct)
+router.get(
+  '/template/:storeId',
+  requireRole('super_admin', 'admin'),
+  productController.downloadTemplate
+)
+router.post(
+  '/import',
+  requireRole('super_admin', 'admin'),
+  uploadExcel.single('file'),
+  uploadImages,
+  productController.importProduct
+)
 
 // Product CRUD
 // Read products - All authenticated users
 router.get('/get-product', authorization, productController.getAllProduct)
-router.get('/get-product-by-super-admin', authorization, productController.getProductByLocationSuperAdmin)
-router.get('/get-product-all', authorization, productController.getAllProductInTable)
+router.get(
+  '/get-product-by-super-admin',
+  authorization,
+  productController.getProductByLocationSuperAdmin
+)
+router.get(
+  '/get-product-all',
+  authorization,
+  productController.getAllProductInTable
+)
 
 // Create/Update/Delete - Admin & Super Admin only
-router.post('/add-product', requireRole('super_admin', 'admin'), upload, productController.postAddProduct)
-router.put('/edit-product', requireRole('super_admin', 'admin'), upload, productController.editProductByLocationAndId)
-router.delete('/delete-product/:id', requireRole('super_admin', 'admin'), productController.deleteProductByIdAndLocation)
+router.post(
+  '/add-product',
+  requireRole('super_admin', 'admin'),
+  upload,
+  productController.postAddProduct
+)
+router.put(
+  '/edit-product',
+  requireRole('super_admin', 'admin'),
+  upload,
+  productController.editProductByLocationAndId
+)
+router.delete(
+  '/delete-product/:id',
+  requireRole('super_admin', 'admin'),
+  productController.deleteProductByIdAndLocation
+)
 
 module.exports = router

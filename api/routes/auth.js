@@ -39,7 +39,11 @@ router.post('/register', authController.registerNewUser)
 router.get('/get-user', authorization, authController.userByLocation)
 
 // Get All User - Super Admin only
-router.get('/get-all-user', requireRole('super_admin'), authController.getAllUser)
+router.get(
+  '/get-all-user',
+  requireRole('super_admin'),
+  authController.getAllUser
+)
 
 // Change Role User By Id & Location - Admin/Super Admin
 router.put(
@@ -49,7 +53,11 @@ router.put(
 )
 
 // Generate Employee ID
-router.get('/generate-employee-id', authorization, authController.generateEmployeeId)
+router.get(
+  '/generate-employee-id',
+  authorization,
+  authController.generateEmployeeId
+)
 
 // Reset Password
 router.post('/reset-password', authController.resetPassword)

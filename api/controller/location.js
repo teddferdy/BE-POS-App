@@ -34,11 +34,12 @@ exports.getAllLocation = async (req, res) => {
     const userRole = req.user?.roleType
     const userStore = req.user?.store
 
+    let whereCondition = {}
     if (userRole === 'admin' || userRole === 'user') {
       whereCondition.id = userStore
     }
 
-    const locations = await Location.findAll()
+    const locations = await Location.findAll({ where: whereCondition })
     return res
       .status(200)
       .json({ success: true, message: 'Success', data: locations })
@@ -431,10 +432,52 @@ exports.deleteLocationById = async (req, res) => {
         .json({ success: false, message: 'Location not found' })
     }
 
+    // Update dependent records: set store to null and status to false/inactive
+    const modelsToUpdate = [
+      User,
+      Product,
+      Transaction,
+      BestSelling,
+      Checkout,
+      Category,
+      SubCategoryProduct,
+      Discount,
+      InvoiceFooter,
+      InvoiceLogo,
+      InvoiceSocialMedia,
+      Member,
+      SocialMedia,
+      TypePayment,
+      Shift
+    ]
+
+    for (const model of modelsToUpdate) {
+      let update = { store: null }
+      if (model === User) {
+        // For User, set statusActive to false (inactive)
+        update.statusActive = false
+      } else if (
+        model !== Transaction &&
+        model !== Checkout &&
+        model !== BestSelling
+      ) {
+        // For models that have a 'status' field (except Transaction, Checkout, BestSelling which don't have status)
+        update.status = false
+      }
+      try {
+        await model.update(update, { where: { store: dbId } })
+      } catch (modelError) {
+        // Log error but continue with other models
+        console.error(`Error updating model ${model.name}:`, modelError)
+      }
+    }
+
+    // Delete location image if exists
     if (location.image) {
       await deleteFromCloudinary(location.image)
     }
 
+    // Hard delete the location (force: true bypasses paranoid if set)
     await Location.destroy({ where: { id: dbId }, force: true })
     return res
       .status(200)

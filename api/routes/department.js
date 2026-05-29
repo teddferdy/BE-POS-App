@@ -1,8 +1,31 @@
 const express = require('express')
+const multer = require('multer')
 const router = express.Router()
 
 const departmentController = require('../controller/department')
 const authorization = require('../../utils/authorization')
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/octet-stream'
+    ]
+    if (allowedMimes.includes(file.mimetype) ||
+        file.originalname.endsWith('.xlsx') ||
+        file.originalname.endsWith('.xls')) {
+      cb(null, true)
+    } else {
+      cb(new Error('File harus berupa Excel (.xlsx atau .xls)'), false)
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  }
+})
 
 router.get('/get-department', departmentController.getAllDepartment)
 
@@ -28,6 +51,26 @@ router.delete(
   '/delete-department/:id',
   authorization,
   departmentController.deleteDepartmentById
+)
+
+// Excel upload/download routes
+router.get(
+  '/download-template',
+  authorization,
+  departmentController.downloadTemplate
+)
+
+router.get(
+  '/download',
+  authorization,
+  departmentController.downloadData
+)
+
+router.post(
+  '/upload',
+  authorization,
+  upload.single('file'),
+  departmentController.uploadExcel
 )
 
 module.exports = router

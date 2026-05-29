@@ -30,7 +30,11 @@ const uploadExcel = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.includes('sheet') || file.originalname.endsWith('.xlsx') || file.originalname.endsWith('.xls')) {
+    if (
+      file.mimetype.includes('sheet') ||
+      file.originalname.endsWith('.xlsx') ||
+      file.originalname.endsWith('.xls')
+    ) {
       cb(null, true)
     } else {
       cb(new Error('Hanya file Excel yang diperbolehkan'))
@@ -47,31 +51,67 @@ const uploadImages = multer({
 }).array('images', 50)
 
 // Location Template - Super Admin only
-router.get('/template', requireRole('super_admin'), locationController.downloadTemplate)
+router.get(
+  '/template',
+  requireRole('super_admin'),
+  locationController.downloadTemplate
+)
 
 // Import Location - Super Admin only
-router.post('/import', requireRole('super_admin'), uploadExcel.single('file'), uploadImages, locationController.importLocation)
+router.post(
+  '/import',
+  requireRole('super_admin'),
+  uploadExcel.single('file'),
+  uploadImages,
+  locationController.importLocation
+)
 
 // Location CRUD
 // Get all locations (for dropdown) - all authenticated users
 router.get('/get-location', authorization, locationController.getAllLocation)
 
 // Get all locations in table - Super Admin only
-router.get('/get-location-all', requireRole('super_admin'), locationController.getAllLocationInTable)
+router.get(
+  '/get-location-all',
+  requireRole('super_admin'),
+  locationController.getAllLocationInTable
+)
 
 // Get location detail - all authenticated users
-router.get('/get-location-detail/:locationId', authorization, locationController.getLocationById)
+router.get(
+  '/get-location-detail/:locationId',
+  authorization,
+  locationController.getLocationById
+)
 
 // Generate location ID - Super Admin only
-router.get('/generate-id', requireRole('super_admin'), locationController.generateLocationId)
+router.get(
+  '/generate-id',
+  requireRole('super_admin'),
+  locationController.generateLocationId
+)
 
 // Add new location - Super Admin only
-router.post('/add-new-location', requireRole('super_admin'), upload, locationController.addNewLocation)
+router.post(
+  '/add-new-location',
+  requireRole('super_admin'),
+  upload,
+  locationController.addNewLocation
+)
 
 // Edit location - Super Admin only
-router.put('/edit-location', requireRole('super_admin'), upload, locationController.editLocationById)
+router.put(
+  '/edit-location',
+  requireRole('super_admin'),
+  upload,
+  locationController.editLocationById
+)
 
 // Delete location - Super Admin only
-router.delete('/delete-location', requireRole('super_admin'), locationController.deleteLocationById)
+router.delete(
+  '/delete-location',
+  requireRole('super_admin'),
+  locationController.deleteLocationById
+)
 
 module.exports = router

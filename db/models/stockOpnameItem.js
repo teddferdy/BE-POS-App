@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'stock_opname_item',
+  const stockOpnameItem = sequelize.define(
+    'stockOpnameItem',
     {
       id: {
         allowNull: false,
@@ -13,6 +13,45 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.INTEGER
       },
+      kodeBarang: {
+        type: DataTypes.STRING
+      },
+      namaBarang: {
+        type: DataTypes.STRING
+      },
+      satuan: {
+        type: DataTypes.STRING
+      },
+      lokasiId: {
+        type: DataTypes.INTEGER
+      },
+      lokasi: {
+        type: DataTypes.STRING
+      },
+      stokAwalJumlah: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      barangMasukJumlah: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      barangKeluarJumlah: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      stokAkhirJumlah: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      stokFisikJumlah: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      selisihJumlah: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
       product: {
         type: DataTypes.INTEGER
       },
@@ -20,12 +59,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       systemStock: {
+        type: DataTypes.INTEGER,
         allowNull: false,
-        type: DataTypes.INTEGER
+        defaultValue: 0
       },
       actualStock: {
+        type: DataTypes.INTEGER,
         allowNull: false,
-        type: DataTypes.INTEGER
+        defaultValue: 0
       },
       adjustment: {
         type: DataTypes.INTEGER,
@@ -37,13 +78,25 @@ module.exports = (sequelize, DataTypes) => {
       },
       notes: {
         type: DataTypes.TEXT
+      },
+      keterangan: {
+        type: DataTypes.TEXT
       }
     },
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'stock_opname_item',
+      modelName: 'stockOpnameItem',
       tableName: 'stock_opname_item'
     }
   )
+
+  stockOpnameItem.associate = (models) => {
+    stockOpnameItem.belongsTo(models.stockOpname, {
+      foreignKey: 'stockOpname',
+      as: 'parentOpname'
+    })
+  }
+
+  return stockOpnameItem
 }

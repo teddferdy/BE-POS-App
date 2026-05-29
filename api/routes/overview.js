@@ -10,9 +10,25 @@ router.get('/location', authorization, overviewController.getLocationSummary)
 router.get('/member', authorization, overviewController.getMemberSummary)
 router.get('/user', authorization, overviewController.getUserSummary)
 router.get('/best-selling', authorization, overviewController.getBestSelling)
-router.get('/members/latest', authorization, overviewController.getLatestMembers)
-router.get('/categories/latest', authorization, overviewController.getLatestCategories)
-router.get('/locations/latest', authorization, overviewController.getLatestLocations)
-router.get('/products/latest', authorization, overviewController.getLatestProducts)
+router.get(
+  '/members/latest',
+  authorization,
+  overviewController.getLatestMembers
+)
+router.get(
+  '/categories/latest',
+  authorization,
+  overviewController.getLatestCategories
+)
+router.get(
+  '/locations/latest',
+  authorization,
+  overviewController.getLatestLocations
+)
+router.get(
+  '/products/latest',
+  authorization,
+  overviewController.getLatestProducts
+)
 
 module.exports = router
