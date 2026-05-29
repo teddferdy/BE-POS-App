@@ -19,6 +19,7 @@ module.exports = {
             type: Sequelize.INTEGER,
             allowNull: true
           })
+          console.log(`Fixed ${table}.store`)
         }
       } catch (e) {
         console.log(`Skipping ${table}: ${e.message}`)

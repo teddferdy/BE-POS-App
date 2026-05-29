@@ -11,7 +11,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
     const { count, rows: subCategory } = await Discount.findAndCountAll({
       where: {
         ...(store ? { store } : {}),
-        isActive: true
+        status: true
       },
       limit: limit,
       offset: offset
@@ -27,8 +27,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
         subCategory?.length > 0
           ? subCategory?.map((items) => {
               return {
-                ...items?.dataValues,
-                percentage: `${Math.round(items.dataValues.percentage * 100)}%`
+                ...items?.dataValues
               }
             })
           : []
@@ -51,9 +50,9 @@ exports.getAllDiscount = async (req, res) => {
   let whereCondition = store ? { store } : {}
 
   if (status === 'true') {
-    whereCondition.isActive = true
+    whereCondition.status = true
   } else if (status === 'false') {
-    whereCondition.isActive = false
+    whereCondition.status = false
   }
 
   try {
@@ -73,8 +72,7 @@ exports.getAllDiscount = async (req, res) => {
         subCategory?.length > 0
           ? subCategory?.map((items) => {
               return {
-                ...items?.dataValues,
-                percentage: `${Math.round(items.dataValues.percentage * 100)}%`
+                ...items?.dataValues
               }
             })
           : []
@@ -89,24 +87,28 @@ exports.getAllDiscount = async (req, res) => {
 }
 
 exports.postNewDiscount = async (req, res) => {
-  const { description, percentage, isActive, createdBy } = req.body
+  const { name, type, value, minimumOrder, maximumDiscount, startDate, endDate, status, createdBy } = req.body
   const store = req.body.store || req.user?.store
   try {
     const findOneDiscount = await Discount?.findOne({
       where: {
-        description: description,
+        name: name,
         ...(store ? { store } : {})
       }
     })
 
     if (!findOneDiscount?.getDataValue) {
-      const numbPercent = percentage.replace('%', '')
       const postData = await Discount.create({
-        description: description,
-        percentage: parseFloat(numbPercent) / 100.0,
-        store: store,
-        isActive: isActive,
-        createdBy: createdBy
+        name,
+        type: type || 'percent',
+        value: parseInt(value),
+        minimumOrder: minimumOrder || 0,
+        maximumDiscount: maximumDiscount || 0,
+        startDate,
+        endDate,
+        store,
+        status: status !== undefined ? status : true,
+        createdBy
       })
       return res.status(200).json({
         success: true,
@@ -130,25 +132,28 @@ exports.postNewDiscount = async (req, res) => {
 exports.editDiscountById = async (req, res) => {
   const body = req.body
   const store = body.store || req.user?.store
-  const numbPercent = body.percentage.replace('%', '')
   try {
     const getDuplicate = await Discount.findOne({
       where: {
-        description: body.description,
-        percentage: parseFloat(numbPercent) / 100.0,
+        name: body.name,
         ...(store ? { store } : {})
       }
     })
 
     if (
       !getDuplicate?.dataValues ||
-      !getDuplicate?.dataValues?.isActive === body?.isActive
+      !getDuplicate?.dataValues?.status === body?.status
     ) {
       const editDiscount = await Discount?.update(
         {
-          description: body.description,
-          percentage: parseFloat(numbPercent) / 100.0,
-          isActive: body.isActive,
+          name: body.name,
+          type: body.type,
+          value: parseInt(body.value),
+          minimumOrder: body.minimumOrder,
+          maximumDiscount: body.maximumDiscount,
+          startDate: body.startDate,
+          endDate: body.endDate,
+          status: body.status,
           createdBy: body.createdBy,
           modifiedBy: body?.modifiedBy
         },
@@ -190,7 +195,6 @@ exports.deleteDiscountById = async (req, res) => {
     const getId = await Discount.destroy({
       where: {
         id: body.id,
-        description: body.description,
         ...(store ? { store } : {})
       },
       force: true

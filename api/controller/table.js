@@ -8,7 +8,7 @@ exports.getTablesByStore = async (req, res) => {
   try {
     const tables = await Table.findAll({
       where: store ? { store } : {},
-      order: [['tableNumber', 'ASC']]
+      order: [['name', 'ASC']]
     })
 
     return res.status(200).json({
@@ -37,7 +37,7 @@ exports.getTableWithActiveOrders = async (req, res) => {
         },
         required: false
       }],
-      order: [['tableNumber', 'ASC']]
+      order: [['name', 'ASC']]
     })
 
     return res.status(200).json({
@@ -58,7 +58,7 @@ exports.getTableAvailability = async (req, res) => {
   try {
     const tables = await Table.findAll({
       where: store ? { store } : {},
-      attributes: ['id', 'tableNumber', 'tableName', 'status', 'capacity']
+      attributes: ['id', 'name', 'status', 'capacity']
     })
 
     const summary = {
@@ -86,11 +86,11 @@ exports.getTableAvailability = async (req, res) => {
 
 exports.createTable = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { tableNumber, tableName, capacity, position, createdBy } = req.body
+  const { name, capacity, createdBy } = req.body
 
   try {
     const existingTable = await Table.findOne({
-      where: { ...(store ? { store } : {}), tableNumber }
+      where: { ...(store ? { store } : {}), name }
     })
 
     if (existingTable) {
@@ -101,10 +101,8 @@ exports.createTable = async (req, res) => {
 
     const table = await Table.create({
       store,
-      tableNumber,
-      tableName,
+      name,
       capacity: capacity || 4,
-      position,
       status: 'available',
       createdBy
     })
@@ -123,7 +121,7 @@ exports.createTable = async (req, res) => {
 
 exports.updateTable = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { id, tableNumber, tableName, capacity, position, status, modifiedBy } = req.body
+  const { id, name, capacity, status, modifiedBy } = req.body
 
   try {
     const table = await Table.findOne({
@@ -137,10 +135,8 @@ exports.updateTable = async (req, res) => {
     }
 
     await table.update({
-      tableNumber,
-      tableName,
+      name,
       capacity,
-      position,
       status,
       modifiedBy
     })

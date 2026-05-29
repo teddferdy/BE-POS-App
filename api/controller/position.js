@@ -268,7 +268,7 @@ const buildPositionTemplateWorksheet = (workbook, sheetName, positions, departme
     .map((d) => `${d.id}.${d.name}`)
     .join(',')
 
-  const maxRows = Math.max(positions.length + 2, 99999, departments.length + 2)
+  const maxRows = Math.max(positions.length + 2, positions.length + 1, departments.length + 2)
   for (let row = 2; row <= maxRows; row++) {
     const idx = row - 2
     const item = positions[idx]

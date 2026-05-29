@@ -91,18 +91,25 @@ exports.getShiftDropdown = async (req, res) => {
 
 exports.postNewShift = async (req, res) => {
   try {
-    const { nameShift, description, startHour, endHour, createdBy } = req.body
+    const { name, description, startTime, endTime, createdBy } = req.body
     const findOneShift = await Shift?.findOne({
-      where: {
-        nameShift: nameShift
-      }
+      where: { name: name }
     })
     if (!findOneShift?.getDataValue) {
       const postData = await Shift.create({
-        nameShift: nameShift,
+        name: name,
         description: description,
-        startHour: startHour,
-        endHour: endHour,
+        startTime: startTime,
+        endTime: endTime,
+        store: req.body.store || req.user?.store,
+        createdBy: createdBy
+      })
+    if (!findOneShift?.getDataValue) {
+      const postData = await Shift.create({
+        name: name,
+        description: description,
+        startTime: startTime,
+        endTime: endTime,
         store: req.body.store || req.user?.store,
         createdBy: createdBy
       })
