@@ -2,9 +2,10 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.addColumn('location', 'name', {
-      type: Sequelize.STRING
-    })
+    const table = await queryInterface.describeTable('location')
+    if (!table.name) {
+      await queryInterface.addColumn('location', 'name', { type: Sequelize.STRING })
+    }
   },
 
   async down(queryInterface, Sequelize) {

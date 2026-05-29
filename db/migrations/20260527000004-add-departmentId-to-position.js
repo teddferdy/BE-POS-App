@@ -2,25 +2,30 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.addColumn('position', 'departmentId', {
-      type: Sequelize.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'department',
-        key: 'id'
-      },
-      onUpdate: 'CASCADE',
-      onDelete: 'SET NULL'
-    })
+    const table = await queryInterface.describeTable('position')
+    if (!table.departmentId) {
+      await queryInterface.addColumn('position', 'departmentId', {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'department',
+          key: 'id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL'
+      })
 
-    await queryInterface.sequelize.query(`
-      UPDATE "position" p
-      SET "departmentId" = d.id
-      FROM "department" d
-      WHERE p.department = d.name
-    `)
+      await queryInterface.sequelize.query(`
+        UPDATE "position" p
+        SET "departmentId" = d.id
+        FROM "department" d
+        WHERE p.department = d.name
+      `)
+    }
 
-    await queryInterface.removeColumn('position', 'department')
+    if (table.department) {
+      await queryInterface.removeColumn('position', 'department')
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

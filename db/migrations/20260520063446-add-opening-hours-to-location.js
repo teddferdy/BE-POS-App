@@ -3,9 +3,12 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up (queryInterface, Sequelize) {
-    await queryInterface.addColumn('location', 'openingHours', {
-      type: Sequelize.JSONB
-    });
+    const table = await queryInterface.describeTable('location');
+    if (!table.openingHours) {
+      await queryInterface.addColumn('location', 'openingHours', {
+        type: Sequelize.JSONB
+      });
+    }
   },
 
   async down (queryInterface, Sequelize) {

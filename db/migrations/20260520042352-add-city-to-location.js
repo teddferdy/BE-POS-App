@@ -3,9 +3,12 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up (queryInterface, Sequelize) {
-    await queryInterface.addColumn('location', 'city', {
-      type: Sequelize.STRING
-    });
+    const table = await queryInterface.describeTable('location');
+    if (!table.city) {
+      await queryInterface.addColumn('location', 'city', {
+        type: Sequelize.STRING
+      });
+    }
   },
 
   async down (queryInterface, Sequelize) {
