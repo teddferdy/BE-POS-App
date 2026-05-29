@@ -5,12 +5,12 @@ const fs = require('fs')
 
 // Get All List To Cashier List
 exports.getAllCategory = async (req, res) => {
-  const { store } = req.query
+  const store = req.query.store || req.user?.store
   try {
     const getAllCategory = await Category.findAll({
       where: {
         status: true,
-        store: store
+        ...(store ? { store } : {})
       }
     }).then((res) =>
       res.map((items) => {
@@ -37,7 +37,8 @@ exports.getAllCategory = async (req, res) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
-  const { store, page = 1, pageSize = 10, status = 'all' } = req.query
+  const { page = 1, pageSize = 10, status = 'all' } = req.query
+  const store = req.query.store || req.user?.store
 
   try {
     const offset = (page - 1) * pageSize
@@ -49,7 +50,7 @@ exports.getAllCategoryInTable = async (req, res) => {
       whereClause.status = false
     }
 
-    whereClause.store = store
+    if (store) whereClause.store = store
 
     const getAllCategory = await Category.findAll({
       where: whereClause,
@@ -65,7 +66,7 @@ exports.getAllCategoryInTable = async (req, res) => {
     )
 
     const totalCategories = await Category.count({
-      where: { store: store }
+      where: store ? { store } : {}
     })
 
     return res.status(200).json({
@@ -93,10 +94,11 @@ exports.addNewCategory = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const findOneCategory = await Category?.findOne({
       where: {
         name: body?.name,
-        store: body?.store
+        ...(store ? { store } : {})
       }
     })
 
@@ -104,7 +106,7 @@ exports.addNewCategory = async (req, res) => {
       const creadtedCategory = await Category.create({
         name: body?.name,
         value: body?.name?.toLowerCase(),
-        store: body?.store,
+        store: store,
         status: body.status,
         createdBy: body.createdBy
       })
@@ -133,10 +135,11 @@ exports.addNewCategory = async (req, res) => {
 exports.editCategoryById = async (req, res) => {
   const body = req.body
   try {
+    const store = body.store || req.user?.store
     const getDuplicate = await Category.findOne({
       where: {
         name: body.name,
-        store: body?.store
+        ...(store ? { store } : {})
       }
     })
 
@@ -157,7 +160,7 @@ exports.editCategoryById = async (req, res) => {
           returning: true,
           where: {
             id: body.id,
-            store: body?.store
+            ...(store ? { store } : {})
           }
         }
       ).then(([_, data]) => {
@@ -188,11 +191,12 @@ exports.deleteCategoryById = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const getId = await Category.destroy({
       where: {
         id: body.id,
         name: body.name,
-        store: body?.store
+        ...(store ? { store } : {})
       },
       force: true
     })

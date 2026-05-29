@@ -2,12 +2,12 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 
 const ingredientController = {
-  async getAll(req, res) {
+    async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { search, status, lowStock } = req.query
 
-      const where = { store }
+      const where = store ? { store } : {}
       if (search) {
         where[Op.or] = [
           { name: { [Op.iLike]: `%${search}%` } }
@@ -49,13 +49,13 @@ const ingredientController = {
     }
   },
 
-  async getById(req, res) {
+    async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
 
       const ingredient = await db.ingredient.findOne({
-        where: { id, store },
+        where: { id, ...(store ? { store } : {}) },
         include: [
           {
             model: db.supplier,
@@ -86,9 +86,9 @@ const ingredientController = {
     }
   },
 
-  async create(req, res) {
+    async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { name, category, supplier, stock = 0, minStock = 0, unit, costPrice, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -126,15 +126,15 @@ const ingredientController = {
     }
   },
 
-  async update(req, res) {
+    async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { name, category, supplier, stock, minStock, unit, costPrice, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const ingredient = await db.ingredient.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!ingredient) {
@@ -189,14 +189,14 @@ const ingredientController = {
     }
   },
 
-  async adjustStock(req, res) {
+    async adjustStock(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { quantity, type, notes } = req.body
 
       const ingredient = await db.ingredient.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!ingredient) {
@@ -259,13 +259,13 @@ const ingredientController = {
     }
   },
 
-  async delete(req, res) {
+    async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
 
       const ingredient = await db.ingredient.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!ingredient) {

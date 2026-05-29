@@ -13,12 +13,12 @@ const generateOrderNumber = (prefix) => {
 }
 
 const supplierController = {
-  async getAll(req, res) {
+    async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { search, status } = req.query
 
-      const where = { store }
+      const where = store ? { store } : {}
       if (search) {
         where[Op.or] = [
           { name: { [Op.iLike]: `%${search}%` } },
@@ -48,13 +48,13 @@ const supplierController = {
     }
   },
 
-  async getById(req, res) {
+    async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
 
       const supplier = await db.supplier.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!supplier) {
@@ -78,9 +78,9 @@ const supplierController = {
     }
   },
 
-  async create(req, res) {
+    async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { name, phone, email, address, description } = req.body
       const createdBy = req.user?.id || null
 
@@ -115,15 +115,15 @@ const supplierController = {
     }
   },
 
-  async update(req, res) {
+    async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { name, phone, email, address, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const supplier = await db.supplier.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!supplier) {
@@ -157,13 +157,13 @@ const supplierController = {
     }
   },
 
-  async delete(req, res) {
+    async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
 
       const supplier = await db.supplier.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!supplier) {

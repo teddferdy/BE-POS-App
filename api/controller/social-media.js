@@ -2,15 +2,14 @@ const db = require('../../db/models')
 const SocialMedia = db.social_media
 
 exports.getAllSocialMedia = async (req, res) => {
-  const { store, page = 1, size = 10 } = req.query
+  const store = req.query.store || req.user?.store
+  const { page = 1, size = 10 } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
   try {
     const { count, rows: getAllCategory } = await SocialMedia.findAndCountAll({
-      where: {
-        store: store
-      },
+      where: store ? { store } : {},
       limit: limit,
       offset: offset
     })
@@ -35,10 +34,11 @@ exports.addNewSocialMedia = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const findOneSocialMedia = await SocialMedia?.findOne({
       where: {
         name: body?.name,
-        store: body.store
+        ...(store ? { store } : {})
       }
     })
 
@@ -46,7 +46,7 @@ exports.addNewSocialMedia = async (req, res) => {
       const creadtedCategory = await SocialMedia.create({
         name: body.name,
         createdBy: body.createdBy,
-        store: body.store
+        store: store
       })
 
       if (creadtedCategory.getDataValue) {
@@ -72,10 +72,11 @@ exports.addNewSocialMedia = async (req, res) => {
 exports.editSocialMediaById = async (req, res) => {
   const body = req.body
   try {
+    const store = body.store || req.user?.store
     const getDuplicate = await SocialMedia.findOne({
       where: {
         name: body.name,
-        store: body.store
+        ...(store ? { store } : {})
       }
     })
 
@@ -89,7 +90,7 @@ exports.editSocialMediaById = async (req, res) => {
           returning: true,
           where: {
             id: body.id,
-            store: body.store
+            ...(store ? { store } : {})
           }
         }
       ).then(([_, data]) => {
@@ -119,11 +120,12 @@ exports.deleteSocialMediaById = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const getId = await SocialMedia.destroy({
       where: {
         id: body.id,
         name: body.name,
-        store: body.store
+        ...(store ? { store } : {})
       },
       force: true
     })

@@ -2,14 +2,15 @@ const db = require('../../db/models')
 const Discount = db.discount
 
 exports.getAllDiscountByLocationAndActive = async (req, res) => {
-  const { store, page = 1, size = 10 } = req.query
+  const store = req.query.store || req.user?.store
+  const { page = 1, size = 10 } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
   try {
     const { count, rows: subCategory } = await Discount.findAndCountAll({
       where: {
-        store: store,
+        ...(store ? { store } : {}),
         isActive: true
       },
       limit: limit,
@@ -42,11 +43,12 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
 }
 
 exports.getAllDiscount = async (req, res) => {
-  const { store, page = 1, size = 10, status = 'all' } = req.query
+  const store = req.query.store || req.user?.store
+  const { page = 1, size = 10, status = 'all' } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
-  let whereCondition = { store: store }
+  let whereCondition = store ? { store } : {}
 
   if (status === 'true') {
     whereCondition.isActive = true
@@ -87,12 +89,13 @@ exports.getAllDiscount = async (req, res) => {
 }
 
 exports.postNewDiscount = async (req, res) => {
-  const { description, percentage, isActive, createdBy, store } = req.body
+  const { description, percentage, isActive, createdBy } = req.body
+  const store = req.body.store || req.user?.store
   try {
     const findOneDiscount = await Discount?.findOne({
       where: {
         description: description,
-        store: store
+        ...(store ? { store } : {})
       }
     })
 
@@ -126,13 +129,14 @@ exports.postNewDiscount = async (req, res) => {
 
 exports.editDiscountById = async (req, res) => {
   const body = req.body
+  const store = body.store || req.user?.store
   const numbPercent = body.percentage.replace('%', '')
   try {
     const getDuplicate = await Discount.findOne({
       where: {
         description: body.description,
         percentage: parseFloat(numbPercent) / 100.0,
-        store: body.store
+        ...(store ? { store } : {})
       }
     })
 
@@ -152,7 +156,7 @@ exports.editDiscountById = async (req, res) => {
           returning: true,
           where: {
             id: body.id,
-            store: body.store
+            ...(store ? { store } : {})
           }
         }
       ).then(([_, data]) => {
@@ -182,11 +186,12 @@ exports.deleteDiscountById = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const getId = await Discount.destroy({
       where: {
         id: body.id,
         description: body.description,
-        store: body.store
+        ...(store ? { store } : {})
       },
       force: true
     })

@@ -3,11 +3,11 @@ const Table = db.table
 const Order = db.order
 
 exports.getTablesByStore = async (req, res) => {
-  const { store } = req.query
+  const store = req.query.store || req.user?.store
 
   try {
     const tables = await Table.findAll({
-      where: { store },
+      where: store ? { store } : {},
       order: [['tableNumber', 'ASC']]
     })
 
@@ -24,11 +24,11 @@ exports.getTablesByStore = async (req, res) => {
 }
 
 exports.getTableWithActiveOrders = async (req, res) => {
-  const { store } = req.query
+  const store = req.query.store || req.user?.store
 
   try {
     const tables = await Table.findAll({
-      where: { store },
+      where: store ? { store } : {},
       include: [{
         model: Order,
         as: 'orders',
@@ -53,11 +53,11 @@ exports.getTableWithActiveOrders = async (req, res) => {
 }
 
 exports.getTableAvailability = async (req, res) => {
-  const { store } = req.query
+  const store = req.query.store || req.user?.store
 
   try {
     const tables = await Table.findAll({
-      where: { store },
+      where: store ? { store } : {},
       attributes: ['id', 'tableNumber', 'tableName', 'status', 'capacity']
     })
 
@@ -85,11 +85,12 @@ exports.getTableAvailability = async (req, res) => {
 }
 
 exports.createTable = async (req, res) => {
-  const { store, tableNumber, tableName, capacity, position, createdBy } = req.body
+  const store = req.body.store || req.user?.store
+  const { tableNumber, tableName, capacity, position, createdBy } = req.body
 
   try {
     const existingTable = await Table.findOne({
-      where: { store, tableNumber }
+      where: { ...(store ? { store } : {}), tableNumber }
     })
 
     if (existingTable) {
@@ -121,11 +122,12 @@ exports.createTable = async (req, res) => {
 }
 
 exports.updateTable = async (req, res) => {
-  const { id, store, tableNumber, tableName, capacity, position, status, modifiedBy } = req.body
+  const store = req.body.store || req.user?.store
+  const { id, tableNumber, tableName, capacity, position, status, modifiedBy } = req.body
 
   try {
     const table = await Table.findOne({
-      where: { id, store }
+      where: { id, ...(store ? { store } : {}) }
     })
 
     if (!table) {
@@ -157,7 +159,7 @@ exports.updateTable = async (req, res) => {
 
 exports.deleteTable = async (req, res) => {
   const { id } = req.params
-  const { store } = req.query
+  const store = req.query.store || req.user?.store
 
   try {
     const activeOrder = await Order.findOne({
@@ -190,11 +192,12 @@ exports.deleteTable = async (req, res) => {
 }
 
 exports.updateTableStatus = async (req, res) => {
-  const { id, store, status, modifiedBy } = req.body
+  const store = req.body.store || req.user?.store
+  const { id, status, modifiedBy } = req.body
 
   try {
     const table = await Table.findOne({
-      where: { id, store }
+      where: { id, ...(store ? { store } : {}) }
     })
 
     if (!table) {

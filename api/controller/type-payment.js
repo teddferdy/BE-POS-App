@@ -2,14 +2,15 @@ const db = require('../../db/models')
 const TypePayment = db.type_payment
 
 exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
-  const { store, page = 1, limit = 10 } = req.query
+  const store = req.query.store || req.user?.store
+  const { page = 1, limit = 10 } = req.query
 
   try {
     const offset = (page - 1) * limit
 
     const { rows: typePayment, count } = await TypePayment.findAndCountAll({
       where: {
-        store: store,
+        ...(store ? { store } : {}),
         status: true
       },
       limit: parseInt(limit),
@@ -41,14 +42,13 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
 }
 
 exports.getAllTypePayment = async (req, res) => {
-  const { store, page = 1, pageSize = 10, status } = req.query
+  const store = req.query.store || req.user?.store
+  const { page = 1, pageSize = 10, status } = req.query
 
   try {
     const offset = (page - 1) * pageSize
 
-    const queryConditions = {
-      store: store
-    }
+    const queryConditions = store ? { store } : {}
 
     if (status === 'true') {
       queryConditions.status = true
@@ -94,12 +94,13 @@ exports.getAllTypePayment = async (req, res) => {
 }
 
 exports.postNewTypePayment = async (req, res) => {
-  const { name, description, store, status, createdBy } = req.body
+  const { name, description, status, createdBy } = req.body
+  const store = req.body.store || req.user?.store
   try {
     const findOneTypePayment = await TypePayment?.findOne({
       where: {
         description: description,
-        store: store
+        ...(store ? { store } : {})
       }
     })
 
@@ -132,39 +133,40 @@ exports.postNewTypePayment = async (req, res) => {
 }
 
 exports.editTypePaymentById = async (req, res) => {
-  const body = req.body
-  try {
-    const getDuplicate = await TypePayment.findOne({
-      where: {
-        name: body.name,
-        description: body.description,
-        store: body.store,
-        status: body.status
-      }
-    })
-
-    if (
-      !getDuplicate?.dataValues ||
-      !getDuplicate?.dataValues?.status === body?.status
-    ) {
-      const editTypePayment = await TypePayment?.update(
-        {
+    const body = req.body
+    const store = body.store || req.user?.store
+    try {
+      const getDuplicate = await TypePayment.findOne({
+        where: {
           name: body.name,
           description: body.description,
-          status: body.status,
-          createdBy: body.createdBy,
-          modifiedBy: body?.modifiedBy
-        },
-        {
-          returning: true,
-          where: {
-            id: body.id,
-            store: body.store
-          }
+          ...(store ? { store } : {}),
+          status: body.status
         }
-      ).then(([_, data]) => {
-        return data
       })
+
+      if (
+        !getDuplicate?.dataValues ||
+        !getDuplicate?.dataValues?.status === body?.status
+      ) {
+        const editTypePayment = await TypePayment?.update(
+          {
+            name: body.name,
+            description: body.description,
+            status: body.status,
+            createdBy: body.createdBy,
+            modifiedBy: body?.modifiedBy
+          },
+          {
+            returning: true,
+            where: {
+              id: body.id,
+              ...(store ? { store } : {})
+            }
+          }
+        ).then(([_, data]) => {
+          return data
+        })
 
       return res.status(200).json({
         success: true,
@@ -189,11 +191,12 @@ exports.deleteTypePaymentById = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const getId = await TypePayment.destroy({
       where: {
         id: body.id,
         description: body.description,
-        store: body.store
+        ...(store ? { store } : {})
       },
       force: true
     })

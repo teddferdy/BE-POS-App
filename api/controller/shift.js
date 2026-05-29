@@ -103,6 +103,7 @@ exports.postNewShift = async (req, res) => {
         description: description,
         startHour: startHour,
         endHour: endHour,
+        store: req.body.store || req.user?.store,
         createdBy: createdBy
       })
       return res.status(200).json({

@@ -3,15 +3,14 @@ const SubCategoryProduct = db.sub_category
 const Category = db.category
 
 exports.getAllSubCategory = async (req, res) => {
-  const { store, page = 1, pageSize = 10 } = req.query
+  const store = req.query.store || req.user?.store
+  const { page = 1, pageSize = 10 } = req.query
 
   try {
     const offset = (page - 1) * pageSize
 
     const subCategory = await SubCategoryProduct.findAll({
-      where: {
-        store: store
-      },
+      where: store ? { store } : {},
       limit: parseInt(pageSize),
       offset: parseInt(offset)
     })
@@ -39,7 +38,7 @@ exports.getAllSubCategory = async (req, res) => {
     })
 
     const totalSubCategories = await SubCategoryProduct.count({
-      where: { store: store }
+      where: store ? { store } : {}
     })
 
     return res.status(200).json({
@@ -68,9 +67,9 @@ exports.postNewSubCategory = async (req, res) => {
     nameSubCategory,
     typeSubCategory,
     isMultiple,
-    store,
     createdBy
   } = req.body
+  const store = req.body.store || req.user?.store
   try {
     const postData = SubCategoryProduct.create({
       idParentCategory: parentCategory,
@@ -96,10 +95,11 @@ exports.postNewSubCategory = async (req, res) => {
 }
 
 exports.getSubcategoryByCategory = async (req, res) => {
-  const { idParentCategory, store } = req.query
+  const { idParentCategory } = req.query
+  const store = req.query.store || req.user?.store
   try {
     const getSubAllCategory = await SubCategoryProduct.findAll({
-      where: { idParentCategory: idParentCategory, store: store }
+      where: { idParentCategory: idParentCategory, ...(store ? { store } : {}) }
     })
 
     return res.status(200).json({
@@ -123,10 +123,10 @@ exports.editSubcategoryById = async (req, res) => {
     nameSubCategory,
     typeSubCategory,
     isMultiple,
-    store,
     createdBy,
     modifiedBy
   } = req.body
+  const store = req.body.store || req.user?.store
   try {
     const editSubCategory = await SubCategoryProduct?.update(
       {
@@ -141,7 +141,7 @@ exports.editSubcategoryById = async (req, res) => {
         returning: true,
         where: {
           id: id,
-          store: store
+          ...(store ? { store } : {})
         }
       }
     ).then(([_, data]) => {
@@ -166,10 +166,11 @@ exports.deleteSubcategoryById = async (req, res) => {
   const body = req.body
 
   try {
+    const store = body.store || req.user?.store
     const getId = await SubCategoryProduct.destroy({
       where: {
         id: body.id,
-        store: body.store
+        ...(store ? { store } : {})
       },
       force: true
     })

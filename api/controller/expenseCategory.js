@@ -2,12 +2,12 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 
 const expenseCategoryController = {
-  async getAll(req, res) {
+    async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { status, search } = req.query
 
-      const where = { store }
+      const where = store ? { store } : {}
 
       if (status !== undefined) {
         where.status = status === 'true'
@@ -36,9 +36,9 @@ const expenseCategoryController = {
     }
   },
 
-  async create(req, res) {
+    async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { name, description, icon } = req.body
       const createdBy = req.user?.id || null
 
@@ -71,15 +71,15 @@ const expenseCategoryController = {
     }
   },
 
-  async update(req, res) {
+    async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
       const { name, description, icon, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const category = await db.expenseCategory.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!category) {
@@ -111,13 +111,13 @@ const expenseCategoryController = {
     }
   },
 
-  async delete(req, res) {
+    async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.cookies.store || req.user?.store
 
       const category = await db.expenseCategory.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!category) {

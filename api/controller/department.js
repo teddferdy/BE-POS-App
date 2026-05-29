@@ -147,6 +147,14 @@ exports.editDepartmentById = async (req, res) => {
     })
 
     if (!getDuplicate?.dataValues) {
+      const department = await Department.findByPk(id)
+      if (!department) {
+        return res.status(404).json({
+          success: false,
+          message: 'Department Tidak Ditemukan'
+        })
+      }
+
       const editDepartment = await Department?.update(
         {
           name: body.name,

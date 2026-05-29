@@ -2,12 +2,12 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 
 const memberTierController = {
-  async getAll(req, res) {
+    async getAll(req, res) {
     try {
-      const { store } = req.query
+      const store = req.query.store || req.user?.store
 
       const tiers = await db.member_tier.findAll({
-        where: { store },
+        where: store ? { store } : {},
         order: [['minPoints', 'ASC']]
       })
 
@@ -25,9 +25,10 @@ const memberTierController = {
     }
   },
 
-  async create(req, res) {
+    async create(req, res) {
     try {
-      const { store, name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color } = req.body
+      const store = req.body.store || req.user?.store
+      const { name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color } = req.body
       const createdBy = req.user?.id || null
 
       if (!store || !name) {
@@ -64,14 +65,15 @@ const memberTierController = {
     }
   },
 
-  async update(req, res) {
+    async update(req, res) {
     try {
       const { id } = req.params
-      const { store, name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color, status } = req.body
+      const store = req.body.store || req.user?.store
+      const { name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const tier = await db.member_tier.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!tier) {
@@ -107,13 +109,13 @@ const memberTierController = {
     }
   },
 
-  async delete(req, res) {
+    async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.query
+      const store = req.query.store || req.user?.store
 
       const tier = await db.member_tier.findOne({
-        where: { id, store }
+        where: { id, ...(store ? { store } : {}) }
       })
 
       if (!tier) {
@@ -138,9 +140,10 @@ const memberTierController = {
     }
   },
 
-  async getMemberTier(req, res) {
+    async getMemberTier(req, res) {
     try {
-      const { store, points } = req.query
+      const store = req.query.store || req.user?.store
+      const { points } = req.query
 
       if (!points) {
         return res.status(400).json({
@@ -151,7 +154,7 @@ const memberTierController = {
 
       const tier = await db.member_tier.findOne({
         where: {
-          store,
+          ...(store ? { store } : {}),
           status: true,
           minPoints: { [Op.lte]: points },
           maxPoints: { [Op.gte]: points }
@@ -173,17 +176,17 @@ const memberTierController = {
     }
   },
 
-  async updateMemberTier(req, res) {
+    async updateMemberTier(req, res) {
     try {
-      const { store } = req.body
+      const store = req.body.store || req.user?.store
 
       const tiers = await db.member_tier.findAll({
-        where: { store, status: true },
+        where: { ...(store ? { store } : {}), status: true },
         order: [['minPoints', 'DESC']]
       })
 
       const members = await db.member.findAll({
-        where: { store }
+        where: store ? { store } : {}
       })
 
       const updates = []
