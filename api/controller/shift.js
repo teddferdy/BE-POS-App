@@ -104,15 +104,6 @@ exports.postNewShift = async (req, res) => {
         store: req.body.store || req.user?.store,
         createdBy: createdBy
       })
-    if (!findOneShift?.getDataValue) {
-      const postData = await Shift.create({
-        name: name,
-        description: description,
-        startTime: startTime,
-        endTime: endTime,
-        store: req.body.store || req.user?.store,
-        createdBy: createdBy
-      })
       return res.status(200).json({
         success: true,
         message: 'Success',
