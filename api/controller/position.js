@@ -213,14 +213,9 @@ exports.editPositionById = async (req, res) => {
 }
 
 exports.deletePositionById = async (req, res) => {
-  const body = req.body
-
   try {
     const getId = await Position.destroy({
-      where: {
-        id: body.id,
-        name: body.name
-      },
+      where: { id: req.params.id || req.body.id },
       force: true
     })
 
@@ -230,15 +225,15 @@ exports.deletePositionById = async (req, res) => {
         message: 'Success Hapus Position'
       })
     }
-    return res.status(403).json({
+    return res.status(404).json({
       success: false,
-      message: 'Hapus Position Gagal'
+      message: 'Position Tidak Ditemukan'
     })
   } catch (error) {
     console.error('ERROR =>', error)
     return res.status(500).json({
       success: false,
-      message: 'Terjadi Kesalahan Internal Server'
+      message: error.message || 'Terjadi Kesalahan Internal Server'
     })
   }
 }
