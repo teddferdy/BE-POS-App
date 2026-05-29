@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const Ingredient = sequelize.define(
     'ingredient',
     {
       id: {
@@ -56,4 +56,10 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'ingredient'
     }
   )
+
+  Ingredient.associate = (models) => {
+    Ingredient.belongsTo(models.supplier, { as: 'supplierData', foreignKey: 'supplier' })
+  }
+
+  return Ingredient
 }

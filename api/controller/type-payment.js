@@ -94,20 +94,19 @@ exports.getAllTypePayment = async (req, res) => {
 }
 
 exports.postNewTypePayment = async (req, res) => {
-  const { name, description, status, createdBy } = req.body
+  const { name, status, createdBy } = req.body
   const store = req.body.store || req.user?.store
   try {
     const findOneTypePayment = await TypePayment?.findOne({
       where: {
-        description: description,
+        name: name,
         ...(store ? { store } : {})
       }
     })
 
-    if (!findOneTypePayment?.getDataValue) {
+    if (!findOneTypePayment) {
       const postData = await TypePayment.create({
         name: name,
-        description: description,
         store: store,
         status: status,
         createdBy: createdBy

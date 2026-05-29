@@ -17,7 +17,7 @@ const expenseCategoryController = {
         where.name = { [Op.iLike]: `%${search}%` }
       }
 
-      const categories = await db.expenseCategory.findAll({
+      const categories = await db.expense_category.findAll({
         where,
         order: [['name', 'ASC']]
       })
@@ -49,7 +49,7 @@ const expenseCategoryController = {
         })
       }
 
-      const category = await db.expenseCategory.create({
+      const category = await db.expense_category.create({
         store,
         name,
         description,
@@ -78,7 +78,7 @@ const expenseCategoryController = {
       const { name, description, icon, status } = req.body
       const modifiedBy = req.user?.id || null
 
-      const category = await db.expenseCategory.findOne({
+      const category = await db.expense_category.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
 
@@ -116,7 +116,7 @@ const expenseCategoryController = {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
 
-      const category = await db.expenseCategory.findOne({
+      const category = await db.expense_category.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
 

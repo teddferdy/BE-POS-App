@@ -31,10 +31,10 @@ const memberTierController = {
       const { name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color } = req.body
       const createdBy = req.user?.id || null
 
-      if (!store || !name) {
+      if (!name) {
         return res.status(400).json({
           success: false,
-          message: 'Store and name are required'
+          message: 'Name is required'
         })
       }
 

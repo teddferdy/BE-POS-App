@@ -90,6 +90,8 @@ exports.postNewDiscount = async (req, res) => {
   const { name, type, value, minimumOrder, maximumDiscount, startDate, endDate, status, createdBy } = req.body
   const store = req.body.store || req.user?.store
   try {
+    const discountType = type === 'percentage' ? 'percent' : type
+
     const findOneDiscount = await Discount?.findOne({
       where: {
         name: name,
@@ -97,10 +99,10 @@ exports.postNewDiscount = async (req, res) => {
       }
     })
 
-    if (!findOneDiscount?.getDataValue) {
+    if (!findOneDiscount) {
       const postData = await Discount.create({
         name,
-        type: type || 'percent',
+        type: discountType || 'percent',
         value: parseInt(value),
         minimumOrder: minimumOrder || 0,
         maximumDiscount: maximumDiscount || 0,
