@@ -182,14 +182,11 @@ exports.editDepartmentById = async (req, res) => {
 }
 
 exports.deleteDepartmentById = async (req, res) => {
-  const body = req.body
+  const id = req.params.id
 
   try {
     const getId = await Department.destroy({
-      where: {
-        id: body.id,
-        name: body.name
-      },
+      where: { id },
       force: true
     })
 
@@ -199,9 +196,9 @@ exports.deleteDepartmentById = async (req, res) => {
         message: 'Success Hapus Department'
       })
     }
-    return res.status(403).json({
+    return res.status(404).json({
       success: false,
-      message: 'Hapus Department Gagal'
+      message: 'Department Tidak Ditemukan'
     })
   } catch (error) {
     console.error('ERROR =>', error)
@@ -238,7 +235,7 @@ const buildDepartmentTemplateWorksheet = (workbook, sheetName, data) => {
   headerRow.alignment = { horizontal: 'center' }
   headerRow.height = 25
 
-  const maxRows = Math.max(data.length + 2, 99999)
+  const maxRows = data.length + 1
   for (let row = 2; row <= maxRows; row++) {
     const idx = row - 2
     const item = data[idx]

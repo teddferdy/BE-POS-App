@@ -10,3 +10,4 @@
 .env.production.localgoogle_apis.json
 
 .early.coverage
+.vercel

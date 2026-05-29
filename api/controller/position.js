@@ -139,7 +139,7 @@ exports.addNewPosition = async (req, res) => {
         departmentId: body.departmentId,
         description: body.description,
         status: body.status,
-        store: body.store,
+        store: body.store || req.user?.store,
         createdBy: body.createdBy
       })
 
@@ -176,22 +176,22 @@ exports.editPositionById = async (req, res) => {
     })
 
     if (!getDuplicate?.dataValues) {
-      const editPosition = await Position?.update(
-        {
-          name: body.name,
-          departmentId: body.departmentId,
-          description: body.description,
-          status: body.status,
-          store: body.store,
-          modifiedBy: body?.modifiedBy
-        },
-        {
-          returning: true,
-          where: { id }
-        }
-      ).then(([_, data]) => {
-        return data
-      })
+    const editPosition = await Position?.update(
+      {
+        name: body.name,
+        departmentId: body.departmentId,
+        description: body.description,
+        status: body.status,
+        store: body.store || req.user?.store,
+        modifiedBy: body?.modifiedBy
+      },
+      {
+        returning: true,
+        where: { id }
+      }
+    ).then(([_, data]) => {
+      return data
+    })
 
       return res.status(200).json({
         success: true,
