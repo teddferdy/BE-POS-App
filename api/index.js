@@ -41,6 +41,7 @@ const employeeRoutes = require('./routes/employee')
 const departmentRoutes = require('./routes/department')
 const taxConfigRoutes = require('./routes/taxConfig')
 const priceListTemplateRoutes = require('./routes/priceListTemplate')
+const posRoutes = require('./routes/pos')
 
 const app = express()
 const server = http.createServer(app)
@@ -100,9 +101,10 @@ const routes = [
   { path: '/split-bill', route: splitBillRoutes },
   { path: '/member-tier', route: memberTierRoutes },
   { path: '/employee', route: employeeRoutes },
-  { path: '/department', route: departmentRoutes },
-  { path: '/tax-config', route: taxConfigRoutes },
-  { path: '/price-list-template', route: priceListTemplateRoutes }
+    { path: '/department', route: departmentRoutes },
+    { path: '/tax-config', route: taxConfigRoutes },
+    { path: '/price-list-template', route: priceListTemplateRoutes },
+    { path: '/pos', route: posRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
