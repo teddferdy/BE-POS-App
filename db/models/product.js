@@ -126,6 +126,26 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'product',
       as: 'stockHistories'
     })
+    product.hasMany(models.stock_transfer_item, {
+      foreignKey: 'product',
+      as: 'stockTransferItems'
+    })
+    product.hasMany(models.purchase_return_item, {
+      foreignKey: 'product',
+      as: 'purchaseReturnItems'
+    })
+    product.hasMany(models.sales_return_item, {
+      foreignKey: 'product',
+      as: 'salesReturnItems'
+    })
+    product.hasMany(models.product_batch, {
+      foreignKey: 'product',
+      as: 'batches'
+    })
+    product.hasMany(models.product_store_price, {
+      foreignKey: 'product',
+      as: 'storePrices'
+    })
   }
 
   return product

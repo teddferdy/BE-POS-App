@@ -18,16 +18,18 @@ module.exports = (sequelize, DataTypes) => {
       ingredientName: {
         type: DataTypes.STRING
       },
-      referenceType: {
-        allowNull: false,
-        type: DataTypes.ENUM(
-          'purchase',
-          'sale',
-          'adjustment',
-          'opname',
-          'return'
-        )
-      },
+       referenceType: {
+         allowNull: false,
+         type: DataTypes.ENUM(
+           'purchase',
+           'sale',
+           'adjustment',
+           'opname',
+           'purchase_return',
+           'sale_return',
+           'transfer'
+         )
+       },
       referenceId: {
         type: DataTypes.INTEGER
       },
