@@ -10,7 +10,11 @@ const TEMPLATE_HEADERS = [
   { key: 'price', header: 'Harga', width: 15 },
   { key: 'status', header: 'Status', width: 10 },
   { key: 'isOption', header: 'Opsi', width: 10 },
-  { key: 'option', header: 'Daftar Opsi', width: 25 }
+  { key: 'option', header: 'Daftar Opsi', width: 25 },
+  { key: 'stock', header: 'Stok', width: 12 },
+  { key: 'costPrice', header: 'Harga Beli', width: 15 },
+  { key: 'minStock', header: 'Min Stok', width: 12 },
+  { key: 'unit', header: 'Satuan', width: 10 }
 ]
 
 const REQUIRED_HEADERS = [
@@ -52,21 +56,21 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
   headerRow.height = 25
 
   const categoryList = categories.map((c) => c.name).join(',')
-  worksheet.getCell('E2').dataValidation = {
+  worksheet.getCell('F2').dataValidation = {
     type: 'list',
     allowBlank: true,
     formulae: [`"${categoryList}"`],
     showDropDown: true
   }
 
-  worksheet.getCell('G2').dataValidation = {
+  worksheet.getCell('H2').dataValidation = {
     type: 'list',
     allowBlank: true,
     formulae: ['"Aktif,Nonaktif"'],
     showDropDown: true
   }
 
-  worksheet.getCell('H2').dataValidation = {
+  worksheet.getCell('I2').dataValidation = {
     type: 'list',
     allowBlank: true,
     formulae: ['"Ya,Tidak"'],
@@ -76,19 +80,19 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
   const maxRows = Math.max(existingProducts.length + 2, 12)
   for (let row = 2; row <= maxRows; row++) {
     worksheet.getCell(`A${row}`).value = row - 1
-    worksheet.getCell(`G${row}`).dataValidation = {
+    worksheet.getCell(`H${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"Aktif,Nonaktif"'],
       showDropDown: true
     }
-    worksheet.getCell(`H${row}`).dataValidation = {
+    worksheet.getCell(`I${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"Ya,Tidak"'],
       showDropDown: true
     }
-    worksheet.getCell(`E${row}`).dataValidation = {
+    worksheet.getCell(`F${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: [`"${categoryList}"`],
@@ -106,9 +110,13 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
     worksheet.getCell(`G${rowNum}`).value = prod.price || 0
     worksheet.getCell(`H${rowNum}`).value = prod.status ? 'Aktif' : 'Nonaktif'
     worksheet.getCell(`I${rowNum}`).value = prod.isOption ? 'Ya' : 'Tidak'
-    worksheet.getCell(`J${rowNum}`).value = prod.option
-      ? prod.option.join(',')
+    worksheet.getCell(`J${rowNum}`).value = prod.options
+      ? (Array.isArray(prod.options) ? prod.options.join(',') : prod.options)
       : ''
+    worksheet.getCell(`K${rowNum}`).value = prod.stock || 0
+    worksheet.getCell(`L${rowNum}`).value = prod.costPrice || 0
+    worksheet.getCell(`M${rowNum}`).value = prod.minStock || 0
+    worksheet.getCell(`N${rowNum}`).value = prod.unit || 'pcs'
   })
 
   return workbook.xlsx.writeBuffer()
@@ -151,7 +159,13 @@ const parseProductTemplate = async (buffer) => {
           price: rowData[7] ? parseFloat(rowData[7]) : 0,
           status: rowData[8] ? String(rowData[8]).trim() : 'Aktif',
           isOption: rowData[9] ? String(rowData[9]).trim() : 'Tidak',
-          option: rowData[10] ? String(rowData[10]).trim() : ''
+          options: rowData[10]
+            ? String(rowData[10]).split(',').map(s => s.trim()).filter(Boolean)
+            : [],
+          stock: rowData[11] ? parseFloat(rowData[11]) : 0,
+          costPrice: rowData[12] ? parseFloat(rowData[12]) : 0,
+          minStock: rowData[13] ? parseFloat(rowData[13]) : 0,
+          unit: rowData[14] ? String(rowData[14]).trim() : 'pcs'
         })
       }
     }

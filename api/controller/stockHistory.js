@@ -4,10 +4,9 @@ const { Op } = require('sequelize')
 const stockHistoryController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
       const { referenceType, product, startDate, endDate, page = 1, limit = 50 } = req.query
 
-      const where = { store }
+      const where = {}
 
       if (referenceType) {
         where.referenceType = referenceType
@@ -25,7 +24,7 @@ const stockHistoryController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const { count, rows } = await db.stockHistory.findAndCountAll({
+      const { count, rows } = await db.stock_history.findAndCountAll({
         where,
         include: [
           {
@@ -62,10 +61,9 @@ const stockHistoryController = {
   async getByProduct(req, res) {
     try {
       const { productId } = req.params
-      const { store } = req.cookies
 
-      const history = await db.stockHistory.findAll({
-        where: { store, product: productId },
+      const history = await db.stock_history.findAll({
+        where: { product: productId },
         order: [['createdAt', 'DESC']]
       })
 
@@ -88,7 +86,7 @@ const stockHistoryController = {
       const { ingredientName } = req.params
       const { store } = req.cookies
 
-      const history = await db.stockHistory.findAll({
+      const history = await db.stock_history.findAll({
         where: { store, ingredientName },
         order: [['createdAt', 'DESC']]
       })
@@ -109,11 +107,10 @@ const stockHistoryController = {
 
   async getLowStock(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.cookies?.store || req.query?.store
 
       const products = await db.product.findAll({
         where: {
-          store,
           status: true,
           minStock: { [Op.gt]: 0 }
         },
@@ -124,8 +121,12 @@ const stockHistoryController = {
         (p) => p.stock <= p.minStock
       )
 
+      const ingredientWhere = { status: true }
+      if (store) {
+        ingredientWhere.store = store
+      }
       const ingredients = await db.ingredient.findAll({
-        where: { store, status: true },
+        where: ingredientWhere,
         attributes: ['id', 'name', 'stock', 'minStock', 'unit']
       })
 

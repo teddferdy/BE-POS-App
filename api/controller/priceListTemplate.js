@@ -1,51 +1,34 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 
-const generateOrderNumber = (prefix) => {
-  const date = new Date()
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const random = Math.floor(Math.random() * 10000)
-    .toString()
-    .padStart(4, '0')
-  return `${prefix}-${year}${month}${day}-${random}`
-}
-
-const supplierController = {
-    async getAll(req, res) {
+const priceListTemplateController = {
+  async getAll(req, res) {
     try {
       const store = req.query.store || req.cookies.store || req.user?.store
-      const { search, status, page = 1, limit = 10 } = req.query
+      const { page = 1, limit = 10, search } = req.query
 
       const where = {}
       if (store) where.store = store
       if (search) {
-        where[Op.or] = [
-          { name: { [Op.iLike]: `%${search}%` } },
-          { phone: { [Op.iLike]: `%${search}%` } }
-        ]
-      }
-      if (status !== undefined) {
-        where.status = status === 'true'
+        where.name = { [Op.iLike]: `%${search}%` }
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [suppliers, total] = await Promise.all([
-        db.supplier.findAll({
+      const [templates, total] = await Promise.all([
+        db.priceListTemplate.findAll({
           where,
           order: [['createdAt', 'DESC']],
           limit: parseInt(limit),
           offset
         }),
-        db.supplier.count({ where })
+        db.priceListTemplate.count({ where })
       ])
 
       return res.status(200).json({
         success: true,
-        message: 'Success get suppliers',
-        data: suppliers,
+        message: 'Success get price list templates',
+        data: templates,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -54,7 +37,7 @@ const supplierController = {
         }
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -62,29 +45,29 @@ const supplierController = {
     }
   },
 
-    async getById(req, res) {
+  async getById(req, res) {
     try {
       const { id } = req.params
       const store = req.query.store || req.cookies.store || req.user?.store
 
-      const supplier = await db.supplier.findOne({
+      const template = await db.priceListTemplate.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
 
-      if (!supplier) {
+      if (!template) {
         return res.status(404).json({
           success: false,
-          message: 'Supplier not found'
+          message: 'Price list template not found'
         })
       }
 
       return res.status(200).json({
         success: true,
-        message: 'Success get supplier',
-        data: supplier
+        message: 'Success get price list template',
+        data: template
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -92,10 +75,10 @@ const supplierController = {
     }
   },
 
-    async create(req, res) {
+  async create(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
-      const { name, phone, email, address, description } = req.body
+      const { name, description, isActive, tiers } = req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -105,23 +88,31 @@ const supplierController = {
         })
       }
 
-      const supplier = await db.supplier.create({
+      let parsedTiers = []
+      if (tiers) {
+        try {
+          parsedTiers = typeof tiers === 'string' ? JSON.parse(tiers) : tiers
+        } catch (e) {
+          parsedTiers = []
+        }
+      }
+
+      const template = await db.priceListTemplate.create({
         store,
         name,
-        phone,
-        email,
-        address,
         description,
+        isActive: isActive !== undefined ? isActive : true,
+        tiers: parsedTiers,
         createdBy
       })
 
       return res.status(201).json({
         success: true,
-        message: 'Success create supplier',
-        data: supplier
+        message: 'Success create price list template',
+        data: template
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -129,41 +120,48 @@ const supplierController = {
     }
   },
 
-    async update(req, res) {
+  async update(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
-      const { name, phone, email, address, description, status } = req.body
+      const { name, description, isActive, tiers } = req.body
       const modifiedBy = req.user?.id || null
 
-      const supplier = await db.supplier.findOne({
+      const template = await db.priceListTemplate.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
 
-      if (!supplier) {
+      if (!template) {
         return res.status(404).json({
           success: false,
-          message: 'Supplier not found'
+          message: 'Price list template not found'
         })
       }
 
-      await supplier.update({
-        name: name || supplier.name,
-        phone: phone !== undefined ? phone : supplier.phone,
-        email: email !== undefined ? email : supplier.email,
-        address: address !== undefined ? address : supplier.address,
-        description: description !== undefined ? description : supplier.description,
-        status: status !== undefined ? status : supplier.status,
+      const updateData = {
+        name: name || template.name,
+        description: description !== undefined ? description : template.description,
+        isActive: isActive !== undefined ? isActive : template.isActive,
         modifiedBy
-      })
+      }
+
+      if (tiers !== undefined) {
+        try {
+          updateData.tiers = typeof tiers === 'string' ? JSON.parse(tiers) : tiers
+        } catch (e) {
+          updateData.tiers = template.tiers
+        }
+      }
+
+      await template.update(updateData)
 
       return res.status(200).json({
         success: true,
-        message: 'Success update supplier',
-        data: supplier
+        message: 'Success update price list template',
+        data: template
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -171,30 +169,30 @@ const supplierController = {
     }
   },
 
-    async delete(req, res) {
+  async delete(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
 
-      const supplier = await db.supplier.findOne({
+      const template = await db.priceListTemplate.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
 
-      if (!supplier) {
+      if (!template) {
         return res.status(404).json({
           success: false,
-          message: 'Supplier not found'
+          message: 'Price list template not found'
         })
       }
 
-      await supplier.destroy()
+      await template.destroy()
 
       return res.status(200).json({
         success: true,
-        message: 'Success delete supplier'
+        message: 'Success delete price list template'
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -203,4 +201,4 @@ const supplierController = {
   }
 }
 
-module.exports = supplierController
+module.exports = priceListTemplateController

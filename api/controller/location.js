@@ -5,9 +5,7 @@ const sequelize = db.sequelize
 const User = db.user
 const BestSelling = db.best_selling
 const Checkout = db.checkout
-const Product = db.product
 const Category = db.category
-const SubCategoryProduct = db.sub_category
 const Discount = db.discount
 const InvoiceFooter = db.invoice_footer
 const InvoiceLogo = db.invoice_logo
@@ -15,10 +13,22 @@ const InvoiceSocialMedia = db.invoice_social_media
 const Member = db.member
 const SocialMedia = db.social_media
 const TypePayment = db.type_payment
-const Transaction = db.transaction
 const Shift = db.shift
+const Ingredient = db.ingredient
+const CashRegister = db.cash_register
+const DailySummary = db.daily_summary
+const StockOpname = db.stockOpname
+const StockHistory = db.stock_history
+const PurchaseOrder = db.purchase_order
+const Order = db.order
+const Expense = db.expense
+const Table = db.table
+const MemberTier = db.member_tier
+const Supplier = db.supplier
+const ExpenseCategory = db.expense_category
+const Position = db.position
+const Role = db.role
 
-const { compareObjects } = require('../../utils/compare-value')
 const {
   uploadToCloudinary,
   uploadToCloudinaryWithDedup,
@@ -120,7 +130,7 @@ exports.getAllLocationInTable = async (req, res) => {
       stats: {
         total,
         active: activeCount,
-        cities: citiesCount
+        inactive: total - activeCount
       }
     })
   } catch (error) {
@@ -287,7 +297,7 @@ exports.addNewLocation = async (req, res) => {
     const newLocationId = `loc-${String(newLocation.id).padStart(3, '0')}`
     const storeId = `ST-${String(newLocation.id).padStart(3, '0')}`
 
-    return res.status(200).json({
+    return res.status(201).json({
       success: true,
       message: 'Location created successfully',
       data: {
@@ -336,7 +346,7 @@ exports.editLocationById = async (req, res) => {
   const id = rawId
     ? parseInt(rawId.replace('loc-', ''))
     : rawIdAlt
-      ? parseInt(rawIdAlt.replace('loc-', ''))
+      ? parseInt(String(rawIdAlt).replace('loc-', ''))
       : null
   if (!id) {
     return res.status(400).json({
@@ -388,27 +398,18 @@ exports.editLocationById = async (req, res) => {
       updatedData.status = isActive
     }
 
-    if (compareObjects(dataExist, updatedData)) {
-      return res
-        .status(403)
-        .json({ success: false, message: 'The location already exists.' })
-    }
-
-    if (name !== dataExist.name && confirmUserUpdate) {
-      await User.update({ store: id }, { where: { store: id } })
-    }
-
-    const [_, updatedLocation] = await Location.update(updatedData, {
+    const [affectedCount, updatedRows] = await Location.update(updatedData, {
       returning: true,
       where: { id }
     })
 
-    await batchUpdateModels(id, { status, name })
+    // Only propagate status changes to related models (not name)
+    await batchUpdateModels(id, { status: updatedData.status })
 
     return res.status(200).json({
       success: true,
       message: 'Successfully updated location.',
-      data: updatedLocation.dataValues
+      data: updatedRows[0]?.dataValues || null
     })
   } catch (error) {
     console.error('Error:', error)
@@ -419,10 +420,52 @@ exports.editLocationById = async (req, res) => {
   }
 }
 
+// Map model -> update payload when location is deleted
+// Different models need different status handling based on their field types
+const getLocationDeleteUpdates = () => [
+  // Boolean status -> set status = false
+  { model: Discount,       update: { store: null, status: false } },
+  { model: InvoiceFooter,  update: { store: null, status: false } },
+  { model: InvoiceLogo,    update: { store: null, status: false } },
+  { model: InvoiceSocialMedia, update: { store: null, status: false } },
+  { model: Member,         update: { store: null, status: false } },
+  { model: SocialMedia,    update: { store: null, status: false } },
+  { model: TypePayment,    update: { store: null, status: false } },
+  { model: Shift,          update: { store: null, status: false } },
+  { model: Ingredient,     update: { store: null, status: false } },
+  { model: MemberTier,     update: { store: null, status: false } },
+  { model: Supplier,       update: { store: null, status: false } },
+  { model: ExpenseCategory, update: { store: null, status: false } },
+  { model: Position,       update: { store: null, status: false } },
+  { model: Role,           update: { store: null, status: false } },
+
+  // ENUM status models -> set appropriate closed/cancelled state
+  { model: StockOpname,    update: { store: null, status: 'cancelled' } },
+  { model: Order,          update: { store: null, status: 'cancelled' } },
+  { model: PurchaseOrder,  update: { store: null, status: 'cancelled' } },
+  { model: CashRegister,   update: { store: null, status: 'closed' } },
+  { model: Expense,        update: { store: null, status: 'rejected' } },
+  { model: Table,          update: { store: null, status: 'maintenance' } },
+
+  // No status field -> just null the store reference
+  { model: DailySummary,   update: { store: null } },
+  { model: StockHistory,   update: { store: null } },
+
+  // Models without status field
+  { model: Checkout,       update: { store: null } },
+  { model: BestSelling,    update: { store: null } },
+
+  // Special: User -> also deactivate account
+  { model: User,           update: { store: null, statusActive: false } },
+]
+
 exports.deleteLocationById = async (req, res) => {
   const { id } = req.body
 
   try {
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'ID is required' })
+    }
     const dbId = parseInt(id.replace('loc-', ''))
 
     const location = await Location.findByPk(dbId)
@@ -432,43 +475,13 @@ exports.deleteLocationById = async (req, res) => {
         .json({ success: false, message: 'Location not found' })
     }
 
-    // Update dependent records: set store to null and status to false/inactive
-    const modelsToUpdate = [
-      User,
-      Product,
-      Transaction,
-      BestSelling,
-      Checkout,
-      Category,
-      SubCategoryProduct,
-      Discount,
-      InvoiceFooter,
-      InvoiceLogo,
-      InvoiceSocialMedia,
-      Member,
-      SocialMedia,
-      TypePayment,
-      Shift
-    ]
+    const entries = getLocationDeleteUpdates()
 
-    for (const model of modelsToUpdate) {
-      let update = { store: null }
-      if (model === User) {
-        // For User, set statusActive to false (inactive)
-        update.statusActive = false
-      } else if (
-        model !== Transaction &&
-        model !== Checkout &&
-        model !== BestSelling
-      ) {
-        // For models that have a 'status' field (except Transaction, Checkout, BestSelling which don't have status)
-        update.status = false
-      }
+    for (const { model, update } of entries) {
       try {
         await model.update(update, { where: { store: dbId } })
       } catch (modelError) {
-        // Log error but continue with other models
-        console.error(`Error updating model ${model.name}:`, modelError)
+        console.error(`Error updating ${model.name || 'unknown'}:`, modelError.message)
       }
     }
 
@@ -492,25 +505,21 @@ exports.deleteLocationById = async (req, res) => {
 
 const batchUpdateModels = async (id, updateFields) => {
   const modelsToUpdate = [
-    User,
-    Product,
-    Transaction,
-    BestSelling,
-    Checkout,
-    Category,
-    SubCategoryProduct,
-    Discount,
-    InvoiceFooter,
-    InvoiceLogo,
-    InvoiceSocialMedia,
-    Member,
-    SocialMedia,
-    TypePayment,
-    Shift
+    User, BestSelling, Checkout,
+    Category, Discount,
+    InvoiceFooter, InvoiceLogo, InvoiceSocialMedia,
+    Member, SocialMedia, TypePayment, Shift,
+    Ingredient, CashRegister, DailySummary, StockOpname, StockHistory,
+    PurchaseOrder, Order, Expense, Table,
+    MemberTier, Supplier, ExpenseCategory, Position, Role
   ]
 
   for (const model of modelsToUpdate) {
-    await model.update(updateFields, { where: { store: id } })
+    try {
+      await model.update(updateFields, { where: { store: id } })
+    } catch (modelError) {
+      console.error(`Error batch updating ${model.name || 'unknown'}:`, modelError.message)
+    }
   }
 }
 
@@ -554,6 +563,9 @@ exports.getLocationById = async (req, res) => {
   const { locationId } = req.params
 
   try {
+    if (!locationId) {
+      return res.status(400).json({ success: false, message: 'Location ID is required' })
+    }
     const dbId = parseInt(locationId.replace('loc-', ''))
 
     const location = await Location.findByPk(dbId)
@@ -616,7 +628,14 @@ exports.importLocation = async (req, res) => {
   }
 
   try {
-    const locations = await parseLocationTemplate(req.file.buffer)
+    if (!req.files || !req.files['file'] || !req.files['file'][0]) {
+      return res.status(400).json({
+        success: false,
+        message: 'File Excel diperlukan'
+      })
+    }
+
+    const locations = await parseLocationTemplate(req.files['file'][0].buffer)
 
     if (!locations.length) {
       return res.status(400).json({
@@ -625,12 +644,21 @@ exports.importLocation = async (req, res) => {
       })
     }
 
-    const imageFiles = req.files || []
+    const imageFiles = req.files['images'] || []
     const imageMap = {}
-    imageFiles.forEach((file) => {
+    const { writeFileSync, unlinkSync } = require('fs')
+    const { join } = require('path')
+    const tmpDir = '/tmp/location-import-images'
+    if (!require('fs').existsSync(tmpDir)) {
+      require('fs').mkdirSync(tmpDir, { recursive: true })
+    }
+
+    for (const file of imageFiles) {
       const baseName = file.originalname.replace(/\.[^/.]+$/, '').toLowerCase()
-      imageMap[baseName] = file.path
-    })
+      const tmpPath = join(tmpDir, `${Date.now()}-${file.originalname}`)
+      writeFileSync(tmpPath, file.buffer)
+      imageMap[baseName] = tmpPath
+    }
 
     const results = {
       created: [],
@@ -715,8 +743,12 @@ exports.importLocation = async (req, res) => {
               address: location.address,
               detailLocation: location.detailLocation,
               phoneNumber: location.phoneNumber,
-              status: statusValue
+              status: statusValue,
+              createdBy: req.user?.userName || req.user?.id || 'system'
             })
+            if (newLocation) {
+              await newLocation.update({ store: newLocation.id })
+            }
             results.created.push({
               id: newLocation.id,
               name: newLocation.name
@@ -782,8 +814,12 @@ exports.importLocation = async (req, res) => {
               address: location.address,
               detailLocation: location.detailLocation,
               phoneNumber: location.phoneNumber,
-              status: statusValue
+              status: statusValue,
+              createdBy: req.user?.userName || req.user?.id || 'system'
             })
+            if (newLocation) {
+              await newLocation.update({ store: newLocation.id })
+            }
             results.created.push({
               id: newLocation.id,
               name: newLocation.name
@@ -802,6 +838,10 @@ exports.importLocation = async (req, res) => {
       success: true,
       message: `Berhasil import ${results.created.length} lokasi baru dan ${results.updated.length} lokasi diupdate`,
       data: results
+    })
+
+    Object.values(imageMap).forEach((p) => {
+      try { require('fs').unlinkSync(p) } catch {}
     })
   } catch (err) {
     console.error('Error importing locations:', err)

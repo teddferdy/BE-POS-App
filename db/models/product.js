@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const product = sequelize.define(
     'product',
     {
       id: {
@@ -10,21 +10,28 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       store: {
-        type: DataTypes.INTEGER
+        type: DataTypes.JSONB
       },
       nameProduct: {
         allowNull: false,
         type: DataTypes.STRING
       },
+      sku: {
+        type: DataTypes.STRING,
+        unique: true
+      },
       image: {
+        type: DataTypes.STRING
+      },
+      barcode: {
+        type: DataTypes.STRING
+      },
+      brand: {
         type: DataTypes.STRING
       },
 
       category: {
         allowNull: false,
-        type: DataTypes.INTEGER
-      },
-      subCategory: {
         type: DataTypes.INTEGER
       },
       description: {
@@ -75,9 +82,25 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true
       },
+      point: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
       preparationTime: {
         type: DataTypes.INTEGER,
         defaultValue: 15
+      },
+      supplier: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      tax: {
+        type: DataTypes.JSONB,
+        defaultValue: null
+      },
+      priceTiers: {
+        type: DataTypes.JSONB,
+        defaultValue: []
       },
       createdBy: {
         type: DataTypes.INTEGER
@@ -93,4 +116,17 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'product'
     }
   )
+
+  product.associate = (models) => {
+    product.belongsTo(models.category, {
+      foreignKey: 'category',
+      as: 'categoryData'
+    })
+    product.hasMany(models.stock_history, {
+      foreignKey: 'product',
+      as: 'stockHistories'
+    })
+  }
+
+  return product
 }

@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'category',
+  const taxConfig = sequelize.define(
+    'taxConfig',
     {
       id: {
         allowNull: false,
@@ -16,32 +16,36 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.STRING
       },
-      description: {
-        type: DataTypes.STRING
+      rate: {
+        allowNull: false,
+        type: DataTypes.INTEGER,
+        defaultValue: 0
       },
-      value: {
-        type: DataTypes.STRING
+      type: {
+        type: DataTypes.ENUM('percentage', 'fixed'),
+        defaultValue: 'percentage'
       },
-      image: {
-        type: DataTypes.STRING
-      },
-
       status: {
         type: DataTypes.BOOLEAN,
         defaultValue: true
       },
+      description: {
+        type: DataTypes.TEXT
+      },
       createdBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
       },
       modifiedBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
       }
     },
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'category',
-      tableName: 'category'
+      modelName: 'taxConfig',
+      tableName: 'tax_config'
     }
   )
+
+  return taxConfig
 }

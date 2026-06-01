@@ -1,6 +1,8 @@
 const db = require('../../db/models')
 const { Op } = db.Sequelize
 const Department = db.department
+const Position = db.position
+const User = db.user
 
 exports.getAllDepartment = async (req, res) => {
   try {
@@ -48,27 +50,19 @@ exports.getAllDepartmentInTable = async (req, res) => {
 
     const totalPages = Math.ceil(totalItems / limit)
 
-    let statsWhere = {}
-    if (status === 'true') {
-      statsWhere = { status: true }
-    } else if (status === 'false') {
-      statsWhere = { status: false }
-    }
-
-    const totalDepartemen = await Department.count({ where: statsWhere })
+    const totalDepartemen = await Department.count()
 
     const totalDepartemenAktif = await Department.count({
-      where: { status: true, ...statsWhere }
+      where: { status: true }
     })
 
     const totalDepartemenNonActive = await Department.count({
-      where: { status: false, ...statsWhere }
+      where: { status: false }
     })
 
     const totalTanpaDeskripsi = await Department.count({
       where: {
-        [Op.or]: [{ description: null }, { description: '' }],
-        ...statsWhere
+        [Op.or]: [{ description: null }, { description: '' }]
       }
     })
 
@@ -87,6 +81,44 @@ exports.getAllDepartmentInTable = async (req, res) => {
         totalDepartemenAktif,
         totalDepartemenNonActive,
         totalTanpaDeskripsi
+      }
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+// Get Department By Id
+exports.getDepartmentById = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const department = await Department.findOne({
+      where: { id }
+    })
+
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: 'Departemen tidak ditemukan'
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: {
+        id: department.id,
+        name: department.name,
+        description: department.description,
+        status: department.status,
+        store: department.store,
+        createdAt: department.createdAt,
+        updatedAt: department.updatedAt
       }
     })
   } catch (error) {
@@ -155,7 +187,7 @@ exports.editDepartmentById = async (req, res) => {
         })
       }
 
-      const editDepartment = await Department?.update(
+      const [_, editRows] = await Department.update(
         {
           name: body.name,
           description: body.description,
@@ -166,9 +198,8 @@ exports.editDepartmentById = async (req, res) => {
           returning: true,
           where: { id }
         }
-      ).then(([_, data]) => {
-        return data
-      })
+      )
+      const editDepartment = editRows[0]
 
       return res.status(200).json({
         success: true,
@@ -193,6 +224,27 @@ exports.deleteDepartmentById = async (req, res) => {
   const id = req.params.id
 
   try {
+    // Find all positions in this department
+    const positions = await Position.findAll({
+      where: { departmentId: id }
+    })
+
+    const positionIds = positions.map((p) => p.id)
+
+    // Clean up user.position references for affected positions
+    if (positionIds.length > 0) {
+      await User.update(
+        { position: null },
+        { where: { position: { [Op.in]: positionIds } } }
+      )
+
+      // Deactivate affected positions
+      await Position.update(
+        { status: false },
+        { where: { id: { [Op.in]: positionIds } } }
+      )
+    }
+
     const getId = await Department.destroy({
       where: { id },
       force: true

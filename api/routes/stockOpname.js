@@ -56,6 +56,12 @@ router.get(
 )
 
 router.post(
+  '/export-selected',
+  requireRole('super_admin', 'admin'),
+  stockOpnameController.exportSelected
+)
+
+router.post(
   '/upload-excel',
   requireRole('super_admin', 'admin'),
   upload.single('file'),

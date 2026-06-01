@@ -7,10 +7,8 @@ const generateOpnameNumber = () => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
-  const random = Math.floor(Math.random() * 10000)
-    .toString()
-    .padStart(4, '0')
-  return `SO-${year}${month}${day}-${random}`
+  const timestamp = Date.now()
+  return `SO-${year}${month}${day}-${timestamp}`
 }
 
 const STOCK_OPNAME_EXCEL_HEADERS = [
@@ -85,27 +83,28 @@ const stockOpnameController = {
 
         return {
           id: opname.id,
-          auditId: opname.opnameNumber,
+          opnameNumber: opname.opnameNumber,
           auditDate: opname.auditDate,
           auditor: opname.auditor,
           notes: opname.notes,
           status: opname.status,
           store: opname.storeData ? { id: opname.storeData.id, name: opname.storeData.name } : null,
           stats: { totalItems, totalSelisih, highVarianceItems },
-          items: items.map((item) => ({
-            id: item.id,
-            kodeBarang: item.kodeBarang,
-            namaBarang: item.namaBarang,
-            satuan: item.satuan,
-            lokasiId: item.lokasiId,
-            stokAwalJumlah: item.stokAwalJumlah,
-            barangMasukJumlah: item.barangMasukJumlah,
-            barangKeluarJumlah: item.barangKeluarJumlah,
-            stokAkhirJumlah: item.stokAkhirJumlah,
-            stokFisikJumlah: item.stokFisikJumlah,
-            selisihJumlah: item.selisihJumlah,
-            keterangan: item.keterangan
-          })),
+           items: items.map((item) => ({
+             id: item.id,
+             product: item.product,
+             kodeBarang: item.kodeBarang,
+             namaBarang: item.namaBarang,
+             satuan: item.satuan,
+             lokasiId: item.lokasiId,
+             stokAwalJumlah: item.stokAwalJumlah,
+             barangMasukJumlah: item.barangMasukJumlah,
+             barangKeluarJumlah: item.barangKeluarJumlah,
+             stokAkhirJumlah: item.stokAkhirJumlah,
+             stokFisikJumlah: item.stokFisikJumlah,
+             selisihJumlah: item.selisihJumlah,
+             keterangan: item.keterangan
+           })),
           createdAt: opname.createdAt,
           updatedAt: opname.updatedAt
         }
@@ -130,7 +129,7 @@ const stockOpnameController = {
         }
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -169,32 +168,31 @@ const stockOpnameController = {
       const totalSelisih = items.reduce((sum, item) => sum + (item.selisihJumlah || 0), 0)
       const highVarianceItems = items.filter((item) => Math.abs(item.selisihJumlah || 0) > 0).length
 
-      const data = {
-        id: opname.id,
-        auditId: opname.opnameNumber,
-        auditDate: opname.auditDate,
-        auditor: opname.auditor,
-        notes: opname.notes,
-        status: opname.status,
-        store: opname.storeData ? { id: opname.storeData.id, name: opname.storeData.name } : null,
-        stats: { totalItems, totalSelisih, highVarianceItems },
-        items: items.map((item) => ({
-          id: item.id,
-          kodeBarang: item.kodeBarang,
-          namaBarang: item.namaBarang,
-          satuan: item.satuan,
-          lokasiId: item.lokasiId,
-          stokAwalJumlah: item.stokAwalJumlah,
-          barangMasukJumlah: item.barangMasukJumlah,
-          barangKeluarJumlah: item.barangKeluarJumlah,
-          stokAkhirJumlah: item.stokAkhirJumlah,
-          stokFisikJumlah: item.stokFisikJumlah,
-          selisihJumlah: item.selisihJumlah,
-          keterangan: item.keterangan
-        })),
-        createdAt: opname.createdAt,
-        updatedAt: opname.updatedAt
-      }
+       const data = {
+         id: opname.id,
+         opnameNumber: opname.opnameNumber,
+         auditDate: opname.auditDate,
+         auditor: opname.auditor,
+         notes: opname.notes,
+         status: opname.status,
+         store: opname.storeData ? { id: opname.storeData.id, name: opname.storeData.name } : null,
+         stats: { totalItems, totalSelisih, highVarianceItems },
+         items: items.map((item) => ({
+           id: item.id,
+           product: item.product, // Add productId field for frontend compatibility
+           kodeBarang: item.kodeBarang,
+           namaBarang: item.namaBarang,
+           satuan: item.satuan,
+           lokasiId: item.lokasiId,
+           stokAwalJumlah: item.stokAwalJumlah,
+           barangMasukJumlah: item.barangMasukJumlah,
+           barangKeluarJumlah: item.barangKeluarJumlah,
+           stokAkhirJumlah: item.stokAkhirJumlah,
+           stokFisikJumlah: item.stokFisikJumlah,
+           selisihJumlah: item.selisihJumlah,
+           keterangan: item.keterangan
+         })),
+       }
 
       return res.status(200).json({
         success: true,
@@ -202,7 +200,7 @@ const stockOpnameController = {
         data
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -220,7 +218,13 @@ const stockOpnameController = {
       if (!effectiveStore && items && items.length > 0) {
         effectiveStore = items[0].lokasiId
       }
-      
+
+      if (!effectiveStore) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store tidak ditemukan. Pastikan store/lokasi sudah terdaftar.'
+        })
+      }
 
       if (!items || items.length === 0) {
         return res.status(400).json({
@@ -247,15 +251,15 @@ const stockOpnameController = {
          createdBy: req.user?.id || null
        })
 
-       const opnameItems = items.map((item) => ({
-         stockOpname: opname.id,
-         kodeBarang: item.kodeBarang || null,
-         namaBarang: item.namaBarang || null,
-         satuan: item.satuan || null,
-         lokasiId: item.lokasiId || null,
-         lokasi: item.lokasi !== null && item.lokasi !== undefined ? String(item.lokasi) : null,
-         product: item.product || null,
-         ingredientName: item.ingredientName || null,
+        const opnameItems = items.map((item) => ({
+          stockOpname: opname.id,
+          kodeBarang: item.kodeBarang || null,
+          namaBarang: item.namaBarang || null,
+          satuan: item.satuan || null,
+          lokasiId: item.lokasiId || null,
+          lokasi: item.lokasi !== null && item.lokasi !== undefined ? String(item.lokasi) : null,
+          product: item.product || item.productId || null, // Accept both product and productId for FE compatibility
+          ingredientName: item.ingredientName || null,
          systemStock: item.systemStock !== undefined ? item.systemStock : (item.stokAkhirJumlah || 0),
          actualStock: item.actualStock !== undefined ? item.actualStock : (item.stokFisikJumlah || 0),
          adjustment: item.adjustment !== undefined ? item.adjustment : (item.selisihJumlah || 0),
@@ -282,7 +286,7 @@ const stockOpnameController = {
         data: created
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -321,34 +325,37 @@ const stockOpnameController = {
       }
 
       if (items) {
-        await db.stockOpnameItem.destroy({
-          where: { stockOpname: id }
+        await db.sequelize.transaction(async (t) => {
+          await db.stockOpnameItem.destroy({
+            where: { stockOpname: id },
+            transaction: t
+          })
+
+            const opnameItems = items.map((item) => ({
+              stockOpname: id,
+              kodeBarang: item.kodeBarang || null,
+              namaBarang: item.namaBarang || null,
+              satuan: item.satuan || null,
+              lokasiId: item.lokasiId || null,
+              lokasi: item.lokasi !== null && item.lokasi !== undefined ? String(item.lokasi) : null,
+              product: item.product || item.productId || null, // Accept both product and productId for FE compatibility
+              ingredientName: item.ingredientName || null,
+             systemStock: item.systemStock !== undefined ? item.systemStock : (item.stokAkhirJumlah || 0),
+             actualStock: item.actualStock !== undefined ? item.actualStock : (item.stokFisikJumlah || 0),
+             adjustment: item.adjustment !== undefined ? item.adjustment : (item.selisihJumlah || 0),
+             unit: item.unit || item.satuan || 'pcs',
+             notes: item.notes || item.keterangan || null,
+             stokAwalJumlah: item.stokAwalJumlah || 0,
+             barangMasukJumlah: item.barangMasukJumlah || 0,
+             barangKeluarJumlah: item.barangKeluarJumlah || 0,
+             stokAkhirJumlah: item.stokAkhirJumlah || 0,
+             stokFisikJumlah: item.stokFisikJumlah || 0,
+             selisihJumlah: item.selisihJumlah || 0,
+             keterangan: item.keterangan || null
+           }))
+
+          await db.stockOpnameItem.bulkCreate(opnameItems, { transaction: t })
         })
-
-         const opnameItems = items.map((item) => ({
-           stockOpname: id,
-           kodeBarang: item.kodeBarang || null,
-           namaBarang: item.namaBarang || null,
-           satuan: item.satuan || null,
-           lokasiId: item.lokasiId || null,
-           lokasi: item.lokasi !== null && item.lokasi !== undefined ? String(item.lokasi) : null,
-           product: item.product || null,
-           ingredientName: item.ingredientName || null,
-           systemStock: item.systemStock !== undefined ? item.systemStock : (item.stokAkhirJumlah || 0),
-           actualStock: item.actualStock !== undefined ? item.actualStock : (item.stokFisikJumlah || 0),
-           adjustment: item.adjustment !== undefined ? item.adjustment : (item.selisihJumlah || 0),
-           unit: item.unit || item.satuan || 'pcs',
-           notes: item.notes || item.keterangan || null,
-           stokAwalJumlah: item.stokAwalJumlah || 0,
-           barangMasukJumlah: item.barangMasukJumlah || 0,
-           barangKeluarJumlah: item.barangKeluarJumlah || 0,
-           stokAkhirJumlah: item.stokAkhirJumlah || 0,
-           stokFisikJumlah: item.stokFisikJumlah || 0,
-           selisihJumlah: item.selisihJumlah || 0,
-           keterangan: item.keterangan || null
-         }))
-
-        await db.stockOpnameItem.bulkCreate(opnameItems)
       }
 
       const allItems = await db.stockOpnameItem.findAll({
@@ -377,7 +384,7 @@ const stockOpnameController = {
         data: updated
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -425,7 +432,7 @@ const stockOpnameController = {
         message: 'Success delete stock opname'
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -473,17 +480,57 @@ const stockOpnameController = {
         modifiedBy: req.user?.id || null
       })
 
-      const updated = await db.stockOpname.findByPk(id, {
-        include: [{ model: db.stockOpnameItem, as: 'items' }]
-      })
+      if (status === 'completed') {
+        const updated = await db.stockOpname.findByPk(id, {
+          include: [{ model: db.stockOpnameItem, as: 'items' }]
+        })
 
+        for (const item of updated.items) {
+          const product = await db.product.findOne({
+            where: {
+              nameProduct: { [Op.iLike]: item.namaBarang.trim() }
+            }
+          })
+          if (product && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
+            const oldStock = Number(product.stock) || 0
+            const newStock = Number(item.stokFisikJumlah) || 0
+            const diff = newStock - oldStock
+
+            await product.update({ stock: newStock })
+
+            await db.stock_history.create({
+              product: product.id,
+              store: opname.store,
+              referenceType: 'opname',
+              quantityBefore: oldStock,
+              quantityChange: diff,
+              quantityAfter: newStock,
+              unit: item.unit || 'pcs',
+              notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+              createdBy: req.user?.id || null
+            })
+          }
+        }
+
+        const updatedWithItems = await db.stockOpname.findByPk(id, {
+          include: [{ model: db.stockOpnameItem, as: 'items' }]
+        })
+
+        return res.status(200).json({
+          success: true,
+          message: `Status changed to "${status}"`,
+          data: updatedWithItems
+        })
+      }
+
+      const updated = await db.stockOpname.findByPk(id)
       return res.status(200).json({
         success: true,
         message: `Status changed to "${status}"`,
         data: updated
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -600,7 +647,7 @@ const stockOpnameController = {
 
       return res.send(buffer)
     } catch (error) {
-      console.log(error)
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
@@ -700,9 +747,11 @@ const stockOpnameController = {
         const stokAwal = parseFloat(v[6]) || 0
         const barangMasuk = parseFloat(v[7]) || 0
         const barangKeluar = parseFloat(v[8]) || 0
-        const stokAkhir = parseFloat(v[9]) || (stokAwal + barangMasuk - barangKeluar)
+        const stokAkhir = parseFloat(v[9])
+        const stokAkhirVal = !isNaN(stokAkhir) ? stokAkhir : (stokAwal + barangMasuk - barangKeluar)
         const stokFisik = parseFloat(v[10]) || 0
-        const selisih = parseFloat(v[11]) || (stokFisik - stokAkhir)
+        const selisih = parseFloat(v[11])
+        const selisihVal = !isNaN(selisih) ? selisih : (stokFisik - stokAkhirVal)
         const keterangan = v[12] ? String(v[12]).trim() : null
 
         if (!namaBarang) {
@@ -721,13 +770,13 @@ const stockOpnameController = {
           stokAwalJumlah: stokAwal,
           barangMasukJumlah: barangMasuk,
           barangKeluarJumlah: barangKeluar,
-          stokAkhirJumlah: stokAkhir,
+          stokAkhirJumlah: stokAkhirVal,
           stokFisikJumlah: stokFisik,
-          selisihJumlah: selisih,
+          selisihJumlah: selisihVal,
           keterangan,
-          systemStock: stokAkhir,
+          systemStock: stokAkhirVal,
           actualStock: stokFisik,
-          adjustment: selisih,
+          adjustment: selisihVal,
           unit: satuan || 'pcs',
           notes: keterangan
         })
@@ -744,36 +793,150 @@ const stockOpnameController = {
       const opnameNumber = generateOpnameNumber()
       const totalAdjustment = items.reduce((sum, i) => sum + i.selisihJumlah, 0)
 
-      const opname = await db.stockOpname.create({
-        store: effectiveStore,
-        opnameNumber,
-        date: req.body.date ? new Date(req.body.date) : new Date(),
-        auditDate: req.body.auditDate || null,
-        auditor: req.body.auditor || req.user?.userName || req.user?.id || null,
-        totalAdjustment,
-        status: 'completed',
-        notes: req.body.notes || 'Upload dari Excel',
-        createdBy: req.user?.id || null
-      })
+      const result = await db.sequelize.transaction(async (t) => {
+        const opname = await db.stockOpname.create({
+          store: effectiveStore,
+          opnameNumber,
+          date: req.body.date ? new Date(req.body.date) : new Date(),
+          auditDate: req.body.auditDate || null,
+          auditor: req.body.auditor || req.user?.userName || req.user?.id || null,
+          totalAdjustment,
+          status: 'draft',
+          notes: req.body.notes || 'Upload dari Excel',
+          createdBy: req.user?.id || null
+        }, { transaction: t })
 
-      const opnameItems = items.map((item) => ({
-        stockOpname: opname.id,
-        ...item
-      }))
+        const opnameItems = items.map((item) => ({
+          stockOpname: opname.id,
+          ...item
+        }))
 
-      await db.stockOpnameItem.bulkCreate(opnameItems)
+        await db.stockOpnameItem.bulkCreate(opnameItems, { transaction: t })
 
-      const created = await db.stockOpname.findByPk(opname.id, {
-        include: [{ model: db.stockOpnameItem, as: 'items' }]
+        return db.stockOpname.findByPk(opname.id, {
+          include: [{ model: db.stockOpnameItem, as: 'items' }],
+          transaction: t
+        })
       })
 
       return res.status(201).json({
         success: true,
         message: `Berhasil upload ${items.length} item stock opname`,
-        data: created
+        data: result
       })
     } catch (error) {
-      console.log(error)
+      console.error(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async exportSelected(req, res) {
+    try {
+      const { ids } = req.body
+
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'ids harus berupa array dan tidak boleh kosong'
+        })
+      }
+
+      const opnames = await db.stockOpname.findAll({
+        where: { id: { [Op.in]: ids } },
+        include: [
+          { model: db.stockOpnameItem, as: 'items' },
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
+        ],
+        order: [['createdAt', 'DESC']]
+      })
+
+      if (opnames.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Stock opname tidak ditemukan'
+        })
+      }
+
+      const workbook = new excelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Stock Opname')
+
+      worksheet.columns = STOCK_OPNAME_EXCEL_HEADERS.map((h) => ({
+        header: h.header,
+        key: h.key,
+        width: h.width
+      }))
+
+      const headerRow = worksheet.getRow(1)
+      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '4472C4' }
+      }
+      headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
+      headerRow.height = 25
+
+      let rowIndex = 2
+
+      for (const opname of opnames) {
+        const storeName = opname.storeData ? opname.storeData.name : '-'
+        worksheet.mergeCells(`A${rowIndex}:L${rowIndex}`)
+        const titleCell = worksheet.getCell(`A${rowIndex}`)
+        titleCell.value = `${opname.opnameNumber} - ${storeName} (${opname.status})`
+        titleCell.font = { bold: true, size: 12 }
+        titleCell.alignment = { vertical: 'middle' }
+        worksheet.getRow(rowIndex).height = 22
+        rowIndex++
+
+        worksheet.mergeCells(`A${rowIndex}:L${rowIndex}`)
+        const dateCell = worksheet.getCell(`A${rowIndex}`)
+        dateCell.value = `Audit: ${opname.auditDate || '-'} | Auditor: ${opname.auditor || '-'} | Notes: ${opname.notes || '-'}`
+        dateCell.font = { italic: true, size: 10, color: { argb: '666666' } }
+        worksheet.getRow(rowIndex).height = 18
+        rowIndex++
+
+        const items = opname.items || []
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          worksheet.getCell(`A${rowIndex}`).value = i + 1
+          worksheet.getCell(`B${rowIndex}`).value = item.kodeBarang || ''
+          worksheet.getCell(`C${rowIndex}`).value = item.namaBarang || ''
+          worksheet.getCell(`D${rowIndex}`).value = item.satuan || ''
+          worksheet.getCell(`E${rowIndex}`).value = item.lokasi || ''
+          worksheet.getCell(`F${rowIndex}`).value = item.stokAwalJumlah ?? 0
+          worksheet.getCell(`G${rowIndex}`).value = item.barangMasukJumlah ?? 0
+          worksheet.getCell(`H${rowIndex}`).value = item.barangKeluarJumlah ?? 0
+          worksheet.getCell(`I${rowIndex}`).value = item.stokAkhirJumlah ?? 0
+          worksheet.getCell(`J${rowIndex}`).value = item.stokFisikJumlah ?? 0
+          worksheet.getCell(`K${rowIndex}`).value = item.selisihJumlah ?? 0
+          worksheet.getCell(`L${rowIndex}`).value = item.keterangan || ''
+          rowIndex++
+        }
+
+        rowIndex++
+      }
+
+      worksheet.columns.forEach((col) => {
+        col.width = col.width || 12
+      })
+
+      const buffer = await workbook.xlsx.writeBuffer()
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=stock-opname-export-selected.xlsx'
+      )
+
+      return res.send(buffer)
+    } catch (error) {
+      console.error(error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'

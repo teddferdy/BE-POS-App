@@ -52,7 +52,7 @@ const uploadImages = multer({
 
 // Product Template - Admin & Super Admin only
 router.get(
-  '/template/:storeId',
+  '/template',
   requireRole('super_admin', 'admin'),
   productController.downloadTemplate
 )
@@ -95,6 +95,12 @@ router.delete(
   '/delete-product/:id',
   requireRole('super_admin', 'admin'),
   productController.deleteProductByIdAndLocation
+)
+
+router.get(
+  '/get-by-id/:id',
+  requireRole('super_admin', 'admin'),
+  productController.getProductById
 )
 
 module.exports = router

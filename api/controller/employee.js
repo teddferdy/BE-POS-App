@@ -3,7 +3,6 @@ const User = db.user
 const Location = db.location
 const Position = db.position
 const Shift = db.shift
-const bcrypt = require('bcrypt')
 const { Op } = require('sequelize')
 const {
   uploadToCloudinaryWithDedup,
@@ -40,6 +39,16 @@ exports.addEmployee = async (req, res) => {
         success: false,
         message: 'Username atau Email sudah terdaftar'
       })
+    }
+
+    if (body?.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(body.email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format email tidak valid'
+        })
+      }
     }
 
     if (body?.employeeID) {
@@ -100,7 +109,7 @@ exports.addEmployee = async (req, res) => {
       : await db.role.findOne({ where: { roleType: 'user' } })
 
     const employeeId =
-      body?.employeeId || String(Math.floor(100000 + Math.random() * 900000))
+      body?.employeeID || String(Math.floor(100000 + Math.random() * 900000))
 
     const createUser = await User.create({
       image: imageUrl,
@@ -187,19 +196,23 @@ exports.getAllEmployee = async (req, res) => {
       })
     ])
 
+    const totalPages = Math.ceil(total / limit)
+
     return res.status(200).json({
       success: true,
       message: 'Success',
       data: employees,
+      total,
       pagination: {
+        total,
+        totalPages,
         page,
-        limit,
-        total
+        limit
       },
       stats: {
+        total,
         active: activeCount,
-        locations: locationsResult.length,
-        total
+        inactive: total - activeCount
       }
     })
   } catch (error) {
@@ -423,7 +436,7 @@ exports.updateEmployee = async (req, res) => {
     }
 
     if (body?.password) {
-      updateData.password = bcrypt.hashSync(body.password, 10)
+      updateData.password = body.password
     }
 
     if (body?.roleId) {

@@ -5,6 +5,7 @@ const router = express.Router()
 const positionController = require('../controller/position')
 // Authorization
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 
 // Configure multer for file uploads
 const upload = multer({
@@ -31,6 +32,13 @@ const upload = multer({
 // Get All position
 router.get('/get-position', positionController.getAllPosition)
 
+// Get position by ID
+router.get(
+  '/get-position/:id',
+  authorization,
+  positionController.getPositionById
+)
+
 // Get All List To Table
 router.get(
   '/get-position-all',
@@ -42,6 +50,7 @@ router.get(
 router.post(
   '/add-new-position',
   authorization,
+  requireRole('super_admin', 'admin'),
   positionController.addNewPosition
 )
 
@@ -49,6 +58,7 @@ router.post(
 router.put(
   '/edit-position/:id',
   authorization,
+  requireRole('super_admin', 'admin'),
   positionController.editPositionById
 )
 
@@ -56,6 +66,7 @@ router.put(
 router.delete(
   '/delete-position/:id',
   authorization,
+  requireRole('super_admin', 'admin'),
   positionController.deletePositionById
 )
 
@@ -75,6 +86,7 @@ router.get(
 router.post(
   '/upload',
   authorization,
+  requireRole('super_admin', 'admin'),
   upload.single('file'),
   positionController.uploadExcel
 )

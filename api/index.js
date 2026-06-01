@@ -15,7 +15,6 @@ const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
 const checkoutRoutes = require('./routes/checkout')
-const subCategoryRoutes = require('./routes/sub-category')
 const discountRoutes = require('./routes/discount')
 const shiftRoutes = require('./routes/shift')
 const typePaymentRoutes = require('./routes/type-payment')
@@ -40,6 +39,8 @@ const splitBillRoutes = require('./routes/splitBill')
 const memberTierRoutes = require('./routes/memberTier')
 const employeeRoutes = require('./routes/employee')
 const departmentRoutes = require('./routes/department')
+const taxConfigRoutes = require('./routes/taxConfig')
+const priceListTemplateRoutes = require('./routes/priceListTemplate')
 
 const app = express()
 const server = http.createServer(app)
@@ -73,7 +74,6 @@ const routes = [
   { path: '/auth', route: authRoutes },
   { path: '/product', route: productRoutes },
   { path: '/category', route: categoryRoutes },
-  { path: '/sub-category', route: subCategoryRoutes },
   { path: '/location', route: locationRoutes },
   { path: '/member', route: memberRoutes },
   { path: '/order', route: orderRoutes },
@@ -100,7 +100,9 @@ const routes = [
   { path: '/split-bill', route: splitBillRoutes },
   { path: '/member-tier', route: memberTierRoutes },
   { path: '/employee', route: employeeRoutes },
-  { path: '/department', route: departmentRoutes }
+  { path: '/department', route: departmentRoutes },
+  { path: '/tax-config', route: taxConfigRoutes },
+  { path: '/price-list-template', route: priceListTemplateRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))

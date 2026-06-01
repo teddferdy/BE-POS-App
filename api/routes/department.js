@@ -35,6 +35,12 @@ router.get(
   departmentController.getAllDepartmentInTable
 )
 
+router.get(
+  '/get-department/:id',
+  authorization,
+  departmentController.getDepartmentById
+)
+
 router.post(
   '/add-new-department',
   authorization,

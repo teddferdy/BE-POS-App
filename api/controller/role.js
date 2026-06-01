@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const Role = db.role
+const User = db.user
 const { Op } = db.Sequelize
 
 exports.getAllRole = async (req, res) => {
@@ -166,6 +167,12 @@ exports.deleteRoleById = async (req, res) => {
   const body = req.body
 
   try {
+    // Clean up user.roleId references for affected users
+    await User.update(
+      { roleId: null },
+      { where: { roleId: body.id } }
+    )
+
     const getId = await Role.destroy({
       where: {
         id: body.id,

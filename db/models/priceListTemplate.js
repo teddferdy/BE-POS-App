@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'category',
+  const priceListTemplate = sequelize.define(
+    'priceListTemplate',
     {
       id: {
         allowNull: false,
@@ -17,31 +17,30 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       description: {
-        type: DataTypes.STRING
+        type: DataTypes.TEXT
       },
-      value: {
-        type: DataTypes.STRING
-      },
-      image: {
-        type: DataTypes.STRING
-      },
-
-      status: {
+      isActive: {
         type: DataTypes.BOOLEAN,
         defaultValue: true
       },
+      tiers: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+      },
       createdBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
       },
       modifiedBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
       }
     },
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'category',
-      tableName: 'category'
+      modelName: 'priceListTemplate',
+      tableName: 'price_list_template'
     }
   )
+
+  return priceListTemplate
 }

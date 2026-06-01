@@ -1,5 +1,45 @@
 const express = require('express')
+const multer = require('multer')
 const router = express.Router()
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/octet-stream'
+    ]
+    if (
+      allowedMimes.includes(file.mimetype) ||
+      file.originalname.endsWith('.xlsx') ||
+      file.originalname.endsWith('.xls')
+    ) {
+      cb(null, true)
+    } else {
+      cb(new Error('File harus berupa Excel (.xlsx atau .xls)'), false)
+    }
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }
+})
+
+const fs = require('fs')
+const uploadDir = '/tmp/uploads'
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true })
+}
+
+const uploadImage = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+      const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)
+      cb(null, unique + '-' + file.originalname)
+    }
+  }),
+  fileFilter: (req, file, cb) => cb(null, true),
+  limits: { fileSize: 5 * 1024 * 1024 }
+})
 
 const categoryController = require('../controller/category')
 const authorization = require('../../utils/authorization')
@@ -15,10 +55,18 @@ router.get(
   categoryController.getAllCategoryInTable
 )
 
+// Get Category By Id - All authenticated users
+router.get(
+  '/get-category/:id',
+  authorization,
+  categoryController.getCategoryById
+)
+
 // Add New Category - Admin & Super Admin only
 router.post(
   '/add-new-category',
   requireRole('super_admin', 'admin'),
+  uploadImage.single('image'),
   categoryController.addNewCategory
 )
 
@@ -26,6 +74,7 @@ router.post(
 router.put(
   '/edit-category/:id',
   requireRole('super_admin', 'admin'),
+  uploadImage.single('image'),
   categoryController.editCategoryById
 )
 
@@ -36,11 +85,26 @@ router.delete(
   categoryController.deleteCategoryById
 )
 
-// Download Excel - Admin & Super Admin only
+// Download Excel Template - Admin & Super Admin only
 router.get(
-  '/download-excel',
+  '/download-template',
   requireRole('super_admin', 'admin'),
   categoryController.exportCategory
+)
+
+// Download Excel Data - Admin & Super Admin only
+router.get(
+  '/download',
+  requireRole('super_admin', 'admin'),
+  categoryController.downloadData
+)
+
+// Upload Excel - Admin & Super Admin only
+router.post(
+  '/upload-excel',
+  requireRole('super_admin', 'admin'),
+  upload.single('file'),
+  categoryController.importCategory
 )
 
 module.exports = router

@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const Shift = db.shift
+const User = db.user
 
 exports.getAllShift = async (req, res) => {
   const { page: rawPage, pageSize: rawPageSize, status = 'all' } = req.query
@@ -185,6 +186,12 @@ exports.editShiftById = async (req, res) => {
 exports.deleteShiftById = async (req, res) => {
   const { id, nameShift } = req.body
   try {
+    // Clean up user.shift references for affected users
+    await User.update(
+      { shift: null },
+      { where: { shift: id } }
+    )
+
     const getId = await Shift.destroy({
       where: {
         id: id,

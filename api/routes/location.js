@@ -42,13 +42,13 @@ const uploadExcel = multer({
   }
 })
 
-const uploadImages = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-  }),
-  limits: { fileSize: 5 * 1024 * 1024 }
-}).array('images', 50)
+const uploadImport = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+}).fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'images', maxCount: 50 }
+])
 
 // Location Template - Super Admin only
 router.get(
@@ -61,8 +61,7 @@ router.get(
 router.post(
   '/import',
   requireRole('super_admin'),
-  uploadExcel.single('file'),
-  uploadImages,
+  uploadImport,
   locationController.importLocation
 )
 

@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = db.Sequelize
 const Position = db.position
+const User = db.user
 
 const positionInclude = [
   {
@@ -15,8 +16,8 @@ exports.getAllPosition = async (req, res) => {
     const getAllPosition = await Position.findAll({
       where: { status: true },
       include: positionInclude
-    }).then((res) =>
-      res.map((items) => {
+    }).then((records) =>
+      records.map((items) => {
         const getData = { ...items.dataValues }
         return getData
       })
@@ -69,41 +70,17 @@ exports.getAllPositionInTable = async (req, res) => {
 
     const totalPages = Math.ceil(totalItems / limit)
 
-    let statsWhere = {}
-    if (status === 'true') {
-      statsWhere = { status: true }
-    } else if (status === 'false') {
-      statsWhere = { status: false }
-    }
-
-    const totalPositions = await Position.count({ where: statsWhere })
-
-    const totalDepartemenResult = await Position.findAll({
-      attributes: [
-        [
-          db.Sequelize.fn('DISTINCT', db.Sequelize.col('departmentId')),
-          'departmentId'
-        ]
-      ],
-      where: {
-        departmentId: { [Op.ne]: null },
-        ...statsWhere
-      },
-      raw: true
-    })
-    const totalDepartemenAktif = totalDepartemenResult.length
-
-    const totalTanpaDeskripsi = await Position.count({
-      where: {
-        [Op.or]: [{ description: null }, { description: '' }],
-        ...statsWhere
-      }
-    })
+    const [activeCount, inactiveCount, totalPositions] = await Promise.all([
+      Position.count({ where: { status: true } }),
+      Position.count({ where: { status: false } }),
+      Position.count()
+    ])
 
     return res.status(200).json({
       success: true,
       message: 'Success',
       data: getAllPosition?.length > 0 ? getAllPosition : [],
+      total: totalItems,
       pagination: {
         totalItems,
         totalPages,
@@ -111,10 +88,40 @@ exports.getAllPositionInTable = async (req, res) => {
         limit: parseInt(limit)
       },
       stats: {
-        totalPositions,
-        totalDepartemenAktif,
-        totalTanpaDeskripsi
+        total: totalPositions,
+        active: activeCount,
+        inactive: inactiveCount
       }
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.getPositionById = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const position = await Position.findOne({
+      where: { id },
+      include: positionInclude
+    })
+
+    if (!position) {
+      return res.status(404).json({
+        success: false,
+        message: 'Posisi tidak ditemukan'
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: position
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -176,22 +183,21 @@ exports.editPositionById = async (req, res) => {
     })
 
     if (!getDuplicate?.dataValues) {
-    const editPosition = await Position?.update(
-      {
-        name: body.name,
-        departmentId: body.departmentId,
-        description: body.description,
-        status: body.status,
-        store: body.store || req.user?.store,
-        modifiedBy: body?.modifiedBy
-      },
-      {
-        returning: true,
-        where: { id }
-      }
-    ).then(([_, data]) => {
-      return data
-    })
+      const [_, rows] = await Position.update(
+        {
+          name: body.name,
+          departmentId: body.departmentId,
+          description: body.description,
+          status: body.status,
+          store: body.store || req.user?.store,
+          modifiedBy: body?.modifiedBy
+        },
+        {
+          returning: true,
+          where: { id }
+        }
+      )
+      const editPosition = rows[0]
 
       return res.status(200).json({
         success: true,
@@ -214,8 +220,16 @@ exports.editPositionById = async (req, res) => {
 
 exports.deletePositionById = async (req, res) => {
   try {
+    const positionId = req.params.id || req.body.id
+
+    // Set position reference to null for users that reference this position
+    await User.update(
+      { position: null },
+      { where: { position: positionId } }
+    )
+
     const getId = await Position.destroy({
-      where: { id: req.params.id || req.body.id },
+      where: { id: positionId },
       force: true
     })
 

@@ -1,10 +1,7 @@
 const db = require('../../db/models')
 const Product = db.product
 const Category = db.category
-const SubCategoryProduct = db.sub_category
-const { compareProduct } = require('../../utils/compare-value')
-const path = require('path')
-const fs = require('fs')
+const StockHistory = db.stock_history
 const excelJS = require('exceljs')
 const { Op } = require('sequelize')
 const {
@@ -17,11 +14,9 @@ const {
 } = require('../../utils/excelTemplate')
 
 exports.getProductByLocationSuperAdmin = async (req, res) => {
-  const { store } = req.query
   try {
     const getAllProduct = await Product.findAll({
       where: {
-        store: store,
         status: true
       }
     }).then((res) =>
@@ -49,10 +44,17 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
 
 // Get All In Cashier List
 exports.getAllProduct = async (req, res) => {
-  const { nameProduct, category, store } = req.query
+  const { nameProduct, category } = req.query
 
   try {
+    const { store } = req.cookies
+    const userRole = req.user?.roleType
     const filters = {}
+
+    // Store filtering - only for non-super-admin
+    if (store && userRole !== 'super_admin') {
+      filters.store = store
+    }
 
     if (nameProduct) {
       filters.nameProduct = {
@@ -63,70 +65,33 @@ exports.getAllProduct = async (req, res) => {
     if (Number(category)) {
       filters.category = Number(category)
     }
-    if (store) {
-      filters.store = store
-    }
 
     filters.status = true
 
     const getAllProduct = await Product.findAll({
-      where: filters
+      where: filters,
+      include: [{ model: Category, as: 'categoryData', attributes: ['value', 'name'] }]
     })
 
-    const resolvedSubCategories = await Promise.all(
-      getAllProduct.map(async (items) => {
-        const categoryData = await Category.findOne({
-          where: {
-            id: items.dataValues.category
-          },
-          returning: true
-        })
-
-        return {
-          ...items.dataValues,
-          nameCategory: categoryData ? categoryData.value : null
-        }
-      })
-    )
-
-    const dataNewFormat = await Promise.all(
-      resolvedSubCategories.map(async (items) => {
-        const resolvedOptions = await Promise.all(
-          items.option.map(async (val) => {
-            const categoryData = await SubCategoryProduct.findOne({
-              where: {
-                id: val
-              },
-              returning: true
-            })
-
-            return categoryData
-              ? {
-                  isMultiple: categoryData.isMultiple,
-                  nameSubCategory: categoryData.nameSubCategory,
-                  typeSubCategory: categoryData.typeSubCategory
-                }
-              : null
-          })
-        )
-
-        return {
-          ...items,
-          option: resolvedOptions
-        }
-      })
-    )
-
-    const responseData = dataNewFormat.map((items) => {
-      return {
-        ...items
-      }
-    })
+    const resolvedCategories = getAllProduct.map((items) => ({
+      id: items.id,
+      productId: items.id,
+      nameProduct: items.nameProduct,
+      barcode: items.barcode,
+      unit: items.unit,
+      stock: items.stock,
+      minStock: items.minStock,
+      price: items.price,
+      costPrice: items.costPrice,
+      category: items.category,
+      nameCategory: items.categoryData ? items.categoryData.value || items.categoryData.name : null,
+      ...items.dataValues
+    }))
 
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: responseData.length > 0 ? responseData : []
+      data: resolvedCategories.length > 0 ? resolvedCategories : []
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -139,7 +104,7 @@ exports.getAllProduct = async (req, res) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res) => {
-  const { store, page = 1, pageSize = 10, status = 'all' } = req.query
+  const { page = 1, pageSize = 10, status = 'all' } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -152,64 +117,20 @@ exports.getAllProductInTable = async (req, res) => {
     }
 
     const whereCondition = {
-      store: store,
       ...statusCondition
     }
 
     const getAllProduct = await Product.findAll({
       where: whereCondition,
       limit: parseInt(pageSize),
-      offset: parseInt(offset)
+      offset: parseInt(offset),
+      include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
     })
 
-    const resolvedSubCategories = await Promise.all(
-      getAllProduct.map(async (items) => {
-        const categoryData = await Category.findOne({
-          where: {
-            id: items.dataValues.category
-          }
-        })
-
-        return {
-          ...items.dataValues,
-          nameCategory: categoryData ? categoryData.name : null
-        }
-      })
-    )
-
-    const dataNewFormat = await Promise.all(
-      resolvedSubCategories.map(async (items) => {
-        const resolvedOptions = await Promise.all(
-          items.option.map(async (val) => {
-            const categoryData = await SubCategoryProduct.findOne({
-              where: {
-                id: val
-              }
-            })
-
-            return categoryData
-              ? {
-                  id: categoryData.id,
-                  name: categoryData.nameSubCategory,
-                  option: JSON.parse(categoryData.typeSubCategory),
-                  isMultiple: categoryData.isMultiple
-                }
-              : null
-          })
-        )
-
-        return {
-          ...items,
-          option: resolvedOptions
-        }
-      })
-    )
-
-    const responseData = dataNewFormat.map((items) => {
-      return {
-        ...items
-      }
-    })
+    const resolvedCategories = getAllProduct.map((items) => ({
+      ...items.dataValues,
+      nameCategory: items.categoryData ? items.categoryData.name : null
+    }))
 
     const totalProducts = await Product.count({
       where: whereCondition
@@ -218,7 +139,7 @@ exports.getAllProductInTable = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: responseData.length > 0 ? responseData : [],
+      data: resolvedCategories.length > 0 ? resolvedCategories : [],
       pagination: {
         currentPage: parseInt(page),
         pageSize: parseInt(pageSize),
@@ -243,17 +164,30 @@ exports.postAddProduct = async (req, res) => {
     status,
     description,
     price,
+    costPrice,
+    stock,
+    minStock,
+    unit,
+    point,
+    barcode,
+    brand,
+    preparationTime,
+    hasModifiers,
+    modifiers,
+    isOption,
+    options,
+    isAvailable,
     createdBy,
     image,
-    option,
-    isOption,
-    store
+    stores,
+    supplier,
+    tax,
+    priceTiers
   } = req.body
 
   try {
     const existingProduct = await Product.findOne({
       where: {
-        store,
         nameProduct
       }
     })
@@ -261,7 +195,7 @@ exports.postAddProduct = async (req, res) => {
     if (existingProduct) {
       return res.status(400).json({
         success: false,
-        message: 'Product with this name already exists in the store.'
+        message: 'Product with this name already exists.'
       })
     }
 
@@ -272,26 +206,68 @@ exports.postAddProduct = async (req, res) => {
       imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-products')
     }
 
-    const optionsArray =
-      isOption === 'true' && typeof option === 'string'
-        ? option.split(',').map((opt) => {
-            const numOpt = Number(opt)
-            return numOpt
-          })
-        : []
+    let parsedStores = []
+    if (stores) {
+      try {
+        parsedStores = JSON.parse(stores)
+      } catch (e) {
+        parsedStores = []
+      }
+    }
+
+    let parsedPriceTiers = []
+    if (priceTiers) {
+      try {
+        parsedPriceTiers = typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
+      } catch (e) {
+        parsedPriceTiers = []
+      }
+    }
 
     const postData = await Product.create({
       nameProduct,
       category,
       description,
       price,
-      status,
+      costPrice,
+      stock,
+      minStock,
+      unit,
+      point: point || 0,
+      barcode: barcode || null,
+      brand: brand || null,
+      preparationTime,
+      hasModifiers,
+      modifiers: hasModifiers ? modifiers : [],
       isOption,
-      option: optionsArray,
+      options: isOption ? options : [],
+      isAvailable,
+      status,
       createdBy,
       image: imageUrl || image,
-      store
+      store: parsedStores,
+      supplier: supplier || null,
+      tax: tax || null,
+      priceTiers: parsedPriceTiers
     })
+
+    const sku = `PRD-${String(postData.id).padStart(5, '0')}`
+    await Product.update({ sku }, { where: { id: postData.id } })
+    postData.sku = sku
+
+    const initialStock = Number(stock) || 0
+    if (initialStock > 0) {
+      await StockHistory.create({
+        product: postData.id,
+        referenceType: 'adjustment',
+        quantityBefore: 0,
+        quantityChange: initialStock,
+        quantityAfter: initialStock,
+        unit: unit || 'pcs',
+        notes: 'Initial stock',
+        createdBy
+      })
+    }
 
     return res.status(200).json({
       success: true,
@@ -316,17 +292,30 @@ exports.editProductByLocationAndId = async (req, res) => {
     status,
     description,
     price,
-    image: newImage,
-    option,
+    costPrice,
+    stock,
+    minStock,
+    unit,
+    point,
+    barcode,
+    brand,
+    preparationTime,
+    hasModifiers,
+    modifiers,
     isOption,
-    store
+    options,
+    isAvailable,
+    image: newImage,
+    stores,
+    supplier,
+    tax,
+    priceTiers
   } = req.body
 
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
       where: {
-        id: id,
-        store: store
+        id: id
       }
     })
 
@@ -348,13 +337,23 @@ exports.editProductByLocationAndId = async (req, res) => {
       imageUrl = await uploadToCloudinary(req.file.path, 'pos-app-products')
     }
 
-    const optionsArray =
-      isOption === 'true' && typeof option === 'string'
-        ? option.split(',').map((opt) => {
-            const numOpt = Number(opt)
-            return numOpt
-          })
-        : []
+    let parsedStores = []
+    if (stores) {
+      try {
+        parsedStores = JSON.parse(stores)
+      } catch (e) {
+        parsedStores = []
+      }
+    }
+
+    let parsedPriceTiers = []
+    if (priceTiers) {
+      try {
+        parsedPriceTiers = typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
+      } catch (e) {
+        parsedPriceTiers = []
+      }
+    }
 
     const reqBody = {
       nameProduct,
@@ -362,45 +361,56 @@ exports.editProductByLocationAndId = async (req, res) => {
       category,
       description,
       price,
+      costPrice,
+      stock,
+      minStock,
+      unit,
+      point: point || 0,
+      barcode: barcode || null,
+      brand: brand || null,
+      preparationTime,
+      hasModifiers,
+      modifiers: hasModifiers ? modifiers : [],
       isOption,
-      option: optionsArray,
+      options: isOption ? options : [],
+      isAvailable,
       status,
-      store
+      store: parsedStores,
+      supplier: supplier || null,
+      tax: tax || null,
+      priceTiers: parsedPriceTiers
     }
 
-    const duplicateData = {
-      nameProduct: getAllProductByIdAndLocation.nameProduct,
-      image: imageUrl,
-      category: getAllProductByIdAndLocation.category,
-      description: getAllProductByIdAndLocation.description,
-      price: getAllProductByIdAndLocation.price,
-      isOption: getAllProductByIdAndLocation.isOption,
-      option: getAllProductByIdAndLocation.option,
-      status: getAllProductByIdAndLocation.status,
-      store: getAllProductByIdAndLocation.store
-    }
+    const oldStock = Number(getAllProductByIdAndLocation.stock) || 0
+    const newStock = Number(reqBody.stock) || 0
+    const stockDiff = newStock - oldStock
 
-    const result = compareProduct(reqBody, duplicateData)
+    const [_, editRows] = await Product.update(reqBody, {
+      returning: true,
+      where: {
+        id: id
+      }
+    })
+    const editLocation = editRows[0]
 
-    if (!result) {
-      const [_, editLocation] = await Product.update(reqBody, {
-        returning: true,
-        where: {
-          id: id
-        }
-      })
-
-      return res.status(200).json({
-        success: true,
-        message: 'Sukses Ubah Product',
-        data: editLocation?.dataValues
-      })
-    } else {
-      return res.status(403).json({
-        success: false,
-        message: 'Product Sudah Terdaftar'
+    if (stockDiff !== 0) {
+      await StockHistory.create({
+        product: id,
+        referenceType: 'adjustment',
+        quantityBefore: oldStock,
+        quantityChange: stockDiff,
+        quantityAfter: newStock,
+        unit: reqBody.unit || 'pcs',
+        notes: stockDiff > 0 ? 'Stock adjustment: added' : 'Stock adjustment: reduced',
+        createdBy: req.body.createdBy
       })
     }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Sukses Ubah Product',
+      data: editLocation?.dataValues
+    })
   } catch (error) {
     console.error('ERROR =>', error)
     return res.status(500).json({
@@ -411,14 +421,13 @@ exports.editProductByLocationAndId = async (req, res) => {
 }
 
 exports.deleteProductByIdAndLocation = async (req, res) => {
-  const { id, nameProduct, store } = req.body
+  const { id, nameProduct } = req.body
   try {
+    const where = { id }
+    if (nameProduct) where.nameProduct = nameProduct
+
     const getId = await Product.destroy({
-      where: {
-        id: id,
-        nameProduct: nameProduct,
-        store: store
-      },
+      where,
       force: true
     })
 
@@ -448,10 +457,6 @@ exports.exportProduct = async (req, res) => {
 
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Product')
-
-  if (!fs.existsSync(path)) {
-    fs.mkdirSync(path, { recursive: true })
-  }
 
   worksheet.columns = [
     { header: 'No.', key: 's_no', width: 10 },
@@ -510,23 +515,19 @@ exports.exportProduct = async (req, res) => {
 
 // Download Product Template
 exports.downloadTemplate = async (req, res) => {
-  const { storeId } = req.params
-
   try {
     const categories = await Category.findAll({
-      where: { storeId },
       attributes: ['name']
     })
 
     if (!categories.length) {
       return res.status(404).json({
         success: false,
-        message: 'Tidak ada kategori untuk store ini. Silakan buat kategori terlebih dahulu.'
+        message: 'Tidak ada kategori. Silakan buat kategori terlebih dahulu.'
       })
     }
 
     const existingProducts = await Product.findAll({
-      where: { store: storeId },
       include: [
         {
           model: Category,
@@ -543,9 +544,13 @@ exports.downloadTemplate = async (req, res) => {
       description: p.description,
       categoryName: p.categoryData?.name || '',
       price: p.price,
+      stock: p.stock || 0,
+      costPrice: p.costPrice || 0,
+      minStock: p.minStock || 0,
+      unit: p.unit || 'pcs',
       status: p.status,
       isOption: p.isOption,
-      option: p.option || []
+      options: p.options || []
     }))
 
     const buffer = await downloadProductTemplate(
@@ -575,8 +580,6 @@ exports.downloadTemplate = async (req, res) => {
 
 // Import Product from Excel Template
 exports.importProduct = async (req, res) => {
-  const { storeId } = req.body
-
   if (!req.file) {
     return res.status(400).json({
       success: false,
@@ -602,7 +605,6 @@ exports.importProduct = async (req, res) => {
     })
 
     const categories = await Category.findAll({
-      where: { store: storeId },
       attributes: ['id', 'name']
     })
     const categoryMap = categories.reduce((acc, cat) => {
@@ -638,17 +640,13 @@ exports.importProduct = async (req, res) => {
           continue
         }
 
-        const statusValue = product.status.toLowerCase() === 'aktif'
-        const isOptionValue = product.isOption.toLowerCase() === 'ya'
-        const optionsArray = product.option
-          ? product.option.split(',').map((o) => o.trim())
-          : []
+        const statusValue = product.status ? String(product.status).toLowerCase() === 'aktif' : true
+        const isOptionValue = product.isOption ? String(product.isOption).toLowerCase() === 'ya' : false
 
         if (product.id) {
           const existingProduct = await Product.findOne({
             where: {
-              id: product.id,
-              store: storeId
+              id: product.id
             }
           })
 
@@ -658,9 +656,13 @@ exports.importProduct = async (req, res) => {
               description: product.description,
               category: categoryId,
               price: product.price,
+              stock: product.stock,
+              costPrice: product.costPrice,
+              minStock: product.minStock,
+              unit: product.unit,
               status: statusValue,
               isOption: isOptionValue,
-              option: optionsArray
+              options: product.options || []
             }
 
             let imageUrl = product.image
@@ -715,10 +717,13 @@ exports.importProduct = async (req, res) => {
               description: product.description,
               category: categoryId,
               price: product.price,
+              stock: product.stock,
+              costPrice: product.costPrice,
+              minStock: product.minStock,
+              unit: product.unit,
               status: statusValue,
               isOption: isOptionValue,
-              option: optionsArray,
-              store: storeId
+              options: product.options || []
             })
             results.created.push({
               id: newProduct.id,
@@ -744,10 +749,13 @@ exports.importProduct = async (req, res) => {
             description: product.description,
             category: categoryId,
             price: product.price,
+            stock: product.stock,
+            costPrice: product.costPrice,
+            minStock: product.minStock,
+            unit: product.unit,
             status: statusValue,
             isOption: isOptionValue,
-            option: optionsArray,
-            store: storeId
+            options: product.options || []
           })
           results.created.push({
             id: newProduct.id,
@@ -773,6 +781,35 @@ exports.importProduct = async (req, res) => {
       success: false,
       message: 'Gagal mengimport produk',
       error: err.message
+    })
+  }
+}
+
+exports.getProductById = async (req, res) => {
+  try {
+    const id = req.params.id || req.query.id
+
+    const product = await Product.findByPk(id, {
+      include: [{ model: Category, as: 'categoryData', attributes: ['id', 'name'] }]
+    })
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: product
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Internal Server Error'
     })
   }
 }

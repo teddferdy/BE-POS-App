@@ -1,0 +1,58 @@
+'use strict'
+
+module.exports = {
+  up: async (queryInterface, Sequelize) => {
+    await queryInterface.removeColumn('product', 'subCategory')
+    await queryInterface.dropTable('sub_category')
+  },
+
+  down: async (queryInterface, Sequelize) => {
+    await queryInterface.createTable('sub_category', {
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: Sequelize.INTEGER
+      },
+      store: {
+        type: Sequelize.INTEGER
+      },
+      category: {
+        allowNull: false,
+        type: Sequelize.INTEGER
+      },
+      name: {
+        allowNull: false,
+        type: Sequelize.STRING
+      },
+      options: {
+        type: Sequelize.JSONB,
+        defaultValue: []
+      },
+      status: {
+        type: Sequelize.BOOLEAN,
+        defaultValue: true
+      },
+      createdBy: {
+        type: Sequelize.STRING
+      },
+      modifiedBy: {
+        type: Sequelize.STRING
+      },
+      createdAt: {
+        allowNull: false,
+        type: Sequelize.DATE
+      },
+      updatedAt: {
+        allowNull: false,
+        type: Sequelize.DATE
+      },
+      deletedAt: {
+        type: Sequelize.DATE
+      }
+    })
+    await queryInterface.addColumn('product', 'subCategory', {
+      type: Sequelize.INTEGER
+    })
+  }
+}

@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const stock_history = sequelize.define(
     'stock_history',
     {
       id: {
@@ -61,4 +61,13 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'stock_history'
     }
   )
+
+  stock_history.associate = (models) => {
+    stock_history.belongsTo(models.product, {
+      foreignKey: 'product',
+      as: 'productData'
+    })
+  }
+
+  return stock_history
 }

@@ -14,7 +14,10 @@ const overviewController = {
         users,
         bestSelling
       ] = await Promise.all([
-        db.product.findAll({ where: { store }, attributes: ['id', 'status'] }),
+        db.product.findAll({
+          where: store ? { store: { [Op.contains]: [parseInt(store)] } } : {},
+          attributes: ['id', 'status']
+        }),
         db.category.findAll({ where: { store }, attributes: ['id', 'status'] }),
         db.location.findAll({ attributes: ['id', 'status'] }),
         db.member.findAll({ where: { store }, attributes: ['id'] }),
