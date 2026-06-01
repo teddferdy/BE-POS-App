@@ -2,8 +2,20 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.removeColumn('product', 'subCategory')
-    await queryInterface.dropTable('sub_category')
+    try {
+      const hasColumn = await queryInterface.describeTable('product').then(table => 'subCategory' in table).catch(() => false)
+      if (hasColumn) {
+        await queryInterface.removeColumn('product', 'subCategory')
+      }
+    } catch (err) {
+      console.log('Column subCategory already removed or does not exist')
+    }
+    
+    try {
+      await queryInterface.dropTable('sub_category')
+    } catch (err) {
+      console.log('Table sub_category already dropped or does not exist')
+    }
   },
 
   down: async (queryInterface, Sequelize) => {
