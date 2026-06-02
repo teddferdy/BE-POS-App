@@ -157,6 +157,49 @@ const posController = {
     }
   },
 
+  // Delete stock transfer
+  async deleteTransfer(req, res) {
+    try {
+      const { id } = req.params
+      const { store } = req.query
+
+      const transfer = await db.stock_transfer.findOne({
+        where: { id, ...(store && { [Op.or]: [{ fromStore: store }, { toStore: store }] }) }
+      })
+
+      if (!transfer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Stock transfer not found'
+        })
+      }
+
+      if (transfer.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending transfers can be deleted'
+        })
+      }
+
+      await db.stock_transfer_item.destroy({
+        where: { stockTransfer: id }
+      })
+
+      await transfer.destroy()
+
+      return res.status(200).json({
+        success: true,
+        message: 'Stock transfer deleted successfully'
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
   // Stock adjustment
   async adjust(req, res) {
     try {

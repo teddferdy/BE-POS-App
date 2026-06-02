@@ -3,40 +3,42 @@ const router = express.Router()
 const posController = require('../controller/pos')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Barcode lookup untuk POS scan
-router.get('/lookup-barcode', authorization, posController.lookupBarcode)
+router.get('/lookup-barcode', authorization, validateStoreAccess, posController.lookupBarcode)
 
 // Stock transfer antar toko
-router.post('/transfer', authorization, requireRole('super_admin', 'admin'), posController.transfer)
-router.get('/transfer-history', authorization, requireRole('super_admin', 'admin'), posController.getTransferHistory)
+router.post('/transfer', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.transfer)
+router.get('/transfer-history', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getTransferHistory)
+router.delete('/transfer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.deleteTransfer)
 
 // Stock adjustment
-router.post('/adjust', authorization, requireRole('super_admin', 'admin'), posController.adjust)
+router.post('/adjust', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.adjust)
 
 // Purchase order return
-router.post('/purchase-order/:id/return', authorization, requireRole('super_admin', 'admin'), posController.returnPurchaseOrder)
+router.post('/purchase-order/:id/return', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.returnPurchaseOrder)
 
 // Sales order return
-router.post('/order/:id/return', authorization, requireRole('super_admin', 'admin'), posController.returnSalesOrder)
+router.post('/order/:id/return', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.returnSalesOrder)
 
 // Loyalty points
-router.post('/member/:id/add-points', authorization, requireRole('super_admin', 'admin'), posController.addPoints)
-router.get('/member/:id/point-history', authorization, requireRole('super_admin', 'admin'), posController.getPointHistory)
+router.post('/member/:id/add-points', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.addPoints)
+router.get('/member/:id/point-history', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getPointHistory)
 
 // Dashboard data
-router.get('/dashboard/summary', authorization, posController.getDashboardSummary)
+router.get('/dashboard/summary', authorization, validateStoreAccess, posController.getDashboardSummary)
 
 // Multi-store product price
-router.get('/product/price-by-store', authorization, requireRole('super_admin', 'admin'), posController.getPriceByStore)
-router.put('/product/update-price-by-store', authorization, requireRole('super_admin', 'admin'), posController.updatePriceByStore)
+router.get('/product/price-by-store', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getPriceByStore)
+router.put('/product/update-price-by-store', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.updatePriceByStore)
 
 // Digital receipt (WA)
-router.post('/invoice/send-wa', authorization, posController.sendInvoiceWhatsApp)
-router.post('/invoice/send-email', authorization, posController.sendInvoiceEmail)
+router.post('/invoice/send-wa', authorization, validateStoreAccess, posController.sendInvoiceWhatsApp)
+router.post('/invoice/send-email', authorization, validateStoreAccess, posController.sendInvoiceEmail)
 
 // Stock by batch/expiry
-router.post('/product/add-batch', authorization, requireRole('super_admin', 'admin'), posController.addBatch)
-router.get('/product/batches', authorization, requireRole('super_admin', 'admin'), posController.getBatches)
+router.post('/product/add-batch', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.addBatch)
+router.get('/product/batches', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getBatches)
 
 module.exports = router
