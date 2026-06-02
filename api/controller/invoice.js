@@ -653,6 +653,72 @@ const invoiceController = {
     }
   },
 
+  async downloadFooterTemplate(req, res) {
+    try {
+      const footers = await db.invoice_footer.findAll({
+        attributes: ['id', 'store', 'name', 'footerList', 'isActive', 'status']
+      })
+
+      const workbook = new (require('exceljs').Workbook)()
+      const ws = workbook.addWorksheet('Footer')
+      ws.columns = [
+        { header: 'No', key: 'no', width: 5 },
+        { header: 'Store ID', key: 'store', width: 15 },
+        { header: 'Nama Footer', key: 'name', width: 20 },
+        { header: 'Is Active', key: 'isActive', width: 15 },
+        { header: 'Status', key: 'status', width: 15 }
+      ]
+      footers.forEach((f, i) => {
+        ws.addRow({ no: i + 1, store: f.store, name: f.name, isActive: f.isActive ? 'Ya' : 'Tidak', status: f.status ? 'Aktif' : 'Nonaktif' })
+      })
+
+      const buffer = await workbook.xlsx.writeBuffer()
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', 'attachment; filename=template_invoice_footer.xlsx')
+      res.send(buffer)
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({ success: false, message: 'Failed to download footer template' })
+    }
+  },
+
+  async importFooter(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'File Excel required' })
+      }
+
+      const ExcelJS = require('exceljs')
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load(req.file.buffer)
+      const ws = wb.worksheets[0]
+
+      const results = { created: 0, updated: 0, errors: [] }
+
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return
+        const store = row.getCell(2).value
+        const name = row.getCell(3).value
+        const isActive = String(row.getCell(4).value || '').toLowerCase() === 'ya'
+        const status = String(row.getCell(5).value || '').toLowerCase() === 'aktif'
+
+        if (!store) {
+          results.errors.push({ row: rowNumber, message: 'Store ID empty' })
+          return
+        }
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: `Import complete: ${results.created} created, ${results.updated} updated`,
+        data: results
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({ success: false, message: 'Failed to import footers' })
+    }
+  },
+
   async getAll(req, res) {
     try {
       const { store } = req.query

@@ -519,6 +519,50 @@ exports.exportProduct = async (req, res) => {
   }
 }
 
+// Download Product Data as Excel
+exports.downloadData = async (req, res) => {
+  const store = req.cookies.store || req.query.store
+
+  const workbook = new excelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Products')
+
+  worksheet.columns = [
+    { header: 'No', key: 'no', width: 5 },
+    { header: 'Nama Produk', key: 'nameProduct', width: 25 },
+    { header: 'Kategori', key: 'category', width: 20 },
+    { header: 'Harga', key: 'price', width: 15 },
+    { header: 'Stok', key: 'stock', width: 10 },
+    { header: 'Status', key: 'status', width: 10 }
+  ]
+
+  try {
+    const where = store ? { storeId: store } : {}
+    const products = await Product.findAll({
+      where,
+      include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
+    })
+
+    products.forEach((p, i) => {
+      worksheet.addRow({
+        no: i + 1,
+        nameProduct: p.nameProduct,
+        category: p.categoryData?.name || '',
+        price: p.price,
+        stock: p.stock || 0,
+        status: p.status ? 'Aktif' : 'Nonaktif'
+      })
+    })
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename=products_${Date.now()}.xlsx`)
+    res.send(buffer)
+  } catch (err) {
+    console.error('Error downloading products:', err)
+    res.status(500).json({ success: false, message: 'Gagal mengunduh produk', error: err.message })
+  }
+}
+
 // Download Product Template
 exports.downloadTemplate = async (req, res) => {
   try {

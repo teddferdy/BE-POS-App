@@ -108,6 +108,17 @@ router.put(
   invoiceController.activateFooter
 )
 
+router.get(
+  '/footer/template',
+  authorization, validateStoreAccess,
+  invoiceController.downloadFooterTemplate
+)
+router.post(
+  '/footer/import',
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  uploadExcel,
+  invoiceController.importFooter
+)
 router.get('/all', authorization, validateStoreAccess, invoiceController.getAll)
 
 module.exports = router

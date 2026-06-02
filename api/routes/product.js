@@ -57,6 +57,11 @@ router.get(
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   productController.downloadTemplate
 )
+router.get(
+  '/download',
+  authorization, validateStoreAccess,
+  productController.downloadData
+)
 router.post(
   '/import',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
