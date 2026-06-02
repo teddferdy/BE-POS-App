@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const Discount = db.discount
 const ExcelJS = require('exceljs')
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllDiscountByLocationAndActive = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -297,6 +298,7 @@ exports.importData = async (req, res) => {
     
     // Create all discounts
     const createdDiscounts = await Discount.bulkCreate(discountsToCreate);
+    createAudit(req, 'import', 'discount', null, `Imported ${createdDiscounts.length} discounts`)
     
     return res.status(201).json({
       success: true,
@@ -369,6 +371,7 @@ exports.postNewDiscount = async (req, res) => {
         status: status !== undefined ? status : true,
         createdBy
       })
+      createAudit(req, 'create', 'discount', postData.id, `Created discount: ${postData.name}`)
       return res.status(200).json({
         success: true,
         message: 'Success',
@@ -426,7 +429,7 @@ exports.editDiscountById = async (req, res) => {
       ).then(([_, data]) => {
         return data
       })
-
+      createAudit(req, 'update', 'discount', body.id, `Updated discount: ${body.name}`)
       return res.status(200).json({
         success: true,
         message: 'Sukses Ubah Discount',
@@ -460,6 +463,7 @@ exports.deleteDiscountById = async (req, res) => {
     })
 
     if (getId) {
+      createAudit(req, 'delete', 'discount', body.id, `Deleted discount: ${body.id}`)
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Discount'

@@ -9,6 +9,7 @@ const {
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 
 exports.addEmployee = async (req, res) => {
   const body = req.body
@@ -142,6 +143,8 @@ exports.addEmployee = async (req, res) => {
       dailySalary: body?.dailySalary || null,
       documents: documentUrls.length > 0 ? JSON.stringify(documentUrls) : null
     })
+
+    createAudit(req, 'create', 'employee', createUser.id, `Created employee: ${createUser.id}`)
 
     const result = createUser.toJSON()
     delete result.password
@@ -451,6 +454,8 @@ exports.updateEmployee = async (req, res) => {
 
     await employee.update(updateData)
 
+    createAudit(req, 'update', 'employee', body.id, `Updated employee: ${body.id}`)
+
     const result = employee.toJSON()
     delete result.password
 
@@ -488,6 +493,8 @@ exports.deleteEmployee = async (req, res) => {
     }
 
     await User.destroy({ where: { id }, force: true })
+
+    createAudit(req, 'delete', 'employee', id, `Deleted employee: ${id}`)
 
     createNotification({ type: 'employee_deleted', store: employee.store, referenceId: employee.id, referenceType: 'employee', params: [employee.fullName || 'Unknown'] }).catch(console.error)
 

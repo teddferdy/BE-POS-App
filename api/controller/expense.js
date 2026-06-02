@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { createAudit } = require('../../utils/auditLog')
 
 const generateExpenseNumber = () => {
   const date = new Date()
@@ -148,6 +149,8 @@ const expenseController = {
         createdBy
       })
 
+      createAudit(req, 'create', 'expense', expense.id, `Created expense: ${expense.id}`)
+
       const created = await db.expense.findOne({
         where: { id: expense.id },
         include: [
@@ -203,6 +206,8 @@ const expenseController = {
         modifiedBy
       })
 
+      createAudit(req, 'update', 'expense', id, `Updated expense: ${id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success update expense',
@@ -235,6 +240,8 @@ const expenseController = {
 
       await expense.update({ status: 'approved' })
 
+      createAudit(req, 'approve', 'expense', id, `Approved expense: ${id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success approve expense'
@@ -266,6 +273,8 @@ const expenseController = {
 
       await expense.update({ status: 'rejected' })
 
+      createAudit(req, 'reject', 'expense', id, `Rejected expense: ${id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success reject expense'
@@ -296,6 +305,8 @@ const expenseController = {
       }
 
       await expense.destroy()
+
+      createAudit(req, 'delete', 'expense', id, `Deleted expense: ${id}`)
 
       return res.status(200).json({
         success: true,

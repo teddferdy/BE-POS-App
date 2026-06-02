@@ -35,6 +35,7 @@ const {
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 const {
   downloadLocationTemplate,
   parseLocationTemplate
@@ -299,6 +300,7 @@ exports.addNewLocation = async (req, res) => {
     const storeId = `ST-${String(newLocation.id).padStart(3, '0')}`
 
     createNotification({ type: 'location_created', store: newLocation.store, referenceId: newLocation.id, referenceType: 'location', params: [name] }).catch(console.error)
+    createAudit(req, 'create', 'location', newLocation.id, `Created location: ${name}`)
 
     return res.status(201).json({
       success: true,
@@ -410,6 +412,7 @@ exports.editLocationById = async (req, res) => {
     await batchUpdateModels(id, { status: updatedData.status })
 
     createNotification({ type: 'location_updated', store: id, referenceId: id, referenceType: 'location', params: [name] }).catch(console.error)
+    createAudit(req, 'update', 'location', id, `Updated location: ${name}`, dataExist, updatedData)
 
     return res.status(200).json({
       success: true,
@@ -499,6 +502,7 @@ exports.deleteLocationById = async (req, res) => {
     await Location.destroy({ where: { id: dbId }, force: true })
 
     createNotification({ type: 'location_deleted', store: dbId, referenceId: dbId, referenceType: 'location', params: [location.name] }).catch(console.error)
+    createAudit(req, 'delete', 'location', dbId, `Deleted location: ${location.name}`)
 
     return res
       .status(200)

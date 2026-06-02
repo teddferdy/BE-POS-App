@@ -3,6 +3,7 @@ const { Op } = db.Sequelize
 const Department = db.department
 const Position = db.position
 const User = db.user
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllDepartment = async (req, res) => {
   try {
@@ -145,6 +146,7 @@ exports.addNewDepartment = async (req, res) => {
         status: body.status !== undefined ? body.status : body.isActive,
         createdBy: body.createdBy
       })
+      createAudit(req, 'create', 'department', creadtedDepartment.id, `Created department: ${creadtedDepartment.name || creadtedDepartment.id}`)
 
       if (creadtedDepartment.getDataValue) {
         return res.status(200).json({
@@ -200,6 +202,7 @@ exports.editDepartmentById = async (req, res) => {
         }
       )
       const editDepartment = editRows[0]
+      createAudit(req, 'update', 'department', id, `Updated department: ${editDepartment.name || id}`)
 
       return res.status(200).json({
         success: true,
@@ -249,6 +252,7 @@ exports.deleteDepartmentById = async (req, res) => {
       where: { id },
       force: true
     })
+    createAudit(req, 'delete', 'department', id, `Deleted department: ${id}`)
 
     if (getId) {
       return res.status(200).json({
@@ -552,6 +556,7 @@ exports.uploadExcel = async (req, res) => {
         const existing = await Department.findOne({ where: { name: deptData.name } })
         if (!existing) {
           const dept = await Department.create(deptData)
+          createAudit(req, 'create', 'department', dept.id, `Created department: ${dept.name || dept.id}`)
           createdDepartments.push(dept)
         }
       } catch (error) {

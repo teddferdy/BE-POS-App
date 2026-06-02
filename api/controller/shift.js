@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const Shift = db.shift
 const User = db.user
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllShift = async (req, res) => {
   const { page: rawPage, pageSize: rawPageSize, status = 'all' } = req.query
@@ -105,6 +106,9 @@ exports.postNewShift = async (req, res) => {
         store: req.body.store || req.user?.store,
         createdBy: createdBy
       })
+
+      createAudit(req, 'create', 'shift', postData.id, `Created shift: ${postData.id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success',
@@ -164,6 +168,9 @@ exports.editShiftById = async (req, res) => {
       ).then(([_, data]) => {
         return data
       })
+
+      createAudit(req, 'update', 'shift', id, `Updated shift: ${id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Sukses Ubah Shift',
@@ -200,6 +207,8 @@ exports.deleteShiftById = async (req, res) => {
       force: true
     })
     if (getId) {
+      createAudit(req, 'delete', 'shift', id, `Deleted shift: ${id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Shift'

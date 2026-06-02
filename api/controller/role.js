@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const Role = db.role
 const User = db.user
 const { Op } = db.Sequelize
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllRole = async (req, res) => {
   try {
@@ -92,6 +93,8 @@ exports.addNewRole = async (req, res) => {
         createdBy: body.createdBy
       })
 
+      createAudit(req, 'create', 'role', creadtedRole.id, `Created role: ${creadtedRole.id}`)
+
       if (creadtedRole.getDataValue) {
         return res.status(200).json({
           success: true,
@@ -144,6 +147,8 @@ exports.editRoleById = async (req, res) => {
         return data
       })
 
+      createAudit(req, 'update', 'role', body.id, `Updated role: ${body.id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Sukses Ubah Role',
@@ -182,6 +187,8 @@ exports.deleteRoleById = async (req, res) => {
     })
 
     if (getId) {
+      createAudit(req, 'delete', 'role', body.id, `Deleted role: ${body.id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Role'
@@ -286,6 +293,8 @@ exports.updateUserRole = async (req, res) => {
       accessMenu: accessMenu || role.accessMenu
     })
 
+    createAudit(req, 'update', 'role', roleId, `Updated user role: ${userId}`)
+
     return res.status(200).json({
       success: true,
       message: 'Success Ubah Role User',
@@ -359,6 +368,8 @@ exports.updateRoleAccessMenu = async (req, res) => {
     }
 
     await role.update({ accessMenu: accessMenu })
+
+    createAudit(req, 'update', 'role', roleId, `Updated role access menu: ${roleId}`)
 
     return res.status(200).json({
       success: true,

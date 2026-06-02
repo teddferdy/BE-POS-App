@@ -11,6 +11,7 @@ const {
   uploadToCloudinary,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
+const { createAudit } = require('../../utils/auditLog')
 
 // Get User By Location
 exports.userByLocation = async (req, res) => {
@@ -140,6 +141,7 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
 
     const result = updatedUsers[0]?.dataValues
     delete result.password
+    createAudit(req, 'update', 'user', id, `Updated user role: ${id}`)
 
     return res.status(200).json({
       message: 'User role updated successfully',
@@ -358,6 +360,7 @@ exports.registerNewUser = async (req, res, next) => {
         statusActive: true,
         modifiedAt: moment().format('YYYY-MM-DD HH:mm:ss')
       })
+      createAudit(req, 'create', 'user', createUser.id, `Created user: ${createUser.userName || createUser.id}`)
 
       const result = createUser.toJSON()
       delete result.password // Remove the password before sending it back
@@ -424,6 +427,7 @@ exports.editUser = async (req, res, next) => {
       imageUrl: imageUrl,
       deletedAt: null
     })
+    createAudit(req, 'update', 'user', updatedUser.id, `Updated user: ${updatedUser.id}`)
 
     const token = generateToken({ id: updatedUser.id })
 

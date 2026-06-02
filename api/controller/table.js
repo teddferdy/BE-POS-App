@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const Table = db.table
 const Order = db.order
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getTablesByStore = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -107,6 +108,8 @@ exports.createTable = async (req, res) => {
       createdBy
     })
 
+    createAudit(req, 'create', 'table', table.id, `Created table: ${table.id}`)
+
     return res.status(201).json({
       message: 'Success creating table',
       data: table
@@ -140,6 +143,8 @@ exports.updateTable = async (req, res) => {
       status,
       modifiedBy
     })
+
+    createAudit(req, 'update', 'table', id, `Updated table: ${id}`)
 
     return res.status(200).json({
       message: 'Success updating table',
@@ -176,6 +181,8 @@ exports.deleteTable = async (req, res) => {
       force: true
     })
 
+    createAudit(req, 'delete', 'table', id, `Deleted table: ${id}`)
+
     return res.status(200).json({
       message: 'Success deleting table'
     })
@@ -203,6 +210,8 @@ exports.updateTableStatus = async (req, res) => {
     }
 
     await table.update({ status, modifiedBy })
+
+    createAudit(req, 'update', 'table', id, `Updated table status: ${id}`)
 
     return res.status(200).json({
       message: 'Success updating table status',

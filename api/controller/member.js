@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const Member = db.member
 const { Op } = require('sequelize')
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllMember = async (req, res) => {
   try {
@@ -107,6 +108,7 @@ exports.addNewMember = async (req, res) => {
       })
 
       if (createdMember.getDataValue) {
+        createAudit(req, 'create', 'member', createdMember.id, `Created member: ${createdMember.nameMember}`)
         return res.status(201).json({
           success: true,
           message: 'Member Berhasil Di Buat',
@@ -152,6 +154,8 @@ exports.editMember = async (req, res) => {
 
     const updatedMember = await member.update(updateData)
 
+    createAudit(req, 'update', 'member', id, `Updated member: ${id}`, member.dataValues, updateData)
+
     return res.status(200).json({
       success: true,
       message: 'Member berhasil diperbarui',
@@ -184,6 +188,8 @@ exports.deleteMember = async (req, res) => {
     }
 
     await member.destroy()
+
+    createAudit(req, 'delete', 'member', id, `Deleted member: ${member.nameMember}`)
 
     return res.status(200).json({
       success: true,
@@ -227,6 +233,7 @@ exports.editMemberById = async (req, res) => {
         return data
       })
 
+      createAudit(req, 'update', 'member', getMember.dataValues.id, `Updated member points: ${getMember.dataValues.nameMember}`)
       return res.status(200).json({
         success: true,
         message: 'Sukses',

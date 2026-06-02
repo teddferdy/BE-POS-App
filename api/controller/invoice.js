@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { uploadToCloudinary, deleteFromCloudinary } = require('../../utils/cloudinaryStorage')
 const { downloadInvoiceLogoTemplate, parseInvoiceLogoTemplate } = require('../../utils/excelTemplate')
+const { createAudit } = require('../../utils/auditLog')
 
 const invoiceController = {
   async getLogo(req, res) {
@@ -66,6 +67,8 @@ const invoiceController = {
         createdBy: req.user?.id
       })
 
+      await createAudit(req, 'create', 'invoice_logo', logo.id, 'Created invoice_logo: ' + logo.id)
+
       return res.status(201).json({
         success: true,
         message: 'Success create logo',
@@ -107,6 +110,8 @@ const invoiceController = {
         modifiedBy: req.user?.id
       })
 
+      await createAudit(req, 'update', 'invoice_logo', id, 'Updated invoice_logo: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success update logo',
@@ -143,6 +148,8 @@ const invoiceController = {
 
       await logo.destroy()
 
+      await createAudit(req, 'delete', 'invoice_logo', id, 'Deleted invoice_logo: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success delete logo'
@@ -178,6 +185,8 @@ const invoiceController = {
       )
 
       await logo.update({ isActive: true })
+
+      await createAudit(req, 'update', 'invoice_logo', id, 'Updated invoice_logo: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -267,6 +276,8 @@ const invoiceController = {
         }
       }
 
+      await createAudit(req, 'import', 'invoice_logo', null, 'Imported invoice_logo from file')
+
       return res.status(200).json({
         success: true,
         message: `Import complete: ${results.created} created, ${results.updated} updated`,
@@ -348,6 +359,8 @@ const invoiceController = {
         createdBy: req.user?.id
       })
 
+      await createAudit(req, 'create', 'invoice_social_media', socialMedia.id, 'Created invoice_social_media: ' + socialMedia.id)
+
       return res.status(201).json({
         success: true,
         message: 'Success create social media',
@@ -385,6 +398,8 @@ const invoiceController = {
         modifiedBy: req.user?.id
       })
 
+      await createAudit(req, 'update', 'invoice_social_media', id, 'Updated invoice_social_media: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success update social media',
@@ -416,6 +431,8 @@ const invoiceController = {
       }
 
       await socialMedia.destroy()
+
+      await createAudit(req, 'delete', 'invoice_social_media', id, 'Deleted invoice_social_media: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -452,6 +469,8 @@ const invoiceController = {
       )
 
       await socialMedia.update({ isActive: true })
+
+      await createAudit(req, 'update', 'invoice_social_media', id, 'Updated invoice_social_media: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -534,6 +553,8 @@ const invoiceController = {
         createdBy: req.user?.id
       })
 
+      await createAudit(req, 'create', 'invoice_footer', footer.id, 'Created invoice_footer: ' + footer.id)
+
       return res.status(201).json({
         success: true,
         message: 'Success create footer',
@@ -571,6 +592,8 @@ const invoiceController = {
         modifiedBy: req.user?.id
       })
 
+      await createAudit(req, 'update', 'invoice_footer', id, 'Updated invoice_footer: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success update footer',
@@ -602,6 +625,8 @@ const invoiceController = {
       }
 
       await footer.destroy()
+
+      await createAudit(req, 'delete', 'invoice_footer', id, 'Deleted invoice_footer: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -638,6 +663,8 @@ const invoiceController = {
       )
 
       await footer.update({ isActive: true })
+
+      await createAudit(req, 'update', 'invoice_footer', id, 'Updated invoice_footer: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -707,6 +734,8 @@ const invoiceController = {
           return
         }
       })
+
+      await createAudit(req, 'import', 'invoice_footer', null, 'Imported invoice_footer from file')
 
       return res.status(200).json({
         success: true,

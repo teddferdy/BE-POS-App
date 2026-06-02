@@ -3,6 +3,7 @@ const Checkout = db.checkout
 const Transaction = db.transaction
 const BestSelling = db.best_selling
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 
 exports.addNewTransaction = async (id, order) => {
   for (const element of order) {
@@ -100,6 +101,8 @@ exports.checkout = async (req, res) => {
         createdBy: body.createdBy
       })
 
+      createAudit(req, 'create', 'checkout', creadtedCheckout.id, `Created checkout: ${creadtedCheckout.id}`)
+
       if (creadtedCheckout?.getDataValue) {
         createNotification({ type: 'payment_received', store: body.store, referenceId: creadtedCheckout.id, referenceType: 'checkout', params: [invoice, body.totalPrice] }).catch(console.error)
 
@@ -155,6 +158,8 @@ exports.editCheckout = async (req, res) => {
       return data
     })
 
+    createAudit(req, 'update', 'checkout', body.id, `Updated checkout: ${body.id}`)
+
     createNotification({ type: 'payment_received', store: body.store, referenceId: body.id, referenceType: 'checkout', params: [body.invoice, body.totalPrice] }).catch(console.error)
 
     return res.status(200).json({
@@ -185,6 +190,8 @@ exports.deleteCheckout = async (req, res) => {
     })
 
     if (getId) {
+      createAudit(req, 'delete', 'checkout', body.id, `Deleted checkout: ${body.id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Items'

@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { createAudit } = require('../../utils/auditLog')
 
 const expenseCategoryController = {
     async getAll(req, res) {
@@ -57,6 +58,8 @@ const expenseCategoryController = {
         createdBy
       })
 
+      createAudit(req, 'create', 'expense_category', category.id, `Created expense category: ${category.id}`)
+
       return res.status(201).json({
         success: true,
         message: 'Success create expense category',
@@ -97,6 +100,8 @@ const expenseCategoryController = {
         modifiedBy
       })
 
+      createAudit(req, 'update', 'expense_category', id, `Updated expense category: ${id}`)
+
       return res.status(200).json({
         success: true,
         message: 'Success update expense category',
@@ -128,6 +133,8 @@ const expenseCategoryController = {
       }
 
       await category.destroy()
+
+      createAudit(req, 'delete', 'expense_category', id, `Deleted expense category: ${id}`)
 
       return res.status(200).json({
         success: true,

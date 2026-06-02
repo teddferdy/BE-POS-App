@@ -1,4 +1,5 @@
 const db = require('../../db/models')
+const { createAudit } = require('../../utils/auditLog')
 
 const generateSplitNumber = () => {
   const date = new Date()
@@ -40,6 +41,8 @@ const splitBillController = {
           createdBy
         })
       }))
+
+      await createAudit(req, 'create', 'split_bill', splits[0]?.id, 'Created split_bill for order: ' + order)
 
       return res.status(201).json({
         success: true,
@@ -119,6 +122,8 @@ const splitBillController = {
         paymentMethod
       })
 
+      await createAudit(req, 'update', 'split_bill', split.id, 'Updated split_bill: ' + split.id)
+
       const allSplits = await db.split_bill.findAll({
         where: { order: split.order }
       })
@@ -174,6 +179,8 @@ const splitBillController = {
 
       await split.destroy()
 
+      await createAudit(req, 'delete', 'split_bill', id, 'Deleted split_bill: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success cancel split bill'
@@ -225,6 +232,8 @@ const splitBillController = {
         amount: totalAmount,
         status: 'pending'
       })
+
+      await createAudit(req, 'update', 'split_bill', newSplit.id, 'Merged split_bill: ' + newSplit.id)
 
       return res.status(201).json({
         success: true,

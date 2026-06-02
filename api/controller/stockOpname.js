@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const excelJS = require('exceljs')
+const { createAudit } = require('../../utils/auditLog')
 
 const generateOpnameNumber = () => {
   const date = new Date()
@@ -280,6 +281,8 @@ const stockOpnameController = {
         include: [{ model: db.stockOpnameItem, as: 'items' }]
       })
 
+      await createAudit(req, 'create', 'stock_opname', created.id, 'Created stock_opname: ' + created.id)
+
       return res.status(201).json({
         success: true,
         message: 'Success create stock opname',
@@ -378,6 +381,8 @@ const stockOpnameController = {
         include: [{ model: db.stockOpnameItem, as: 'items' }]
       })
 
+      await createAudit(req, 'update', 'stock_opname', id, 'Updated stock_opname: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success update stock opname',
@@ -426,6 +431,8 @@ const stockOpnameController = {
       })
 
       await opname.destroy()
+
+      await createAudit(req, 'delete', 'stock_opname', id, 'Deleted stock_opname: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -479,6 +486,8 @@ const stockOpnameController = {
         status,
         modifiedBy: req.user?.id || null
       })
+
+      await createAudit(req, 'update', 'stock_opname', id, 'Updated stock_opname status to ' + status + ': ' + id)
 
       if (status === 'completed') {
         const updated = await db.stockOpname.findByPk(id, {
@@ -818,6 +827,8 @@ const stockOpnameController = {
           transaction: t
         })
       })
+
+      await createAudit(req, 'import', 'stock_opname', null, 'Imported stock_opname from file')
 
       return res.status(201).json({
         success: true,

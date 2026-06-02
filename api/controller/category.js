@@ -8,6 +8,7 @@ const {
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 
 // Get All List To Cashier List
 exports.getAllCategory = async (req, res) => {
@@ -229,6 +230,7 @@ exports.addNewCategory = async (req, res) => {
 
     if (creadtedCategory.getDataValue) {
       createNotification({ type: 'category_created', store: store || req.user?.store, referenceId: creadtedCategory.id, referenceType: 'category', params: [body.name] }).catch(console.error)
+      createAudit(req, 'create', 'category', creadtedCategory.id, `Created category: ${body.name}`)
 
       return res.status(200).json({
         success: true,
@@ -322,6 +324,7 @@ exports.editCategoryById = async (req, res) => {
     }
 
     createNotification({ type: 'category_updated', store: store || req.user?.store, referenceId: body.id, referenceType: 'category', params: [body.name] }).catch(console.error)
+    createAudit(req, 'update', 'category', body.id, `Updated category: ${body.name}`)
 
     return res.status(200).json({
       success: true,
@@ -375,6 +378,7 @@ exports.deleteCategoryById = async (req, res) => {
     })
 
     createNotification({ type: 'category_deleted', store: store || req.user?.store, referenceId: categoryId, referenceType: 'category', params: [category?.name || 'Unknown'] }).catch(console.error)
+    createAudit(req, 'delete', 'category', categoryId, `Deleted category: ${category?.name || 'Unknown'}`)
 
     return res.status(200).json({
       success: true,
@@ -658,6 +662,8 @@ exports.importCategory = async (req, res) => {
       await Category.create(cat)
       insertedCount++
     }
+
+    createAudit(req, 'import', 'category', null, `Imported ${insertedCount} categories`)
 
     return res.status(201).json({
       success: true,
