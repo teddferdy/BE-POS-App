@@ -138,9 +138,12 @@ app.get('/', (_, res) => {
 
 const port = process.env.PORT || 5001
 
-initSocket(server)
+if (!process.env.VERCEL) {
+  initSocket(server)
+  server.listen(port, () => {
+    console.log(`Server running on port ${port}`)
+    console.log(`Socket.IO enabled`)
+  })
+}
 
-server.listen(port, () => {
-  console.log(`Server running on port ${port}`)
-  console.log(`Socket.IO enabled`)
-})
+module.exports = app
