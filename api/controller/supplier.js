@@ -1,5 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { createNotification } = require('../../utils/createNotification')
+const ExcelJS = require('exceljs')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -115,6 +117,8 @@ const supplierController = {
         createdBy
       })
 
+      createNotification({ type: 'supplier_created', store, referenceId: supplier.id, referenceType: 'supplier', params: [name] }).catch(console.error)
+
       return res.status(201).json({
         success: true,
         message: 'Success create supplier',
@@ -157,6 +161,8 @@ const supplierController = {
         modifiedBy
       })
 
+      createNotification({ type: 'supplier_updated', store, referenceId: id, referenceType: 'supplier', params: [name || supplier.name] }).catch(console.error)
+
       return res.status(200).json({
         success: true,
         message: 'Success update supplier',
@@ -189,6 +195,8 @@ const supplierController = {
 
       await supplier.destroy()
 
+      createNotification({ type: 'supplier_deleted', store, referenceId: id, referenceType: 'supplier', params: [supplier.name] }).catch(console.error)
+
       return res.status(200).json({
         success: true,
         message: 'Success delete supplier'
@@ -199,6 +207,133 @@ const supplierController = {
         success: false,
         message: 'Internal server error'
       })
+    }
+  },
+
+  async downloadTemplate(req, res) {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Supplier Template');
+
+      worksheet.addRow(['Name', 'Phone', 'Email', 'Address', 'Description']);
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
+      };
+
+      worksheet.columns = [
+        { width: 25 }, { width: 20 }, { width: 30 }, { width: 30 }, { width: 30 }
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=supplier-template.xlsx');
+
+      return res.status(200).send(buffer);
+    } catch (error) {
+      console.error('Error =>', error);
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  },
+
+  async downloadData(req, res) {
+    try {
+      const { store } = req.query;
+      const where = {};
+      if (store) where.store = store;
+
+      const suppliers = await db.supplier.findAll({ where, order: [['createdAt', 'DESC']] });
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Suppliers Data');
+
+      worksheet.addRow(['ID', 'Name', 'Phone', 'Email', 'Address', 'Description', 'Status', 'Created At']);
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+      };
+
+      suppliers.forEach(s => worksheet.addRow([
+        s.id, s.name, s.phone, s.email, s.address, s.description,
+        s.status ? 'Active' : 'Inactive',
+        s.createdAt ? s.createdAt.toISOString() : ''
+      ]));
+
+      worksheet.columns = [
+        { width: 10 }, { width: 25 }, { width: 20 },
+        { width: 30 }, { width: 30 }, { width: 30 },
+        { width: 10 }, { width: 20 }
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=suppliers-data.xlsx');
+
+      return res.status(200).send(buffer);
+    } catch (error) {
+      console.error('Error =>', error);
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  },
+
+  async importData(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(req.file.buffer);
+      const worksheet = workbook.getWorksheet(1);
+
+      const suppliersToCreate = [];
+      const errors = [];
+
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber === 1) return;
+
+        try {
+          const [name, phone, email, address, description] = row.values;
+
+          if (!name) {
+            errors.push(`Row ${rowNumber}: Name is required`);
+            return;
+          }
+
+          suppliersToCreate.push({
+            store: req.user?.store,
+            name: name.trim(),
+            phone: phone?.toString().trim() || null,
+            email: email?.trim() || null,
+            address: address?.trim() || null,
+            description: description?.trim() || null,
+            createdBy: req.user?.id || null
+          });
+        } catch (error) {
+          errors.push(`Row ${rowNumber}: ${error.message}`);
+        }
+      });
+
+      if (errors.length > 0) {
+        return res.status(400).json({ success: false, message: 'Validation errors', errors });
+      }
+
+      const createdSuppliers = await db.supplier.bulkCreate(suppliersToCreate);
+
+      return res.status(201).json({
+        success: true,
+        message: `Successfully imported ${createdSuppliers.length} suppliers`,
+        data: createdSuppliers
+      });
+    } catch (error) {
+      console.error('Error =>', error);
+      return res.status(500).json({ success: false, message: 'Internal server error' });
     }
   }
 }

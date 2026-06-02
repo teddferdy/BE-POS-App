@@ -3,6 +3,7 @@ const router = express.Router()
 const locationController = require('../controller/location')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -53,47 +54,47 @@ const uploadImport = multer({
 // Location Template - Super Admin only
 router.get(
   '/template',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   locationController.downloadTemplate
 )
 
 // Import Location - Super Admin only
 router.post(
   '/import',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   uploadImport,
   locationController.importLocation
 )
 
 // Location CRUD
 // Get all locations (for dropdown) - all authenticated users
-router.get('/get-location', authorization, locationController.getAllLocation)
+router.get('/get-location', authorization, validateStoreAccess, locationController.getAllLocation)
 
 // Get all locations in table - Super Admin only
 router.get(
   '/get-location-all',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   locationController.getAllLocationInTable
 )
 
 // Get location detail - all authenticated users
 router.get(
   '/get-location-detail/:locationId',
-  authorization,
+  authorization, validateStoreAccess,
   locationController.getLocationById
 )
 
 // Generate location ID - Super Admin only
 router.get(
   '/generate-id',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   locationController.generateLocationId
 )
 
 // Add new location - Super Admin only
 router.post(
   '/add-new-location',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   upload,
   locationController.addNewLocation
 )
@@ -101,7 +102,7 @@ router.post(
 // Edit location - Super Admin only
 router.put(
   '/edit-location',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   upload,
   locationController.editLocationById
 )
@@ -109,7 +110,7 @@ router.put(
 // Delete location - Super Admin only
 router.delete(
   '/delete-location',
-  requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin'),
   locationController.deleteLocationById
 )
 

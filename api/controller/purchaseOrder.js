@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const ExcelJS = require('exceljs')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -467,6 +468,138 @@ const purchaseOrderController = {
         success: false,
         message: 'Internal server error'
       })
+    }
+  },
+
+  async downloadTemplate(req, res) {
+    try {
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Purchase Order Template')
+
+      worksheet.addRow(['Supplier Name', 'Product/Item', 'Quantity', 'Unit', 'Price', 'Notes'])
+
+      worksheet.getRow(1).font = { bold: true }
+      worksheet.getRow(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+      }
+
+      worksheet.columns = [
+        { width: 25 }, { width: 30 }, { width: 15 },
+        { width: 10 }, { width: 15 }, { width: 30 }
+      ]
+
+      const buffer = await workbook.xlsx.writeBuffer()
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', 'attachment; filename=po-template.xlsx')
+
+      return res.status(200).send(buffer)
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async downloadData(req, res) {
+    try {
+      const { store } = req.cookies
+      const where = {}
+      if (store) where.store = store
+
+      const orders = await db.purchaseOrder.findAll({
+        where,
+        include: [
+          { model: db.supplier, as: 'supplierData', attributes: ['name'] },
+          { model: db.purchaseOrderItem, as: 'items' }
+        ],
+        order: [['createdAt', 'DESC']]
+      })
+
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Purchase Orders')
+
+      worksheet.addRow([
+        'Order No', 'Supplier', 'Total Amount', 'Discount',
+        'Final Amount', 'Status', 'Order Date', 'Created At'
+      ])
+      worksheet.getRow(1).font = { bold: true }
+      worksheet.getRow(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+      }
+
+      orders.forEach(o => worksheet.addRow([
+        o.orderNumber, o.supplierData?.name || o.supplier,
+        o.totalAmount, o.discount, o.finalAmount,
+        o.status,
+        o.orderDate ? o.orderDate.toISOString().split('T')[0] : '',
+        o.createdAt ? o.createdAt.toISOString() : ''
+      ]))
+
+      worksheet.columns = [
+        { width: 20 }, { width: 25 }, { width: 15 },
+        { width: 10 }, { width: 15 }, { width: 12 },
+        { width: 15 }, { width: 20 }
+      ]
+
+      const buffer = await workbook.xlsx.writeBuffer()
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', 'attachment; filename=purchase-orders.xlsx')
+
+      return res.status(200).send(buffer)
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async importData(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' })
+      }
+
+      const workbook = new ExcelJS.Workbook()
+      await workbook.xlsx.load(req.file.buffer)
+      const worksheet = workbook.getWorksheet(1)
+
+      const ordersToCreate = []
+      const errors = []
+
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber === 1) return
+
+        try {
+          const [supplierName, productItem, quantity, unit, price, notes] = row.values
+
+          if (!supplierName || !productItem || !quantity || !price) {
+            errors.push(`Row ${rowNumber}: Supplier, product, quantity and price are required`)
+            return
+          }
+
+          ordersToCreate.push({
+            supplier: supplierName.trim(),
+            items: [{ product: null, ingredientName: productItem.trim(), quantity: parseFloat(quantity), unit: (unit || 'pcs').trim(), price: parseFloat(price) }],
+            notes: notes?.trim() || null,
+            store: req.cookies.store || req.user?.store
+          })
+        } catch (error) {
+          errors.push(`Row ${rowNumber}: ${error.message}`)
+        }
+      })
+
+      if (errors.length > 0) {
+        return res.status(400).json({ success: false, message: 'Validation errors', errors })
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Imported ${ordersToCreate.length} purchase orders`,
+        data: ordersToCreate
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
     }
   }
 }

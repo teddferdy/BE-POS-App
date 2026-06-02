@@ -7,6 +7,7 @@ const {
   uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
+const { createNotification } = require('../../utils/createNotification')
 
 // Get All List To Cashier List
 exports.getAllCategory = async (req, res) => {
@@ -227,6 +228,8 @@ exports.addNewCategory = async (req, res) => {
     })
 
     if (creadtedCategory.getDataValue) {
+      createNotification({ type: 'category_created', store: store || req.user?.store, referenceId: creadtedCategory.id, referenceType: 'category', params: [body.name] }).catch(console.error)
+
       return res.status(200).json({
         success: true,
         message: 'Category Berhasil Di Buat'
@@ -318,6 +321,8 @@ exports.editCategoryById = async (req, res) => {
       })
     }
 
+    createNotification({ type: 'category_updated', store: store || req.user?.store, referenceId: body.id, referenceType: 'category', params: [body.name] }).catch(console.error)
+
     return res.status(200).json({
       success: true,
       message: 'Sukses Ubah Kategori',
@@ -347,6 +352,8 @@ exports.deleteCategoryById = async (req, res) => {
       })
     }
 
+    const category = await Category.findByPk(categoryId)
+
     await Category.sequelize.transaction(async (t) => {
       await Product.update(
         { status: false },
@@ -366,6 +373,8 @@ exports.deleteCategoryById = async (req, res) => {
         throw new Error('Category not found')
       }
     })
+
+    createNotification({ type: 'category_deleted', store: store || req.user?.store, referenceId: categoryId, referenceType: 'category', params: [category?.name || 'Unknown'] }).catch(console.error)
 
     return res.status(200).json({
       success: true,

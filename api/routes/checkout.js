@@ -6,14 +6,16 @@ const checkoutController = require('../controller/checkout')
 
 // Authorization
 const authorization = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Add New Checkout
-router.post('/checkout-item', authorization, checkoutController.checkout)
+router.post('/checkout-item', authorization, validateStoreAccess, checkoutController.checkout)
 
 // Edit Checkout
 router.put(
   '/edit-checkout-item',
   authorization,
+  validateStoreAccess,
   checkoutController.editCheckout
 )
 
@@ -21,6 +23,7 @@ router.put(
 router.delete(
   '/delete-checkout-item',
   authorization,
+  validateStoreAccess,
   checkoutController.deleteCheckout
 )
 

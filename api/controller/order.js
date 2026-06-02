@@ -7,6 +7,7 @@ const Product = db.product
 const Discount = db.discount
 const Transaction = db.transaction
 const BestSelling = db.best_selling
+const { createNotification } = require('../../utils/createNotification')
 
 const generateOrderNumber = () => {
   const date = new Date()
@@ -134,6 +135,8 @@ exports.createOrder = async (req, res) => {
         as: 'items'
       }]
     })
+
+    createNotification({ type: 'order_created', store, referenceId: order.id, referenceType: 'order', params: [orderNumber] }).catch(console.error)
 
     return res.status(201).json({
       message: 'Order created successfully',
@@ -507,6 +510,8 @@ exports.payment = async (req, res) => {
     if (order.tableId) {
       await Table.update({ status: 'available' }, { where: { id: order.tableId } })
     }
+
+    createNotification({ type: 'payment_received', store, referenceId: order.id, referenceType: 'order', params: [order.orderNumber, order.totalPrice] }).catch(console.error)
 
     return res.status(200).json({
       message: 'Payment successful',

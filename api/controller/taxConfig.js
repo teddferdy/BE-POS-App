@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const ExcelJS = require('exceljs')
 
 const taxConfigController = {
   async getAll(req, res) {
@@ -183,6 +184,126 @@ const taxConfigController = {
         success: false,
         message: 'Internal server error'
       })
+    }
+  },
+
+  async downloadTemplate(req, res) {
+    try {
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Tax Config Template')
+
+      worksheet.addRow(['Name', 'Rate', 'Type', 'Description'])
+
+      worksheet.getRow(1).font = { bold: true }
+      worksheet.getRow(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+      }
+
+      worksheet.columns = [{ width: 25 }, { width: 10 }, { width: 15 }, { width: 30 }]
+
+      const buffer = await workbook.xlsx.writeBuffer()
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', 'attachment; filename=tax-config-template.xlsx')
+
+      return res.status(200).send(buffer)
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async downloadData(req, res) {
+    try {
+      const store = req.query.store || req.cookies.store || req.user?.store
+      const where = {}
+      if (store) where.store = store
+
+      const taxes = await db.taxConfig.findAll({ where, order: [['createdAt', 'DESC']] })
+
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Tax Configs')
+
+      worksheet.addRow(['ID', 'Name', 'Rate', 'Type', 'Description', 'Status', 'Created At'])
+      worksheet.getRow(1).font = { bold: true }
+      worksheet.getRow(1).fill = {
+        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+      }
+
+      taxes.forEach(t => worksheet.addRow([
+        t.id, t.name, t.rate, t.type, t.description,
+        t.status ? 'Active' : 'Inactive',
+        t.createdAt ? t.createdAt.toISOString() : ''
+      ]))
+
+      worksheet.columns = [
+        { width: 10 }, { width: 25 }, { width: 10 },
+        { width: 15 }, { width: 30 }, { width: 10 }, { width: 20 }
+      ]
+
+      const buffer = await workbook.xlsx.writeBuffer()
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', 'attachment; filename=tax-configs.xlsx')
+
+      return res.status(200).send(buffer)
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async importData(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' })
+      }
+
+      const workbook = new ExcelJS.Workbook()
+      await workbook.xlsx.load(req.file.buffer)
+      const worksheet = workbook.getWorksheet(1)
+
+      const taxesToCreate = []
+      const errors = []
+
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber === 1) return
+
+        try {
+          const [name, rate, type, description] = row.values
+
+          if (!name || !rate) {
+            errors.push(`Row ${rowNumber}: Name and rate are required`)
+            return
+          }
+
+          taxesToCreate.push({
+            store: req.cookies.store || req.user?.store,
+            name: name.trim(),
+            rate: parseInt(rate),
+            type: (type || 'percentage').trim(),
+            description: description?.trim() || null,
+            createdBy: req.user?.id || null
+          })
+        } catch (error) {
+          errors.push(`Row ${rowNumber}: ${error.message}`)
+        }
+      })
+
+      if (errors.length > 0) {
+        return res.status(400).json({ success: false, message: 'Validation errors', errors })
+      }
+
+      const created = await db.taxConfig.bulkCreate(taxesToCreate)
+
+      return res.status(201).json({
+        success: true,
+        message: `Successfully imported ${created.length} tax configs`,
+        data: created
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
     }
   }
 }

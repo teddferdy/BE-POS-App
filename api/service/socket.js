@@ -62,11 +62,19 @@ const emitItemStatusUpdate = (storeId, orderId, item) => {
   emitToKitchen(storeId, 'item-status-updated', { orderId, item })
 }
 
+const emitNotification = (storeId, notification) => {
+  if (io) {
+    io.to(`store-${storeId}`).emit('new-notification', notification)
+    io.emit('new-notification-global', notification)
+  }
+}
+
 module.exports = {
   initSocket,
   emitToKitchen,
   emitToStore,
   emitNewOrder,
   emitOrderUpdate,
-  emitItemStatusUpdate
+  emitItemStatusUpdate,
+  emitNotification
 }

@@ -6,32 +6,33 @@ const SocialMediaController = require('../controller/social-media')
 
 // Authorization
 const authorization = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Get Social Media
 router.get(
   '/get-social-media',
-  authorization,
+  authorization, validateStoreAccess,
   SocialMediaController.getAllSocialMedia
 )
 
 // Post Social Media
 router.post(
   '/add-social-media',
-  authorization,
+  authorization, validateStoreAccess,
   SocialMediaController.addNewSocialMedia
 )
 
 // Edit Social Media
 router.put(
   '/edit-social-media/:id',
-  authorization,
+  authorization, validateStoreAccess,
   SocialMediaController.editSocialMediaById
 )
 
 // Delete Social Media
 router.delete(
   '/delete-social-media/:id',
-  authorization,
+  authorization, validateStoreAccess,
   SocialMediaController.deleteSocialMediaById
 )
 

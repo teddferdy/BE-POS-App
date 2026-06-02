@@ -2,32 +2,33 @@ const express = require('express')
 const router = express.Router()
 const overviewController = require('../controller/overview')
 const authorization = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
-router.get('/dashboard', authorization, overviewController.getDashboard)
-router.get('/product', authorization, overviewController.getProductSummary)
-router.get('/category', authorization, overviewController.getCategorySummary)
-router.get('/location', authorization, overviewController.getLocationSummary)
-router.get('/member', authorization, overviewController.getMemberSummary)
-router.get('/user', authorization, overviewController.getUserSummary)
-router.get('/best-selling', authorization, overviewController.getBestSelling)
+router.get('/dashboard', authorization, validateStoreAccess, overviewController.getDashboard)
+router.get('/product', authorization, validateStoreAccess, overviewController.getProductSummary)
+router.get('/category', authorization, validateStoreAccess, overviewController.getCategorySummary)
+router.get('/location', authorization, validateStoreAccess, overviewController.getLocationSummary)
+router.get('/member', authorization, validateStoreAccess, overviewController.getMemberSummary)
+router.get('/user', authorization, validateStoreAccess, overviewController.getUserSummary)
+router.get('/best-selling', authorization, validateStoreAccess, overviewController.getBestSelling)
 router.get(
   '/members/latest',
-  authorization,
+  authorization, validateStoreAccess,
   overviewController.getLatestMembers
 )
 router.get(
   '/categories/latest',
-  authorization,
+  authorization, validateStoreAccess,
   overviewController.getLatestCategories
 )
 router.get(
   '/locations/latest',
-  authorization,
+  authorization, validateStoreAccess,
   overviewController.getLatestLocations
 )
 router.get(
   '/products/latest',
-  authorization,
+  authorization, validateStoreAccess,
   overviewController.getLatestProducts
 )
 

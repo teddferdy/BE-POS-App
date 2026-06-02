@@ -1,37 +1,63 @@
 const express = require('express')
 const router = express.Router()
+const multer = require('multer')
 
 const discountController = require('../controller/discount')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
+
+const uploadExcel = multer({ storage: multer.memoryStorage() })
 
 // Get All Discount - All authenticated users
 router.get(
   '/get-discount-by-location',
-  authorization,
+  authorization, validateStoreAccess,
   discountController.getAllDiscountByLocationAndActive
 )
-router.get('/get-discount', authorization, discountController.getAllDiscount)
+router.get('/get-discount', authorization, validateStoreAccess, discountController.getAllDiscount)
 
 // Add Discount - Admin & Super Admin only
 router.post(
   '/add-new-discount',
-  requireRole('super_admin', 'admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   discountController.postNewDiscount
 )
 
 // Edit Discount - Admin & Super Admin only
 router.put(
   '/edit-discount/:id',
-  requireRole('super_admin', 'admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   discountController.editDiscountById
 )
 
 // Delete Discount - Admin & Super Admin only
 router.delete(
   '/delete-discount/:id',
-  requireRole('super_admin', 'admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   discountController.deleteDiscountById
+)
+
+// Download Template - Super Admin only
+router.get(
+  '/template',
+  authorization, validateStoreAccess, requireRole('super_admin'),
+  discountController.downloadTemplate
+)
+
+// Download Excel Data - Super Admin only
+router.get(
+  '/download',
+  authorization, validateStoreAccess, requireRole('super_admin'),
+  discountController.downloadData
+)
+
+// Upload Excel - Super Admin only
+router.post(
+  '/import',
+  authorization, validateStoreAccess, requireRole('super_admin'),
+  uploadExcel.single('file'),
+  discountController.importData
 )
 
 module.exports = router

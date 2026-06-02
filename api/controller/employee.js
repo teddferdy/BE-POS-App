@@ -8,6 +8,7 @@ const {
   uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
+const { createNotification } = require('../../utils/createNotification')
 
 exports.addEmployee = async (req, res) => {
   const body = req.body
@@ -144,6 +145,8 @@ exports.addEmployee = async (req, res) => {
 
     const result = createUser.toJSON()
     delete result.password
+
+    createNotification({ type: 'employee_created', store: createUser.store, referenceId: createUser.id, referenceType: 'employee', params: [req.body.fullName] }).catch(console.error)
 
     return res.status(200).json({
       success: true,
@@ -451,6 +454,8 @@ exports.updateEmployee = async (req, res) => {
     const result = employee.toJSON()
     delete result.password
 
+    createNotification({ type: 'employee_updated', store: employee.store, referenceId: employee.id, referenceType: 'employee', params: [req.body.fullName || employee.fullName] }).catch(console.error)
+
     return res.status(200).json({
       success: true,
       message: 'Karyawan berhasil diupdate',
@@ -483,6 +488,8 @@ exports.deleteEmployee = async (req, res) => {
     }
 
     await User.destroy({ where: { id }, force: true })
+
+    createNotification({ type: 'employee_deleted', store: employee.store, referenceId: employee.id, referenceType: 'employee', params: [employee.fullName || 'Unknown'] }).catch(console.error)
 
     return res.status(200).json({
       success: true,

@@ -2,6 +2,8 @@ const express = require('express')
 const router = express.Router()
 const invoiceController = require('../controller/invoice')
 const authorization = require('../../utils/authorization')
+const { requireRole } = authorization
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
 const multer = require('multer')
 const fs = require('fs')
@@ -42,58 +44,70 @@ const uploadExcel = multer({
   }
 }).single('file')
 
-router.get('/logo', authorization, invoiceController.getLogo)
-router.get('/logo/active', authorization, invoiceController.getLogoActive)
-router.post('/logo', authorization, upload, invoiceController.createLogo)
-router.put('/logo/:id', authorization, upload, invoiceController.updateLogo)
-router.delete('/logo/:id', authorization, invoiceController.deleteLogo)
-router.put('/logo/:id/activate', authorization, invoiceController.activateLogo)
+router.get('/logo', authorization, validateStoreAccess, invoiceController.getLogo)
+router.get('/logo/active', authorization, validateStoreAccess, invoiceController.getLogoActive)
+router.post('/logo', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), upload, invoiceController.createLogo)
+router.put('/logo/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), upload, invoiceController.updateLogo)
+router.delete('/logo/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.deleteLogo)
+router.put('/logo/:id/activate', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.activateLogo)
 router.get(
   '/logo/template',
   authorization,
+  validateStoreAccess,
   invoiceController.downloadLogoTemplate
 )
 router.post(
   '/logo/import',
   authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   uploadExcel,
   invoiceController.importLogo
 )
 
-router.get('/social-media', authorization, invoiceController.getSocialMedia)
+router.get('/social-media', authorization, validateStoreAccess, invoiceController.getSocialMedia)
 router.get(
   '/social-media/active',
   authorization,
+  validateStoreAccess,
   invoiceController.getSocialMediaActive
 )
-router.post('/social-media', authorization, invoiceController.createSocialMedia)
+router.post('/social-media', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.createSocialMedia)
 router.put(
   '/social-media/:id',
   authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   invoiceController.updateSocialMedia
 )
 router.delete(
   '/social-media/:id',
   authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   invoiceController.deleteSocialMedia
 )
 router.put(
   '/social-media/:id/activate',
   authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   invoiceController.activateSocialMedia
 )
 
-router.get('/footer', authorization, invoiceController.getFooter)
-router.get('/footer/active', authorization, invoiceController.getFooterActive)
-router.post('/footer', authorization, invoiceController.createFooter)
-router.put('/footer/:id', authorization, invoiceController.updateFooter)
-router.delete('/footer/:id', authorization, invoiceController.deleteFooter)
+router.get('/footer', authorization, validateStoreAccess, invoiceController.getFooter)
+router.get('/footer/active', authorization, validateStoreAccess, invoiceController.getFooterActive)
+router.post('/footer', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.createFooter)
+router.put('/footer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.updateFooter)
+router.delete('/footer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.deleteFooter)
 router.put(
   '/footer/:id/activate',
   authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   invoiceController.activateFooter
 )
 
-router.get('/all', authorization, invoiceController.getAll)
+router.get('/all', authorization, validateStoreAccess, invoiceController.getAll)
 
 module.exports = router

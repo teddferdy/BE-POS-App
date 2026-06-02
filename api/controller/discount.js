@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const Discount = db.discount
+const ExcelJS = require('exceljs')
 
 exports.getAllDiscountByLocationAndActive = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -38,22 +39,278 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
     })
+}
   }
 }
 
-exports.getAllDiscount = async (req, res) => {
-  const store = req.query.store || req.user?.store
-  const { page = 1, size = 10, status = 'all' } = req.query
-  const limit = parseInt(size)
-  const offset = (parseInt(page) - 1) * limit
-
-  let whereCondition = store ? { store } : {}
-
-  if (status === 'true') {
-    whereCondition.status = true
-  } else if (status === 'false') {
-    whereCondition.status = false
+// Download Template - Super Admin only
+exports.downloadTemplate = async (req, res) => {
+  try {
+    // Generate template Excel file
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Discount Template');
+    
+    // Add headers
+    worksheet.addRow([
+      'Name',
+      'Type (Percentage/Nominal)',
+      'Value',
+      'Start Date (YYYY-MM-DD)',
+      'End Date (YYYY-MM-DD, optional)',
+      'Minimum Purchase',
+      'Description',
+      'Is Active (true/false)'
+    ]);
+    
+    // Style headers
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD3D3D3' }
+    };
+    
+    // Set column widths
+    worksheet.columns = [
+      { width: 20 }, // Name
+      { width: 20 }, // Type
+      { width: 15 }, // Value
+      { width: 15 }, // Start Date
+      { width: 15 }, // End Date
+      { width: 20 }, // Minimum Purchase
+      { width: 30 }, // Description
+      { width: 15 }  // Is Active
+    ];
+    
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    
+    // Set response headers
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=discount-template.xlsx'
+    );
+    
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Error =>', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    });
   }
+};
+
+// Download Excel Data - Super Admin only
+exports.downloadData = async (req, res) => {
+  try {
+    const { store } = req.query;
+    const filters = {};
+    if (store) {
+      filters.store = store;
+    }
+    
+    const discounts = await Discount.findAll({ where: filters });
+    
+    // Generate Excel file
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Discounts Data');
+    
+    // Add headers
+    worksheet.addRow([
+      'ID',
+      'Name',
+      'Type',
+      'Value',
+      'Start Date',
+      'End Date',
+      'Minimum Purchase',
+      'Description',
+      'Is Active',
+      'Created At'
+    ]);
+    
+    // Style headers
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD3D3D3' }
+    };
+    
+    // Add data rows
+    discounts.forEach(discount => {
+      worksheet.addRow([
+        discount.id,
+        discount.name,
+        discount.type,
+        discount.value,
+        discount.startDate ? discount.startDate.toISOString().split('T')[0] : '',
+        discount.endDate ? discount.endDate.toISOString().split('T')[0] : '',
+        discount.minimumOrder,
+        discount.description || '',
+        discount.status ? 'true' : 'false',
+        discount.createdAt ? discount.createdAt.toISOString() : ''
+      ]);
+    });
+    
+    // Style data rows
+    worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+      if (rowNumber > 1) {
+        // Add borders
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      }
+    });
+    
+    // Set column widths
+    worksheet.columns = [
+      { width: 10 }, // ID
+      { width: 20 }, // Name
+      { width: 15 }, // Type
+      { width: 15 }, // Value
+      { width: 15 }, // Start Date
+      { width: 15 }, // End Date
+      { width: 20 }, // Minimum Purchase
+      { width: 30 }, // Description
+      { width: 10 }, // Is Active
+      { width: 20 }  // Created At
+    ];
+    
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    
+    // Set response headers
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=discounts-data.xlsx'
+    );
+    
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Error =>', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    });
+  }
+};
+
+// Upload Excel - Super Admin only
+exports.importData = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
+    }
+    
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(req.file.buffer);
+    const worksheet = workbook.getWorksheet(1);
+    
+    const discountsToCreate = [];
+    const errors = [];
+    
+    // Skip header row
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber === 1) return; // Skip header
+      
+      try {
+        const [name, type, valueStr, startDateStr, endDateStr, minPurchaseStr, description, isActiveStr] = row.values;
+        
+        // Validation
+        if (!name || !type || !valueStr) {
+          errors.push(`Row ${rowNumber}: Missing required fields`);
+          return;
+        }
+        
+        const value = parseFloat(valueStr);
+        if (isNaN(value) || value < 0) {
+          errors.push(`Row ${rowNumber}: Invalid value`);
+          return;
+        }
+        
+        const typeNormalized = type.toLowerCase().trim();
+        if (!['percentage', 'nominal'].includes(typeNormalized)) {
+          errors.push(`Row ${rowNumber}: Invalid type. Must be 'percentage' or 'nominal'`);
+          return;
+        }
+        
+        const startDate = startDateStr ? new Date(startDateStr) : undefined;
+        const endDate = endDateStr ? new Date(endDateStr) : undefined;
+        const minimumOrder = parseFloat(minPurchaseStr) || 0;
+        const isActive = isActiveStr?.toLowerCase() === 'true' || isActiveStr === '1' || !!isActiveStr;
+        
+        // Check for duplicate name
+        const existingDiscount = await Discount.findOne({
+          where: { 
+            name: name.trim(),
+            ...(req.user?.store ? { store: req.user.store } : {})
+          }
+        });
+        
+        if (existingDiscount) {
+          errors.push(`Row ${rowNumber}: Discount with name '${name}' already exists`);
+          return;
+        }
+        
+        discountsToCreate.push({
+          name: name.trim(),
+          type: typeNormalized === 'percentage' ? 'percent' : 'nominal',
+          value: value,
+          startDate: startDate,
+          endDate: endDate,
+          minimumOrder: minimumOrder,
+          description: description?.trim() || null,
+          status: isActive,
+          store: req.user?.store,
+          createdBy: req.user?.id
+        });
+      } catch (error) {
+        errors.push(`Row ${rowNumber}: ${error.message}`);
+      }
+    });
+    
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors occurred',
+        errors: errors
+      });
+    }
+    
+    // Create all discounts
+    const createdDiscounts = await Discount.bulkCreate(discountsToCreate);
+    
+    return res.status(201).json({
+      success: true,
+      message: `Successfully imported ${createdDiscounts.length} discounts`,
+      data: createdDiscounts
+    });
+  } catch (error) {
+    console.error('Error =>', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    });
+  }
+};
 
   try {
     const { count, rows: subCategory } = await Discount.findAndCountAll({

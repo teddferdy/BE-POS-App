@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const Checkout = db.checkout
 const Transaction = db.transaction
 const BestSelling = db.best_selling
+const { createNotification } = require('../../utils/createNotification')
 
 exports.addNewTransaction = async (id, order) => {
   for (const element of order) {
@@ -100,6 +101,8 @@ exports.checkout = async (req, res) => {
       })
 
       if (creadtedCheckout?.getDataValue) {
+        createNotification({ type: 'payment_received', store: body.store, referenceId: creadtedCheckout.id, referenceType: 'checkout', params: [invoice, body.totalPrice] }).catch(console.error)
+
         return res.status(200).json({
           success: true,
           message: 'Success',
@@ -151,6 +154,8 @@ exports.editCheckout = async (req, res) => {
     ).then(([_, data]) => {
       return data
     })
+
+    createNotification({ type: 'payment_received', store: body.store, referenceId: body.id, referenceType: 'checkout', params: [body.invoice, body.totalPrice] }).catch(console.error)
 
     return res.status(200).json({
       success: true,

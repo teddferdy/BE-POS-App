@@ -4,6 +4,7 @@ const router = express.Router()
 
 const departmentController = require('../controller/department')
 const authorization = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Configure multer for file uploads
 const upload = multer({
@@ -27,54 +28,54 @@ const upload = multer({
   }
 })
 
-router.get('/get-department', departmentController.getAllDepartment)
+router.get('/get-department', authorization, validateStoreAccess, departmentController.getAllDepartment)
 
 router.get(
   '/get-department-all',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.getAllDepartmentInTable
 )
 
 router.get(
   '/get-department/:id',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.getDepartmentById
 )
 
 router.post(
   '/add-new-department',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.addNewDepartment
 )
 
 router.put(
   '/edit-department/:id',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.editDepartmentById
 )
 
 router.delete(
   '/delete-department/:id',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.deleteDepartmentById
 )
 
 // Excel upload/download routes
 router.get(
   '/download-template',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.downloadTemplate
 )
 
 router.get(
   '/download',
-  authorization,
+  authorization, validateStoreAccess,
   departmentController.downloadData
 )
 
 router.post(
   '/upload',
-  authorization,
+  authorization, validateStoreAccess,
   upload.single('file'),
   departmentController.uploadExcel
 )

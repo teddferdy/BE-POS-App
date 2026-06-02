@@ -34,6 +34,7 @@ const {
   uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
+const { createNotification } = require('../../utils/createNotification')
 const {
   downloadLocationTemplate,
   parseLocationTemplate
@@ -297,6 +298,8 @@ exports.addNewLocation = async (req, res) => {
     const newLocationId = `loc-${String(newLocation.id).padStart(3, '0')}`
     const storeId = `ST-${String(newLocation.id).padStart(3, '0')}`
 
+    createNotification({ type: 'location_created', store: newLocation.store, referenceId: newLocation.id, referenceType: 'location', params: [name] }).catch(console.error)
+
     return res.status(201).json({
       success: true,
       message: 'Location created successfully',
@@ -406,6 +409,8 @@ exports.editLocationById = async (req, res) => {
     // Only propagate status changes to related models (not name)
     await batchUpdateModels(id, { status: updatedData.status })
 
+    createNotification({ type: 'location_updated', store: id, referenceId: id, referenceType: 'location', params: [name] }).catch(console.error)
+
     return res.status(200).json({
       success: true,
       message: 'Successfully updated location.',
@@ -492,6 +497,9 @@ exports.deleteLocationById = async (req, res) => {
 
     // Hard delete the location (force: true bypasses paranoid if set)
     await Location.destroy({ where: { id: dbId }, force: true })
+
+    createNotification({ type: 'location_deleted', store: dbId, referenceId: dbId, referenceType: 'location', params: [location.name] }).catch(console.error)
+
     return res
       .status(200)
       .json({ success: true, message: 'Location deleted successfully' })

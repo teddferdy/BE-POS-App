@@ -6,6 +6,7 @@ const positionController = require('../controller/position')
 // Authorization
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Configure multer for file uploads
 const upload = multer({
@@ -30,26 +31,26 @@ const upload = multer({
 })
 
 // Get All position
-router.get('/get-position', positionController.getAllPosition)
+router.get('/get-position', authorization, validateStoreAccess, positionController.getAllPosition)
 
 // Get position by ID
 router.get(
   '/get-position/:id',
-  authorization,
+  authorization, validateStoreAccess,
   positionController.getPositionById
 )
 
 // Get All List To Table
 router.get(
   '/get-position-all',
-  authorization,
+  authorization, validateStoreAccess,
   positionController.getAllPositionInTable
 )
 
 // Add position
 router.post(
   '/add-new-position',
-  authorization,
+  authorization, validateStoreAccess,
   requireRole('super_admin', 'admin'),
   positionController.addNewPosition
 )
@@ -57,7 +58,7 @@ router.post(
 // Edit position
 router.put(
   '/edit-position/:id',
-  authorization,
+  authorization, validateStoreAccess,
   requireRole('super_admin', 'admin'),
   positionController.editPositionById
 )
@@ -65,7 +66,7 @@ router.put(
 // Delete position
 router.delete(
   '/delete-position/:id',
-  authorization,
+  authorization, validateStoreAccess,
   requireRole('super_admin', 'admin'),
   positionController.deletePositionById
 )
@@ -73,19 +74,19 @@ router.delete(
 // Excel upload/download routes
 router.get(
   '/download-template',
-  authorization,
+  authorization, validateStoreAccess,
   positionController.downloadTemplate
 )
 
 router.get(
   '/download',
-  authorization,
+  authorization, validateStoreAccess,
   positionController.downloadData
 )
 
 router.post(
   '/upload',
-  authorization,
+  authorization, validateStoreAccess,
   requireRole('super_admin', 'admin'),
   upload.single('file'),
   positionController.uploadExcel

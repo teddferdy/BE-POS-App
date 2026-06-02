@@ -3,6 +3,7 @@ const router = express.Router()
 const employeeController = require('../controller/employee')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -31,35 +32,35 @@ const upload = multer({
 
 router.post(
   '/add-employee',
-  requireRole('super_admin', 'admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   upload,
   employeeController.addEmployee
 )
 
-router.get('/get-employee', authorization, employeeController.getAllEmployee)
+router.get('/get-employee', authorization, validateStoreAccess, employeeController.getAllEmployee)
 
 router.get(
   '/get-employee/:id',
-  authorization,
+  authorization, validateStoreAccess,
   employeeController.getEmployeeById
 )
 
 router.get(
   '/get-employee-detail/:employeeID',
-  authorization,
+  authorization, validateStoreAccess,
   employeeController.getEmployeeByEmployeeID
 )
 
 router.put(
   '/edit-employee',
-  requireRole('super_admin', 'admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   upload,
   employeeController.updateEmployee
 )
 
 router.delete(
   '/delete-employee/:id',
-  requireRole('super_admin', 'admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   employeeController.deleteEmployee
 )
 

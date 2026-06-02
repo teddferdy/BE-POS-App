@@ -8,6 +8,7 @@ const {
   uploadToCloudinary,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
+const { createNotification } = require('../../utils/createNotification')
 const {
   downloadProductTemplate,
   parseProductTemplate
@@ -269,6 +270,8 @@ exports.postAddProduct = async (req, res) => {
       })
     }
 
+    createNotification({ type: 'product_created', store: parsedStores?.[0] || req.user?.store, referenceId: postData.id, referenceType: 'product', params: [nameProduct] }).catch(console.error)
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -406,6 +409,8 @@ exports.editProductByLocationAndId = async (req, res) => {
       })
     }
 
+    createNotification({ type: 'product_updated', store: getAllProductByIdAndLocation.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [nameProduct] }).catch(console.error)
+
     return res.status(200).json({
       success: true,
       message: 'Sukses Ubah Product',
@@ -421,27 +426,28 @@ exports.editProductByLocationAndId = async (req, res) => {
 }
 
 exports.deleteProductByIdAndLocation = async (req, res) => {
-  const { id, nameProduct } = req.body
+  const { id } = req.body
   try {
-    const where = { id }
-    if (nameProduct) where.nameProduct = nameProduct
+    const product = await Product.findByPk(id)
 
-    const getId = await Product.destroy({
-      where,
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      })
+    }
+
+    await Product.destroy({
+      where: { id },
       force: true
     })
 
-    if (getId) {
-      return res.status(200).json({
-        success: true,
-        message: 'Success Hapus Product'
-      })
-    } else {
-      return res.status(403).json({
-        success: false,
-        message: 'Hapus Product Gagal'
-      })
-    }
+    createNotification({ type: 'product_deleted', store: product.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [product.nameProduct || 'Unknown'] }).catch(console.error)
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success Hapus Product'
+    })
   } catch (error) {
     console.error('ERROR =>', error)
     return res.status(500).json({
