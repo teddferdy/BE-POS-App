@@ -40,7 +40,6 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
     })
-}
   }
 }
 
@@ -229,7 +228,7 @@ exports.importData = async (req, res) => {
     const errors = [];
     
     // Skip header row
-    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    worksheet.eachRow({ includeEmpty: false }, async (row, rowNumber) => {
       if (rowNumber === 1) return; // Skip header
       
       try {
@@ -313,37 +312,6 @@ exports.importData = async (req, res) => {
     });
   }
 };
-
-  try {
-    const { count, rows: subCategory } = await Discount.findAndCountAll({
-      where: whereCondition,
-      limit: limit,
-      offset: offset
-    })
-
-    return res.status(200).json({
-      success: true,
-      message: 'Success',
-      totalItems: count,
-      totalPages: Math.ceil(count / limit),
-      currentPage: parseInt(page),
-      data:
-        subCategory?.length > 0
-          ? subCategory?.map((items) => {
-              return {
-                ...items?.dataValues
-              }
-            })
-          : []
-    })
-  } catch (error) {
-    console.error('Error =>', error)
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi Kesalahan Internal Server'
-    })
-  }
-}
 
 exports.postNewDiscount = async (req, res) => {
   const { name, type, value, minimumOrder, maximumDiscount, startDate, endDate, status, createdBy } = req.body
