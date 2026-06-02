@@ -43,6 +43,40 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
   }
 }
 
+exports.getAllDiscount = async (req, res) => {
+  const store = req.query.store || req.user?.store
+  const { page = 1, size = 10, status } = req.query
+  const limit = parseInt(size)
+  const offset = (parseInt(page) - 1) * limit
+
+  try {
+    const whereCondition = {}
+    if (store) whereCondition.store = store
+    if (status !== undefined && status !== 'all') whereCondition.status = status === 'true'
+
+    const { count, rows } = await Discount.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset
+    })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      totalItems: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      data: rows.map((items) => items.dataValues)
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
 // Download Template - Super Admin only
 exports.downloadTemplate = async (req, res) => {
   try {
