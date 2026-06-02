@@ -43,6 +43,9 @@ const taxConfigRoutes = require('./routes/taxConfig')
 const priceListTemplateRoutes = require('./routes/priceListTemplate')
 const posRoutes = require('./routes/pos')
 const notificationRoutes = require('./routes/notification')
+const currencyRoutes = require('./routes/currency')
+const auditLogRoutes = require('./routes/auditLog')
+const receiptRoutes = require('./routes/receipt')
 
 const app = express()
 const server = http.createServer(app)
@@ -106,8 +109,11 @@ const routes = [
     { path: '/tax-config', route: taxConfigRoutes },
     { path: '/price-list-template', route: priceListTemplateRoutes },
     { path: '/pos', route: posRoutes },
-    { path: '/notification', route: notificationRoutes }
-]
+    { path: '/notification', route: notificationRoutes },
+    { path: '/currency', route: currencyRoutes },
+    { path: '/audit-log', route: auditLogRoutes },
+    { path: '/receipt', route: receiptRoutes }
+  ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
 
