@@ -102,6 +102,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSONB,
         defaultValue: []
       },
+      currencyId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'currency', key: 'id' }
+      },
+      currencyCode: {
+        type: DataTypes.STRING(10),
+        allowNull: true
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },

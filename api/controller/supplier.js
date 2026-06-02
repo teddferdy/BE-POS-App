@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 const ExcelJS = require('exceljs')
 
 const generateOrderNumber = (prefix) => {
@@ -118,6 +119,7 @@ const supplierController = {
       })
 
       createNotification({ type: 'supplier_created', store, referenceId: supplier.id, referenceType: 'supplier', params: [name] }).catch(console.error)
+      createAudit(req, 'create', 'supplier', supplier.id, `Created supplier: ${name}`)
 
       return res.status(201).json({
         success: true,
@@ -162,6 +164,7 @@ const supplierController = {
       })
 
       createNotification({ type: 'supplier_updated', store, referenceId: id, referenceType: 'supplier', params: [name || supplier.name] }).catch(console.error)
+      createAudit(req, 'update', 'supplier', id, `Updated supplier: ${id}`)
 
       return res.status(200).json({
         success: true,
@@ -196,6 +199,7 @@ const supplierController = {
       await supplier.destroy()
 
       createNotification({ type: 'supplier_deleted', store, referenceId: id, referenceType: 'supplier', params: [supplier.name] }).catch(console.error)
+      createAudit(req, 'delete', 'supplier', id, `Deleted supplier: ${supplier.name}`)
 
       return res.status(200).json({
         success: true,
@@ -325,6 +329,7 @@ const supplierController = {
       }
 
       const createdSuppliers = await db.supplier.bulkCreate(suppliersToCreate);
+      createAudit(req, 'import', 'supplier', null, `Imported ${createdSuppliers.length} suppliers`)
 
       return res.status(201).json({
         success: true,

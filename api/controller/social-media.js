@@ -1,4 +1,5 @@
 const db = require('../../db/models')
+const { createAudit } = require('../../utils/auditLog')
 const SocialMedia = db.social_media
 
 exports.getAllSocialMedia = async (req, res) => {
@@ -50,6 +51,8 @@ exports.addNewSocialMedia = async (req, res) => {
       })
 
       if (creadtedCategory.getDataValue) {
+        await createAudit(req, 'create', 'social_media_config', creadtedCategory.id, 'Created social_media_config: ' + creadtedCategory.id)
+
         return res.status(200).json({
           success: true,
           message: 'Social Media Berhasil Di Buat'
@@ -97,6 +100,8 @@ exports.editSocialMediaById = async (req, res) => {
         return data
       })
 
+      await createAudit(req, 'update', 'social_media_config', body.id, 'Updated social_media_config: ' + body.id)
+
       return res.status(200).json({
         success: true,
         message: 'Sukses Ubah Social Media',
@@ -131,6 +136,8 @@ exports.deleteSocialMediaById = async (req, res) => {
     })
 
     if (getId) {
+      await createAudit(req, 'delete', 'social_media_config', body.id, 'Deleted social_media_config: ' + body.id)
+
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Social Media'

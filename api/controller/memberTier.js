@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { createAudit } = require('../../utils/auditLog')
 
 const memberTierController = {
     async getAll(req, res) {
@@ -50,6 +51,7 @@ const memberTierController = {
         status: true,
         createdBy
       })
+      createAudit(req, 'create', 'member_tier', tier.id, 'Created member_tier: ' + (tier.name || tier.id))
 
       return res.status(201).json({
         success: true,
@@ -94,6 +96,7 @@ const memberTierController = {
         status: status !== undefined ? status : tier.status,
         modifiedBy
       })
+      createAudit(req, 'update', 'member_tier', id, 'Updated member_tier: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -126,6 +129,7 @@ const memberTierController = {
       }
 
       await tier.destroy()
+      createAudit(req, 'delete', 'member_tier', id, 'Deleted member_tier: ' + id)
 
       return res.status(200).json({
         success: true,

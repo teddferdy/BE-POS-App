@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
+const { createAudit } = require('../../utils/auditLog')
 
 const taxConfigController = {
   async getAll(req, res) {
@@ -100,6 +101,7 @@ const taxConfigController = {
         description,
         createdBy
       })
+      createAudit(req, 'create', 'tax_config', tax.id, 'Created tax_config: ' + (tax.name || tax.id))
 
       return res.status(201).json({
         success: true,
@@ -141,6 +143,7 @@ const taxConfigController = {
         status: status !== undefined ? status : tax.status,
         modifiedBy
       })
+      createAudit(req, 'update', 'tax_config', id, 'Updated tax_config: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -173,6 +176,7 @@ const taxConfigController = {
       }
 
       await tax.destroy()
+      createAudit(req, 'delete', 'tax_config', id, 'Deleted tax_config: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -295,6 +299,7 @@ const taxConfigController = {
       }
 
       const created = await db.taxConfig.bulkCreate(taxesToCreate)
+      createAudit(req, 'create', 'tax_config', null, 'Imported tax_configs: ' + created.length)
 
       return res.status(201).json({
         success: true,

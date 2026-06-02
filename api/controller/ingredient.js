@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { createAudit } = require('../../utils/auditLog')
 
 const ingredientController = {
     async getAll(req, res) {
@@ -111,6 +112,7 @@ const ingredientController = {
         status: status !== undefined ? status : true,
         createdBy
       })
+      createAudit(req, 'create', 'ingredient', ingredient.id, 'Created ingredient: ' + (ingredient.name || ingredient.id))
 
       return res.status(201).json({
         success: true,
@@ -157,6 +159,7 @@ const ingredientController = {
         status: status !== undefined ? status : ingredient.status,
         modifiedBy
       })
+      createAudit(req, 'update', 'ingredient', id, 'Updated ingredient: ' + id)
 
       if (stock !== undefined && stock !== oldStock) {
         const quantityBefore = oldStock
@@ -276,6 +279,7 @@ const ingredientController = {
       }
 
       await ingredient.destroy()
+      createAudit(req, 'delete', 'ingredient', id, 'Deleted ingredient: ' + id)
 
       return res.status(200).json({
         success: true,

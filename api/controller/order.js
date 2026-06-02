@@ -8,6 +8,7 @@ const Discount = db.discount
 const Transaction = db.transaction
 const BestSelling = db.best_selling
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 
 const generateOrderNumber = () => {
   const date = new Date()
@@ -48,7 +49,7 @@ const calculateOrderTotals = (items, discountValue = 0, discountType = 'none', t
 }
 
 exports.createOrder = async (req, res) => {
-  const { store, tableId, cashierId, cashierName, items, discountId, customerId, customerName, customerPhone, notes, source } = req.body
+  const { store, tableId, cashierId, cashierName, items, discountId, customerId, customerName, customerPhone, notes, source, currencyId, currencyCode, exchangeRate } = req.body
 
   try {
     const orderNumber = generateOrderNumber()
@@ -102,6 +103,9 @@ exports.createOrder = async (req, res) => {
       serviceChargeRate,
       serviceChargeAmount: totals.serviceChargeAmount,
       totalPrice: totals.totalPrice,
+      currencyId: currencyId || null,
+      currencyCode: currencyCode || null,
+      exchangeRate: exchangeRate || null,
       createdBy: cashierId
     })
 
@@ -137,6 +141,7 @@ exports.createOrder = async (req, res) => {
     })
 
     createNotification({ type: 'order_created', store, referenceId: order.id, referenceType: 'order', params: [orderNumber] }).catch(console.error)
+    createAudit(req, 'create', 'order', order.id, `Created order: ${orderNumber}`)
 
     return res.status(201).json({
       message: 'Order created successfully',
@@ -242,6 +247,8 @@ exports.updateOrderStatus = async (req, res) => {
     if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
       await Table.update({ status: 'available' }, { where: { id: order.tableId } })
     }
+
+    createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
 
     return res.status(200).json({
       message: 'Order status updated',
@@ -438,6 +445,8 @@ exports.applyDiscount = async (req, res) => {
       totalPrice: totals.subTotal - totals.discountAmount + totals.taxAmount + totals.serviceChargeAmount
     })
 
+    createAudit(req, 'update', 'order', id, `Applied discount to order: ${id}`)
+
     return res.status(200).json({
       message: 'Discount applied',
       data: order
@@ -556,6 +565,8 @@ exports.voidOrder = async (req, res) => {
     if (order.tableId) {
       await Table.update({ status: 'available' }, { where: { id: order.tableId } })
     }
+
+    createAudit(req, 'update', 'order', id, `Voided order: ${order.orderNumber}`)
 
     return res.status(200).json({
       message: 'Order voided successfully',

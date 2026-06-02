@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
+const { createAudit } = require('../../utils/auditLog')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -169,6 +170,8 @@ const purchaseOrderController = {
         ]
       })
 
+      await createAudit(req, 'create', 'purchase_order', purchaseOrder.id, 'Created purchase_order: ' + purchaseOrder.id)
+
       return res.status(201).json({
         success: true,
         message: 'Success create purchase order',
@@ -245,6 +248,8 @@ const purchaseOrderController = {
         orderDate: orderDate || purchaseOrder.orderDate,
         modifiedBy
       })
+
+      await createAudit(req, 'update', 'purchase_order', id, 'Updated purchase_order: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -367,6 +372,8 @@ const purchaseOrderController = {
 
         await transaction.commit()
 
+        await createAudit(req, 'update', 'purchase_order', id, 'Received purchase_order: ' + id)
+
         return res.status(200).json({
           success: true,
           message: 'Success receive purchase order',
@@ -416,6 +423,8 @@ const purchaseOrderController = {
           : `Cancellation reason: ${reason}`
       })
 
+      await createAudit(req, 'update', 'purchase_order', id, 'Cancelled purchase_order: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success cancel purchase order'
@@ -457,6 +466,8 @@ const purchaseOrderController = {
       })
 
       await purchaseOrder.destroy()
+
+      await createAudit(req, 'delete', 'purchase_order', id, 'Deleted purchase_order: ' + id)
 
       return res.status(200).json({
         success: true,
@@ -591,6 +602,8 @@ const purchaseOrderController = {
       if (errors.length > 0) {
         return res.status(400).json({ success: false, message: 'Validation errors', errors })
       }
+
+      await createAudit(req, 'import', 'purchase_order', null, 'Imported purchase_order from file')
 
       return res.status(200).json({
         success: true,

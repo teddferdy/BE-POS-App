@@ -9,6 +9,7 @@ const {
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
+const { createAudit } = require('../../utils/auditLog')
 const {
   downloadProductTemplate,
   parseProductTemplate
@@ -183,7 +184,9 @@ exports.postAddProduct = async (req, res) => {
     stores,
     supplier,
     tax,
-    priceTiers
+    priceTiers,
+    currencyId,
+    currencyCode
   } = req.body
 
   try {
@@ -217,13 +220,6 @@ exports.postAddProduct = async (req, res) => {
     }
 
     let parsedPriceTiers = []
-    if (priceTiers) {
-      try {
-        parsedPriceTiers = typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
-      } catch (e) {
-        parsedPriceTiers = []
-      }
-    }
 
     const postData = await Product.create({
       nameProduct,
@@ -249,7 +245,9 @@ exports.postAddProduct = async (req, res) => {
       store: parsedStores,
       supplier: supplier || null,
       tax: tax || null,
-      priceTiers: parsedPriceTiers
+      priceTiers: parsedPriceTiers,
+      currencyId: currencyId || null,
+      currencyCode: currencyCode || null
     })
 
     const sku = `PRD-${String(postData.id).padStart(5, '0')}`
@@ -271,6 +269,7 @@ exports.postAddProduct = async (req, res) => {
     }
 
     createNotification({ type: 'product_created', store: parsedStores?.[0] || req.user?.store, referenceId: postData.id, referenceType: 'product', params: [nameProduct] }).catch(console.error)
+    createAudit(req, 'create', 'product', postData.id, `Created product: ${postData.nameProduct}`)
 
     return res.status(200).json({
       success: true,
@@ -312,7 +311,9 @@ exports.editProductByLocationAndId = async (req, res) => {
     stores,
     supplier,
     tax,
-    priceTiers
+    priceTiers,
+    currencyId,
+    currencyCode
   } = req.body
 
   try {
@@ -381,7 +382,9 @@ exports.editProductByLocationAndId = async (req, res) => {
       store: parsedStores,
       supplier: supplier || null,
       tax: tax || null,
-      priceTiers: parsedPriceTiers
+      priceTiers: parsedPriceTiers,
+      currencyId: currencyId || null,
+      currencyCode: currencyCode || null
     }
 
     const oldStock = Number(getAllProductByIdAndLocation.stock) || 0
@@ -410,6 +413,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     }
 
     createNotification({ type: 'product_updated', store: getAllProductByIdAndLocation.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [nameProduct] }).catch(console.error)
+    createAudit(req, 'update', 'product', id, `Updated product: ${nameProduct}`)
 
     return res.status(200).json({
       success: true,
@@ -443,6 +447,7 @@ exports.deleteProductByIdAndLocation = async (req, res) => {
     })
 
     createNotification({ type: 'product_deleted', store: product.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [product.nameProduct || 'Unknown'] }).catch(console.error)
+    createAudit(req, 'delete', 'product', id, `Deleted product: ${product.nameProduct}`)
 
     return res.status(200).json({
       success: true,
@@ -819,6 +824,8 @@ exports.importProduct = async (req, res) => {
         })
       }
     }
+
+    createAudit(req, 'import', 'product', null, `Imported ${results.created.length} products`)
 
     res.status(200).json({
       success: true,

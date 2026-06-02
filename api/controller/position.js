@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = db.Sequelize
 const Position = db.position
 const User = db.user
+const { createAudit } = require('../../utils/auditLog')
 
 const positionInclude = [
   {
@@ -149,6 +150,7 @@ exports.addNewPosition = async (req, res) => {
         store: body.store || req.user?.store,
         createdBy: body.createdBy
       })
+      createAudit(req, 'create', 'position', creadtedPosition.id, `Created position: ${creadtedPosition.name || creadtedPosition.id}`)
 
       if (creadtedPosition.getDataValue) {
         return res.status(200).json({
@@ -198,6 +200,7 @@ exports.editPositionById = async (req, res) => {
         }
       )
       const editPosition = rows[0]
+      createAudit(req, 'update', 'position', id, `Updated position: ${editPosition.name || id}`)
 
       return res.status(200).json({
         success: true,
@@ -232,6 +235,7 @@ exports.deletePositionById = async (req, res) => {
       where: { id: positionId },
       force: true
     })
+    createAudit(req, 'delete', 'position', positionId, `Deleted position: ${positionId}`)
 
     if (getId) {
       return res.status(200).json({
@@ -605,6 +609,7 @@ exports.uploadExcel = async (req, res) => {
         const existing = await Position.findOne({ where: { name: posData.name } })
         if (!existing) {
           const pos = await Position.create(posData)
+          createAudit(req, 'create', 'position', pos.id, 'Created position: ' + (pos.name || pos.id))
           createdPositions.push(pos)
         }
       } catch (error) {

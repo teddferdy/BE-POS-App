@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const TypePayment = db.type_payment
+const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -111,6 +112,7 @@ exports.postNewTypePayment = async (req, res) => {
         status: status,
         createdBy: createdBy
       })
+      createAudit(req, 'create', 'type_payment', postData.id, 'Created type_payment: ' + (postData.name || postData.id))
       return res.status(200).json({
         success: true,
         message: 'Success',
@@ -166,6 +168,7 @@ exports.editTypePaymentById = async (req, res) => {
         ).then(([_, data]) => {
           return data
         })
+      createAudit(req, 'update', 'type_payment', body.id, 'Updated type_payment: ' + body.id)
 
       return res.status(200).json({
         success: true,
@@ -199,6 +202,7 @@ exports.deleteTypePaymentById = async (req, res) => {
       },
       force: true
     })
+    createAudit(req, 'delete', 'type_payment', body.id, 'Deleted type_payment: ' + body.id)
 
     if (getId) {
       return res.status(200).json({

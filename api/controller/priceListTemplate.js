@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { createAudit } = require('../../utils/auditLog')
 
 const priceListTemplateController = {
   async getAll(req, res) {
@@ -106,6 +107,8 @@ const priceListTemplateController = {
         createdBy
       })
 
+      await createAudit(req, 'create', 'price_list_template', template.id, 'Created price_list_template: ' + template.id)
+
       return res.status(201).json({
         success: true,
         message: 'Success create price list template',
@@ -155,6 +158,8 @@ const priceListTemplateController = {
 
       await template.update(updateData)
 
+      await createAudit(req, 'update', 'price_list_template', id, 'Updated price_list_template: ' + id)
+
       return res.status(200).json({
         success: true,
         message: 'Success update price list template',
@@ -186,6 +191,8 @@ const priceListTemplateController = {
       }
 
       await template.destroy()
+
+      await createAudit(req, 'delete', 'price_list_template', id, 'Deleted price_list_template: ' + id)
 
       return res.status(200).json({
         success: true,

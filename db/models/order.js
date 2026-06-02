@@ -103,6 +103,20 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('pos', 'online', 'qr', 'waiter'),
         defaultValue: 'pos'
       },
+      currencyId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'currency', key: 'id' }
+      },
+      currencyCode: {
+        type: DataTypes.STRING(10),
+        allowNull: true
+      },
+      exchangeRate: {
+        type: DataTypes.DECIMAL(18, 6),
+        allowNull: true,
+        defaultValue: 1.0
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },
