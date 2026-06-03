@@ -124,7 +124,8 @@ exports.createTable = async (req, res) => {
 
 exports.updateTable = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { id, name, capacity, status, modifiedBy } = req.body
+  const id = req.params.id || req.body.id
+  const { name, capacity, status, modifiedBy } = req.body
 
   try {
     const table = await Table.findOne({
@@ -196,7 +197,8 @@ exports.deleteTable = async (req, res) => {
 
 exports.updateTableStatus = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { id, status, modifiedBy } = req.body
+  const id = req.params.id || req.body.id
+  const { status, modifiedBy } = req.body
 
   try {
     const table = await Table.findOne({

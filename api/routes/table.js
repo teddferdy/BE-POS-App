@@ -25,7 +25,7 @@ router.post(
   tableController.createTable
 )
 router.put(
-  '/update',
+  '/update/:id',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   tableController.updateTable
 )
@@ -36,6 +36,6 @@ router.delete(
 )
 
 // Update status - All authenticated users (for POS)
-router.put('/update-status', authorization, validateStoreAccess, tableController.updateTableStatus)
+router.put('/update-status/:id', authorization, validateStoreAccess, tableController.updateTableStatus)
 
 module.exports = router

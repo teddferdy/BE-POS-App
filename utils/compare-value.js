@@ -22,9 +22,6 @@ const compareProduct = (newData, existingData) => {
   if (newData.category !== existingData.category) {
     return false
   }
-  if (newData.subCategory !== existingData.subCategory) {
-    return false
-  }
   if (newData.store !== existingData.store) {
     return false
   }

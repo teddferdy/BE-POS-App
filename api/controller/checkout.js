@@ -2,6 +2,8 @@ const db = require('../../db/models')
 const Checkout = db.checkout
 const Transaction = db.transaction
 const BestSelling = db.best_selling
+const Member = db.member
+const MemberTier = db.member_tier
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 
@@ -98,6 +100,25 @@ exports.checkout = async (req, res) => {
         typePayment: body.typePayment,
         createdBy: body.createdBy
       })
+
+      if (body.customerPhoneNumber) {
+        try {
+          const member = await Member.findOne({ where: { phoneNumber: body.customerPhoneNumber, store: body.store } })
+          if (member) {
+            const tier = member.tier ? await MemberTier.findByPk(member.tier) : null
+            const multiplier = tier?.pointMultiplier || 1
+            const pointsEarned = Math.floor((Number(body.totalPrice) || 0) / 1000 * Number(multiplier))
+            if (pointsEarned > 0) {
+              await member.update({
+                totalPoints: (member.totalPoints || 0) + pointsEarned,
+                lifetimePoints: (member.lifetimePoints || 0) + pointsEarned
+              })
+            }
+          }
+        } catch (err) {
+          console.error('Error updating member points:', err)
+        }
+      }
 
       createAudit(req, 'create', 'checkout', creadtedCheckout.id, `Created checkout: ${creadtedCheckout.id}`)
 
