@@ -13,7 +13,7 @@ exports.getAllMember = async (req, res) => {
     }
     
     if (nameMember) {
-      filters.nameMember = {
+      filters.name = {
         [Op.like]: `%${nameMember}%`
       }
     }
@@ -92,23 +92,29 @@ exports.addNewMember = async (req, res) => {
     const findOneMember = await Member?.findOne({
       returning: true,
       where: {
-        nameMember: body?.nameMember,
+        name: body?.nameMember,
         phoneNumber: body?.phoneNumber
       }
     })
 
     if (!findOneMember?.getDataValue) {
       const createdMember = await Member.create({
-        nameMember: body.nameMember,
+        name: body.nameMember,
         phoneNumber: body.phoneNumber,
+        email: body.email,
+        dateOfBirth: body.birthDate,
+        gender: body.gender,
+        address: body.address,
+        tier: body.tier,
         store: body.store || body.location,
         createdBy: body.createdBy,
         status: body.status || true,
-        point: body.point || 0
+        totalPoints: body.point || 0,
+        lifetimePoints: body.point || 0
       })
 
       if (createdMember.getDataValue) {
-        createAudit(req, 'create', 'member', createdMember.id, `Created member: ${createdMember.nameMember}`)
+        createAudit(req, 'create', 'member', createdMember.id, `Created member: ${createdMember.name}`)
         return res.status(201).json({
           success: true,
           message: 'Member Berhasil Di Buat',
@@ -133,7 +139,7 @@ exports.addNewMember = async (req, res) => {
 exports.editMember = async (req, res) => {
   try {
     const { id } = req.params
-    const { store, nameMember, phoneNumber, status, point } = req.body
+    const { store, nameMember, phoneNumber, email, birthDate, gender, address, tier, status, point } = req.body
 
     const member = await Member.findOne({
       where: { id, ...(store && { store }) }
@@ -147,10 +153,19 @@ exports.editMember = async (req, res) => {
     }
 
     const updateData = {}
-    if (nameMember) updateData.nameMember = nameMember
+    if (nameMember) updateData.name = nameMember
     if (phoneNumber) updateData.phoneNumber = phoneNumber
+    if (email !== undefined) updateData.email = email
+    if (birthDate !== undefined) updateData.dateOfBirth = birthDate
+    if (gender !== undefined) updateData.gender = gender
+    if (address !== undefined) updateData.address = address
+    if (tier !== undefined) updateData.tier = tier
     if (status !== undefined) updateData.status = status
-    if (point !== undefined) updateData.point = point
+    if (point !== undefined) {
+      updateData.totalPoints = point
+      updateData.lifetimePoints = point
+    }
+    updateData.modifiedBy = req.user?.id
 
     const updatedMember = await member.update(updateData)
 
@@ -209,35 +224,27 @@ exports.editMemberById = async (req, res) => {
   const body = req.body
   try {
     const getMember = await Member.findOne({
-      returning: true,
       where: {
-        nameMember: body.nameMember,
+        name: body.nameMember,
         phoneNumber: body?.phoneNumber
       }
     })
 
-    if (getMember?.dataValues) {
-      const editMember = await Member?.update(
-        {
-          point: body.point + Number(getMember?.dataValues?.point)
-        },
-        {
-          returning: true,
-          where: {
-            id: getMember?.dataValues?.id,
-            nameMember: body.nameMember,
-            phoneNumber: body?.phoneNumber
-          }
-        }
-      ).then(([_, data]) => {
-        return data
+    if (getMember) {
+      const addedPoints = Number(body.point) || 0
+      const newTotal = getMember.totalPoints + addedPoints
+      const newLifetime = getMember.lifetimePoints + addedPoints
+
+      await getMember.update({
+        totalPoints: newTotal,
+        lifetimePoints: newLifetime
       })
 
-      createAudit(req, 'update', 'member', getMember.dataValues.id, `Updated member points: ${getMember.dataValues.nameMember}`)
+      createAudit(req, 'update', 'member', getMember.id, `Updated member points: ${getMember.name}`)
       return res.status(200).json({
         success: true,
         message: 'Sukses',
-        data: editMember?.dataValues
+        data: getMember
       })
     } else {
       return res.status(403).json({
