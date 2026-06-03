@@ -90,6 +90,7 @@ exports.addNewRole = async (req, res) => {
         name: body.name,
         description: body.description,
         status: body.status,
+        accessMenu: body.accessMenu || [],
         createdBy: body.createdBy
       })
 
@@ -134,6 +135,7 @@ exports.editRoleById = async (req, res) => {
           name: body.name,
           description: body.description,
           status: body.status,
+          accessMenu: body.accessMenu || [],
           createdBy: body?.createdBy,
           modifiedBy: body?.modifiedBy
         },

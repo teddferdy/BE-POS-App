@@ -76,6 +76,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       modifiedBy: {
         type: DataTypes.STRING
+      },
+      socialMedia: {
+        type: DataTypes.JSONB
       }
     },
     {

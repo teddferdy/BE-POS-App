@@ -7,9 +7,7 @@ const BestSelling = db.best_selling
 const Checkout = db.checkout
 const Category = db.category
 const Discount = db.discount
-const InvoiceFooter = db.invoice_footer
-const InvoiceLogo = db.invoice_logo
-const InvoiceSocialMedia = db.invoice_social_media
+const InvoiceSetting = db.invoice_setting
 const Member = db.member
 const SocialMedia = db.social_media
 const TypePayment = db.type_payment
@@ -65,7 +63,7 @@ exports.getAllLocation = async (req, res) => {
 
 exports.getAllLocationInTable = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status = 'all' } = req.query
+    const { page = 1, limit = 10, status = 'all', category = 'all' } = req.query
     const offset = (page - 1) * limit
 
     let whereClause = {}
@@ -73,6 +71,9 @@ exports.getAllLocationInTable = async (req, res) => {
       whereClause.status = true
     } else if (status === 'false') {
       whereClause.status = false
+    }
+    if (category !== 'all') {
+      whereClause.category = category
     }
 
     const [total, activeCount, citiesResult] = await Promise.all([
@@ -85,6 +86,15 @@ exports.getAllLocationInTable = async (req, res) => {
       })
     ])
     const citiesCount = citiesResult.filter((r) => r.city).length
+
+    const categoriesResult = await Location.findAll({
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
+      raw: true
+    })
+    const categories = categoriesResult
+      .map((r) => r.category)
+      .filter(Boolean)
+      .sort()
 
     const { rows: locations } = await Location.findAndCountAll({
       where: whereClause,
@@ -117,7 +127,8 @@ exports.getAllLocationInTable = async (req, res) => {
         { day: 'Friday', open: null, close: null },
         { day: 'Saturday', open: null, close: null },
         { day: 'Sunday', open: null, close: null }
-      ]
+      ],
+      socialMedia: loc.socialMedia || []
     }))
 
     return res.status(200).json({
@@ -132,8 +143,10 @@ exports.getAllLocationInTable = async (req, res) => {
       stats: {
         total,
         active: activeCount,
-        inactive: total - activeCount
-      }
+        inactive: total - activeCount,
+        cities: citiesCount
+      },
+      categories
     })
   } catch (error) {
     console.error('Error:', error)
@@ -205,6 +218,7 @@ exports.addNewLocation = async (req, res) => {
     coordinates,
     mainBranch,
     openingHours,
+    socialMedia,
     createdBy
   } = bodyData
 
@@ -293,6 +307,7 @@ exports.addNewLocation = async (req, res) => {
       longitude: finalLongitude,
       mainBranch: mainBranch || false,
       openingHours: openingHours || [],
+      socialMedia: socialMedia || [],
       createdBy
     })
 
@@ -433,9 +448,7 @@ exports.editLocationById = async (req, res) => {
 const getLocationDeleteUpdates = () => [
   // Boolean status -> set status = false
   { model: Discount,       update: { store: null, status: false } },
-  { model: InvoiceFooter,  update: { store: null, status: false } },
-  { model: InvoiceLogo,    update: { store: null, status: false } },
-  { model: InvoiceSocialMedia, update: { store: null, status: false } },
+  { model: InvoiceSetting, update: { store: null, status: false } },
   { model: Member,         update: { store: null, status: false } },
   { model: SocialMedia,    update: { store: null, status: false } },
   { model: TypePayment,    update: { store: null, status: false } },
@@ -519,7 +532,7 @@ const batchUpdateModels = async (id, updateFields) => {
   const modelsToUpdate = [
     User, BestSelling, Checkout,
     Category, Discount,
-    InvoiceFooter, InvoiceLogo, InvoiceSocialMedia,
+    InvoiceSetting,
     Member, SocialMedia, TypePayment, Shift,
     Ingredient, CashRegister, DailySummary, StockOpname, StockHistory,
     PurchaseOrder, Order, Expense, Table,
@@ -618,7 +631,8 @@ exports.getLocationById = async (req, res) => {
         { day: 'Friday', open: null, close: null },
         { day: 'Saturday', open: null, close: null },
         { day: 'Sunday', open: null, close: null }
-      ]
+      ],
+      socialMedia: location.socialMedia || []
     }
 
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
