@@ -111,25 +111,24 @@ exports.createOrder = async (req, res) => {
 
     for (const item of items) {
       await OrderItem.create({
-        orderId: order.id,
-        productId: item.productId,
+        order: order.id,
+        product: item.product || item.productId,
         productName: item.productName,
-        productImage: item.productImage,
         quantity: item.quantity,
-        basePrice: item.basePrice,
+        price: item.basePrice || item.price,
+        options: item.options || [],
         modifiers: item.modifiers || [],
-        modifierPrice: item.modifierPrice || 0,
         notes: item.notes,
-        subtotal: item.subtotal,
-        itemStatus: 'pending'
+        totalPrice: item.subtotal || item.totalPrice,
+        status: 'pending'
       })
     }
 
     await OrderStatus.create({
-      orderId: order.id,
+      order: order.id,
       status: 'pending',
-      changedBy: cashierId,
-      changedByName: cashierName
+      createdBy: cashierId,
+      notes: `Created by ${cashierName}`
     })
 
     const fullOrder = await Order.findOne({
@@ -237,11 +236,10 @@ exports.updateOrderStatus = async (req, res) => {
     await order.update({ status })
 
     await OrderStatus.create({
-      orderId: id,
+      order: id,
       status,
-      changedBy,
-      changedByName,
-      notes
+      createdBy: changedBy,
+      notes: notes || (changedByName ? `By ${changedByName}` : null)
     })
 
     if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
@@ -266,7 +264,7 @@ exports.updateOrderItemStatus = async (req, res) => {
   const { id, itemId, itemStatus } = req.body
 
   try {
-    const item = await OrderItem.findOne({ where: { id: itemId, orderId: id } })
+    const item = await OrderItem.findOne({ where: { id: itemId, order: id } })
 
     if (!item) {
       return res.status(404).json({
@@ -274,10 +272,10 @@ exports.updateOrderItemStatus = async (req, res) => {
       })
     }
 
-    await item.update({ itemStatus })
+    await item.update({ status: itemStatus })
 
-    const allItems = await OrderItem.findAll({ where: { orderId: id } })
-    const allSameStatus = allItems.every(i => i.itemStatus === itemStatus)
+    const allItems = await OrderItem.findAll({ where: { order: id } })
+    const allSameStatus = allItems.every(i => i.status === itemStatus)
 
     if (allSameStatus) {
       const statusMap = {
@@ -320,30 +318,29 @@ exports.addItemToOrder = async (req, res) => {
     }
 
     const newItem = await OrderItem.create({
-      orderId: id,
-      productId: item.productId,
+      order: id,
+      product: item.product || item.productId,
       productName: item.productName,
-      productImage: item.productImage,
       quantity: item.quantity,
-      basePrice: item.basePrice,
+      price: item.basePrice || item.price,
+      options: item.options || [],
       modifiers: item.modifiers || [],
-      modifierPrice: item.modifierPrice || 0,
       notes: item.notes,
-      subtotal: item.subtotal,
-      itemStatus: 'pending'
+      totalPrice: item.subtotal || item.totalPrice,
+      status: 'pending'
     })
 
-    const allItems = await OrderItem.findAll({ where: { orderId: id } })
+    const allItems = await OrderItem.findAll({ where: { order: id } })
     let subTotal = 0
     let totalQuantity = 0
     allItems.forEach(i => {
-      subTotal += i.subtotal
+      subTotal += Number(i.totalPrice) || 0
       totalQuantity += i.quantity
     })
 
     await order.update({
-      subTotal: subTotal + newItem.subtotal,
-      totalQuantity: totalQuantity + newItem.quantity
+      subTotal,
+      totalQuantity
     })
 
     return res.status(201).json({
@@ -376,7 +373,7 @@ exports.removeItemFromOrder = async (req, res) => {
       })
     }
 
-    const item = await OrderItem.findOne({ where: { id: itemId, orderId: id } })
+    const item = await OrderItem.findOne({ where: { id: itemId, order: id } })
 
     if (!item) {
       return res.status(404).json({
@@ -386,11 +383,11 @@ exports.removeItemFromOrder = async (req, res) => {
 
     await item.destroy()
 
-    const allItems = await OrderItem.findAll({ where: { orderId: id } })
+    const allItems = await OrderItem.findAll({ where: { order: id } })
     let subTotal = 0
     let totalQuantity = 0
     allItems.forEach(i => {
-      subTotal += i.subtotal
+      subTotal += Number(i.totalPrice) || 0
       totalQuantity += i.quantity
     })
 
@@ -431,7 +428,7 @@ exports.applyDiscount = async (req, res) => {
     }
 
     const totals = calculateOrderTotals(
-      await OrderItem.findAll({ where: { orderId: id } }),
+      await OrderItem.findAll({ where: { order: id } }),
       discount.value,
       discount.type,
       order.taxRate,
@@ -442,7 +439,7 @@ exports.applyDiscount = async (req, res) => {
       discountType: discount.type,
       discountValue: discount.value,
       discountAmount: totals.discountAmount,
-      totalPrice: totals.subTotal - totals.discountAmount + totals.taxAmount + totals.serviceChargeAmount
+      totalPrice: totals.totalPrice
     })
 
     createAudit(req, 'update', 'order', id, `Applied discount to order: ${id}`)
@@ -481,35 +478,33 @@ exports.payment = async (req, res) => {
     })
 
     await OrderStatus.create({
-      orderId: id,
+      order: id,
       status: 'paid',
-      notes: `Payment via ${paymentMethod}`
+      notes: `Payment via ${paymentMethod}`,
+      createdBy: order.cashierId
     })
 
     for (const item of order.items) {
       await Transaction.create({
-        orderId: order.id,
-        store,
-        productId: item.productId,
-        productName: item.productName,
-        quantityPerProduct: item.quantity,
-        price: item.subtotal,
+        order: order.id,
+        typePayment: paymentMethod,
+        amount: item.totalPrice || 0,
         createdBy: order.cashierId
       })
 
       const bestSelling = await BestSelling.findOne({
-        where: { productId: item.productId, store }
+        where: { productId: item.product, store }
       })
 
       if (bestSelling) {
         await bestSelling.update({
-          totalSelling: bestSelling.totalSelling + item.quantity
+          totalSelling: (bestSelling.totalSelling || 0) + item.quantity
         })
       } else {
         await BestSelling.create({
-          productId: item.productId,
+          productId: item.product,
           nameProduct: item.productName,
-          image: item.productImage,
+          image: item.productImage || null,
           totalSelling: item.quantity,
           store
         })
@@ -555,11 +550,10 @@ exports.voidOrder = async (req, res) => {
     await order.update({ status: 'void' })
 
     await OrderStatus.create({
-      orderId: id,
+      order: id,
       status: 'void',
-      changedBy: voidedBy,
-      changedByName: voidedByName,
-      notes: reason
+      createdBy: voidedBy,
+      notes: reason || (voidedByName ? `By ${voidedByName}` : null)
     })
 
     if (order.tableId) {
@@ -595,7 +589,7 @@ exports.getKitchenOrders = async (req, res) => {
       include: [{
         model: OrderItem,
         as: 'items',
-        where: { itemStatus: { [require('sequelize').Op.in]: ['pending', 'preparing', 'ready'] } }
+        where: { status: { [require('sequelize').Op.in]: ['pending', 'preparing', 'ready'] } }
       }],
       order: [['createdAt', 'ASC']]
     })

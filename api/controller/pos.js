@@ -290,6 +290,7 @@ const posController = {
           purchaseOrder: id,
           store,
           reason,
+          returnNumber: `PR-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
           status: 'pending',
           returnedBy,
           createdBy: req.user?.id || null
@@ -370,6 +371,7 @@ const posController = {
           order: id,
           store,
           reason,
+          returnNumber: `SR-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
           status: 'pending',
           returnedBy,
           createdBy: req.user?.id || null

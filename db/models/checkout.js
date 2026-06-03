@@ -12,6 +12,9 @@ module.exports = (sequelize, DataTypes) => {
       store: {
         type: DataTypes.INTEGER
       },
+      invoice: {
+        type: DataTypes.STRING
+      },
       dateOrder: {
         type: DataTypes.DATE
       },

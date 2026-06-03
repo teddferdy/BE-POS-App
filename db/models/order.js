@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const order = sequelize.define(
     'order',
     {
       id: {
@@ -131,4 +131,12 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'order'
     }
   )
+
+  order.associate = (models) => {
+    order.hasMany(models.order_item, { foreignKey: 'order', as: 'items' })
+    order.hasMany(models.order_status, { foreignKey: 'order', as: 'statusHistory' })
+    order.belongsTo(models.table, { foreignKey: 'tableId', as: 'table' })
+  }
+
+  return order
 }

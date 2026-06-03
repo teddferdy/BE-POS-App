@@ -483,7 +483,7 @@ exports.exportProduct = async (req, res) => {
 
   try {
     const categories = await Category.findAll({
-      where: { storeId },
+      where: { store: storeId },
       attributes: ['name']
     })
 
@@ -541,7 +541,7 @@ exports.downloadData = async (req, res) => {
   ]
 
   try {
-    const where = store ? { storeId: store } : {}
+    const where = store ? { store } : {}
     const products = await Product.findAll({
       where,
       include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]

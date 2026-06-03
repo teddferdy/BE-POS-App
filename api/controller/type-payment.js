@@ -140,22 +140,15 @@ exports.editTypePaymentById = async (req, res) => {
       const getDuplicate = await TypePayment.findOne({
         where: {
           name: body.name,
-          description: body.description,
-          ...(store ? { store } : {}),
-          status: body.status
+          ...(store ? { store } : {})
         }
       })
 
-      if (
-        !getDuplicate?.dataValues ||
-        !getDuplicate?.dataValues?.status === body?.status
-      ) {
+      if (!getDuplicate || getDuplicate.id === body.id) {
         const editTypePayment = await TypePayment?.update(
           {
             name: body.name,
-            description: body.description,
             status: body.status,
-            createdBy: body.createdBy,
             modifiedBy: body?.modifiedBy
           },
           {
@@ -197,7 +190,6 @@ exports.deleteTypePaymentById = async (req, res) => {
     const getId = await TypePayment.destroy({
       where: {
         id: body.id,
-        description: body.description,
         ...(store ? { store } : {})
       },
       force: true

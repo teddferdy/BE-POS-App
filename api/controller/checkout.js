@@ -8,12 +8,10 @@ const { createAudit } = require('../../utils/auditLog')
 exports.addNewTransaction = async (id, order) => {
   for (const element of order) {
     await Transaction.create({
-      masterId: id,
-      productId: element.idProduct,
-      quantityPerProduct: element.count,
-      productName: element.orderName,
-      price: element.price,
-      store: element.store
+      order: id,
+      typePayment: element.typePayment || 'cash',
+      amount: element.price || 0,
+      createdBy: element.createdBy || null
     })
   }
 
@@ -93,11 +91,11 @@ exports.checkout = async (req, res) => {
       const creadtedCheckout = await Checkout.create({
         invoice: invoice,
         dateOrder: new Date(),
-        dateCheckout: new Date(),
         totalPrice: body.totalPrice,
         store: body.store,
         cashierName: body.cashierName,
         totalQuantity: body.totalQuantity,
+        typePayment: body.typePayment,
         createdBy: body.createdBy
       })
 
@@ -138,7 +136,6 @@ exports.editCheckout = async (req, res) => {
         customerName: body.customerName,
         customerPhoneNumber: body.customerPhoneNumber,
         dateOrder: body.dateOrder,
-        dateCheckout: body.dateCheckout,
         invoice: body.invoice,
         totalPrice: body.totalPrice,
         totalQuantity: body.totalQuantity,
