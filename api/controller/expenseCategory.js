@@ -10,8 +10,10 @@ const expenseCategoryController = {
 
       const where = store ? { store } : {}
 
-      if (status !== undefined) {
-        where.status = status === 'true'
+      if (status === 'active' || status === 'true') {
+        where.status = 'active'
+      } else if (status === 'inactive' || status === 'false') {
+        where.status = 'inactive'
       }
 
       if (search) {
@@ -96,7 +98,7 @@ const expenseCategoryController = {
         name: name || category.name,
         description: description !== undefined ? description : category.description,
         icon: icon !== undefined ? icon : category.icon,
-        status: status !== undefined ? status : category.status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : category.status,
         modifiedBy
       })
 

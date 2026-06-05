@@ -16,8 +16,10 @@ const currencyController = {
           { name: { [Op.iLike]: `%${search}%` } }
         ]
       }
-      if (status !== undefined) {
-        where.status = status === 'true' || status === true
+      if (status === 'active' || status === 'true') {
+        where.status = 'active'
+      } else if (status === 'inactive' || status === 'false') {
+        where.status = 'inactive'
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -97,7 +99,7 @@ const currencyController = {
         symbol,
         exchangeRate: exchangeRate || 1,
         isDefault: isDefault || false,
-        status: status !== undefined ? status : true,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
         createdBy: req.user?.id
       })
 
@@ -140,7 +142,7 @@ const currencyController = {
         symbol: symbol || currency.symbol,
         exchangeRate: exchangeRate !== undefined ? exchangeRate : currency.exchangeRate,
         isDefault: isDefault !== undefined ? isDefault : currency.isDefault,
-        status: status !== undefined ? status : currency.status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : currency.status,
         modifiedBy: req.user?.id
       })
 

@@ -26,8 +26,8 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'percentage'
       },
       status: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
       },
       description: {
         type: DataTypes.TEXT

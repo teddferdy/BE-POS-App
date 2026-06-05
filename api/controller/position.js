@@ -15,7 +15,7 @@ const positionInclude = [
 exports.getAllPosition = async (req, res) => {
   try {
     const getAllPosition = await Position.findAll({
-      where: { status: true },
+      where: { status: 'active' },
       include: positionInclude
     }).then((records) =>
       records.map((items) => {
@@ -45,9 +45,9 @@ exports.getAllPositionInTable = async (req, res) => {
 
     let whereCondition = {}
     if (status === 'true') {
-      whereCondition = { status: true }
+      whereCondition = { status: 'active' }
     } else if (status === 'false') {
-      whereCondition = { status: false }
+      whereCondition = { status: 'inactive' }
     }
 
     if (search) {
@@ -72,8 +72,8 @@ exports.getAllPositionInTable = async (req, res) => {
     const totalPages = Math.ceil(totalItems / limit)
 
     const [activeCount, inactiveCount, totalPositions] = await Promise.all([
-      Position.count({ where: { status: true } }),
-      Position.count({ where: { status: false } }),
+      Position.count({ where: { status: 'active' } }),
+      Position.count({ where: { status: 'inactive' } }),
       Position.count()
     ])
 
@@ -146,7 +146,7 @@ exports.addNewPosition = async (req, res) => {
         name: body.name,
         departmentId: body.departmentId,
         description: body.description,
-        status: body.status,
+        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
         store: body.store || req.user?.store,
         createdBy: body.createdBy
       })
@@ -190,7 +190,7 @@ exports.editPositionById = async (req, res) => {
           name: body.name,
           departmentId: body.departmentId,
           description: body.description,
-          status: body.status,
+          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
           store: body.store || req.user?.store,
           modifiedBy: body?.modifiedBy
         },
@@ -301,7 +301,7 @@ const buildPositionTemplateWorksheet = (workbook, sheetName, positions, departme
           ? `${item.departmentData.id}.${item.departmentData.name}`
           : ''
       worksheet.getCell(`D${row}`).value = item.description || ''
-      worksheet.getCell(`E${row}`).value = item.status ? 'Aktif' : 'Nonaktif'
+      worksheet.getCell(`E${row}`).value = item.status === 'active' ? 'Aktif' : 'Nonaktif'
     }
 
     worksheet.getCell(`B${row}`).protection = { locked: false }
@@ -378,7 +378,7 @@ const buildPositionExportWorksheet = (workbook, sheetName, positions) => {
         ? `${pos.departmentData.id}.${pos.departmentData.name}`
         : ''
     worksheet.getCell(`E${rowNum}`).value = pos.description || ''
-    worksheet.getCell(`F${rowNum}`).value = pos.status ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`F${rowNum}`).value = pos.status === 'active' ? 'Aktif' : 'Nonaktif'
   })
 
   worksheet.protect('', {
@@ -393,7 +393,7 @@ exports.downloadTemplate = async (req, res) => {
     const excelJS = require('exceljs')
 
     const departments = await db.department.findAll({
-      where: { status: true },
+      where: { status: 'active' },
       attributes: ['id', 'name']
     })
 
@@ -433,9 +433,9 @@ exports.downloadData = async (req, res) => {
 
     let whereCondition = {}
     if (status === 'true') {
-      whereCondition = { status: true }
+      whereCondition = { status: 'active' }
     } else if (status === 'false') {
-      whereCondition = { status: false }
+      whereCondition = { status: 'inactive' }
     }
 
     const positions = await Position.findAll({

@@ -24,8 +24,8 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'cash'
       },
       status: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
       },
       createdBy: {
         type: DataTypes.STRING

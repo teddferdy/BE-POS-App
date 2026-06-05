@@ -15,7 +15,7 @@ const taxConfigController = {
         where.name = { [Op.iLike]: `%${search}%` }
       }
       if (status !== undefined) {
-        where.status = status === 'true'
+        where.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -140,7 +140,7 @@ const taxConfigController = {
         rate: rate !== undefined ? parseInt(rate) : tax.rate,
         type: type || tax.type,
         description: description !== undefined ? description : tax.description,
-        status: status !== undefined ? status : tax.status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : tax.status,
         modifiedBy
       })
       createAudit(req, 'update', 'tax_config', id, 'Updated tax_config: ' + id)
@@ -236,7 +236,7 @@ const taxConfigController = {
 
       taxes.forEach(t => worksheet.addRow([
         t.id, t.name, t.rate, t.type, t.description,
-        t.status ? 'Active' : 'Inactive',
+        t.status === 'active' ? 'Active' : 'Inactive',
         t.createdAt ? t.createdAt.toISOString() : ''
       ]))
 

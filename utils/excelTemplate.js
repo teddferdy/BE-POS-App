@@ -108,7 +108,7 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
     worksheet.getCell(`E${rowNum}`).value = prod.description || ''
     worksheet.getCell(`F${rowNum}`).value = prod.categoryName || ''
     worksheet.getCell(`G${rowNum}`).value = prod.price || 0
-    worksheet.getCell(`H${rowNum}`).value = prod.status ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`H${rowNum}`).value = prod.status === 'active' ? 'Aktif' : 'Nonaktif'
     worksheet.getCell(`I${rowNum}`).value = prod.isOption ? 'Ya' : 'Tidak'
     worksheet.getCell(`J${rowNum}`).value = prod.options
       ? (Array.isArray(prod.options) ? prod.options.join(',') : prod.options)
@@ -242,7 +242,7 @@ const downloadLocationTemplate = async (existingLocations = []) => {
     worksheet.getCell(`E${rowNum}`).value = loc.address || ''
     worksheet.getCell(`F${rowNum}`).value = loc.detailLocation || ''
     worksheet.getCell(`G${rowNum}`).value = loc.phoneNumber || ''
-    worksheet.getCell(`H${rowNum}`).value = loc.status ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`H${rowNum}`).value = loc.status === 'active' ? 'Aktif' : 'Nonaktif'
   })
 
   return workbook.xlsx.writeBuffer()
@@ -362,7 +362,7 @@ const downloadInvoiceLogoTemplate = async (existingLogos = []) => {
     worksheet.getCell(`C${rowNum}`).value = logo.store
     worksheet.getCell(`D${rowNum}`).value = logo.image || ''
     worksheet.getCell(`E${rowNum}`).value = logo.isActive ? 'Ya' : 'Tidak'
-    worksheet.getCell(`F${rowNum}`).value = logo.status ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`F${rowNum}`).value = logo.status === 'active' ? 'Aktif' : 'Nonaktif'
     worksheet.getCell(`G${rowNum}`).value = logo.createdBy || ''
   })
 

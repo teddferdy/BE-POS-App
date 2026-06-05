@@ -111,7 +111,7 @@ const stockHistoryController = {
 
       const products = await db.product.findAll({
         where: {
-          status: true,
+          status: 'active',
           minStock: { [Op.gt]: 0 }
         },
         attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit']
@@ -121,7 +121,7 @@ const stockHistoryController = {
         (p) => p.stock <= p.minStock
       )
 
-      const ingredientWhere = { status: true }
+      const ingredientWhere = { status: 'active' }
       if (store) {
         ingredientWhere.store = store
       }

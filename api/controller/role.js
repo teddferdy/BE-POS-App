@@ -8,7 +8,7 @@ exports.getAllRole = async (req, res) => {
   try {
     const getAllRole = await Role.findAll({
       where: {
-        status: true
+        status: 'active'
       }
     }).then((res) =>
       res.map((items) => {
@@ -39,10 +39,10 @@ exports.getAllRoleInTable = async (req, res) => {
     const offset = (page - 1) * limit
     const whereCondition = {}
 
-    if (status === 'true') {
-      whereCondition.status = true
-    } else if (status === 'false') {
-      whereCondition.status = false
+    if (status === 'active' || status === 'true') {
+      whereCondition.status = 'active'
+    } else if (status === 'inactive' || status === 'false') {
+      whereCondition.status = 'inactive'
     }
 
     const { rows: roles, count: totalRoles } = await Role.findAndCountAll({
@@ -89,7 +89,7 @@ exports.addNewRole = async (req, res) => {
       const creadtedRole = await Role.create({
         name: body.name,
         description: body.description,
-        status: body.status,
+        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
         accessMenu: body.accessMenu || [],
         createdBy: body.createdBy
       })
@@ -134,7 +134,7 @@ exports.editRoleById = async (req, res) => {
           id: body?.id,
           name: body.name,
           description: body.description,
-          status: body.status,
+          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
           accessMenu: body.accessMenu || [],
           createdBy: body?.createdBy,
           modifiedBy: body?.modifiedBy

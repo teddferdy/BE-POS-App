@@ -75,8 +75,8 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'pcs'
       },
       status: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
       },
       isAvailable: {
         type: DataTypes.BOOLEAN,

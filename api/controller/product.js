@@ -19,7 +19,7 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
   try {
     const getAllProduct = await Product.findAll({
       where: {
-        status: true
+        status: 'active'
       }
     }).then((res) =>
       res.map((items) => {
@@ -68,7 +68,7 @@ exports.getAllProduct = async (req, res) => {
       filters.category = Number(category)
     }
 
-    filters.status = true
+    filters.status = 'active'
 
     const getAllProduct = await Product.findAll({
       where: filters,
@@ -112,10 +112,10 @@ exports.getAllProductInTable = async (req, res) => {
     const offset = (page - 1) * pageSize
 
     let statusCondition = {}
-    if (status === 'true') {
-      statusCondition = { status: true }
-    } else if (status === 'false') {
-      statusCondition = { status: false }
+    if (status === 'active' || status === 'true') {
+      statusCondition = { status: 'active' }
+    } else if (status === 'inactive' || status === 'false') {
+      statusCondition = { status: 'inactive' }
     }
 
     const whereCondition = {
@@ -554,7 +554,7 @@ exports.downloadData = async (req, res) => {
         category: p.categoryData?.name || '',
         price: p.price,
         stock: p.stock || 0,
-        status: p.status ? 'Aktif' : 'Nonaktif'
+        status: p.status === 'active' ? 'Aktif' : 'Nonaktif'
       })
     })
 
@@ -695,7 +695,7 @@ exports.importProduct = async (req, res) => {
           continue
         }
 
-        const statusValue = product.status ? String(product.status).toLowerCase() === 'aktif' : true
+        const statusValue = product.status ? (String(product.status).toLowerCase() === 'aktif' ? 'active' : 'inactive') : 'active'
         const isOptionValue = product.isOption ? String(product.isOption).toLowerCase() === 'ya' : false
 
         if (product.id) {

@@ -15,7 +15,7 @@ const ingredientController = {
         ]
       }
       if (status !== undefined) {
-        where.status = status === 'true'
+        where.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
       }
 
       let ingredients = await db.ingredient.findAll({
@@ -109,7 +109,7 @@ const ingredientController = {
         minStock,
         unit: unit || 'pcs',
         costPrice: costPrice || 0,
-        status: status !== undefined ? status : true,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
         createdBy
       })
       createAudit(req, 'create', 'ingredient', ingredient.id, 'Created ingredient: ' + (ingredient.name || ingredient.id))
@@ -156,7 +156,7 @@ const ingredientController = {
         minStock: minStock !== undefined ? minStock : ingredient.minStock,
         unit: unit || ingredient.unit,
         costPrice: costPrice !== undefined ? costPrice : ingredient.costPrice,
-        status: status !== undefined ? status : ingredient.status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : ingredient.status,
         modifiedBy
       })
       createAudit(req, 'update', 'ingredient', id, 'Updated ingredient: ' + id)

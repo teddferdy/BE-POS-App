@@ -13,7 +13,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
     const { count, rows: subCategory } = await Discount.findAndCountAll({
       where: {
         ...(store ? { store } : {}),
-        status: true
+        status: 'active'
       },
       limit: limit,
       offset: offset
@@ -52,7 +52,7 @@ exports.getAllDiscount = async (req, res) => {
   try {
     const whereCondition = {}
     if (store) whereCondition.store = store
-    if (status !== undefined && status !== 'all') whereCondition.status = status === 'true'
+    if (status !== undefined && status !== 'all') whereCondition.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
 
     const { count, rows } = await Discount.findAndCountAll({
       where: whereCondition,
@@ -187,7 +187,7 @@ exports.downloadData = async (req, res) => {
         discount.endDate ? discount.endDate.toISOString().split('T')[0] : '',
         discount.minimumOrder,
         discount.description || '',
-        discount.status ? 'true' : 'false',
+        discount.status === 'active' ? 'true' : 'false',
         discount.createdAt ? discount.createdAt.toISOString() : ''
       ]);
     });
@@ -312,7 +312,7 @@ exports.importData = async (req, res) => {
           endDate: endDate,
           minimumOrder: minimumOrder,
           description: description?.trim() || null,
-          status: isActive,
+          status: isActive ? 'active' : 'inactive',
           store: req.user?.store,
           createdBy: req.user?.id
         });
@@ -370,7 +370,7 @@ exports.postNewDiscount = async (req, res) => {
         startDate,
         endDate,
         store,
-        status: status !== undefined ? status : true,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
         createdBy
       })
       createAudit(req, 'create', 'discount', postData.id, `Created discount: ${postData.name}`)
@@ -417,7 +417,7 @@ exports.editDiscountById = async (req, res) => {
           maximumDiscount: body.maximumDiscount,
           startDate: body.startDate,
           endDate: body.endDate,
-          status: body.status,
+          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
           createdBy: body.createdBy,
           modifiedBy: body?.modifiedBy
         },

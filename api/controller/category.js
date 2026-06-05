@@ -16,7 +16,7 @@ exports.getAllCategory = async (req, res) => {
   try {
     const categories = await Category.findAll({
       where: {
-        status: true,
+        status: 'active',
         ...(store ? { store } : {})
       }
     })
@@ -99,10 +99,10 @@ exports.getAllCategoryInTable = async (req, res) => {
     const offset = (page - 1) * pageSize
 
     let whereClause = {}
-    if (status === 'true') {
-      whereClause.status = true
-    } else if (status === 'false') {
-      whereClause.status = false
+    if (status === 'active' || status === 'true') {
+      whereClause.status = 'active'
+    } else if (status === 'inactive' || status === 'false') {
+      whereClause.status = 'inactive'
     }
 
     if (store) whereClause.store = store
@@ -123,10 +123,10 @@ exports.getAllCategoryInTable = async (req, res) => {
         where: store ? { store } : {}
       }),
       Category.count({
-        where: { status: true, ...(store ? { store } : {}) }
+        where: { status: 'active', ...(store ? { store } : {}) }
       }),
       Category.count({
-        where: { status: false, ...(store ? { store } : {}) }
+        where: { status: 'inactive', ...(store ? { store } : {}) }
       })
     ])
 
@@ -216,7 +216,7 @@ exports.addNewCategory = async (req, res) => {
       imageUrl = body.icon
     }
 
-    const status = body.isActive !== undefined ? body.isActive : body.status
+    const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
 
     const creadtedCategory = await Category.create({
       name: body?.name,
@@ -299,7 +299,7 @@ exports.editCategoryById = async (req, res) => {
       imageUrl = body.icon
     }
 
-    const status = body.isActive !== undefined ? body.isActive : body.status
+    const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
 
     const [affectedCount, updatedRows] = await Category.update(
       {
@@ -359,7 +359,7 @@ exports.deleteCategoryById = async (req, res) => {
 
     await Category.sequelize.transaction(async (t) => {
       await Product.update(
-        { status: false },
+        { status: 'inactive' },
         { where: { category: categoryId }, transaction: t }
       )
 
@@ -444,7 +444,7 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`D${rowIndex}`).value = cat.value || ''
       worksheet.getCell(`D${rowIndex}`).protection = { locked: false }
 
-      worksheet.getCell(`E${rowIndex}`).value = cat.status ? 'TRUE' : 'FALSE'
+      worksheet.getCell(`E${rowIndex}`).value = cat.status === 'active' ? 'TRUE' : 'FALSE'
       worksheet.getCell(`E${rowIndex}`).protection = { locked: false }
 
       rowIndex++
@@ -532,7 +532,7 @@ exports.downloadData = async (req, res) => {
         name: cat.name,
         description: cat.description || '',
         value: cat.value || '',
-        isActive: cat.status ? 'TRUE' : 'FALSE'
+        isActive: cat.status === 'active' ? 'TRUE' : 'FALSE'
       })
     })
 
@@ -622,7 +622,7 @@ exports.importCategory = async (req, res) => {
         name: nameStr,
         description,
         value: value || nameStr.toLowerCase(),
-        status: isActive,
+        status: isActive ? 'active' : 'inactive',
         store,
         createdBy: req.user?.userName || req.user?.id || 'system'
       })

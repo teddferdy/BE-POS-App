@@ -8,7 +8,7 @@ const { createAudit } = require('../../utils/auditLog')
 exports.getAllDepartment = async (req, res) => {
   try {
     const getAllDepartment = await Department.findAll({
-      where: { status: true }
+      where: { status: 'active' }
     }).then((res) =>
       res.map((items) => {
         const getData = { ...items.dataValues }
@@ -37,9 +37,9 @@ exports.getAllDepartmentInTable = async (req, res) => {
 
     let whereCondition = {}
     if (status === 'true') {
-      whereCondition = { status: true }
+      whereCondition = { status: 'active' }
     } else if (status === 'false') {
-      whereCondition = { status: false }
+      whereCondition = { status: 'inactive' }
     }
 
     const { rows: getAllDepartment, count: totalItems } =
@@ -54,11 +54,11 @@ exports.getAllDepartmentInTable = async (req, res) => {
     const totalDepartemen = await Department.count()
 
     const totalDepartemenAktif = await Department.count({
-      where: { status: true }
+      where: { status: 'active' }
     })
 
     const totalDepartemenNonActive = await Department.count({
-      where: { status: false }
+      where: { status: 'inactive' }
     })
 
     const totalTanpaDeskripsi = await Department.count({
@@ -143,7 +143,7 @@ exports.addNewDepartment = async (req, res) => {
       const creadtedDepartment = await Department.create({
         name: body.name,
         description: body.description,
-        status: body.status !== undefined ? body.status : body.isActive,
+        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : (body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : 'active'),
         createdBy: body.createdBy
       })
       createAudit(req, 'create', 'department', creadtedDepartment.id, `Created department: ${creadtedDepartment.name || creadtedDepartment.id}`)
@@ -193,7 +193,7 @@ exports.editDepartmentById = async (req, res) => {
         {
           name: body.name,
           description: body.description,
-          status: body.status !== undefined ? body.status : body.isActive,
+          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : (body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : 'active'),
           modifiedBy: body?.modifiedBy
         },
         {
@@ -243,7 +243,7 @@ exports.deleteDepartmentById = async (req, res) => {
 
       // Deactivate affected positions
       await Position.update(
-        { status: false },
+        { status: 'inactive' },
         { where: { id: { [Op.in]: positionIds } } }
       )
     }
@@ -310,7 +310,7 @@ const buildDepartmentTemplateWorksheet = (workbook, sheetName, data) => {
     if (item) {
       worksheet.getCell(`B${row}`).value = item.name
       worksheet.getCell(`C${row}`).value = item.description || ''
-      worksheet.getCell(`D${row}`).value = item.status ? 'Aktif' : 'Nonaktif'
+      worksheet.getCell(`D${row}`).value = item.status === 'active' ? 'Aktif' : 'Nonaktif'
     }
 
     worksheet.getCell(`B${row}`).protection = { locked: false }
@@ -377,7 +377,7 @@ const buildDepartmentExportWorksheet = (workbook, sheetName, data) => {
     worksheet.getCell(`B${rowNum}`).value = item.id
     worksheet.getCell(`C${rowNum}`).value = item.name
     worksheet.getCell(`D${rowNum}`).value = item.description || ''
-    worksheet.getCell(`E${rowNum}`).value = item.status ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`E${rowNum}`).value = item.status === 'active' ? 'Aktif' : 'Nonaktif'
   })
 
   worksheet.protect('', {
@@ -423,9 +423,9 @@ exports.downloadData = async (req, res) => {
 
     let whereCondition = {}
     if (status === 'true') {
-      whereCondition = { status: true }
+      whereCondition = { status: 'active' }
     } else if (status === 'false') {
-      whereCondition = { status: false }
+      whereCondition = { status: 'inactive' }
     }
 
     const departments = await Department.findAll({

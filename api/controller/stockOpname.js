@@ -552,7 +552,7 @@ const stockOpnameController = {
       const { store } = req.cookies
       const userRole = req.user?.roleType
 
-      const locationWhere = { status: true }
+      const locationWhere = { status: 'active' }
       if (store && userRole !== 'super_admin') {
         locationWhere.store = store
       }
@@ -727,7 +727,7 @@ const stockOpnameController = {
       }
 
       if (!effectiveStore) {
-        const firstLocation = await db.location.findOne({ where: { status: true } })
+        const firstLocation = await db.location.findOne({ where: { status: 'active' } })
         if (firstLocation) effectiveStore = firstLocation.id
       }
 

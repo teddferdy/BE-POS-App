@@ -72,7 +72,7 @@ module.exports = {
             upload: true
           }
         ]),
-        status: true,
+        status: 'active',
         createdBy: 'system',
         createdAt: new Date(),
         updatedAt: new Date()
@@ -128,7 +128,7 @@ module.exports = {
             upload: false
           }
         ]),
-        status: true,
+        status: 'active',
         createdBy: 'system',
         createdAt: new Date(),
         updatedAt: new Date()
@@ -166,7 +166,7 @@ module.exports = {
             upload: false
           }
         ]),
-        status: true,
+        status: 'active',
         createdBy: 'system',
         createdAt: new Date(),
         updatedAt: new Date()

@@ -13,9 +13,9 @@ exports.getAllShift = async (req, res) => {
 
     let statusCondition = {}
     if (status === 'true') {
-      statusCondition = { status: true }
+      statusCondition = { status: 'active' }
     } else if (status === 'false') {
-      statusCondition = { status: false }
+      statusCondition = { status: 'inactive' }
     }
 
     const shiftCategory = await Shift.findAll({
@@ -59,9 +59,9 @@ exports.getShiftDropdown = async (req, res) => {
     const whereCondition = {}
     if (store) whereCondition.store = parseInt(store)
     if (status === 'active') {
-      whereCondition.status = true
+      whereCondition.status = 'active'
     } else if (status === 'inactive') {
-      whereCondition.status = false
+      whereCondition.status = 'inactive'
     }
 
     const shifts = await Shift.findAll({
@@ -75,7 +75,7 @@ exports.getShiftDropdown = async (req, res) => {
       shiftName: shift.name,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      statusShift: shift.status ? 'active' : 'inactive'
+      statusShift: shift.status === 'active' ? 'active' : 'inactive'
     }))
 
     return res.status(200).json({

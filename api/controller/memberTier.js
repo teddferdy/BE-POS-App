@@ -48,7 +48,7 @@ const memberTierController = {
         pointMultiplier: pointMultiplier || 1.00,
         benefits: benefits || [],
         color: color || '#000000',
-        status: true,
+        status: 'active',
         createdBy
       })
       createAudit(req, 'create', 'member_tier', tier.id, 'Created member_tier: ' + (tier.name || tier.id))
@@ -93,7 +93,7 @@ const memberTierController = {
         pointMultiplier: pointMultiplier !== undefined ? pointMultiplier : tier.pointMultiplier,
         benefits: benefits || tier.benefits,
         color: color || tier.color,
-        status: status !== undefined ? status : tier.status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : tier.status,
         modifiedBy
       })
       createAudit(req, 'update', 'member_tier', id, 'Updated member_tier: ' + id)
@@ -159,7 +159,7 @@ const memberTierController = {
       const tier = await db.member_tier.findOne({
         where: {
           ...(store ? { store } : {}),
-          status: true,
+          status: 'active',
           minPoints: { [Op.lte]: points },
           maxPoints: { [Op.gte]: points }
         },
@@ -185,7 +185,7 @@ const memberTierController = {
       const store = req.body.store || req.user?.store
 
       const tiers = await db.member_tier.findAll({
-        where: { ...(store ? { store } : {}), status: true },
+        where: { ...(store ? { store } : {}), status: 'active' },
         order: [['minPoints', 'DESC']]
       })
 

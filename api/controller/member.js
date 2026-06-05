@@ -108,7 +108,7 @@ exports.addNewMember = async (req, res) => {
         tier: body.tier,
         store: body.store || body.location,
         createdBy: body.createdBy,
-        status: body.status || true,
+        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
         totalPoints: body.point || 0,
         lifetimePoints: body.point || 0
       })

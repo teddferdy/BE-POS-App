@@ -28,23 +28,23 @@ module.exports = (sequelize, DataTypes) => {
       },
       showLogo: {
         type: DataTypes.BOOLEAN,
-        defaultValue: true
+        defaultValue: false
       },
       showStoreName: {
         type: DataTypes.BOOLEAN,
-        defaultValue: true
+        defaultValue: false
       },
       showAddress: {
         type: DataTypes.BOOLEAN,
-        defaultValue: true
+        defaultValue: false
       },
       showFooter: {
         type: DataTypes.BOOLEAN,
-        defaultValue: true
+        defaultValue: false
       },
       status: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
       },
       createdBy: {
         type: DataTypes.STRING

@@ -67,10 +67,10 @@ exports.getAllLocationInTable = async (req, res) => {
     const offset = (page - 1) * limit
 
     let whereClause = {}
-    if (status === 'true') {
-      whereClause.status = true
-    } else if (status === 'false') {
-      whereClause.status = false
+    if (status === 'active' || status === 'true') {
+      whereClause.status = 'active'
+    } else if (status === 'inactive' || status === 'false') {
+      whereClause.status = 'inactive'
     }
     if (category !== 'all') {
       whereClause.category = category
@@ -78,7 +78,7 @@ exports.getAllLocationInTable = async (req, res) => {
 
     const [total, activeCount, citiesResult] = await Promise.all([
       Location.count({ where: whereClause }),
-      Location.count({ where: { ...whereClause, status: true } }),
+      Location.count({ where: { ...whereClause, status: 'active' } }),
       Location.findAll({
         where: whereClause,
         attributes: [[sequelize.fn('DISTINCT', sequelize.col('city')), 'city']],
@@ -111,8 +111,8 @@ exports.getAllLocationInTable = async (req, res) => {
       phoneNumber: loc.phoneNumber,
       email: loc.email,
       image: loc.image,
-      isActive: loc.status,
-      status: loc.status ? 'active' : 'inactive',
+      isActive: loc.status === 'active',
+      status: loc.status,
       city: loc.city,
       province: loc.province,
       district: loc.district,
@@ -300,7 +300,7 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status: isActive !== undefined ? isActive : true,
+      status: isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'active',
       category,
       managerName,
       latitude: finalLatitude,
@@ -405,7 +405,7 @@ exports.editLocationById = async (req, res) => {
       imageUrl = url
     }
 
-    const updatedData = { ...rest, image: imageUrl, name, status }
+    const updatedData = { ...rest, image: imageUrl, name, status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : undefined }
 
     // Handle coordinates mapping
     if (coordinates) {
@@ -415,7 +415,7 @@ exports.editLocationById = async (req, res) => {
 
     // Map isActive to status
     if (isActive !== undefined) {
-      updatedData.status = isActive
+      updatedData.status = isActive ? 'active' : 'inactive'
     }
 
     const [affectedCount, updatedRows] = await Location.update(updatedData, {
@@ -447,18 +447,18 @@ exports.editLocationById = async (req, res) => {
 // Different models need different status handling based on their field types
 const getLocationDeleteUpdates = () => [
   // Boolean status -> set status = false
-  { model: Discount,       update: { store: null, status: false } },
-  { model: InvoiceSetting, update: { store: null, status: false } },
-  { model: Member,         update: { store: null, status: false } },
-  { model: SocialMedia,    update: { store: null, status: false } },
-  { model: TypePayment,    update: { store: null, status: false } },
-  { model: Shift,          update: { store: null, status: false } },
-  { model: Ingredient,     update: { store: null, status: false } },
-  { model: MemberTier,     update: { store: null, status: false } },
-  { model: Supplier,       update: { store: null, status: false } },
-  { model: ExpenseCategory, update: { store: null, status: false } },
-  { model: Position,       update: { store: null, status: false } },
-  { model: Role,           update: { store: null, status: false } },
+  { model: Discount,       update: { store: null, status: 'inactive' } },
+  { model: InvoiceSetting, update: { store: null, status: 'inactive' } },
+  { model: Member,         update: { store: null, status: 'inactive' } },
+  { model: SocialMedia,    update: { store: null, status: 'inactive' } },
+  { model: TypePayment,    update: { store: null, status: 'inactive' } },
+  { model: Shift,          update: { store: null, status: 'inactive' } },
+  { model: Ingredient,     update: { store: null, status: 'inactive' } },
+  { model: MemberTier,     update: { store: null, status: 'inactive' } },
+  { model: Supplier,       update: { store: null, status: 'inactive' } },
+  { model: ExpenseCategory, update: { store: null, status: 'inactive' } },
+  { model: Position,       update: { store: null, status: 'inactive' } },
+  { model: Role,           update: { store: null, status: 'inactive' } },
 
   // ENUM status models -> set appropriate closed/cancelled state
   { model: StockOpname,    update: { store: null, status: 'cancelled' } },
@@ -610,7 +610,7 @@ exports.getLocationById = async (req, res) => {
       email: location.email,
       image: location.image,
       isActive: location.status,
-      status: location.status ? 'active' : 'inactive',
+      status: location.status === 'active' ? 'active' : 'inactive',
       city: location.city,
       province: location.province,
       district: location.district,
@@ -702,7 +702,7 @@ exports.importLocation = async (req, res) => {
           continue
         }
 
-        const statusValue = location.status.toLowerCase() === 'aktif'
+        const statusValue = location.status.toLowerCase() === 'aktif' ? 'active' : 'inactive'
         const locationFileName = location.name
           .toLowerCase()
           .replace(/\s+/g, '-')

@@ -12,7 +12,7 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
     const { rows: typePayment, count } = await TypePayment.findAndCountAll({
       where: {
         ...(store ? { store } : {}),
-        status: true
+        status: 'active'
       },
       limit: parseInt(limit),
       offset: parseInt(offset)
@@ -51,10 +51,10 @@ exports.getAllTypePayment = async (req, res) => {
 
     const queryConditions = store ? { store } : {}
 
-    if (status === 'true') {
-      queryConditions.status = true
-    } else if (status === 'false') {
-      queryConditions.status = false
+    if (status === 'active' || status === 'true') {
+      queryConditions.status = 'active'
+    } else if (status === 'inactive' || status === 'false') {
+      queryConditions.status = 'inactive'
     }
 
     const subCategory = await TypePayment.findAll({
@@ -109,7 +109,7 @@ exports.postNewTypePayment = async (req, res) => {
       const postData = await TypePayment.create({
         name: name,
         store: store,
-        status: status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
         createdBy: createdBy
       })
       createAudit(req, 'create', 'type_payment', postData.id, 'Created type_payment: ' + (postData.name || postData.id))
@@ -148,7 +148,7 @@ exports.editTypePaymentById = async (req, res) => {
         const editTypePayment = await TypePayment?.update(
           {
             name: body.name,
-            status: body.status,
+            status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
             modifiedBy: body?.modifiedBy
           },
           {

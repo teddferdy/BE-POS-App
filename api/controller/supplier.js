@@ -30,7 +30,7 @@ const supplierController = {
         ]
       }
       if (status !== undefined) {
-        where.status = status === 'true'
+        where.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -159,7 +159,7 @@ const supplierController = {
         email: email !== undefined ? email : supplier.email,
         address: address !== undefined ? address : supplier.address,
         description: description !== undefined ? description : supplier.description,
-        status: status !== undefined ? status : supplier.status,
+        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : supplier.status,
         modifiedBy
       })
 
@@ -264,7 +264,7 @@ const supplierController = {
 
       suppliers.forEach(s => worksheet.addRow([
         s.id, s.name, s.phone, s.email, s.address, s.description,
-        s.status ? 'Active' : 'Inactive',
+        s.status === 'active' ? 'Active' : 'Inactive',
         s.createdAt ? s.createdAt.toISOString() : ''
       ]));
 
