@@ -190,6 +190,24 @@ exports.postAddProduct = async (req, res) => {
     currencyCode
   } = req.body
 
+  const normalizeStatus = (val) => {
+    if (typeof val === 'boolean') return val ? 'active' : 'inactive'
+    if (val === 'active' || val === 'inactive') return val
+    return 'active'
+  }
+  const toIntOrNull = (val) => {
+    if (val === '' || val === null || val === undefined) return null
+    const n = Number(val)
+    return Number.isNaN(n) ? null : n
+  }
+  const toJsonOrNull = (val) => {
+    if (val === '' || val === null || val === undefined) return null
+    if (typeof val === 'string') {
+      try { return JSON.parse(val) } catch { return null }
+    }
+    return val
+  }
+
   try {
     const existingProduct = await Product.findOne({
       where: {
@@ -201,6 +219,13 @@ exports.postAddProduct = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Product with this name already exists.'
+      })
+    }
+
+    if (!nameProduct) {
+      return res.status(400).json({
+        success: false,
+        message: 'nameProduct is required'
       })
     }
 
@@ -221,10 +246,19 @@ exports.postAddProduct = async (req, res) => {
     }
 
     let parsedPriceTiers = []
+    const normalizedCategory = toIntOrNull(category)
+    if (normalizedCategory === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'category is required and must be a valid ID'
+      })
+    }
+    const normalizedSupplier = toIntOrNull(supplier)
+    const normalizedTax = toJsonOrNull(tax)
 
     const postData = await Product.create({
       nameProduct,
-      category,
+      category: normalizedCategory,
       description,
       price,
       costPrice,
@@ -240,12 +274,12 @@ exports.postAddProduct = async (req, res) => {
       isOption,
       options: isOption ? options : [],
       isAvailable,
-      status,
+      status: normalizeStatus(status),
       createdBy,
       image: imageUrl || image,
       store: parsedStores,
-      supplier: supplier || null,
-      tax: tax || null,
+      supplier: normalizedSupplier,
+      tax: normalizedTax,
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
       currencyCode: currencyCode || null
@@ -317,6 +351,24 @@ exports.editProductByLocationAndId = async (req, res) => {
     currencyCode
   } = req.body
 
+  const normalizeStatus = (val) => {
+    if (typeof val === 'boolean') return val ? 'active' : 'inactive'
+    if (val === 'active' || val === 'inactive') return val
+    return 'active'
+  }
+  const toIntOrNull = (val) => {
+    if (val === '' || val === null || val === undefined) return null
+    const n = Number(val)
+    return Number.isNaN(n) ? null : n
+  }
+  const toJsonOrNull = (val) => {
+    if (val === '' || val === null || val === undefined) return null
+    if (typeof val === 'string') {
+      try { return JSON.parse(val) } catch { return null }
+    }
+    return val
+  }
+
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
       where: {
@@ -363,7 +415,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     const reqBody = {
       nameProduct,
       image: imageUrl,
-      category,
+      category: category !== undefined ? toIntOrNull(category) : undefined,
       description,
       price,
       costPrice,
@@ -379,10 +431,10 @@ exports.editProductByLocationAndId = async (req, res) => {
       isOption,
       options: isOption ? options : [],
       isAvailable,
-      status,
+      status: status !== undefined ? normalizeStatus(status) : undefined,
       store: parsedStores,
-      supplier: supplier || null,
-      tax: tax || null,
+      supplier: toIntOrNull(supplier),
+      tax: toJsonOrNull(tax),
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
       currencyCode: currencyCode || null
