@@ -43,7 +43,7 @@ const memberTierController = {
         pointMultiplier: pointMultiplier || 1.00,
         benefits: benefits || [],
         color: color || '#000000',
-        status: 'active',
+        status: true,
         createdBy
       })
       createAudit(req, 'create', 'member_tier', tier.id, 'Created member_tier: ' + (tier.name || tier.id))
@@ -85,7 +85,7 @@ const memberTierController = {
         pointMultiplier: pointMultiplier !== undefined ? pointMultiplier : tier.pointMultiplier,
         benefits: benefits || tier.benefits,
         color: color || tier.color,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : tier.status,
+        status: status !== undefined ? (status === true ? true : status === false ? false : status) : tier.status,
         modifiedBy
       })
       createAudit(req, 'update', 'member_tier', id, 'Updated member_tier: ' + id)
