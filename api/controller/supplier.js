@@ -18,11 +18,9 @@ const generateOrderNumber = (prefix) => {
 const supplierController = {
     async getAll(req, res) {
     try {
-      const store = req.query.store || req.cookies.store || req.user?.store
       const { search, status, page = 1, limit = 10 } = req.query
 
       const where = {}
-      if (store) where.store = store
       if (search) {
         where[Op.or] = [
           { name: { [Op.iLike]: `%${search}%` } },
@@ -68,11 +66,7 @@ const supplierController = {
     async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.query.store || req.cookies.store || req.user?.store
-
-      const supplier = await db.supplier.findOne({
-        where: { id, ...(store ? { store } : {}) }
-      })
+      const supplier = await db.supplier.findByPk(id)
 
       if (!supplier) {
         return res.status(404).json({
@@ -97,7 +91,7 @@ const supplierController = {
 
     async create(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.user?.store
       const { name, phone, email, address, description } = req.body
       const createdBy = req.user?.id || null
 
@@ -138,7 +132,7 @@ const supplierController = {
     async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.user?.store
       const { name, phone, email, address, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -183,7 +177,7 @@ const supplierController = {
     async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.user?.store
 
       const supplier = await db.supplier.findOne({
         where: { id, ...(store ? { store } : {}) }
