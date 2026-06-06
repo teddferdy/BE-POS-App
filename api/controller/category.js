@@ -12,13 +12,9 @@ const { createAudit } = require('../../utils/auditLog')
 
 // Get All List To Cashier List
 exports.getAllCategory = async (req, res) => {
-  const store = req.query.store || req.user?.store
   try {
     const categories = await Category.findAll({
-      where: {
-        status: 'active',
-        ...(store ? { store } : {})
-      }
+      where: { status: 'active' }
     })
 
     const data = categories.map((item) => ({
@@ -51,11 +47,8 @@ exports.getAllCategory = async (req, res) => {
 exports.getCategoryById = async (req, res) => {
   try {
     const { id } = req.params
-    const store = req.query.store || req.user?.store
 
-    const category = await Category.findOne({
-      where: { id, ...(store ? { store } : {}) }
-    })
+    const category = await Category.findByPk(id)
 
     if (!category) {
       return res.status(404).json({
@@ -93,7 +86,6 @@ exports.getCategoryById = async (req, res) => {
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
   const { page = 1, pageSize = 10, status = 'all' } = req.query
-  const store = req.query.store || req.user?.store
 
   try {
     const offset = (page - 1) * pageSize
@@ -105,8 +97,6 @@ exports.getAllCategoryInTable = async (req, res) => {
       whereClause.status = 'inactive'
     }
 
-    if (store) whereClause.store = store
-
     const [categories, productCounts, totalCategories, activeCount, inactiveCount] = await Promise.all([
       Category.findAll({
         where: whereClause,
@@ -115,19 +105,12 @@ exports.getAllCategoryInTable = async (req, res) => {
       }),
       Product.findAll({
         attributes: ['category', [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count']],
-        where: store ? { store } : {},
         group: ['category'],
         raw: true
       }),
-      Category.count({
-        where: store ? { store } : {}
-      }),
-      Category.count({
-        where: { status: 'active', ...(store ? { store } : {}) }
-      }),
-      Category.count({
-        where: { status: 'inactive', ...(store ? { store } : {}) }
-      })
+      Category.count({}),
+      Category.count({ where: { status: 'active' } }),
+      Category.count({ where: { status: 'inactive' } })
     ])
 
     const countMap = {}
@@ -188,12 +171,8 @@ exports.addNewCategory = async (req, res) => {
   const body = req.body
 
   try {
-    const store = body.store || req.user?.store
     const findOneCategory = await Category?.findOne({
-      where: {
-        name: body?.name,
-        ...(store ? { store } : {})
-      }
+      where: { name: body?.name }
     })
 
     if (findOneCategory?.getDataValue) {
@@ -205,11 +184,16 @@ exports.addNewCategory = async (req, res) => {
 
     let imageUrl = null
     if (req.file) {
-      const { url } = await uploadToCloudinaryWithDedup(
-        req.file.path,
-        'pos-app-categories'
-      )
-      imageUrl = url
+      try {
+        const { url } = await uploadToCloudinaryWithDedup(
+          req.file.path,
+          'pos-app-categories'
+        )
+        imageUrl = url
+      } catch (cloudErr) {
+        console.error('Cloudinary upload failed, proceeding without image:', cloudErr)
+        imageUrl = null
+      }
     } else if (body.image) {
       imageUrl = body.image
     } else if (body.icon) {
@@ -218,19 +202,17 @@ exports.addNewCategory = async (req, res) => {
 
     const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
 
-    const creadtedCategory = await Category.create({
+    const createdCategory = await Category.create({
       name: body?.name,
       description: body?.description || null,
       image: imageUrl,
       value: body?.value || body?.name?.toLowerCase(),
-      store: store,
       status: status,
       createdBy: body.createdBy
     })
 
-    if (creadtedCategory.getDataValue) {
-      createNotification({ type: 'category_created', store: store || req.user?.store, referenceId: creadtedCategory.id, referenceType: 'category', params: [body.name] }).catch(console.error)
-      createAudit(req, 'create', 'category', creadtedCategory.id, `Created category: ${body.name}`)
+    if (createdCategory.getDataValue) {
+      createAudit(req, 'create', 'category', createdCategory.id, `Created category: ${body.name}`)
 
       return res.status(200).json({
         success: true,
@@ -254,7 +236,6 @@ exports.addNewCategory = async (req, res) => {
 exports.editCategoryById = async (req, res) => {
   const body = req.body
   try {
-    const store = body.store || req.user?.store
     const category = await Category.findByPk(body.id)
     if (!category) {
       return res.status(404).json({
@@ -266,8 +247,7 @@ exports.editCategoryById = async (req, res) => {
     const duplicate = await Category.findOne({
       where: {
         name: body.name,
-        id: { [Op.ne]: body.id },
-        ...(store ? { store } : {})
+        id: { [Op.ne]: body.id }
       }
     })
     if (duplicate) {
@@ -279,14 +259,18 @@ exports.editCategoryById = async (req, res) => {
 
     let imageUrl = category.image
     if (req.file) {
-      const { url } = await uploadToCloudinaryWithDedup(
-        req.file.path,
-        'pos-app-categories'
-      )
-      if (category.image && category.image.startsWith('http')) {
-        await deleteFromCloudinary(category.image)
+      try {
+        const { url } = await uploadToCloudinaryWithDedup(
+          req.file.path,
+          'pos-app-categories'
+        )
+        if (category.image && category.image.startsWith('http')) {
+          await deleteFromCloudinary(category.image)
+        }
+        imageUrl = url
+      } catch (cloudErr) {
+        console.error('Cloudinary upload failed:', cloudErr)
       }
-      imageUrl = url
     } else if (body.image !== undefined) {
       if (category.image && category.image.startsWith('http')) {
         await deleteFromCloudinary(category.image)
@@ -323,7 +307,6 @@ exports.editCategoryById = async (req, res) => {
       })
     }
 
-    createNotification({ type: 'category_updated', store: store || req.user?.store, referenceId: body.id, referenceType: 'category', params: [body.name] }).catch(console.error)
     createAudit(req, 'update', 'category', body.id, `Updated category: ${body.name}`)
 
     return res.status(200).json({
@@ -345,7 +328,6 @@ exports.deleteCategoryById = async (req, res) => {
   const body = req.body
 
   try {
-    const store = body.store || req.user?.store
     const categoryId = body.id
 
     if (!categoryId) {
@@ -364,10 +346,7 @@ exports.deleteCategoryById = async (req, res) => {
       )
 
       const getId = await Category.destroy({
-        where: {
-          id: categoryId,
-          ...(store ? { store } : {})
-        },
+        where: { id: categoryId },
         force: true,
         transaction: t
       })
@@ -377,7 +356,6 @@ exports.deleteCategoryById = async (req, res) => {
       }
     })
 
-    createNotification({ type: 'category_deleted', store: store || req.user?.store, referenceId: categoryId, referenceType: 'category', params: [category?.name || 'Unknown'] }).catch(console.error)
     createAudit(req, 'delete', 'category', categoryId, `Deleted category: ${category?.name || 'Unknown'}`)
 
     return res.status(200).json({
@@ -396,10 +374,7 @@ exports.deleteCategoryById = async (req, res) => {
 // Download Excel Template For Category
 exports.exportCategory = async (req, res) => {
   try {
-    const store = req.query.store || req.user?.store
-
     const categories = await Category.findAll({
-      where: store ? { store } : {},
       order: [['id', 'ASC']]
     })
 
@@ -498,10 +473,7 @@ exports.exportCategory = async (req, res) => {
 // Download Category Data (clean export)
 exports.downloadData = async (req, res) => {
   try {
-    const store = req.query.store || req.user?.store
-
     const categories = await Category.findAll({
-      where: store ? { store } : {},
       order: [['id', 'ASC']]
     })
 
@@ -589,14 +561,6 @@ exports.importCategory = async (req, res) => {
       })
     }
 
-    const store = req.body.store || req.user?.store
-    if (!store) {
-      return res.status(400).json({
-        success: false,
-        message: 'Store tidak ditemukan'
-      })
-    }
-
     const categories = []
     const errors = []
 
@@ -623,7 +587,6 @@ exports.importCategory = async (req, res) => {
         description,
         value: value || nameStr.toLowerCase(),
         status: isActive ? 'active' : 'inactive',
-        store,
         createdBy: req.user?.userName || req.user?.id || 'system'
       })
     })

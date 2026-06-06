@@ -44,29 +44,28 @@ const uploadImage = multer({
 const categoryController = require('../controller/category')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
-const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Get All List Category - All authenticated users
-router.get('/get-category', authorization, validateStoreAccess, categoryController.getAllCategory)
+router.get('/get-category', authorization, categoryController.getAllCategory)
 
 // Get All List To Table
 router.get(
   '/get-category-all',
-  authorization, validateStoreAccess,
+  authorization,
   categoryController.getAllCategoryInTable
 )
 
 // Get Category By Id - All authenticated users
 router.get(
   '/get-category/:id',
-  authorization, validateStoreAccess,
+  authorization,
   categoryController.getCategoryById
 )
 
 // Add New Category - Admin & Super Admin only
 router.post(
   '/add-new-category',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization, requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
   categoryController.addNewCategory
 )
@@ -74,7 +73,7 @@ router.post(
 // Edit Category - Admin & Super Admin only
 router.put(
   '/edit-category/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization, requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
   categoryController.editCategoryById
 )
@@ -82,28 +81,28 @@ router.put(
 // Delete Category - Admin & Super Admin only
 router.delete(
   '/delete-category/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization, requireRole('super_admin', 'admin'),
   categoryController.deleteCategoryById
 )
 
 // Download Excel Template - Admin & Super Admin only
 router.get(
   '/download-template',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization, requireRole('super_admin', 'admin'),
   categoryController.exportCategory
 )
 
 // Download Excel Data - Admin & Super Admin only
 router.get(
   '/download',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization, requireRole('super_admin', 'admin'),
   categoryController.downloadData
 )
 
 // Upload Excel - Admin & Super Admin only
 router.post(
   '/upload-excel',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization, requireRole('super_admin', 'admin'),
   upload.single('file'),
   categoryController.importCategory
 )

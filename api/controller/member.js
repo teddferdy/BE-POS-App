@@ -5,12 +5,8 @@ const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllMember = async (req, res) => {
   try {
-    const { nameMember, phoneNumber, page = 1, limit = 10, store } = req.query
+    const { nameMember, phoneNumber, page = 1, limit = 10 } = req.query
     const filters = {}
-    
-    if (store) {
-      filters.store = store
-    }
     
     if (nameMember) {
       filters.name = {
@@ -57,11 +53,8 @@ exports.getAllMember = async (req, res) => {
 exports.getMemberById = async (req, res) => {
   try {
     const { id } = req.params
-    const { store } = req.query
 
-    const member = await Member.findOne({
-      where: { id, ...(store && { store }) }
-    })
+    const member = await Member.findByPk(id)
 
     if (!member) {
       return res.status(404).json({
@@ -106,11 +99,10 @@ exports.addNewMember = async (req, res) => {
         gender: body.gender,
         address: body.address,
         tier: body.tier,
-        store: body.store || body.location,
-        createdBy: body.createdBy,
         status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
         totalPoints: body.point || 0,
-        lifetimePoints: body.point || 0
+        lifetimePoints: body.point || 0,
+        createdBy: body.createdBy
       })
 
       if (createdMember.getDataValue) {
@@ -139,11 +131,9 @@ exports.addNewMember = async (req, res) => {
 exports.editMember = async (req, res) => {
   try {
     const { id } = req.params
-    const { store, nameMember, phoneNumber, email, birthDate, gender, address, tier, status, point } = req.body
+    const { nameMember, phoneNumber, email, birthDate, gender, address, tier, status, point } = req.body
 
-    const member = await Member.findOne({
-      where: { id, ...(store && { store }) }
-    })
+    const member = await Member.findByPk(id)
 
     if (!member) {
       return res.status(404).json({
@@ -189,11 +179,8 @@ exports.editMember = async (req, res) => {
 exports.deleteMember = async (req, res) => {
   try {
     const { id } = req.params
-    const { store } = req.query
 
-    const member = await Member.findOne({
-      where: { id, ...(store && { store }) }
-    })
+    const member = await Member.findByPk(id)
 
     if (!member) {
       return res.status(404).json({
