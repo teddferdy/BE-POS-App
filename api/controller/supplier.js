@@ -67,14 +67,16 @@ const supplierController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [suppliers, total] = await Promise.all([
+      const [suppliers, total, activeCount, inactiveCount] = await Promise.all([
         db.supplier.findAll({
           where,
           order: [['createdAt', 'DESC']],
           limit: parseInt(limit),
           offset
         }),
-        db.supplier.count({ where })
+        db.supplier.count({ where }),
+        db.supplier.count({ where: { ...where, status: 'active' } }),
+        db.supplier.count({ where: { ...where, status: 'inactive' } })
       ])
 
       return res.status(200).json({
@@ -86,6 +88,11 @@ const supplierController = {
           limit: parseInt(limit),
           total,
           totalPages: Math.ceil(total / parseInt(limit))
+        },
+        stats: {
+          total,
+          active: activeCount,
+          inactive: inactiveCount
         }
       })
     } catch (error) {
