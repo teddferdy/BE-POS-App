@@ -16,6 +16,40 @@ const generateOrderNumber = (prefix) => {
 }
 
 const supplierController = {
+    async getDetail(req, res) {
+    try {
+      const { id } = req.params
+
+      const supplier = await db.supplier.findByPk(id)
+
+      if (!supplier) {
+        return res.status(404).json({
+          success: false,
+          message: 'Supplier not found'
+        })
+      }
+
+      const productCount = await db.product.count({
+        where: { supplier: id }
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get supplier detail',
+        data: {
+          ...supplier.toJSON(),
+          productCount
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
     async getAll(req, res) {
     try {
       const { search, status, page = 1, limit = 10 } = req.query

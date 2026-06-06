@@ -11,8 +11,9 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 // Get suppliers - All authenticated users
 router.get('/', authorization, validateStoreAccess, supplierController.getAll)
 router.get('/get-all', authorization, validateStoreAccess, supplierController.getAll)
-router.get('/:id', authorization, validateStoreAccess, supplierController.getById)
+router.get('/detail/:id', authorization, validateStoreAccess, supplierController.getDetail)
 router.get('/get-by-id/:id', authorization, validateStoreAccess, supplierController.getById)
+router.get('/:id', authorization, validateStoreAccess, supplierController.getById)
 
 // Create/Edit/Delete - Admin & Super Admin only
 router.post(
