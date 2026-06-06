@@ -370,7 +370,7 @@ exports.postNewDiscount = async (req, res) => {
         startDate,
         endDate,
         store,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
+        status: status !== undefined ? (status === true || status === 'active' ? true : status === false || status === 'inactive' ? false : status) : true,
         createdBy
       })
       createAudit(req, 'create', 'discount', postData.id, `Created discount: ${postData.name}`)
