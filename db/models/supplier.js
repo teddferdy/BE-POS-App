@@ -22,6 +22,9 @@ module.exports = (sequelize, DataTypes) => {
       email: {
         type: DataTypes.STRING
       },
+      contactPerson: {
+        type: DataTypes.STRING
+      },
       address: {
         type: DataTypes.TEXT
       },

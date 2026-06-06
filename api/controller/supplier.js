@@ -126,7 +126,7 @@ const supplierController = {
     async create(req, res) {
     try {
       const store = req.user?.store
-      const { name, phone, email, address, description } = req.body
+      const { name, contactPerson, phone, email, address, description } = req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -139,6 +139,7 @@ const supplierController = {
       const supplier = await db.supplier.create({
         store,
         name,
+        contactPerson,
         phone,
         email,
         address,
@@ -167,12 +168,10 @@ const supplierController = {
     try {
       const { id } = req.params
       const store = req.user?.store
-      const { name, phone, email, address, description, status } = req.body
+      const { name, contactPerson, phone, email, address, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
-      const supplier = await db.supplier.findOne({
-        where: { id, ...(store ? { store } : {}) }
-      })
+      const supplier = await db.supplier.findByPk(id)
 
       if (!supplier) {
         return res.status(404).json({
@@ -183,6 +182,7 @@ const supplierController = {
 
       await supplier.update({
         name: name || supplier.name,
+        contactPerson: contactPerson !== undefined ? contactPerson : supplier.contactPerson,
         phone: phone !== undefined ? phone : supplier.phone,
         email: email !== undefined ? email : supplier.email,
         address: address !== undefined ? address : supplier.address,
