@@ -7,7 +7,9 @@
 .env.local
 .env.development.local
 .env.test.local
-.env.production.localgoogle_apis.json
+.env.production
+.env.production.local
+.google_apis.json
 
 .early.coverage
 .vercel
