@@ -603,12 +603,14 @@ const purchaseOrderController = {
         return res.status(400).json({ success: false, message: 'Validation errors', errors })
       }
 
+      const createdOrders = await db.purchaseOrder.bulkCreate(ordersToCreate, { returning: true })
+
       await createAudit(req, 'import', 'purchase_order', null, 'Imported purchase_order from file')
 
       return res.status(200).json({
         success: true,
-        message: `Imported ${ordersToCreate.length} purchase orders`,
-        data: ordersToCreate
+        message: `Imported ${createdOrders.length} purchase orders`,
+        data: createdOrders
       })
     } catch (error) {
       console.error('Error =>', error)

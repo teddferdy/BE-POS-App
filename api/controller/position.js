@@ -312,13 +312,13 @@ const buildPositionTemplateWorksheet = (workbook, sheetName, positions, departme
     worksheet.getCell(`C${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: [`"${departmentDropdownList}"`],
+      formula1: [`"${departmentDropdownList}"`],
       showDropDown: true
     }
     worksheet.getCell(`E${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif"'],
       showDropDown: true
     }
   }
@@ -563,15 +563,15 @@ exports.uploadExcel = async (req, res) => {
         if (statusInput) {
           const lowerStatus = statusInput.toLowerCase().trim()
           if (lowerStatus === 'aktif' || lowerStatus === 'active' || lowerStatus === 'true') {
-            status = true
+            status = 'active'
           } else if (lowerStatus === 'nonaktif' || lowerStatus === 'non-active' || lowerStatus === 'nonactive' || lowerStatus === 'false') {
-            status = false
+            status = 'inactive'
           } else {
             errors.push(`Baris ${rowNumber}: Status "${statusInput}" tidak valid. Gunakan Aktif/Nonaktif`)
             return
           }
         } else {
-          status = true
+          status = 'active'
         }
 
         positionsToCreate.push({

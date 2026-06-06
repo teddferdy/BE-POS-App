@@ -132,10 +132,10 @@ exports.postNewShift = async (req, res) => {
 exports.editShiftById = async (req, res) => {
   const {
     id,
-    nameShift,
+    name,
     description,
-    startHour,
-    endHour,
+    startTime,
+    endTime,
     createdBy,
     modifiedBy
   } = req.body
@@ -143,19 +143,19 @@ exports.editShiftById = async (req, res) => {
     const getDuplicate = await Shift.findOne({
       where: {
         id: id,
-        nameShift: nameShift,
+        name: name,
         description: description,
-        startHour: startHour,
-        endHour: endHour
+        startTime: startTime,
+        endTime: endTime
       }
     })
     if (!getDuplicate?.dataValues) {
       const editShift = await Shift?.update(
         {
-          nameShift: nameShift,
+          name: name,
           description: description,
-          startHour: startHour,
-          endHour: endHour,
+          startTime: startTime,
+          endTime: endTime,
           createdBy: createdBy,
           modifiedBy: modifiedBy
         },
@@ -191,7 +191,7 @@ exports.editShiftById = async (req, res) => {
 }
 
 exports.deleteShiftById = async (req, res) => {
-  const { id, nameShift } = req.body
+  const { id, name } = req.body
   try {
     // Clean up user.shift references for affected users
     await User.update(
@@ -202,7 +202,7 @@ exports.deleteShiftById = async (req, res) => {
     const getId = await Shift.destroy({
       where: {
         id: id,
-        nameShift: nameShift
+        name: name
       },
       force: true
     })

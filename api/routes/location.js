@@ -66,6 +66,9 @@ router.post(
   locationController.importLocation
 )
 
+// Public - Get all active locations (for registration dropdown) - NO auth required
+router.get('/get-location-public', locationController.getAllLocationPublic)
+
 // Location CRUD
 // Get all locations (for dropdown) - all authenticated users
 router.get('/get-location', authorization, validateStoreAccess, locationController.getAllLocation)

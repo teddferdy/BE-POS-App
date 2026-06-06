@@ -404,9 +404,11 @@ exports.editDiscountById = async (req, res) => {
       }
     })
 
+    const bodyStatus = body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active'
+
     if (
       !getDuplicate?.dataValues ||
-      !getDuplicate?.dataValues?.status === body?.status
+      getDuplicate?.dataValues?.status !== bodyStatus
     ) {
       const editDiscount = await Discount?.update(
         {

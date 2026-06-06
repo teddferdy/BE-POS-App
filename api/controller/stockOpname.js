@@ -621,7 +621,7 @@ const stockOpnameController = {
           worksheet.getCell(`E${row}`).dataValidation = {
             type: 'list',
             allowBlank: true,
-            formulae: [`"${locationList}"`],
+            formula1: [`"${locationList}"`],
             showDropDown: true
           }
         }

@@ -3,6 +3,7 @@ const Product = db.product
 const Category = db.category
 const StockHistory = db.stock_history
 const excelJS = require('exceljs')
+const fs = require('fs')
 const { Op } = require('sequelize')
 const {
   uploadToCloudinary,
@@ -635,7 +636,8 @@ exports.downloadTemplate = async (req, res) => {
 
 // Import Product from Excel Template
 exports.importProduct = async (req, res) => {
-  if (!req.file) {
+  const excelFile = req.files?.['file']?.[0]
+  if (!excelFile) {
     return res.status(400).json({
       success: false,
       message: 'File Excel diperlukan'
@@ -643,7 +645,8 @@ exports.importProduct = async (req, res) => {
   }
 
   try {
-    const products = await parseProductTemplate(req.file.buffer)
+    const excelBuffer = fs.readFileSync(excelFile.path)
+    const products = await parseProductTemplate(excelBuffer)
 
     if (!products.length) {
       return res.status(400).json({
@@ -652,7 +655,7 @@ exports.importProduct = async (req, res) => {
       })
     }
 
-    const imageFiles = req.files || []
+    const imageFiles = req.files?.['images'] || []
     const imageMap = {}
     imageFiles.forEach((file) => {
       const baseName = file.originalname.replace(/\.[^/.]+$/, '').toLowerCase()

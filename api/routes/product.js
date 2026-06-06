@@ -51,6 +51,17 @@ const uploadImages = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 }).array('images', 50)
 
+const uploadImport = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 }
+}).fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'images', maxCount: 50 }
+])
+
 // Product Template - Admin & Super Admin only
 router.get(
   '/template',
@@ -65,8 +76,7 @@ router.get(
 router.post(
   '/import',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  uploadExcel.single('file'),
-  uploadImages,
+  uploadImport,
   productController.importProduct
 )
 

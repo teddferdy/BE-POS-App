@@ -402,7 +402,7 @@ exports.editUser = async (req, res, next) => {
       return res.status(404).json({ message: 'User not found' })
     }
 
-    let imageUrl = existingUser.imageUrl
+    let image = existingUser.image
 
     if (imageFile) {
       const uploadedImage = await uploadToCloudinary(
@@ -410,10 +410,10 @@ exports.editUser = async (req, res, next) => {
         'pos-app-users'
       )
 
-      if (existingUser.imageUrl) {
-        await deleteFromCloudinary(existingUser.imageUrl)
+      if (existingUser.image) {
+        await deleteFromCloudinary(existingUser.image)
       }
-      imageUrl = uploadedImage
+      image = uploadedImage
     }
 
     const updatedUser = await existingUser.update({
@@ -424,7 +424,7 @@ exports.editUser = async (req, res, next) => {
       phoneNumber: body.phoneNumber,
       dateOfBirth: body.dateOfBirth ? body.dateOfBirth : null,
       placeOfBirth: body.placeOfBirth || existingUser.placeOfBirth,
-      imageUrl: imageUrl,
+      image: image,
       deletedAt: null
     })
     createAudit(req, 'update', 'user', updatedUser.id, `Updated user: ${updatedUser.id}`)

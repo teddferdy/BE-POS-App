@@ -59,21 +59,21 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
   worksheet.getCell('F2').dataValidation = {
     type: 'list',
     allowBlank: true,
-    formulae: [`"${categoryList}"`],
+    formula1: [`"${categoryList}"`],
     showDropDown: true
   }
 
   worksheet.getCell('H2').dataValidation = {
     type: 'list',
     allowBlank: true,
-    formulae: ['"Aktif,Nonaktif"'],
+    formula1: ['"Aktif,Nonaktif"'],
     showDropDown: true
   }
 
   worksheet.getCell('I2').dataValidation = {
     type: 'list',
     allowBlank: true,
-    formulae: ['"Ya,Tidak"'],
+    formula1: ['"Ya,Tidak"'],
     showDropDown: true
   }
 
@@ -83,19 +83,19 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
     worksheet.getCell(`H${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif"'],
       showDropDown: true
     }
     worksheet.getCell(`I${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"Ya,Tidak"'],
+      formula1: ['"Ya,Tidak"'],
       showDropDown: true
     }
     worksheet.getCell(`F${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: [`"${categoryList}"`],
+      formula1: [`"${categoryList}"`],
       showDropDown: true
     }
   }
@@ -229,7 +229,7 @@ const downloadLocationTemplate = async (existingLocations = []) => {
     worksheet.getCell(`H${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif"'],
       showDropDown: true
     }
   }
@@ -345,13 +345,13 @@ const downloadInvoiceLogoTemplate = async (existingLogos = []) => {
     worksheet.getCell(`E${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"Ya,Tidak"'],
+      formula1: ['"Ya,Tidak"'],
       showDropDown: true
     }
     worksheet.getCell(`F${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif"'],
       showDropDown: true
     }
   }

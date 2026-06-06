@@ -61,6 +61,23 @@ exports.getAllLocation = async (req, res) => {
   }
 }
 
+exports.getAllLocationPublic = async (req, res) => {
+  try {
+    const locations = await Location.findAll({
+      where: { status: 'active' },
+      attributes: ['id', 'name', 'city', 'province', 'detailLocation']
+    })
+    return res
+      .status(200)
+      .json({ success: true, message: 'Success', data: locations })
+  } catch (error) {
+    console.error('Error:', error)
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
+  }
+}
+
 exports.getAllLocationInTable = async (req, res) => {
   try {
     const { page = 1, limit = 10, status = 'all', category = 'all' } = req.query
