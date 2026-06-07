@@ -86,10 +86,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
-      preparationTime: {
-        type: DataTypes.INTEGER,
-        defaultValue: 15
-      },
       supplier: {
         type: DataTypes.INTEGER,
         allowNull: true
@@ -116,7 +112,27 @@ module.exports = (sequelize, DataTypes) => {
       },
       modifiedBy: {
         type: DataTypes.INTEGER
-      }
+      },
+      tipeProduk: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'menu'
+      },
+      hppPerPorsi: {
+        type: DataTypes.DECIMAL(15,2),
+        defaultValue: 0
+      },
+      foodCostPersen: {
+        type: DataTypes.DECIMAL(5,2),
+        defaultValue: 0
+      },
+      marginPersen: {
+        type: DataTypes.DECIMAL(5,2),
+        defaultValue: 0
+      },
+      isAvailableHariIni: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
     },
     {
       paranoid: true,

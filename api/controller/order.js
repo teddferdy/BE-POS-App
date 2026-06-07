@@ -76,7 +76,7 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    const taxRate = 10
+    const taxRate = 11
     const serviceChargeRate = 5
 
     const totals = calculateOrderTotals(items, discountValue, discountType, taxRate, serviceChargeRate)

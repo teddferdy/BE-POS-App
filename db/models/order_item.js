@@ -61,6 +61,22 @@ module.exports = (sequelize, DataTypes) => {
       },
       createdBy: {
         type: DataTypes.INTEGER
+      },
+      waktuSiap: {
+        type: DataTypes.DATE,
+        allowNull: true
+      },
+      urutanSaji: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      hppSnapshot: {
+        type: DataTypes.DECIMAL(15, 2),
+        allowNull: true
+      },
+      stationDapur: {
+        type: DataTypes.INTEGER,
+        allowNull: true
       }
     },
     {

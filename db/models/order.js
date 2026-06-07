@@ -122,6 +122,13 @@ module.exports = (sequelize, DataTypes) => {
       },
       modifiedBy: {
         type: DataTypes.INTEGER
+      },
+      totalCovers: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      shiftId: {
+        type: DataTypes.INTEGER
       }
     },
     {

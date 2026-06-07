@@ -40,7 +40,6 @@ const memberTierRoutes = require('./routes/memberTier')
 const employeeRoutes = require('./routes/employee')
 const departmentRoutes = require('./routes/department')
 const taxConfigRoutes = require('./routes/taxConfig')
-const priceListTemplateRoutes = require('./routes/priceListTemplate')
 const posRoutes = require('./routes/pos')
 const notificationRoutes = require('./routes/notification')
 const currencyRoutes = require('./routes/currency')
@@ -110,7 +109,6 @@ const routes = [
   { path: '/employee', route: employeeRoutes },
     { path: '/department', route: departmentRoutes },
     { path: '/tax-config', route: taxConfigRoutes },
-    { path: '/price-list-template', route: priceListTemplateRoutes },
     { path: '/pos', route: posRoutes },
     { path: '/notification', route: notificationRoutes },
     { path: '/currency', route: currencyRoutes },
