@@ -186,7 +186,9 @@ exports.postAddProduct = async (req, res) => {
     tax,
     priceTiers,
     currencyId,
-    currencyCode
+    currencyCode,
+    tipeProduk,
+    composition
   } = req.body
 
   const normalizeStatus = (val) => {
@@ -268,19 +270,21 @@ exports.postAddProduct = async (req, res) => {
       barcode: barcode || null,
       brand: brand || null,
         hasModifiers,
-      modifiers: hasModifiers ? modifiers : [],
+      modifiers: hasModifiers ? (typeof modifiers === 'string' ? JSON.parse(modifiers) : modifiers) : [],
       isOption,
-      options: isOption ? options : [],
+      options: isOption ? (typeof options === 'string' ? JSON.parse(options) : options) : [],
       isAvailable,
       status: normalizeStatus(status),
       createdBy,
+      tipeProduk,
       image: imageUrl || image,
       store: parsedStores,
       supplier: normalizedSupplier,
       tax: normalizedTax,
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
-      currencyCode: currencyCode || null
+      currencyCode: currencyCode || null,
+      composition: composition || []
     })
 
     const sku = `PRD-${String(postData.id).padStart(5, '0')}`
@@ -345,7 +349,9 @@ exports.editProductByLocationAndId = async (req, res) => {
     tax,
     priceTiers,
     currencyId,
-    currencyCode
+    currencyCode,
+    tipeProduk,
+    composition
   } = req.body
 
   const normalizeStatus = (val) => {
@@ -423,9 +429,9 @@ exports.editProductByLocationAndId = async (req, res) => {
       barcode: barcode || null,
       brand: brand || null,
         hasModifiers,
-      modifiers: hasModifiers ? modifiers : [],
+      modifiers: hasModifiers ? (typeof modifiers === 'string' ? JSON.parse(modifiers) : modifiers) : [],
       isOption,
-      options: isOption ? options : [],
+      options: isOption ? (typeof options === 'string' ? JSON.parse(options) : options) : [],
       isAvailable,
       status: status !== undefined ? normalizeStatus(status) : undefined,
       store: parsedStores,
@@ -433,7 +439,9 @@ exports.editProductByLocationAndId = async (req, res) => {
       tax: toJsonOrNull(tax),
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
-      currencyCode: currencyCode || null
+      currencyCode: currencyCode || null,
+      tipeProduk,
+      composition: composition || []
     }
 
     const oldStock = Number(getAllProductByIdAndLocation.stock) || 0
@@ -908,10 +916,27 @@ exports.getProductById = async (req, res) => {
       })
     }
 
+    const data = product.toJSON()
+    if (typeof data.options === 'string') {
+      try { data.options = JSON.parse(data.options) } catch { data.options = [] }
+    }
+    if (typeof data.modifiers === 'string') {
+      try { data.modifiers = JSON.parse(data.modifiers) } catch { data.modifiers = [] }
+    }
+    if (typeof data.priceTiers === 'string') {
+      try { data.priceTiers = JSON.parse(data.priceTiers) } catch { data.priceTiers = [] }
+    }
+    if (typeof data.store === 'string') {
+      try { data.store = JSON.parse(data.store) } catch { data.store = [] }
+    }
+    if (typeof data.composition === 'string') {
+      try { data.composition = JSON.parse(data.composition) } catch { data.composition = [] }
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: product
+      data
     })
   } catch (error) {
     console.error('Error =>', error)

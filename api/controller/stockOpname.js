@@ -213,7 +213,7 @@ const stockOpnameController = {
     try {
       const { store } = req.cookies
       const userStore = req.user?.store
-      const { items, notes, date, auditDate, auditor } = req.body
+      const { items, notes, date, auditDate, auditor, status: reqStatus } = req.body
       let effectiveStore = store || userStore
 
       if (!effectiveStore && items && items.length > 0) {
@@ -247,7 +247,7 @@ const stockOpnameController = {
          auditDate: auditDate || null,
          auditor: auditor || null,
          totalAdjustment,
-         status: 'draft',
+         status: reqStatus === 'completed' ? 'completed' : 'draft',
          notes,
          createdBy: req.user?.id || null
        })
@@ -265,14 +265,14 @@ const stockOpnameController = {
          actualStock: item.actualStock !== undefined ? item.actualStock : (item.stokFisikJumlah || 0),
          adjustment: item.adjustment !== undefined ? item.adjustment : (item.selisihJumlah || 0),
          unit: item.unit || item.satuan || 'pcs',
-         notes: item.notes || item.keterangan || null,
-         stokAwalJumlah: item.stokAwalJumlah || 0,
-         barangMasukJumlah: item.barangMasukJumlah || 0,
-         barangKeluarJumlah: item.barangKeluarJumlah || 0,
-         stokAkhirJumlah: item.stokAkhirJumlah || 0,
-         stokFisikJumlah: item.stokFisikJumlah || 0,
-         selisihJumlah: item.selisihJumlah || 0,
-         keterangan: item.keterangan || null
+          notes: null,
+          stokAwalJumlah: item.stokAwalJumlah || 0,
+          barangMasukJumlah: item.barangMasukJumlah || 0,
+          barangKeluarJumlah: item.barangKeluarJumlah || 0,
+          stokAkhirJumlah: item.stokAkhirJumlah || 0,
+          stokFisikJumlah: item.stokFisikJumlah || 0,
+          selisihJumlah: item.selisihJumlah || 0,
+          keterangan: item.keterangan || null
        }))
 
        await db.stockOpnameItem.bulkCreate(opnameItems)
@@ -281,12 +281,109 @@ const stockOpnameController = {
         include: [{ model: db.stockOpnameItem, as: 'items' }]
       })
 
+      // Update stock & create history for each item
+      for (const item of created.items) {
+        let product = null
+        let ingredient = null
+
+        if (item.product) {
+          product = await db.product.findByPk(item.product)
+        }
+
+        if (!product && item.namaBarang) {
+          product = await db.product.findOne({
+            where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } }
+          })
+        }
+
+        if (item.ingredientName) {
+          ingredient = await db.ingredient.findOne({
+            where: { name: { [Op.iLike]: item.ingredientName.trim() } }
+          })
+        }
+
+        if (!ingredient && !product && item.namaBarang) {
+          ingredient = await db.ingredient.findOne({
+            where: { name: { [Op.iLike]: item.namaBarang.trim() } }
+          })
+        }
+
+        if (product && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
+          const oldStock = Number(product.stock) || 0
+          const newStock = Number(item.stokFisikJumlah) || 0
+          const diff = newStock - oldStock
+
+          await product.update({ stock: newStock })
+
+          await db.stock_history.create({
+            product: product.id,
+            store: opname.store,
+            referenceType: 'opname',
+            quantityBefore: oldStock,
+            quantityChange: diff,
+            quantityAfter: newStock,
+            unit: item.unit || item.satuan || 'pcs',
+            notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+            createdBy: req.user?.id || null
+          })
+        }
+
+        if (ingredient && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
+          const oldStock = Number(ingredient.stock) || 0
+          const newStock = Number(item.stokFisikJumlah) || 0
+          const diff = newStock - oldStock
+
+          await ingredient.update({ stock: newStock })
+
+          await db.stock_history.create({
+            ingredientName: ingredient.name,
+            store: opname.store,
+            referenceType: 'opname',
+            quantityBefore: oldStock,
+            quantityChange: diff,
+            quantityAfter: newStock,
+            unit: item.unit || item.satuan || ingredient.unit || 'pcs',
+            notes: `Stock opname: ${ingredient.name} (${item.keterangan || ''})`,
+            createdBy: req.user?.id || null
+          })
+        }
+      }
+
+      // Compute item notes (sesuai/menipis/kurang) after stock updates
+      for (const item of created.items) {
+        let minStock = Infinity
+        if (item.product) {
+          const p = await db.product.findByPk(item.product)
+          if (p) minStock = Number(p.minStock) || Infinity
+        }
+        if (!minStock || minStock === Infinity) {
+          const ing = await db.ingredient.findOne({
+            where: { name: { [Op.iLike]: (item.ingredientName || item.namaBarang || '').trim() } }
+          })
+          if (ing) minStock = Number(ing.minStock) || Infinity
+        }
+        const selisih = Number(item.selisihJumlah) || 0
+        let note
+        if (selisih !== 0) {
+          note = 'kurang'
+        } else if (Number(item.stokFisikJumlah) <= minStock) {
+          note = 'menipis'
+        } else {
+          note = 'sesuai'
+        }
+        await item.update({ notes: note })
+      }
+
+      const finalOpname = await db.stockOpname.findByPk(opname.id, {
+        include: [{ model: db.stockOpnameItem, as: 'items' }]
+      })
+
       await createAudit(req, 'create', 'stock_opname', created.id, 'Created stock_opname: ' + created.id)
 
       return res.status(201).json({
         success: true,
         message: 'Success create stock opname',
-        data: created
+        data: finalOpname
       })
     } catch (error) {
       console.error(error)
@@ -495,11 +592,37 @@ const stockOpnameController = {
         })
 
         for (const item of updated.items) {
-          const product = await db.product.findOne({
-            where: {
-              nameProduct: { [Op.iLike]: item.namaBarang.trim() }
-            }
-          })
+          let product = null
+          let ingredient = null
+
+          if (item.product) {
+            product = await db.product.findByPk(item.product)
+          }
+
+          if (!product && item.namaBarang) {
+            product = await db.product.findOne({
+              where: {
+                nameProduct: { [Op.iLike]: item.namaBarang.trim() }
+              }
+            })
+          }
+
+          if (item.ingredientName) {
+            ingredient = await db.ingredient.findOne({
+              where: {
+                name: { [Op.iLike]: item.ingredientName.trim() }
+              }
+            })
+          }
+
+          if (!ingredient && !product && item.namaBarang) {
+            ingredient = await db.ingredient.findOne({
+              where: {
+                name: { [Op.iLike]: item.namaBarang.trim() }
+              }
+            })
+          }
+
           if (product && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
             const oldStock = Number(product.stock) || 0
             const newStock = Number(item.stokFisikJumlah) || 0
@@ -514,11 +637,56 @@ const stockOpnameController = {
               quantityBefore: oldStock,
               quantityChange: diff,
               quantityAfter: newStock,
-              unit: item.unit || 'pcs',
+              unit: item.unit || item.satuan || 'pcs',
               notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
               createdBy: req.user?.id || null
             })
           }
+
+          if (ingredient && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
+            const oldStock = Number(ingredient.stock) || 0
+            const newStock = Number(item.stokFisikJumlah) || 0
+            const diff = newStock - oldStock
+
+            await ingredient.update({ stock: newStock })
+
+            await db.stock_history.create({
+              ingredientName: ingredient.name,
+              store: opname.store,
+              referenceType: 'opname',
+              quantityBefore: oldStock,
+              quantityChange: diff,
+              quantityAfter: newStock,
+              unit: item.unit || item.satuan || ingredient.unit || 'pcs',
+              notes: `Stock opname: ${ingredient.name} (${item.keterangan || ''})`,
+              createdBy: req.user?.id || null
+            })
+          }
+        }
+
+        // Compute item notes (sesuai/menipis/kurang)
+        for (const item of updated.items) {
+          let minStock = Infinity
+          if (item.product) {
+            const p = await db.product.findByPk(item.product)
+            if (p) minStock = Number(p.minStock) || Infinity
+          }
+          if (!minStock || minStock === Infinity) {
+            const ing = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: (item.ingredientName || item.namaBarang || '').trim() } }
+            })
+            if (ing) minStock = Number(ing.minStock) || Infinity
+          }
+          const selisih = Number(item.selisihJumlah) || 0
+          let note
+          if (selisih !== 0) {
+            note = 'kurang'
+          } else if (Number(item.stokFisikJumlah) <= minStock) {
+            note = 'menipis'
+          } else {
+            note = 'sesuai'
+          }
+          await item.update({ notes: note })
         }
 
         const updatedWithItems = await db.stockOpname.findByPk(id, {
@@ -948,6 +1116,95 @@ const stockOpnameController = {
       return res.send(buffer)
     } catch (error) {
       console.error(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async checkExists(req, res) {
+    try {
+      const { store } = req.query
+      const cookieStore = req.cookies?.store
+      const effectiveStore = store || cookieStore
+
+      if (!effectiveStore) {
+        return res.status(400).json({
+          success: false,
+          message: 'store is required'
+        })
+      }
+
+      const count = await db.stockOpname.count({
+        where: {
+          store: effectiveStore,
+          status: 'completed'
+        }
+      })
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          exists: count > 0,
+          count
+        }
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getCompositionItems(req, res) {
+    try {
+      const { store } = req.query
+      const cookieStore = req.cookies?.store
+      const effectiveStore = store || cookieStore
+
+      if (!effectiveStore) {
+        return res.status(400).json({
+          success: false,
+          message: 'store is required'
+        })
+      }
+
+      const opnames = await db.stockOpname.findAll({
+        where: {
+          store: effectiveStore,
+          status: 'completed'
+        },
+        include: [{ model: db.stockOpnameItem, as: 'items' }],
+        order: [['createdAt', 'DESC']]
+      })
+
+      const seen = new Set()
+      const items = []
+      for (const opname of opnames) {
+        for (const item of (opname.items || [])) {
+          const key = item.product || item.namaBarang || item.ingredientName
+          if (key && !seen.has(key)) {
+            seen.add(key)
+            items.push({
+              name: item.namaBarang || item.ingredientName,
+              kodeBarang: item.kodeBarang,
+              unit: item.satuan,
+              product: item.product,
+              stockOpnameItemId: item.id
+            })
+          }
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: items
+      })
+    } catch (error) {
+      console.error('Error =>', error)
       return res.status(500).json({
         success: false,
         message: 'Internal server error'

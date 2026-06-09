@@ -7,6 +7,14 @@ const bcrypt = require('bcrypt')
 const moment = require('moment')
 const { Op } = require('sequelize')
 
+const parseAccessMenu = (menu) => {
+  if (Array.isArray(menu)) return menu
+  if (typeof menu === 'string') {
+    try { return JSON.parse(menu) } catch (e) { return [] }
+  }
+  return []
+}
+
 const {
   uploadToCloudinary,
   deleteFromCloudinary
@@ -264,7 +272,7 @@ exports.login = async (req, res) => {
           ...findUser.toJSON(),
           roleType: findUser.roleType || 'user',
           roleName: roleData?.name || 'Staff/Karyawan',
-          accessMenu: accessMenu
+          accessMenu: parseAccessMenu(accessMenu)
         }
       })
     }
@@ -282,7 +290,7 @@ exports.login = async (req, res) => {
         ...findUser.toJSON(),
         roleType: findUser.roleType || 'user',
         roleName: roleData?.name || 'Staff/Karyawan',
-        accessMenu: accessMenu,
+        accessMenu: parseAccessMenu(accessMenu),
         storeName: location?.name ?? '',
         positionName: position?.name ?? ''
       }
@@ -355,7 +363,7 @@ exports.registerNewUser = async (req, res, next) => {
         store: body.store || null, // Store ID should not be null, ensure FE sends it
         shift: shift, // Assign default value if undefined
         position: position, // Assign default value if undefined
-        accessMenu: body?.accessMenu || null,
+        accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : null,
         statusEmployee: true,
         statusActive: true,
         modifiedAt: moment().format('YYYY-MM-DD HH:mm:ss')

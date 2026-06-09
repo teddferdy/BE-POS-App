@@ -27,6 +27,8 @@ const upload = multer({
 
 router.get('/get-all', authorization, validateStoreAccess, stockOpnameController.getAll)
 router.get('/get-by-id/:id', authorization, validateStoreAccess, stockOpnameController.getById)
+router.get('/check-exists', authorization, stockOpnameController.checkExists)
+router.get('/composition-items', authorization, stockOpnameController.getCompositionItems)
 
 router.post(
   '/create',

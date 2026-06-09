@@ -133,6 +133,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true
       },
+      composition: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+      },
     },
     {
       paranoid: true,

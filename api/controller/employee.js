@@ -11,6 +11,14 @@ const {
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 
+const parseAccessMenu = (menu) => {
+  if (Array.isArray(menu)) return menu
+  if (typeof menu === 'string') {
+    try { return JSON.parse(menu) } catch (e) { return [] }
+  }
+  return []
+}
+
 exports.addEmployee = async (req, res) => {
   const body = req.body
   const imageFile = req.files?.['image']?.[0]
@@ -136,7 +144,7 @@ exports.addEmployee = async (req, res) => {
       store: body?.store || null,
       shift: body?.shift || null,
       position: body?.position || null,
-      accessMenu: body?.accessMenu || null,
+      accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : null,
       contractDuration: body?.contractDuration || null,
       endDate: body?.endDate || null,
       monthlySalary: body?.monthlySalary || null,
@@ -429,7 +437,7 @@ exports.updateEmployee = async (req, res) => {
       store: body?.store ?? employee.store,
       shift: body?.shift ?? employee.shift,
       position: body?.position ?? employee.position,
-      accessMenu: body?.accessMenu ?? employee.accessMenu,
+      accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : employee.accessMenu,
       roleId: body?.roleId ?? employee.roleId,
       contractDuration: body?.contractDuration ?? employee.contractDuration,
       endDate: body?.endDate ?? employee.endDate,
