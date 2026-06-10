@@ -26,6 +26,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true
       },
+      logo: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'active'
