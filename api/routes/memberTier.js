@@ -4,6 +4,7 @@ const memberTierController = require('../controller/memberTier')
 const authorization = require('../../utils/authorization')
 
 router.get('/get-all', authorization, memberTierController.getAll)
+router.get('/detail/:id', authorization, memberTierController.getDetail)
 router.post('/add', authorization, memberTierController.create)
 router.put('/edit/:id', authorization, memberTierController.update)
 router.delete('/delete/:id', authorization, memberTierController.delete)

@@ -1,18 +1,66 @@
 const db = require('../../db/models')
-const { Op } = require('sequelize')
+const { Op, fn, col, literal } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const memberTierController = {
     async getAll(req, res) {
     try {
       const tiers = await db.member_tier.findAll({
+        attributes: {
+          include: [
+            [
+              literal('(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'),
+              'memberCount'
+            ]
+          ]
+        },
         order: [['minPoints', 'ASC']]
       })
+
+      const activeCount = tiers.filter(t => t.status === 'active' || t.status === true).length
 
       return res.status(200).json({
         success: true,
         message: 'Success get member tiers',
-        data: tiers
+        data: tiers,
+        total: tiers.length,
+        activeCount
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+    async getDetail(req, res) {
+    try {
+      const { id } = req.params
+
+      const tier = await db.member_tier.findByPk(id, {
+        attributes: {
+          include: [
+            [
+              literal('(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'),
+              'memberCount'
+            ]
+          ]
+        }
+      })
+
+      if (!tier) {
+        return res.status(404).json({
+          success: false,
+          message: 'Member tier not found'
+        })
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get member tier detail',
+        data: tier
       })
     } catch (error) {
       console.log(error)
