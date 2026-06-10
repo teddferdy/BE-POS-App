@@ -26,7 +26,7 @@ const invoiceController = {
 
   async updateSetting(req, res) {
     try {
-      const { store, showStoreName, showAddress, showMemberInfo, removeLogo } = req.body
+      const { store, showStoreName, showAddress, showMemberInfo, showLogo, removeLogo } = req.body
 
       let existing = await db.invoice_setting.findOne({ where: { store } })
 
@@ -54,6 +54,7 @@ const invoiceController = {
         showStoreName: showStoreName !== undefined ? toBool(showStoreName) : existing?.showStoreName ?? true,
         showAddress: showAddress !== undefined ? toBool(showAddress) : existing?.showAddress ?? true,
         showMemberInfo: showMemberInfo !== undefined ? toBool(showMemberInfo) : existing?.showMemberInfo ?? true,
+        showLogo: showLogo !== undefined ? toBool(showLogo) : existing?.showLogo ?? true,
         logo: logoUrl,
         modifiedBy: req.user?.id
       }
