@@ -98,7 +98,7 @@ exports.addNewMember = async (req, res) => {
         dateOfBirth: body.birthDate,
         gender: body.gender,
         address: body.address,
-        tier: body.tier,
+        tier: body.tier === '' ? null : body.tier,
         status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
         totalPoints: body.point || 0,
         lifetimePoints: body.point || 0,
@@ -149,7 +149,7 @@ exports.editMember = async (req, res) => {
     if (birthDate !== undefined) updateData.dateOfBirth = birthDate
     if (gender !== undefined) updateData.gender = gender
     if (address !== undefined) updateData.address = address
-    if (tier !== undefined) updateData.tier = tier
+    if (tier !== undefined) updateData.tier = tier === '' ? null : tier
     if (status !== undefined) updateData.status = status
     if (point !== undefined) {
       updateData.totalPoints = point
