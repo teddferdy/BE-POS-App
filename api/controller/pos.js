@@ -525,51 +525,76 @@ const posController = {
       const { store } = req.cookies
       const { startDate, endDate } = req.query
 
-      const where = {}
+      const checkoutWhere = {}
       if (store) {
-        where.store = store
+        checkoutWhere.store = store
       }
 
       if (startDate || endDate) {
-        where.createdAt = {}
-        if (startDate) where.createdAt[Op.gte] = new Date(startDate)
-        if (endDate) where.createdAt[Op.lte] = new Date(endDate + 'T23:59:59')
+        checkoutWhere.createdAt = {}
+        if (startDate) checkoutWhere.createdAt[Op.gte] = new Date(startDate)
+        if (endDate) checkoutWhere.createdAt[Op.lte] = new Date(endDate + 'T23:59:59')
       }
 
+      const productWhere = { status: 'active' }
+
       const [totalSales, totalOrders, totalProducts, totalMembers, salesChart, bestSellers, recentOrders] = await Promise.all([
-        db.checkout.sum('totalPrice', { where }),
-        db.checkout.count({ where }),
-        db.product.count({ where }),
-        db.member.count({ where }),
+        db.checkout.sum('totalPrice', { where: checkoutWhere }),
+        db.checkout.count({ where: checkoutWhere }),
+        db.product.count({ where: productWhere }),
+        db.member.count(),
         db.sequelize.query(`
           SELECT DATE("createdAt") as date, SUM("totalPrice") as sales
           FROM "checkout"
-          WHERE "createdAt" BETWEEN :startDate AND :endDate
+          WHERE 1=1
+          ${startDate && endDate ? 'AND "createdAt" BETWEEN :startDate AND :endDate' : ''}
           ${store ? 'AND "store" = :store' : ''}
           GROUP BY DATE("createdAt")
           ORDER BY date DESC
           LIMIT 7
         `, {
-          replacements: { startDate, endDate, store },
+          replacements: Object.assign({},
+            startDate && { startDate },
+            endDate && { endDate },
+            store && { store }
+          ),
           type: db.sequelize.QueryTypes.SELECT
         }),
         db.sequelize.query(`
-          SELECT "productId", "nameProduct", "image", SUM("quantityPerProduct") as total
+          SELECT "productId", "nameProduct" as "productName", "image", SUM("totalSelling") as quantity
           FROM "best_selling"
-          WHERE "store" = :store
+          WHERE 1=1
+          ${store ? 'AND "store" = :store' : ''}
           GROUP BY "productId", "nameProduct", "image"
-          ORDER BY total DESC
+          ORDER BY quantity DESC
           LIMIT 10
         `, {
-          replacements: { store },
+          replacements: store ? { store } : {},
           type: db.sequelize.QueryTypes.SELECT
         }),
         db.checkout.findAll({
-          where,
+          attributes: { exclude: ['deletedAt', 'invoice'] },
+          where: checkoutWhere,
           order: [['createdAt', 'DESC']],
           limit: 10
         })
       ])
+
+      const [lowStockProductCount] = await db.sequelize.query(
+        `SELECT COUNT(*)::int as count FROM "product" WHERE status = 'active' AND "minStock" > 0 AND "stock" <= "minStock"`,
+        { type: db.sequelize.QueryTypes.SELECT }
+      )
+      let lowStockIngQuery = `SELECT COUNT(*)::int as count FROM "ingredient" WHERE status = 'active' AND "stock" <= "minStock"`
+      const ingReplacements = {}
+      if (store) {
+        lowStockIngQuery += ` AND store = :store`
+        ingReplacements.store = store
+      }
+      const [lowStockIngredientCount] = await db.sequelize.query(
+        lowStockIngQuery,
+        { replacements: ingReplacements, type: db.sequelize.QueryTypes.SELECT }
+      )
+      const lowStock = parseInt(lowStockProductCount?.count || 0) + parseInt(lowStockIngredientCount?.count || 0)
 
       return res.status(200).json({
         success: true,
@@ -581,7 +606,8 @@ const posController = {
           totalMembers: totalMembers || 0,
           salesChart: salesChart || [],
           bestSellers: bestSellers || [],
-          recentOrders: recentOrders || []
+          recentOrders: recentOrders || [],
+          lowStock
         }
       })
     } catch (error) {

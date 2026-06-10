@@ -151,6 +151,138 @@ const stockHistoryController = {
         message: 'Internal server error'
       })
     }
+  },
+
+  async getLowStockAll(req, res) {
+    try {
+      const { page = 1, limit = 20, store, type, search } = req.query
+
+      const [products, ingredients, locations] = await Promise.all([
+        db.product.findAll({
+          where: {
+            status: 'active',
+            minStock: { [Op.gt]: 0 }
+          },
+          attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit', 'store']
+        }),
+        db.ingredient.findAll({
+          where: { status: 'active' },
+          attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'store']
+        }),
+        db.location.findAll({
+          where: { status: 'active' },
+          attributes: ['id', 'name']
+        })
+      ])
+
+      const storeMap = {}
+      locations.forEach((loc) => {
+        storeMap[loc.id] = loc.name
+      })
+
+      const normalizeStoreIds = (storeField) => {
+        if (!storeField) return []
+        if (Array.isArray(storeField)) return storeField
+        if (typeof storeField === 'number') return [storeField]
+        return []
+      }
+
+      const rawItems = []
+
+      for (const p of products) {
+        if (p.stock > p.minStock) continue
+        const storeIds = normalizeStoreIds(p.store)
+        if (storeIds.length === 0) {
+          rawItems.push({
+            type: 'product',
+            id: p.id,
+            name: p.nameProduct,
+            stock: p.stock,
+            minStock: p.minStock,
+            unit: p.unit,
+            storeId: null,
+            storeName: 'Unknown'
+          })
+        } else {
+          for (const storeId of storeIds) {
+            rawItems.push({
+              type: 'product',
+              id: p.id,
+              name: p.nameProduct,
+              stock: p.stock,
+              minStock: p.minStock,
+              unit: p.unit,
+              storeId,
+              storeName: storeMap[storeId] || `Store #${storeId}`
+            })
+          }
+        }
+      }
+
+      for (const ing of ingredients) {
+        if (ing.stock > ing.minStock) continue
+        const storeId = ing.store
+        rawItems.push({
+          type: 'ingredient',
+          id: ing.id,
+          name: ing.name,
+          stock: ing.stock,
+          minStock: ing.minStock,
+          unit: ing.unit,
+          storeId: storeId || null,
+          storeName: storeId ? storeMap[storeId] || `Store #${storeId}` : 'Unknown'
+        })
+      }
+
+      // Apply filters
+      let filtered = rawItems
+
+      if (store) {
+        const storeNum = parseInt(store)
+        filtered = filtered.filter((item) => item.storeId === storeNum)
+      }
+
+      if (type) {
+        filtered = filtered.filter((item) => item.type === type)
+      }
+
+      if (search) {
+        const q = search.toLowerCase()
+        filtered = filtered.filter((item) => item.name.toLowerCase().includes(q))
+      }
+
+      // Sort by stock ascending
+      filtered.sort((a, b) => a.stock - b.stock)
+
+      // Pagination
+      const total = filtered.length
+      const pageNum = Math.max(1, parseInt(page))
+      const limitNum = Math.max(1, Math.min(100, parseInt(limit)))
+      const totalPages = Math.ceil(total / limitNum)
+      const offset = (pageNum - 1) * limitNum
+      const items = filtered.slice(offset, offset + limitNum)
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get low stock items all stores',
+        data: {
+          items,
+          total,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            totalPages
+          }
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
   }
 }
 

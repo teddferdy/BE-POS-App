@@ -296,6 +296,10 @@ const stockOpnameController = {
           })
         }
 
+        if (product && !item.product) {
+          await item.update({ product: product.id })
+        }
+
         if (item.ingredientName) {
           ingredient = await db.ingredient.findOne({
             where: { name: { [Op.iLike]: item.ingredientName.trim() } }
@@ -306,6 +310,10 @@ const stockOpnameController = {
           ingredient = await db.ingredient.findOne({
             where: { name: { [Op.iLike]: item.namaBarang.trim() } }
           })
+        }
+
+        if (ingredient && !item.ingredientName) {
+          await item.update({ ingredientName: ingredient.name })
         }
 
         if (product && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
@@ -349,30 +357,51 @@ const stockOpnameController = {
         }
       }
 
-      // Compute item notes (sesuai/menipis/kurang) after stock updates
-      for (const item of created.items) {
-        let minStock = Infinity
-        if (item.product) {
-          const p = await db.product.findByPk(item.product)
-          if (p) minStock = Number(p.minStock) || Infinity
+        // Compute item notes (sesuai/menipis/kurang) - search product/ingredient for minStock
+        for (const item of created.items) {
+          let minStock = Infinity
+
+          // 1. Try by product ID (after possible update in stock loop)
+          if (item.product) {
+            const p = await db.product.findByPk(item.product)
+            if (p) minStock = Number(p.minStock) || Infinity
+          }
+
+          // 2. Try by product name
+          if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+            const p = await db.product.findOne({
+              where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } }
+            })
+            if (p) minStock = Number(p.minStock) || Infinity
+          }
+
+          // 3. Try by ingredientName
+          if ((minStock === Infinity || minStock === 0) && item.ingredientName) {
+            const ing = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.ingredientName.trim() } }
+            })
+            if (ing) minStock = Number(ing.minStock) || Infinity
+          }
+
+          // 4. Try ingredient by namaBarang
+          if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+            const ing = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.namaBarang.trim() } }
+            })
+            if (ing) minStock = Number(ing.minStock) || Infinity
+          }
+
+          const selisih = Number(item.selisihJumlah) || 0
+          let note
+          if (selisih !== 0) {
+            note = 'kurang'
+          } else if (minStock !== Infinity && Number(item.stokFisikJumlah) <= minStock) {
+            note = 'menipis'
+          } else {
+            note = 'sesuai'
+          }
+          await item.update({ notes: note })
         }
-        if (!minStock || minStock === Infinity) {
-          const ing = await db.ingredient.findOne({
-            where: { name: { [Op.iLike]: (item.ingredientName || item.namaBarang || '').trim() } }
-          })
-          if (ing) minStock = Number(ing.minStock) || Infinity
-        }
-        const selisih = Number(item.selisihJumlah) || 0
-        let note
-        if (selisih !== 0) {
-          note = 'kurang'
-        } else if (Number(item.stokFisikJumlah) <= minStock) {
-          note = 'menipis'
-        } else {
-          note = 'sesuai'
-        }
-        await item.update({ notes: note })
-      }
 
       const finalOpname = await db.stockOpname.findByPk(opname.id, {
         include: [{ model: db.stockOpnameItem, as: 'items' }]
@@ -599,15 +628,19 @@ const stockOpnameController = {
             product = await db.product.findByPk(item.product)
           }
 
-          if (!product && item.namaBarang) {
-            product = await db.product.findOne({
-              where: {
-                nameProduct: { [Op.iLike]: item.namaBarang.trim() }
-              }
-            })
-          }
+            if (!product && item.namaBarang) {
+              product = await db.product.findOne({
+                where: {
+                  nameProduct: { [Op.iLike]: item.namaBarang.trim() }
+                }
+              })
+            }
 
-          if (item.ingredientName) {
+            if (product && !item.product) {
+              await item.update({ product: product.id })
+            }
+
+            if (item.ingredientName) {
             ingredient = await db.ingredient.findOne({
               where: {
                 name: { [Op.iLike]: item.ingredientName.trim() }
@@ -615,13 +648,17 @@ const stockOpnameController = {
             })
           }
 
-          if (!ingredient && !product && item.namaBarang) {
-            ingredient = await db.ingredient.findOne({
-              where: {
-                name: { [Op.iLike]: item.namaBarang.trim() }
-              }
-            })
-          }
+            if (!ingredient && !product && item.namaBarang) {
+              ingredient = await db.ingredient.findOne({
+                where: {
+                  name: { [Op.iLike]: item.namaBarang.trim() }
+                }
+              })
+            }
+
+            if (ingredient && !item.ingredientName) {
+              await item.update({ ingredientName: ingredient.name })
+            }
 
           if (product && item.stokFisikJumlah !== null && item.stokFisikJumlah !== undefined) {
             const oldStock = Number(product.stock) || 0
@@ -664,30 +701,51 @@ const stockOpnameController = {
           }
         }
 
-        // Compute item notes (sesuai/menipis/kurang)
-        for (const item of updated.items) {
-          let minStock = Infinity
-          if (item.product) {
-            const p = await db.product.findByPk(item.product)
-            if (p) minStock = Number(p.minStock) || Infinity
+          // Compute item notes (sesuai/menipis/kurang) - search product/ingredient for minStock
+          for (const item of updated.items) {
+            let minStock = Infinity
+
+            // 1. Try by product ID (after possible update in stock loop)
+            if (item.product) {
+              const p = await db.product.findByPk(item.product)
+              if (p) minStock = Number(p.minStock) || Infinity
+            }
+
+            // 2. Try by product name
+            if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+              const p = await db.product.findOne({
+                where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } }
+              })
+              if (p) minStock = Number(p.minStock) || Infinity
+            }
+
+            // 3. Try by ingredientName
+            if ((minStock === Infinity || minStock === 0) && item.ingredientName) {
+              const ing = await db.ingredient.findOne({
+                where: { name: { [Op.iLike]: item.ingredientName.trim() } }
+              })
+              if (ing) minStock = Number(ing.minStock) || Infinity
+            }
+
+            // 4. Try ingredient by namaBarang
+            if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+              const ing = await db.ingredient.findOne({
+                where: { name: { [Op.iLike]: item.namaBarang.trim() } }
+              })
+              if (ing) minStock = Number(ing.minStock) || Infinity
+            }
+
+            const selisih = Number(item.selisihJumlah) || 0
+            let note
+            if (selisih !== 0) {
+              note = 'kurang'
+            } else if (minStock !== Infinity && Number(item.stokFisikJumlah) <= minStock) {
+              note = 'menipis'
+            } else {
+              note = 'sesuai'
+            }
+            await item.update({ notes: note })
           }
-          if (!minStock || minStock === Infinity) {
-            const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: (item.ingredientName || item.namaBarang || '').trim() } }
-            })
-            if (ing) minStock = Number(ing.minStock) || Infinity
-          }
-          const selisih = Number(item.selisihJumlah) || 0
-          let note
-          if (selisih !== 0) {
-            note = 'kurang'
-          } else if (Number(item.stokFisikJumlah) <= minStock) {
-            note = 'menipis'
-          } else {
-            note = 'sesuai'
-          }
-          await item.update({ notes: note })
-        }
 
         const updatedWithItems = await db.stockOpname.findByPk(id, {
           include: [{ model: db.stockOpnameItem, as: 'items' }]

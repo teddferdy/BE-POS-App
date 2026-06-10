@@ -16,5 +16,6 @@ router.get(
   stockHistoryController.getByIngredient
 )
 router.get('/low-stock', authorization, validateStoreAccess, stockHistoryController.getLowStock)
+router.get('/low-stock-all', authorization, stockHistoryController.getLowStockAll)
 
 module.exports = router

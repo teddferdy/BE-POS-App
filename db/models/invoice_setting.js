@@ -14,22 +14,6 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true
       },
-      logoImage: {
-        type: DataTypes.STRING, // URL from Cloudinary
-        allowNull: true
-      },
-      footerText: {
-        type: DataTypes.TEXT,
-        allowNull: true
-      },
-      socialMediaList: {
-        type: DataTypes.TEXT, // JSON string
-        allowNull: true
-      },
-      showLogo: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false
-      },
       showStoreName: {
         type: DataTypes.BOOLEAN,
         defaultValue: false
@@ -38,9 +22,9 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: false
       },
-      showFooter: {
+      showMemberInfo: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false
+        defaultValue: true
       },
       status: {
         type: DataTypes.STRING(20),
