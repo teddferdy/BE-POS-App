@@ -236,7 +236,7 @@ exports.addNewCategory = async (req, res) => {
 exports.editCategoryById = async (req, res) => {
   const body = req.body
   try {
-    const category = await Category.findByPk(body.id)
+    const category = await Category.findByPk(req.params.id)
     if (!category) {
       return res.status(404).json({
         success: false,
@@ -247,7 +247,7 @@ exports.editCategoryById = async (req, res) => {
     const duplicate = await Category.findOne({
       where: {
         name: body.name,
-        id: { [Op.ne]: body.id }
+        id: { [Op.ne]: req.params.id }
       }
     })
     if (duplicate) {
@@ -296,7 +296,7 @@ exports.editCategoryById = async (req, res) => {
       },
       {
         returning: true,
-        where: { id: body.id }
+        where: { id: req.params.id }
       }
     )
 
@@ -307,7 +307,7 @@ exports.editCategoryById = async (req, res) => {
       })
     }
 
-    createAudit(req, 'update', 'category', body.id, `Updated category: ${body.name}`)
+    createAudit(req, 'update', 'category', req.params.id, `Updated category: ${body.name}`)
 
     return res.status(200).json({
       success: true,
@@ -328,7 +328,7 @@ exports.deleteCategoryById = async (req, res) => {
   const body = req.body
 
   try {
-    const categoryId = body.id
+    const categoryId = req.params.id
 
     if (!categoryId) {
       return res.status(400).json({
@@ -347,7 +347,6 @@ exports.deleteCategoryById = async (req, res) => {
 
       const getId = await Category.destroy({
         where: { id: categoryId },
-        force: true,
         transaction: t
       })
 

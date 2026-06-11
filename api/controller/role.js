@@ -133,7 +133,6 @@ exports.editRoleById = async (req, res) => {
     ) {
       const editRole = await Role?.update(
         {
-          id: body?.id,
           name: body.name,
           description: body.description,
           status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
@@ -144,14 +143,14 @@ exports.editRoleById = async (req, res) => {
         {
           returning: true,
           where: {
-            id: body.id
+            id: req.params.id
           }
         }
       ).then(([_, data]) => {
         return data
       })
 
-      createAudit(req, 'update', 'role', body.id, `Updated role: ${body.id}`)
+      createAudit(req, 'update', 'role', req.params.id, `Updated role: ${req.params.id}`)
 
       return res.status(200).json({
         success: true,
@@ -179,19 +178,17 @@ exports.deleteRoleById = async (req, res) => {
     // Clean up user.roleId references for affected users
     await User.update(
       { roleId: null },
-      { where: { roleId: body.id } }
+      { where: { roleId: req.params.id } }
     )
 
     const getId = await Role.destroy({
       where: {
-        id: body.id,
-        name: body.name
-      },
-      force: true
+        id: req.params.id
+      }
     })
 
     if (getId) {
-      createAudit(req, 'delete', 'role', body.id, `Deleted role: ${body.id}`)
+      createAudit(req, 'delete', 'role', req.params.id, `Deleted role: ${req.params.id}`)
 
       return res.status(200).json({
         success: true,

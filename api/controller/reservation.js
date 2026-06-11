@@ -143,7 +143,7 @@ exports.remove = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Reservation not found' })
     }
 
-    await reservation.destroy({ force: true })
+    await reservation.destroy()
     createAudit(req, 'delete', 'reservation', id, `Deleted reservation #${id}`)
 
     return res.status(200).json({ success: true, message: 'Reservation deleted' })

@@ -467,14 +467,14 @@ exports.editDiscountById = async (req, res) => {
         {
           returning: true,
           where: {
-            id: body.id,
+            id: req.params.id,
             ...(store ? { store } : {})
           }
         }
       ).then(([_, data]) => {
         return data
       })
-      createAudit(req, 'update', 'discount', body.id, `Updated discount: ${body.name}`)
+      createAudit(req, 'update', 'discount', req.params.id, `Updated discount: ${body.name}`)
       return res.status(200).json({
         success: true,
         message: 'Sukses Ubah Discount',
@@ -501,14 +501,13 @@ exports.deleteDiscountById = async (req, res) => {
     const store = body.store || req.user?.store
     const getId = await Discount.destroy({
       where: {
-        id: body.id,
+        id: req.params.id,
         ...(store ? { store } : {})
-      },
-      force: true
+      }
     })
 
     if (getId) {
-      createAudit(req, 'delete', 'discount', body.id, `Deleted discount: ${body.id}`)
+      createAudit(req, 'delete', 'discount', req.params.id, `Deleted discount: ${req.params.id}`)
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Discount'

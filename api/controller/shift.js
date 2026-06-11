@@ -203,8 +203,7 @@ exports.deleteShiftById = async (req, res) => {
       where: {
         id: id,
         name: name
-      },
-      force: true
+      }
     })
     if (getId) {
       createAudit(req, 'delete', 'shift', id, `Deleted shift: ${id}`)

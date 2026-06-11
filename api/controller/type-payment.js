@@ -144,7 +144,7 @@ exports.editTypePaymentById = async (req, res) => {
         }
       })
 
-      if (!getDuplicate || getDuplicate.id === body.id) {
+      if (!getDuplicate || getDuplicate.id === parseInt(req.params.id)) {
         const editTypePayment = await TypePayment?.update(
           {
             name: body.name,
@@ -154,14 +154,14 @@ exports.editTypePaymentById = async (req, res) => {
           {
             returning: true,
             where: {
-              id: body.id,
+              id: req.params.id,
               ...(store ? { store } : {})
             }
           }
         ).then(([_, data]) => {
           return data
         })
-      createAudit(req, 'update', 'type_payment', body.id, 'Updated type_payment: ' + body.id)
+      createAudit(req, 'update', 'type_payment', req.params.id, 'Updated type_payment: ' + req.params.id)
 
       return res.status(200).json({
         success: true,
@@ -189,12 +189,11 @@ exports.deleteTypePaymentById = async (req, res) => {
     const store = body.store || req.user?.store
     const getId = await TypePayment.destroy({
       where: {
-        id: body.id,
+        id: req.params.id,
         ...(store ? { store } : {})
-      },
-      force: true
+      }
     })
-    createAudit(req, 'delete', 'type_payment', body.id, 'Deleted type_payment: ' + body.id)
+    createAudit(req, 'delete', 'type_payment', req.params.id, 'Deleted type_payment: ' + req.params.id)
 
     if (getId) {
       return res.status(200).json({

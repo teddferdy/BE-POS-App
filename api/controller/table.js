@@ -202,8 +202,7 @@ exports.deleteTable = async (req, res) => {
     if (store) whereClause.store = store
 
     const deleted = await Table.destroy({
-      where: whereClause,
-      force: true
+      where: whereClause
     })
 
     if (!deleted) {

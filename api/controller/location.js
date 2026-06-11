@@ -529,7 +529,7 @@ exports.deleteLocationById = async (req, res) => {
     }
 
     // Hard delete the location (force: true bypasses paranoid if set)
-    await Location.destroy({ where: { id: dbId }, force: true })
+    await Location.destroy({ where: { id: dbId } })
 
     createNotification({ type: 'location_deleted', store: dbId, referenceId: dbId, referenceType: 'location', params: [location.name] }).catch(console.error)
     createAudit(req, 'delete', 'location', dbId, `Deleted location: ${location.name}`)

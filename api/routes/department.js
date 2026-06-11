@@ -4,6 +4,7 @@ const router = express.Router()
 
 const departmentController = require('../controller/department')
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Configure multer for file uploads
@@ -44,19 +45,19 @@ router.get(
 
 router.post(
   '/add-new-department',
-  authorization, validateStoreAccess,
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   departmentController.addNewDepartment
 )
 
 router.put(
   '/edit-department/:id',
-  authorization, validateStoreAccess,
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   departmentController.editDepartmentById
 )
 
 router.delete(
   '/delete-department/:id',
-  authorization, validateStoreAccess,
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   departmentController.deleteDepartmentById
 )
 
@@ -75,7 +76,7 @@ router.get(
 
 router.post(
   '/upload',
-  authorization, validateStoreAccess,
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   upload.single('file'),
   departmentController.uploadExcel
 )

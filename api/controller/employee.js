@@ -311,7 +311,8 @@ exports.updateEmployee = async (req, res) => {
   const documentFiles = req.files?.['documents'] || []
 
   try {
-    const employee = await User.findByPk(body?.id)
+    const employeeId = req.params.id
+    const employee = await User.findByPk(employeeId)
 
     if (!employee || employee.userType !== 'user') {
       return res.status(404).json({
@@ -322,7 +323,7 @@ exports.updateEmployee = async (req, res) => {
 
     if (body?.userName && body.userName !== employee.userName) {
       const existing = await User.findOne({
-        where: { userName: body.userName, id: { [Op.ne]: body.id } }
+        where: { userName: body.userName, id: { [Op.ne]: employeeId } }
       })
       if (existing) {
         return res.status(409).json({
@@ -334,7 +335,7 @@ exports.updateEmployee = async (req, res) => {
 
     if (body?.email && body.email !== employee.email) {
       const existing = await User.findOne({
-        where: { email: body.email, id: { [Op.ne]: body.id } }
+        where: { email: body.email, id: { [Op.ne]: employeeId } }
       })
       if (existing) {
         return res.status(409).json({
@@ -346,7 +347,7 @@ exports.updateEmployee = async (req, res) => {
 
     if (body?.employeeID && body.employeeID !== employee.employeeID) {
       const existing = await User.findOne({
-        where: { employeeID: body.employeeID, id: { [Op.ne]: body.id } }
+        where: { employeeID: body.employeeID, id: { [Op.ne]: employeeId } }
       })
       if (existing) {
         return res.status(409).json({
@@ -358,7 +359,7 @@ exports.updateEmployee = async (req, res) => {
 
     if (body?.phoneNumber && body.phoneNumber !== employee.phoneNumber) {
       const existing = await User.findOne({
-        where: { phoneNumber: body.phoneNumber, id: { [Op.ne]: body.id } }
+        where: { phoneNumber: body.phoneNumber, id: { [Op.ne]: employeeId } }
       })
       if (existing) {
         return res.status(409).json({
@@ -375,7 +376,7 @@ exports.updateEmployee = async (req, res) => {
         'pos-app-users'
       )
       const duplicate = await User.findOne({
-        where: { image: url, id: { [Op.ne]: body.id } }
+        where: { image: url, id: { [Op.ne]: employeeId } }
       })
       if (duplicate) {
         return res.status(409).json({
@@ -462,7 +463,7 @@ exports.updateEmployee = async (req, res) => {
 
     await employee.update(updateData)
 
-    createAudit(req, 'update', 'employee', body.id, `Updated employee: ${body.id}`)
+    createAudit(req, 'update', 'employee', employeeId, `Updated employee: ${employeeId}`)
 
     const result = employee.toJSON()
     delete result.password
@@ -500,7 +501,7 @@ exports.deleteEmployee = async (req, res) => {
       await deleteFromCloudinary(employee.image)
     }
 
-    await User.destroy({ where: { id }, force: true })
+    await User.destroy({ where: { id } })
 
     createAudit(req, 'delete', 'employee', id, `Deleted employee: ${id}`)
 

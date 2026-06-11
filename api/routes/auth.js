@@ -60,12 +60,12 @@ router.get(
 )
 
 // Reset Password
-router.post('/reset-password', authController.resetPassword)
+router.post('/reset-password', authorization, authController.resetPassword)
 
 // Edit User - based on role
 router.put('/edit-user', authorization, upload, authController.editUser)
 
 // Logout
-router.post('/logout', authController.logout)
+router.post('/logout', authorization, authController.logout)
 
 module.exports = router

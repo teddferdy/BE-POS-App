@@ -147,9 +147,10 @@ exports.checkout = async (req, res) => {
 
 exports.editCheckout = async (req, res) => {
   const body = req.body
+  const checkoutId = req.params.id
 
   try {
-    await this.addNewTransaction(body.id, body?.order)
+    await this.addNewTransaction(checkoutId, body?.order)
 
     const editCheckout = await Checkout?.update(
       {
@@ -167,7 +168,7 @@ exports.editCheckout = async (req, res) => {
       {
         returning: true,
         where: {
-          id: body.id,
+          id: checkoutId,
           invoice: body.invoice,
           store: body.store
         }
@@ -176,9 +177,9 @@ exports.editCheckout = async (req, res) => {
       return data
     })
 
-    createAudit(req, 'update', 'checkout', body.id, `Updated checkout: ${body.id}`)
+    createAudit(req, 'update', 'checkout', checkoutId, `Updated checkout: ${checkoutId}`)
 
-    createNotification({ type: 'payment_received', store: body.store, referenceId: body.id, referenceType: 'checkout', params: [body.invoice, body.totalPrice] }).catch(console.error)
+    createNotification({ type: 'payment_received', store: body.store, referenceId: checkoutId, referenceType: 'checkout', params: [body.invoice, body.totalPrice] }).catch(console.error)
 
     return res.status(200).json({
       success: true,
@@ -196,19 +197,19 @@ exports.editCheckout = async (req, res) => {
 
 exports.deleteCheckout = async (req, res) => {
   const body = req.body
+  const checkoutId = req.params.id
 
   try {
     const getId = await Checkout.destroy({
       where: {
-        id: body.id,
+        id: checkoutId,
         invoice: body.invoice,
         store: body.store
-      },
-      force: true
+      }
     })
 
     if (getId) {
-      createAudit(req, 'delete', 'checkout', body.id, `Deleted checkout: ${body.id}`)
+      createAudit(req, 'delete', 'checkout', checkoutId, `Deleted checkout: ${checkoutId}`)
 
       return res.status(200).json({
         success: true,

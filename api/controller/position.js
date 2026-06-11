@@ -232,8 +232,7 @@ exports.deletePositionById = async (req, res) => {
     )
 
     const getId = await Position.destroy({
-      where: { id: positionId },
-      force: true
+      where: { id: positionId }
     })
     createAudit(req, 'delete', 'position', positionId, `Deleted position: ${positionId}`)
 

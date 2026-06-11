@@ -249,8 +249,7 @@ exports.deleteDepartmentById = async (req, res) => {
     }
 
     const getId = await Department.destroy({
-      where: { id },
-      force: true
+      where: { id }
     })
     createAudit(req, 'delete', 'department', id, `Deleted department: ${id}`)
 

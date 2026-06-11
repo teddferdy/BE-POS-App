@@ -6,8 +6,8 @@ const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 router.get('/', authorization, validateStoreAccess, reservationController.getAll)
-router.get('/:id', authorization, validateStoreAccess, reservationController.getById)
 router.get('/available-tables/list', authorization, validateStoreAccess, reservationController.getAvailableTables)
+router.get('/:id', authorization, validateStoreAccess, reservationController.getById)
 
 router.post('/', authorization, validateStoreAccess, reservationController.create)
 router.put('/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), reservationController.update)

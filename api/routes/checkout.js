@@ -6,16 +6,18 @@ const checkoutController = require('../controller/checkout')
 
 // Authorization
 const authorization = require('../../utils/authorization')
+const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Add New Checkout
-router.post('/checkout-item', authorization, validateStoreAccess, checkoutController.checkout)
+router.post('/checkout-item', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), checkoutController.checkout)
 
 // Edit Checkout
 router.put(
   '/edit-checkout-item',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   checkoutController.editCheckout
 )
 
@@ -24,6 +26,7 @@ router.delete(
   '/delete-checkout-item',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   checkoutController.deleteCheckout
 )
 

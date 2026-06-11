@@ -403,7 +403,7 @@ exports.editUser = async (req, res, next) => {
     const { body } = req
     const imageFile = req.file
     const existingUser = await User.findOne({
-      where: { email: body.email, id: body.id }
+      where: { email: body.email, id: req.params.id }
     })
 
     if (!existingUser) {
@@ -469,23 +469,15 @@ exports.editUser = async (req, res, next) => {
 // Reset Password
 exports.resetPassword = async (req, res, next) => {
   const body = req?.body
-  console.log('BODY', body)
 
-  const data = await User.findAll()
-  console.log('data =>', data)
-
-  if (!body?.userName || !body?.password) {
+  if (!body?.oldPassword || !body?.password) {
     return res.status(400).json({
-      error: 'Username dan Password tidak boleh kosong'
+      error: 'Old Password dan New Password tidak boleh kosong'
     })
   }
 
   try {
-    const usernameLower = body.userName.toLowerCase()
-
-    const existingUser = await User.findOne({
-      where: { userName: usernameLower }
-    })
+    const existingUser = await User.findByPk(req.user.id)
 
     if (!existingUser) {
       return res.status(404).json({
@@ -493,41 +485,19 @@ exports.resetPassword = async (req, res, next) => {
       })
     }
 
-    await User.update(
-      {
-        password: bcrypt.hashSync(body.password, 10)
-      },
-      {
-        where: {
-          userName: usernameLower
-        }
-      }
-    )
-
-    const findUser = await User.findOne({
-      where: {
-        userName: usernameLower
-      }
-    })
-
-    console.log('FIND USER =>', findUser)
-
-    if (findUser?.dataValues) {
-      const result = findUser.toJSON()
-
-      result.token = generateToken({
-        id: result?.id
-      })
-
-      return res.status(200).json({
-        message: 'Success Mereset Password User',
-        data: result
-      })
-    } else {
-      return res.status(401).json({
-        error: 'Gagal Mereset Password'
+    const isMatch = bcrypt.compareSync(body.oldPassword, existingUser.password)
+    if (!isMatch) {
+      return res.status(403).json({
+        error: 'Old Password tidak sesuai'
       })
     }
+
+    existingUser.password = bcrypt.hashSync(body.password, 10)
+    await existingUser.save()
+
+    return res.status(200).json({
+      message: 'Success Mereset Password User'
+    })
   } catch (error) {
     console.log('ERROR =>', error)
     return res.status(500).json({
@@ -557,56 +527,24 @@ exports.generateEmployeeId = async (req, res) => {
 // User Logout
 exports.logout = async (req, res, next) => {
   try {
-    const body = req.body
-    const bodyUserNameOrEmail = body?.userName || body?.email
-    const storeId = body?.store // Store identifier passed from FE
+    const user = req.user
 
-    if (!bodyUserNameOrEmail || !storeId) {
-      return res.status(400).json({
-        message: 'User Name / Email & Store ID Tidak Boleh Kosong'
+    if (!user) {
+      return res.status(401).json({
+        message: 'Unauthorized'
       })
     }
 
-    // Check if the input is an email or username using a regex
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyUserNameOrEmail)
+    await User.update(
+      { statusActive: false },
+      { where: { id: user.id } }
+    )
 
-    // Find user by email or userName and store ID
-    const findUser = isEmail
-      ? await User.findOne({
-          where: {
-            email: bodyUserNameOrEmail,
-            store: storeId // Ensure it matches the store
-          }
-        })
-      : await User.findOne({
-          where: {
-            userName: bodyUserNameOrEmail,
-            store: storeId
-          }
-        })
+    res.clearCookie('token')
 
-    // If user is found, update status to inactive
-    if (findUser) {
-      await User.update(
-        { statusActive: false }, // Set status to inactive
-        {
-          where: isEmail
-            ? { email: bodyUserNameOrEmail, store: storeId }
-            : { userName: bodyUserNameOrEmail, store: storeId }
-        }
-      )
-
-      // Clear the token cookie
-      res.clearCookie('token')
-
-      return res.status(200).json({
-        message: 'User Berhasil Logout'
-      })
-    } else {
-      return res.status(404).json({
-        message: 'User Tidak Ditemukan'
-      })
-    }
+    return res.status(200).json({
+      message: 'User Berhasil Logout'
+    })
   } catch (error) {
     console.log('ERROR LOGOUT =>', error)
     return res.status(500).json({

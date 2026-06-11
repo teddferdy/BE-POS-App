@@ -46,6 +46,9 @@ exports.addNewSocialMedia = async (req, res) => {
     if (!findOneSocialMedia?.getDataValue) {
       const creadtedCategory = await SocialMedia.create({
         name: body.name,
+        icon: body.icon,
+        link: body.link,
+        status: body.status || 'active',
         createdBy: body.createdBy,
         store: store
       })
@@ -73,39 +76,41 @@ exports.addNewSocialMedia = async (req, res) => {
 }
 
 exports.editSocialMediaById = async (req, res) => {
+  const { id } = req.params
   const body = req.body
   try {
     const store = body.store || req.user?.store
     const getDuplicate = await SocialMedia.findOne({
       where: {
         name: body.name,
-        ...(store ? { store } : {})
+        ...(store ? { store } : {}),
+        id: { [db.Sequelize.Op.ne]: id }
       }
     })
 
     if (!getDuplicate?.dataValues) {
-      const editCategory = await SocialMedia?.update(
+      const [updated] = await SocialMedia?.update(
         {
-          id: body?.id,
-          name: body?.name
+          name: body?.name,
+          icon: body?.icon,
+          link: body?.link,
+          status: body?.status
         },
         {
-          returning: true,
           where: {
-            id: body.id,
+            id,
             ...(store ? { store } : {})
           }
         }
-      ).then(([_, data]) => {
-        return data
-      })
+      )
 
-      await createAudit(req, 'update', 'social_media_config', body.id, 'Updated social_media_config: ' + body.id)
+      if (updated) {
+        await createAudit(req, 'update', 'social_media_config', id, 'Updated social_media_config: ' + id)
+      }
 
       return res.status(200).json({
         success: true,
-        message: 'Sukses Ubah Social Media',
-        data: editCategory?.dataValues
+        message: 'Sukses Ubah Social Media'
       })
     } else {
       return res.status(403).json({
@@ -122,21 +127,20 @@ exports.editSocialMediaById = async (req, res) => {
 }
 
 exports.deleteSocialMediaById = async (req, res) => {
+  const { id } = req.params
   const body = req.body
 
   try {
     const store = body.store || req.user?.store
     const getId = await SocialMedia.destroy({
       where: {
-        id: body.id,
-        name: body.name,
+        id,
         ...(store ? { store } : {})
-      },
-      force: true
+      }
     })
 
     if (getId) {
-      await createAudit(req, 'delete', 'social_media_config', body.id, 'Deleted social_media_config: ' + body.id)
+      await createAudit(req, 'delete', 'social_media_config', id, 'Deleted social_media_config: ' + id)
 
       return res.status(200).json({
         success: true,

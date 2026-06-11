@@ -41,19 +41,25 @@ exports.chartDataByYear = async (req, res) => {
   const { store, year } = query
 
   try {
+    const replacements = { year }
+    let storeCondition = ''
+    if (store) {
+      storeCondition = 'AND co."store" = :store'
+      replacements.store = store
+    }
     const [result] = await sequelize.query(`
         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month, 
           coalesce(sum(co."totalPrice"), 0) as "totalAmount",
           coalesce(COUNT(co."dateCheckout"), 0) AS "countCheckout"
         FROM generate_series(
-          (DATE '${year}-01-01'), 
-          (DATE '${year}-12-31'), 
+          (DATE :year || '-01-01'), 
+          (DATE :year || '-12-31'), 
           '1 month') AS months(month)
         LEFT JOIN checkout co ON date_trunc('month', co."dateCheckout") = months.month
-        ${store ? `AND co."store" = '${store}'` : ''}
+        ${storeCondition}
         GROUP BY months.month
         ORDER BY months.month ASC
-      `)
+      `, { replacements })
 
     return res.status(200).json({
       success: true,

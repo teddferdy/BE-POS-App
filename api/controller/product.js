@@ -499,8 +499,7 @@ exports.deleteProductByIdAndLocation = async (req, res) => {
     }
 
     await Product.destroy({
-      where: { id },
-      force: true
+      where: { id }
     })
 
     createNotification({ type: 'product_deleted', store: product.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [product.nameProduct || 'Unknown'] }).catch(console.error)
