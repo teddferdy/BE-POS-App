@@ -5,16 +5,37 @@ const { createAudit } = require('../../utils/auditLog')
 
 exports.getTablesByStore = async (req, res) => {
   const store = req.query.store || req.user?.store
+  const page = parseInt(req.query.page) || 1
+  const limit = parseInt(req.query.limit) || 10
+  const offset = (page - 1) * limit
 
   try {
-    const tables = await Table.findAll({
-      where: store ? { store } : {},
-      order: [['name', 'ASC']]
+    const whereClause = store ? { store } : {}
+
+    const { count, rows } = await Table.findAndCountAll({
+      where: whereClause,
+      order: [['name', 'ASC']],
+      limit,
+      offset
     })
+
+    const stats = {
+      available: rows.filter(t => t.status === 'available').length,
+      occupied: rows.filter(t => t.status === 'occupied').length,
+      reserved: rows.filter(t => t.status === 'reserved').length,
+      total: count
+    }
 
     return res.status(200).json({
       message: 'Success',
-      data: tables
+      data: rows,
+      stats,
+      pagination: {
+        total: count,
+        totalPages: Math.ceil(count / limit),
+        page,
+        limit
+      }
     })
   } catch (error) {
     console.error('Error:', error)
