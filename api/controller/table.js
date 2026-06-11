@@ -198,10 +198,19 @@ exports.deleteTable = async (req, res) => {
       })
     }
 
-    await Table.destroy({
-      where: { id, store },
+    const whereClause = { id }
+    if (store) whereClause.store = store
+
+    const deleted = await Table.destroy({
+      where: whereClause,
       force: true
     })
+
+    if (!deleted) {
+      return res.status(404).json({
+        message: 'Table not found'
+      })
+    }
 
     createAudit(req, 'delete', 'table', id, `Deleted table: ${id}`)
 
