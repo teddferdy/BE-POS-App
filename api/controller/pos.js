@@ -872,12 +872,41 @@ const posController = {
         })
       }
 
-      // TODO: Implement WhatsApp API integration
-      // For now, return success
+      const itemLines = (order.items || [])
+        .map((i) => {
+          const line = `- ${i.productName || 'Item'} (${i.quantity}x) = Rp ${(i.totalPrice || 0).toLocaleString('id')}`
+          return encodeURIComponent(line)
+        })
+        .join('%0A')
+
+      const date = new Date(order.createdAt).toLocaleString('id-ID', {
+        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      })
+
+      const tableInfo = order.table ? `Meja: ${order.table.name}%0A` : ''
+      const itemsSection = order.items?.length
+        ? `%0A*Pesanan:*%0A${itemLines}`
+        : ''
+
+      const text = encodeURIComponent(
+        `*INVOICE #${order.orderNumber || order.id}*%0A` +
+        `Tanggal: ${date}%0A` +
+        `${tableInfo}` +
+        `Status: ${order.paymentStatus === 'paid' ? 'LUNAS' : order.paymentStatus}%0A` +
+        `${itemsSection}%0A%0A` +
+        `*Total: Rp ${(order.totalPrice || 0).toLocaleString('id')}*%0A` +
+        `Pembayaran: ${order.paymentMethod || '-'}%0A%0A` +
+        `Terima kasih telah berbelanja!`
+      )
+
+      const cleanPhone = phone.replace(/[^0-9]/g, '')
+      const waNumber = cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : cleanPhone
+      const waLink = `https://wa.me/${waNumber}?text=${text}`
+
       return res.status(200).json({
         success: true,
-        message: 'Invoice sent via WhatsApp',
-        data: { orderId, phone }
+        message: 'WhatsApp link generated',
+        data: { waLink, orderId, phone }
       })
     } catch (error) {
       console.error('Error =>', error)

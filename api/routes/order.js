@@ -32,4 +32,8 @@ router.put(
   orderController.voidOrder
 )
 
+// Customer-facing (no auth)
+router.get('/customer-menu', orderController.getCustomerMenu)
+router.post('/customer-create', orderController.createCustomerOrder)
+
 module.exports = router

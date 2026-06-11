@@ -9,6 +9,7 @@ const Transaction = db.transaction
 const BestSelling = db.best_selling
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const { emitItemStatusUpdate } = require('../service/socket')
 
 const generateOrderNumber = () => {
   const date = new Date()
@@ -35,6 +36,59 @@ const getActiveTaxRate = async (store) => {
 const getServiceChargeRate = async (store) => {
   // Could be extended to a service_charge_config table
   return 5
+}
+
+const applyAdvancedPromo = (items, discount) => {
+  if (!discount || !discount.conditions || !discount.conditions.promoType) return 0
+  const { promoType } = discount.conditions
+  let totalDiscount = 0
+
+  switch (promoType) {
+    case 'bogo': {
+      const { buyQty = 2, freeQty = 1, freeProductId = null } = discount.conditions
+      let targetItem
+      if (freeProductId) {
+        targetItem = items.find(i => Number(i.productId) === Number(freeProductId))
+      } else {
+        targetItem = items.reduce((a, b) => ((a.unitPrice || 0) < (b.unitPrice || 0) ? a : b))
+      }
+      if (targetItem && targetItem.quantity >= buyQty) {
+        const freeCount = Math.floor(targetItem.quantity / buyQty) * freeQty
+        const freeAmount = (targetItem.unitPrice || 0) * freeCount
+        targetItem.subtotal = Math.max(0, (targetItem.unitPrice || 0) * targetItem.quantity - freeAmount)
+        totalDiscount += freeAmount
+      }
+      break
+    }
+    case 'bundling': {
+      const { bundlePrice, productIds } = discount.conditions
+      const pidSet = new Set((productIds || []).map(Number))
+      const bundleItems = items.filter(i => pidSet.has(Number(i.productId)))
+      if (bundleItems.length === (productIds || []).length) {
+        const origTotal = bundleItems.reduce((s, i) => s + i.subtotal, 0)
+        const ratio = bundlePrice / origTotal
+        bundleItems.forEach(item => {
+          const orig = item.subtotal
+          item.subtotal = Math.round(orig * ratio)
+          totalDiscount += orig - item.subtotal
+        })
+      }
+      break
+    }
+    case 'category': {
+      const { discountPercent, categoryIds } = discount.conditions
+      const catSet = new Set((categoryIds || []).map(Number))
+      items.forEach(item => {
+        if (catSet.has(Number(item.categoryId))) {
+          const disc = Math.round(item.subtotal * (discountPercent / 100))
+          item.subtotal -= disc
+          totalDiscount += disc
+        }
+      })
+      break
+    }
+  }
+  return totalDiscount
 }
 
 const calculateOrderTotals = (items, discountValue = 0, discountType = 'none', taxRate = 0, serviceChargeRate = 0) => {
@@ -89,6 +143,7 @@ exports.createOrder = async (req, res) => {
     let discountValue = 0
     let discountType = 'none'
     let appliedDiscountId = null
+    let appliedDiscountMeta = null
 
     // Priority 1: Explicit discountId (from dropdown)
     if (discountId) {
@@ -97,6 +152,7 @@ exports.createOrder = async (req, res) => {
         discountValue = discount.value
         discountType = discount.type
         appliedDiscountId = discount.id
+        appliedDiscountMeta = discount
       }
     }
 
@@ -112,7 +168,32 @@ exports.createOrder = async (req, res) => {
             discountValue = promoDiscount.value
             discountType = promoDiscount.type
             appliedDiscountId = promoDiscount.id
+            appliedDiscountMeta = promoDiscount
           }
+        }
+      }
+    }
+
+    // Priority 2.5: Happy hour auto-discount
+    if (!appliedDiscountId) {
+      const now = new Date()
+      const dayOfWeek = now.getDay()
+      const timeStr = now.toTimeString().slice(0, 5)
+      const allActive = await Discount.findAll({ where: { store, status: 'active' } })
+      const happyHourDiscount = allActive.find(
+        d => d.conditions && d.conditions.promoType === 'happyHour'
+      )
+      if (happyHourDiscount) {
+        const { daysOfWeek, startTime, endTime, discountPercent } = happyHourDiscount.conditions
+        if (
+          (!daysOfWeek || daysOfWeek.length === 0 || daysOfWeek.includes(dayOfWeek)) &&
+          (!startTime || timeStr >= startTime) &&
+          (!endTime || timeStr <= endTime)
+        ) {
+          discountValue = discountPercent || 10
+          discountType = 'percent'
+          appliedDiscountId = happyHourDiscount.id
+          appliedDiscountMeta = happyHourDiscount
         }
       }
     }
@@ -136,7 +217,17 @@ exports.createOrder = async (req, res) => {
     const taxRate = await getActiveTaxRate(store)
     const serviceChargeRate = await getServiceChargeRate(store)
 
-    const totals = calculateOrderTotals(items, discountValue, discountType, taxRate, serviceChargeRate)
+    let totals
+    let promoDiscountAmount = 0
+
+    // Check if discount has advanced promo type (bogo/bundling/category)
+    if (appliedDiscountMeta && appliedDiscountMeta.conditions && appliedDiscountMeta.conditions.promoType) {
+      promoDiscountAmount = applyAdvancedPromo(items, appliedDiscountMeta)
+      totals = calculateOrderTotals(items, 0, 'none', taxRate, serviceChargeRate)
+      totals.discountAmount = promoDiscountAmount
+    } else {
+      totals = calculateOrderTotals(items, discountValue, discountType, taxRate, serviceChargeRate)
+    }
 
     // Apply maximumDiscount cap for percent type
     if (discountType === 'percent' && appliedDiscountId) {
@@ -342,6 +433,11 @@ exports.updateOrderItemStatus = async (req, res) => {
     }
 
     await item.update({ status: itemStatus })
+
+    const order = await Order.findByPk(id)
+    if (order) {
+      emitItemStatusUpdate(order.store, id, item)
+    }
 
     const allItems = await OrderItem.findAll({ where: { order: id } })
     const allSameStatus = allItems.every(i => i.status === itemStatus)
@@ -672,5 +768,102 @@ exports.getKitchenOrders = async (req, res) => {
     return res.status(500).json({
       error: 'Internal Server Error'
     })
+  }
+}
+
+exports.getCustomerMenu = async (req, res) => {
+  const { store } = req.query
+
+  try {
+    if (!store) {
+      return res.status(400).json({ message: 'store is required' })
+    }
+
+    const products = await db.product.findAll({
+      where: { store, status: 'active' },
+      include: [{ model: db.category, as: 'categoryData', attributes: ['name'] }],
+      order: [['categoryData', 'name', 'ASC'], ['name', 'ASC']]
+    })
+
+    const categories = await db.category.findAll({
+      where: { store, status: 'active' },
+      order: [['name', 'ASC']]
+    })
+
+    return res.status(200).json({
+      message: 'Success',
+      data: { products, categories }
+    })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
+  }
+}
+
+exports.createCustomerOrder = async (req, res) => {
+  const { store, tableId, items, customerName, notes } = req.body
+
+  try {
+    if (!store || !items || !items.length) {
+      return res.status(400).json({ message: 'store and items are required' })
+    }
+
+    const orderNumber = 'CUST-' + Date.now().toString().slice(-8) + Math.random().toString(36).slice(2, 6).toUpperCase()
+
+    const table = tableId ? await db.table.findOne({ where: { id: tableId, store } }) : null
+    if (tableId && !table) {
+      return res.status(400).json({ message: 'Table not found' })
+    }
+
+    let subTotal = 0
+    let totalQuantity = 0
+    const orderItems = items.map(item => {
+      const subtotal = item.price * item.quantity
+      subTotal += subtotal
+      totalQuantity += item.quantity
+      return {
+        product: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: subtotal,
+        notes: item.notes || null,
+        status: 'pending'
+      }
+    })
+
+    const order = await db.order.create({
+      orderNumber,
+      store,
+      tableId: tableId || null,
+      cashierName: customerName || 'Customer',
+      customerName: customerName || null,
+      notes,
+      source: 'customer',
+      status: 'pending',
+      subTotal,
+      totalQuantity,
+      discountType: 'none',
+      discountValue: 0,
+      taxAmount: 0,
+      serviceChargeAmount: 0,
+      totalPrice: subTotal
+    })
+
+    for (const item of orderItems) {
+      await db.order_item.create({ ...item, order: order.id })
+    }
+
+    if (table) {
+      await table.update({ status: 'occupied' })
+    }
+
+    return res.status(201).json({
+      message: 'Order created',
+      data: order
+    })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
   }
 }
