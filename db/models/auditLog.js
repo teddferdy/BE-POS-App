@@ -1,74 +1,74 @@
-"use strict";
+'use strict'
 
 module.exports = (sequelize, DataTypes) => {
   const AuditLog = sequelize.define(
-    "auditLog",
+    'auditLog',
     {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
-        type: DataTypes.INTEGER,
+        type: DataTypes.INTEGER
       },
       store: {
         type: DataTypes.INTEGER,
         allowNull: true,
-        references: { model: "location", key: "id" },
+        references: { model: 'location', key: 'id' }
       },
       userId: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: true
       },
       userName: {
         type: DataTypes.STRING(100),
-        allowNull: true,
+        allowNull: true
       },
       action: {
         type: DataTypes.STRING(20),
-        allowNull: false,
+        allowNull: false
       },
       entity: {
         type: DataTypes.STRING(50),
-        allowNull: false,
+        allowNull: false
       },
       entityId: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: true
       },
       description: {
         type: DataTypes.TEXT,
-        allowNull: true,
+        allowNull: true
       },
       oldValues: {
         type: DataTypes.JSONB,
-        allowNull: true,
+        allowNull: true
       },
       newValues: {
         type: DataTypes.JSONB,
-        allowNull: true,
+        allowNull: true
       },
       ipAddress: {
         type: DataTypes.STRING(45),
-        allowNull: true,
+        allowNull: true
       },
       userAgent: {
         type: DataTypes.TEXT,
-        allowNull: true,
-      },
+        allowNull: true
+      }
     },
     {
       paranoid: false,
       freezeTableName: true,
-      tableName: "auditLog",
+      tableName: 'auditLog'
     }
-  );
+  )
 
   AuditLog.associate = (models) => {
     AuditLog.belongsTo(models.location, {
-      foreignKey: "store",
-      as: "storeData",
-    });
-  };
+      foreignKey: 'store',
+      as: 'storeData'
+    })
+  }
 
-  return AuditLog;
-};
+  return AuditLog
+}

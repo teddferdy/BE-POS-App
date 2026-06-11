@@ -60,4 +60,7 @@ router.post(
   discountController.importData
 )
 
+// Lookup promo by code - no auth required (POS checkout)
+router.get('/lookup-by-code/:code', discountController.lookupByCode)
+
 module.exports = router

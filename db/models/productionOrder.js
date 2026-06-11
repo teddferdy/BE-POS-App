@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  const purchaseOrder = sequelize.define(
-    'purchase_order',
+  const productionOrder = sequelize.define(
+    'productionOrder',
     {
       id: {
         allowNull: false,
@@ -12,34 +12,30 @@ module.exports = (sequelize, DataTypes) => {
       store: {
         type: DataTypes.INTEGER
       },
-      orderNumber: {
+      productionNo: {
         allowNull: false,
         type: DataTypes.STRING
       },
-      supplier: {
+      productItemId: {
         allowNull: false,
         type: DataTypes.INTEGER
       },
-      totalAmount: {
+      plannedQty: {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
-      discount: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0
-      },
-      finalAmount: {
+      producedQty: {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
       status: {
-        type: DataTypes.ENUM('pending', 'ordered', 'received', 'cancelled'),
-        defaultValue: 'pending'
+        type: DataTypes.ENUM('draft', 'planned', 'in_progress', 'completed', 'cancelled'),
+        defaultValue: 'draft'
       },
-      orderDate: {
-        type: DataTypes.DATE
+      scheduledDate: {
+        type: DataTypes.DATEONLY
       },
-      receivedDate: {
+      completedDate: {
         type: DataTypes.DATE
       },
       notes: {
@@ -55,17 +51,21 @@ module.exports = (sequelize, DataTypes) => {
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'purchase_order',
-      tableName: 'purchase_order'
+      modelName: 'productionOrder',
+      tableName: 'production_order'
     }
   )
 
-  purchaseOrder.associate = (models) => {
-    purchaseOrder.hasMany(models.goodsReceipt, {
-      foreignKey: 'purchaseOrderId',
-      as: 'goodsReceipts'
+  productionOrder.associate = (models) => {
+    productionOrder.belongsTo(models.product, {
+      foreignKey: 'productItemId',
+      as: 'productData'
+    })
+    productionOrder.belongsTo(models.location, {
+      foreignKey: 'store',
+      as: 'storeData'
     })
   }
 
-  return purchaseOrder
+  return productionOrder
 }

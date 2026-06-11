@@ -48,6 +48,15 @@ module.exports = (sequelize, DataTypes) => {
       },
       modifiedBy: {
         type: DataTypes.STRING
+      },
+      code: {
+        type: DataTypes.STRING(50),
+        unique: true,
+        allowNull: true
+      },
+      conditions: {
+        type: DataTypes.JSONB,
+        defaultValue: null
       }
     },
     {

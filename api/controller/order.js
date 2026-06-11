@@ -17,6 +17,26 @@ const generateOrderNumber = () => {
   return `ORD${timestamp}${random}`
 }
 
+const getActiveTaxRate = async (store) => {
+  try {
+    const taxConfigs = await db.taxConfig.findAll({
+      where: { store, status: 'active' },
+      attributes: ['rate']
+    })
+    if (taxConfigs.length > 0) {
+      return taxConfigs.reduce((sum, t) => sum + Number(t.rate), 0)
+    }
+  } catch (e) {
+    console.error('Error fetching tax config:', e.message)
+  }
+  return 11 // fallback default
+}
+
+const getServiceChargeRate = async (store) => {
+  // Could be extended to a service_charge_config table
+  return 5
+}
+
 const calculateOrderTotals = (items, discountValue = 0, discountType = 'none', taxRate = 0, serviceChargeRate = 0) => {
   let subTotal = 0
   let totalQuantity = 0
@@ -49,7 +69,7 @@ const calculateOrderTotals = (items, discountValue = 0, discountType = 'none', t
 }
 
 exports.createOrder = async (req, res) => {
-  const { store, tableId, cashierId, cashierName, items, discountId, customerId, customerName, customerPhone, notes, source, currencyId, currencyCode, exchangeRate } = req.body
+  const { store, tableId, cashierId, cashierName, items, discountId, promoCode, customerId, customerName, customerPhone, notes, source, currencyId, currencyCode, exchangeRate } = req.body
 
   try {
     const orderNumber = generateOrderNumber()
@@ -68,18 +88,67 @@ exports.createOrder = async (req, res) => {
 
     let discountValue = 0
     let discountType = 'none'
+    let appliedDiscountId = null
+
+    // Priority 1: Explicit discountId (from dropdown)
     if (discountId) {
       const discount = await Discount.findOne({ where: { id: discountId, store } })
       if (discount) {
         discountValue = discount.value
         discountType = discount.type
+        appliedDiscountId = discount.id
       }
     }
 
-    const taxRate = 11
-    const serviceChargeRate = 5
+    // Priority 2: Promo code
+    if (promoCode && !appliedDiscountId) {
+      const promoDiscount = await Discount.findOne({
+        where: { code: promoCode.trim().toUpperCase(), store, status: 'active' }
+      })
+      if (promoDiscount) {
+        const now = new Date()
+        if (!promoDiscount.startDate || new Date(promoDiscount.startDate) <= now) {
+          if (!promoDiscount.endDate || new Date(promoDiscount.endDate) >= now) {
+            discountValue = promoDiscount.value
+            discountType = promoDiscount.type
+            appliedDiscountId = promoDiscount.id
+          }
+        }
+      }
+    }
+
+    // Priority 3: Member tier auto-discount
+    if (!appliedDiscountId && customerId) {
+      try {
+        const member = await db.member.findByPk(customerId)
+        if (member && member.tier) {
+          const tier = await db.member_tier.findByPk(member.tier)
+          if (tier && tier.discountPercent > 0) {
+            discountValue = tier.discountPercent
+            discountType = 'percent'
+          }
+        }
+      } catch (e) {
+        console.error('Tier discount lookup error:', e.message)
+      }
+    }
+
+    const taxRate = await getActiveTaxRate(store)
+    const serviceChargeRate = await getServiceChargeRate(store)
 
     const totals = calculateOrderTotals(items, discountValue, discountType, taxRate, serviceChargeRate)
+
+    // Apply maximumDiscount cap for percent type
+    if (discountType === 'percent' && appliedDiscountId) {
+      const discountMeta = await Discount.findByPk(appliedDiscountId)
+      if (discountMeta && discountMeta.maximumDiscount > 0 && totals.discountAmount > discountMeta.maximumDiscount) {
+        totals.discountAmount = discountMeta.maximumDiscount
+        const afterDiscount = totals.subTotal - totals.discountAmount
+        totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
+        totals.serviceChargeAmount = Math.round(afterDiscount * (serviceChargeRate / 100))
+        totals.totalPrice = afterDiscount + totals.taxAmount + totals.serviceChargeAmount
+      }
+    }
 
     const order = await Order.create({
       orderNumber,

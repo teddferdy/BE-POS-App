@@ -1,68 +1,68 @@
-"use strict";
+'use strict'
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("currency", {
+    await queryInterface.createTable('currency', {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
-        type: Sequelize.INTEGER,
+        type: Sequelize.INTEGER
       },
       store: {
         type: Sequelize.INTEGER,
         allowNull: true,
-        references: { model: "location", key: "id" },
-        onDelete: "SET NULL",
+        references: { model: 'location', key: 'id' },
+        onDelete: 'SET NULL'
       },
       code: {
         type: Sequelize.STRING(10),
-        allowNull: false,
+        allowNull: false
       },
       name: {
         type: Sequelize.STRING(50),
-        allowNull: false,
+        allowNull: false
       },
       symbol: {
         type: Sequelize.STRING(10),
-        allowNull: false,
+        allowNull: false
       },
       exchangeRate: {
         type: Sequelize.DECIMAL(18, 6),
         allowNull: false,
-        defaultValue: 1.0,
+        defaultValue: 1.0
       },
       isDefault: {
         type: Sequelize.BOOLEAN,
-        defaultValue: false,
+        defaultValue: false
       },
       status: {
         type: Sequelize.BOOLEAN,
-        defaultValue: true,
+        defaultValue: true
       },
       createdBy: {
         type: Sequelize.INTEGER,
-        allowNull: true,
+        allowNull: true
       },
       modifiedBy: {
         type: Sequelize.INTEGER,
-        allowNull: true,
+        allowNull: true
       },
       createdAt: {
         allowNull: false,
-        type: Sequelize.DATE,
+        type: Sequelize.DATE
       },
       updatedAt: {
         allowNull: false,
-        type: Sequelize.DATE,
+        type: Sequelize.DATE
       },
       deletedAt: {
-        type: Sequelize.DATE,
-      },
-    });
+        type: Sequelize.DATE
+      }
+    })
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("currency");
-  },
-};
+    await queryInterface.dropTable('currency')
+  }
+}

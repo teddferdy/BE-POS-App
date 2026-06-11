@@ -24,14 +24,24 @@ module.exports = {
 
   down: async (queryInterface, Sequelize) => {
     if (!(await columnExists(queryInterface, 'product', 'imageName')))
-      await queryInterface.addColumn('product', 'imageName', { type: Sequelize.STRING })
+      await queryInterface.addColumn('product', 'imageName', {
+        type: Sequelize.STRING
+      })
     if (!(await columnExists(queryInterface, 'category', 'imageName')))
-      await queryInterface.addColumn('category', 'imageName', { type: Sequelize.STRING })
+      await queryInterface.addColumn('category', 'imageName', {
+        type: Sequelize.STRING
+      })
     if (!(await columnExists(queryInterface, 'invoice_logo', 'imageName')))
-      await queryInterface.addColumn('invoice_logo', 'imageName', { type: Sequelize.STRING })
+      await queryInterface.addColumn('invoice_logo', 'imageName', {
+        type: Sequelize.STRING
+      })
     if (!(await columnExists(queryInterface, 'location', 'imageName')))
-      await queryInterface.addColumn('location', 'imageName', { type: Sequelize.STRING })
+      await queryInterface.addColumn('location', 'imageName', {
+        type: Sequelize.STRING
+      })
     if (!(await columnExists(queryInterface, 'location', 'nameStore')))
-      await queryInterface.addColumn('location', 'nameStore', { type: Sequelize.STRING })
+      await queryInterface.addColumn('location', 'nameStore', {
+        type: Sequelize.STRING
+      })
   }
 }

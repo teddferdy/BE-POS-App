@@ -45,6 +45,11 @@ const notificationRoutes = require('./routes/notification')
 const currencyRoutes = require('./routes/currency')
 const auditLogRoutes = require('./routes/auditLog')
 const receiptRoutes = require('./routes/receipt')
+const productionOrderRoutes = require('./routes/productionOrder')
+const goodsReceiptRoutes = require('./routes/goodsReceipt')
+const salesReturnRoutes = require('./routes/salesReturn')
+const purchaseReturnRoutes = require('./routes/purchaseReturn')
+const bomRoutes = require('./routes/bom')
 
 const app = express()
 const server = http.createServer(app)
@@ -60,7 +65,7 @@ const corsOptions = {
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 500,
   skip: (req) => req.method === 'OPTIONS',
   message: {
     success: false,
@@ -113,7 +118,12 @@ const routes = [
     { path: '/notification', route: notificationRoutes },
     { path: '/currency', route: currencyRoutes },
     { path: '/audit-log', route: auditLogRoutes },
-    { path: '/receipt', route: receiptRoutes }
+    { path: '/receipt', route: receiptRoutes },
+    { path: '/production-order', route: productionOrderRoutes },
+    { path: '/goods-receipt', route: goodsReceiptRoutes },
+    { path: '/sales-return', route: salesReturnRoutes },
+    { path: '/purchase-return', route: purchaseReturnRoutes },
+    { path: '/bom', route: bomRoutes }
   ]
 
 routes.forEach(({ path, route }) => app.use(path, route))

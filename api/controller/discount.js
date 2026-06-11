@@ -348,7 +348,7 @@ exports.importData = async (req, res) => {
 };
 
 exports.postNewDiscount = async (req, res) => {
-  const { name, type, value, minimumOrder, maximumDiscount, startDate, endDate, status, createdBy } = req.body
+  const { name, type, value, minimumOrder, maximumDiscount, startDate, endDate, status, createdBy, code, conditions } = req.body
   const store = req.body.store || req.user?.store
   try {
     const discountType = type === 'percentage' ? 'percent' : type
@@ -370,6 +370,8 @@ exports.postNewDiscount = async (req, res) => {
         startDate,
         endDate,
         store,
+        code: code || null,
+        conditions: conditions || null,
         status: status !== undefined ? (status === true || status === 'active' ? true : status === false || status === 'inactive' ? false : status) : true,
         createdBy
       })
@@ -390,6 +392,43 @@ exports.postNewDiscount = async (req, res) => {
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
     })
+  }
+}
+
+exports.lookupByCode = async (req, res) => {
+  const { code } = req.params
+  const store = req.query.store || req.user?.store
+
+  try {
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Code is required' })
+    }
+
+    const discount = await Discount.findOne({
+      where: {
+        code: code.trim().toUpperCase(),
+        status: 'active',
+        ...(store ? { store } : {})
+      }
+    })
+
+    if (!discount) {
+      return res.status(404).json({ success: false, message: 'Promo code not found or inactive' })
+    }
+
+    // Validate date range
+    const now = new Date()
+    if (discount.startDate && new Date(discount.startDate) > now) {
+      return res.status(400).json({ success: false, message: 'Promo has not started yet' })
+    }
+    if (discount.endDate && new Date(discount.endDate) < now) {
+      return res.status(400).json({ success: false, message: 'Promo has expired' })
+    }
+
+    return res.status(200).json({ success: true, message: 'Success', data: discount })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }
 
@@ -419,6 +458,8 @@ exports.editDiscountById = async (req, res) => {
           maximumDiscount: body.maximumDiscount,
           startDate: body.startDate,
           endDate: body.endDate,
+          code: body.code || null,
+          conditions: body.conditions || null,
           status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
           createdBy: body.createdBy,
           modifiedBy: body?.modifiedBy

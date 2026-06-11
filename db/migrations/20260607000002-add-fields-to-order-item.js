@@ -11,7 +11,10 @@ module.exports = {
         })
       }
     } catch (err) {
-      console.log('Column waktuSiap already exists or error checking:', err.message)
+      console.log(
+        'Column waktuSiap already exists or error checking:',
+        err.message
+      )
     }
 
     try {
@@ -23,7 +26,10 @@ module.exports = {
         })
       }
     } catch (err) {
-      console.log('Column urutanSaji already exists or error checking:', err.message)
+      console.log(
+        'Column urutanSaji already exists or error checking:',
+        err.message
+      )
     }
 
     try {
@@ -35,7 +41,10 @@ module.exports = {
         })
       }
     } catch (err) {
-      console.log('Column hppSnapshot already exists or error checking:', err.message)
+      console.log(
+        'Column hppSnapshot already exists or error checking:',
+        err.message
+      )
     }
 
     try {
@@ -47,7 +56,10 @@ module.exports = {
         })
       }
     } catch (err) {
-      console.log('Column stationDapur already exists or error checking:', err.message)
+      console.log(
+        'Column stationDapur already exists or error checking:',
+        err.message
+      )
     }
   },
 

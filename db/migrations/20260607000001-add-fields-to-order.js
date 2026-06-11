@@ -11,7 +11,10 @@ module.exports = {
         })
       }
     } catch (err) {
-      console.log('Column totalCovers already exists or error checking:', err.message)
+      console.log(
+        'Column totalCovers already exists or error checking:',
+        err.message
+      )
     }
 
     try {
@@ -23,7 +26,10 @@ module.exports = {
         })
       }
     } catch (err) {
-      console.log('Column shiftId already exists or error checking:', err.message)
+      console.log(
+        'Column shiftId already exists or error checking:',
+        err.message
+      )
     }
   },
 

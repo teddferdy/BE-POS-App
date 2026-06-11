@@ -1,72 +1,72 @@
-"use strict";
+'use strict'
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("auditLog", {
+    await queryInterface.createTable('auditLog', {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
-        type: Sequelize.INTEGER,
+        type: Sequelize.INTEGER
       },
       store: {
         type: Sequelize.INTEGER,
         allowNull: true,
-        references: { model: "location", key: "id" },
-        onDelete: "SET NULL",
+        references: { model: 'location', key: 'id' },
+        onDelete: 'SET NULL'
       },
       userId: {
         type: Sequelize.INTEGER,
-        allowNull: true,
+        allowNull: true
       },
       userName: {
         type: Sequelize.STRING(100),
-        allowNull: true,
+        allowNull: true
       },
       action: {
         type: Sequelize.STRING(20),
-        allowNull: false,
+        allowNull: false
       },
       entity: {
         type: Sequelize.STRING(50),
-        allowNull: false,
+        allowNull: false
       },
       entityId: {
         type: Sequelize.INTEGER,
-        allowNull: true,
+        allowNull: true
       },
       description: {
         type: Sequelize.TEXT,
-        allowNull: true,
+        allowNull: true
       },
       oldValues: {
         type: Sequelize.JSONB,
-        allowNull: true,
+        allowNull: true
       },
       newValues: {
         type: Sequelize.JSONB,
-        allowNull: true,
+        allowNull: true
       },
       ipAddress: {
         type: Sequelize.STRING(45),
-        allowNull: true,
+        allowNull: true
       },
       userAgent: {
         type: Sequelize.TEXT,
-        allowNull: true,
+        allowNull: true
       },
       createdAt: {
         allowNull: false,
-        type: Sequelize.DATE,
+        type: Sequelize.DATE
       },
       updatedAt: {
         allowNull: false,
-        type: Sequelize.DATE,
-      },
-    });
+        type: Sequelize.DATE
+      }
+    })
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("auditLog");
-  },
-};
+    await queryInterface.dropTable('auditLog')
+  }
+}

@@ -1,11 +1,24 @@
 'use strict'
 
 const TABLES = [
-  'category', 'department', 'discount', 'expenseCategory',
-  'ingredient', 'invoice_setting', 'location', 'member',
-  'memberTier', 'currency', 'position', 'product',
-  'role', 'shift', 'social_media', 'supplier',
-  'taxConfig', 'type_payment'
+  'category',
+  'department',
+  'discount',
+  'expenseCategory',
+  'ingredient',
+  'invoice_setting',
+  'location',
+  'member',
+  'memberTier',
+  'currency',
+  'position',
+  'product',
+  'role',
+  'shift',
+  'social_media',
+  'supplier',
+  'taxConfig',
+  'type_payment'
 ]
 
 module.exports = {

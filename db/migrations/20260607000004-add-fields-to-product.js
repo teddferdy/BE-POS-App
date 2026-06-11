@@ -7,15 +7,15 @@ module.exports = {
       allowNull: false
     })
     await queryInterface.addColumn('product', 'hppPerPorsi', {
-      type: Sequelize.DECIMAL(15,2),
+      type: Sequelize.DECIMAL(15, 2),
       defaultValue: 0
     })
     await queryInterface.addColumn('product', 'foodCostPersen', {
-      type: Sequelize.DECIMAL(5,2),
+      type: Sequelize.DECIMAL(5, 2),
       defaultValue: 0
     })
     await queryInterface.addColumn('product', 'marginPersen', {
-      type: Sequelize.DECIMAL(5,2),
+      type: Sequelize.DECIMAL(5, 2),
       defaultValue: 0
     })
     await queryInterface.addColumn('product', 'isAvailableHariIni', {

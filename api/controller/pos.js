@@ -157,6 +157,35 @@ const posController = {
     }
   },
 
+  // Get stock transfer by ID
+  async getTransferById(req, res) {
+    try {
+      const { id } = req.params
+
+      const transfer = await db.stock_transfer.findOne({
+        where: { id },
+        include: [
+          {
+            model: db.stock_transfer_item, as: 'items',
+            include: [{ model: db.product, attributes: ['id', 'nameProduct', 'sku'] }]
+          },
+          { model: db.location, as: 'fromStoreData', attributes: ['id', 'name'] },
+          { model: db.location, as: 'toStoreData', attributes: ['id', 'name'] },
+          { model: db.user, as: 'transferredByData', attributes: ['id', 'name'] }
+        ]
+      })
+
+      if (!transfer) {
+        return res.status(404).json({ success: false, message: 'Stock transfer not found' })
+      }
+
+      return res.status(200).json({ success: true, message: 'Success', data: transfer })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
+    }
+  },
+
   // Delete stock transfer
   async deleteTransfer(req, res) {
     try {
@@ -197,6 +226,101 @@ const posController = {
         success: false,
         message: 'Internal server error'
       })
+    }
+  },
+
+  // Approve stock transfer — auto-adjust stock
+  async approveTransfer(req, res) {
+    try {
+      const { id } = req.params
+
+      const transfer = await db.stock_transfer.findOne({
+        where: { id },
+        include: [{ model: db.stock_transfer_item, as: 'items' }]
+      })
+
+      if (!transfer) {
+        return res.status(404).json({ success: false, message: 'Stock transfer not found' })
+      }
+
+      if (transfer.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'Transfer is not in pending status' })
+      }
+
+      const result = await db.sequelize.transaction(async (t) => {
+        for (const item of transfer.items) {
+          const product = await db.product.findByPk(item.product, { transaction: t })
+          if (!product) continue
+
+          const oldStock = Number(product.stock) || 0
+          const newStock = oldStock - Number(item.qty)
+
+          if (newStock < 0) {
+            throw new Error(`Insufficient stock for product "${product.nameProduct}" (SKU: ${product.sku})`)
+          }
+
+          await product.update({ stock: newStock }, { transaction: t })
+
+          // Record outflow from source store
+          await db.stock_history.create({
+            product: item.product,
+            store: transfer.fromStore,
+            referenceType: 'transfer',
+            referenceId: transfer.id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(item.qty),
+            quantityAfter: newStock,
+            unit: item.unit || 'pcs',
+            notes: `Transfer out to store ${transfer.toStore}`,
+            createdBy: req.user?.id || null
+          }, { transaction: t })
+
+          // Record inflow to destination store
+          await db.stock_history.create({
+            product: item.product,
+            store: transfer.toStore,
+            referenceType: 'transfer',
+            referenceId: transfer.id,
+            quantityBefore: oldStock,
+            quantityChange: Number(item.qty),
+            quantityAfter: oldStock + Number(item.qty),
+            unit: item.unit || 'pcs',
+            notes: `Transfer in from store ${transfer.fromStore}`,
+            createdBy: req.user?.id || null
+          }, { transaction: t })
+        }
+
+        await transfer.update({ status: 'approved' }, { transaction: t })
+        return transfer
+      })
+
+      return res.status(200).json({ success: true, message: 'Stock transfer approved', data: result })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(400).json({ success: false, message: error.message || 'Internal server error' })
+    }
+  },
+
+  // Reject stock transfer
+  async rejectTransfer(req, res) {
+    try {
+      const { id } = req.params
+
+      const transfer = await db.stock_transfer.findOne({ where: { id } })
+      if (!transfer) {
+        return res.status(404).json({ success: false, message: 'Stock transfer not found' })
+      }
+
+      if (transfer.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'Transfer is not in pending status' })
+      }
+
+      await transfer.update({ status: 'rejected' })
+
+      return res.status(200).json({ success: true, message: 'Stock transfer rejected', data: transfer })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
     }
   },
 

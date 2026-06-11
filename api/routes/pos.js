@@ -11,7 +11,10 @@ router.get('/lookup-barcode', authorization, validateStoreAccess, posController.
 // Stock transfer antar toko
 router.post('/transfer', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.transfer)
 router.get('/transfer-history', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getTransferHistory)
+router.get('/transfer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getTransferById)
 router.delete('/transfer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.deleteTransfer)
+router.put('/transfer/:id/approve', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.approveTransfer)
+router.put('/transfer/:id/reject', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.rejectTransfer)
 
 // Stock adjustment
 router.post('/adjust', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.adjust)

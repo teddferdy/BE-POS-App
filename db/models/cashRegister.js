@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'cash_register',
+  const cashRegister = sequelize.define(
+    'cashRegister',
     {
       id: {
         allowNull: false,
@@ -62,8 +62,21 @@ module.exports = (sequelize, DataTypes) => {
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'cash_register',
-      tableName: 'cash_register'
+      modelName: 'cashRegister',
+      tableName: 'cash_register',
+      timestamps: true,
+      createdAt: 'createdAt',
+      updatedAt: 'updatedAt',
+      deletedAt: 'deletedAt'
     }
   )
+
+  cashRegister.associate = (models) => {
+    cashRegister.belongsTo(models.user, {
+      foreignKey: 'user',
+      as: 'userData'
+    })
+  }
+
+  return cashRegister
 }

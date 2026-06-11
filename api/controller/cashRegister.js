@@ -8,6 +8,13 @@ const cashRegisterController = {
       const { openingBalance = 0, shift } = req.body
       const userId = req.user?.id || null
 
+      if (!store) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store not selected'
+        })
+      }
+
       const openRegister = await db.cashRegister.findOne({
         where: { store, user: userId, status: 'open' }
       })
@@ -47,6 +54,13 @@ const cashRegisterController = {
       const { id } = req.params
       const { store } = req.cookies
       const { closingBalance, notes } = req.body
+
+      if (!store) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store not selected'
+        })
+      }
 
       const cashRegister = await db.cashRegister.findOne({
         where: { id, store, status: 'open' },
@@ -141,6 +155,13 @@ const cashRegisterController = {
       const { store } = req.cookies
       const userId = req.user?.id || null
 
+      if (!store) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store not selected'
+        })
+      }
+
       const cashRegister = await db.cashRegister.findOne({
         where: { store, user: userId, status: 'open' },
         include: [
@@ -195,6 +216,13 @@ const cashRegisterController = {
     try {
       const { store } = req.cookies
       const { startDate, endDate, page = 1, limit = 50 } = req.query
+
+      if (!store) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store not selected'
+        })
+      }
 
       const where = { store }
 
