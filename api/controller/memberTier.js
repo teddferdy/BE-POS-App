@@ -3,13 +3,15 @@ const { Op, fn, col, literal } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const memberTierController = {
-    async getAll(req, res) {
+  async getAll(req, res) {
     try {
       const tiers = await db.member_tier.findAll({
         attributes: {
           include: [
             [
-              literal('(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'),
+              literal(
+                '(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'
+              ),
               'memberCount'
             ]
           ]
@@ -17,7 +19,9 @@ const memberTierController = {
         order: [['minPoints', 'ASC']]
       })
 
-      const activeCount = tiers.filter(t => t.status === 'active' || t.status === true).length
+      const activeCount = tiers.filter(
+        (t) => t.status === 'active' || t.status === true
+      ).length
 
       return res.status(200).json({
         success: true,
@@ -35,7 +39,7 @@ const memberTierController = {
     }
   },
 
-    async getDetail(req, res) {
+  async getDetail(req, res) {
     try {
       const { id } = req.params
 
@@ -43,7 +47,9 @@ const memberTierController = {
         attributes: {
           include: [
             [
-              literal('(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'),
+              literal(
+                '(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'
+              ),
               'memberCount'
             ]
           ]
@@ -71,9 +77,17 @@ const memberTierController = {
     }
   },
 
-    async create(req, res) {
+  async create(req, res) {
     try {
-      const { name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color } = req.body
+      const {
+        name,
+        minPoints,
+        maxPoints,
+        discountPercent,
+        pointMultiplier,
+        benefits,
+        color
+      } = req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -88,13 +102,19 @@ const memberTierController = {
         minPoints: minPoints || 0,
         maxPoints: maxPoints || 999999,
         discountPercent: discountPercent || 0,
-        pointMultiplier: pointMultiplier || 1.00,
+        pointMultiplier: pointMultiplier || 1.0,
         benefits: benefits || [],
         color: color || '#000000',
         status: true,
         createdBy
       })
-      createAudit(req, 'create', 'member_tier', tier.id, 'Created member_tier: ' + (tier.name || tier.id))
+      createAudit(
+        req,
+        'create',
+        'member_tier',
+        tier.id,
+        'Created member_tier: ' + (tier.name || tier.id)
+      )
 
       return res.status(201).json({
         success: true,
@@ -110,10 +130,19 @@ const memberTierController = {
     }
   },
 
-    async update(req, res) {
+  async update(req, res) {
     try {
       const { id } = req.params
-      const { name, minPoints, maxPoints, discountPercent, pointMultiplier, benefits, color, status } = req.body
+      const {
+        name,
+        minPoints,
+        maxPoints,
+        discountPercent,
+        pointMultiplier,
+        benefits,
+        color,
+        status
+      } = req.body
       const modifiedBy = req.user?.id || null
 
       const tier = await db.member_tier.findByPk(id)
@@ -129,14 +158,33 @@ const memberTierController = {
         name: name || tier.name,
         minPoints: minPoints !== undefined ? minPoints : tier.minPoints,
         maxPoints: maxPoints !== undefined ? maxPoints : tier.maxPoints,
-        discountPercent: discountPercent !== undefined ? discountPercent : tier.discountPercent,
-        pointMultiplier: pointMultiplier !== undefined ? pointMultiplier : tier.pointMultiplier,
+        discountPercent:
+          discountPercent !== undefined
+            ? discountPercent
+            : tier.discountPercent,
+        pointMultiplier:
+          pointMultiplier !== undefined
+            ? pointMultiplier
+            : tier.pointMultiplier,
         benefits: benefits || tier.benefits,
         color: color || tier.color,
-        status: status !== undefined ? (status === true ? true : status === false ? false : status) : tier.status,
+        status:
+          status !== undefined
+            ? status === true
+              ? true
+              : status === false
+                ? false
+                : status
+            : tier.status,
         modifiedBy
       })
-      createAudit(req, 'update', 'member_tier', id, 'Updated member_tier: ' + id)
+      createAudit(
+        req,
+        'update',
+        'member_tier',
+        id,
+        'Updated member_tier: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -152,7 +200,7 @@ const memberTierController = {
     }
   },
 
-    async delete(req, res) {
+  async delete(req, res) {
     try {
       const { id } = req.params
 
@@ -166,7 +214,13 @@ const memberTierController = {
       }
 
       await tier.destroy()
-      createAudit(req, 'delete', 'member_tier', id, 'Deleted member_tier: ' + id)
+      createAudit(
+        req,
+        'delete',
+        'member_tier',
+        id,
+        'Deleted member_tier: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -181,7 +235,7 @@ const memberTierController = {
     }
   },
 
-    async getMemberTier(req, res) {
+  async getMemberTier(req, res) {
     try {
       const { points } = req.query
 
@@ -215,7 +269,7 @@ const memberTierController = {
     }
   },
 
-    async updateMemberTier(req, res) {
+  async updateMemberTier(req, res) {
     try {
       const tiers = await db.member_tier.findAll({
         where: { status: 'active' },
@@ -226,8 +280,10 @@ const memberTierController = {
 
       const updates = []
       for (const member of members) {
-        const newTier = tiers.find(t =>
-          member.totalPoints >= t.minPoints && member.totalPoints <= t.maxPoints
+        const newTier = tiers.find(
+          (t) =>
+            member.totalPoints >= t.minPoints &&
+            member.totalPoints <= t.maxPoints
         )
 
         if (newTier && member.tier !== newTier.id) {

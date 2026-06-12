@@ -6,9 +6,13 @@ const auditLogController = {
     try {
       const store = req.cookies.store || req.user?.store
       const {
-        page = 1, limit = 20,
-        entity, action, userId,
-        startDate, endDate
+        page = 1,
+        limit = 20,
+        entity,
+        action,
+        userId,
+        startDate,
+        endDate
       } = req.query
 
       const where = {}
@@ -44,7 +48,9 @@ const auditLogController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -82,7 +88,9 @@ const auditLogController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

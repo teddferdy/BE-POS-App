@@ -54,7 +54,13 @@ exports.addNewSocialMedia = async (req, res) => {
       })
 
       if (creadtedCategory.getDataValue) {
-        await createAudit(req, 'create', 'social_media_config', creadtedCategory.id, 'Created social_media_config: ' + creadtedCategory.id)
+        await createAudit(
+          req,
+          'create',
+          'social_media_config',
+          creadtedCategory.id,
+          'Created social_media_config: ' + creadtedCategory.id
+        )
 
         return res.status(200).json({
           success: true,
@@ -105,7 +111,13 @@ exports.editSocialMediaById = async (req, res) => {
       )
 
       if (updated) {
-        await createAudit(req, 'update', 'social_media_config', id, 'Updated social_media_config: ' + id)
+        await createAudit(
+          req,
+          'update',
+          'social_media_config',
+          id,
+          'Updated social_media_config: ' + id
+        )
       }
 
       return res.status(200).json({
@@ -140,7 +152,13 @@ exports.deleteSocialMediaById = async (req, res) => {
     })
 
     if (getId) {
-      await createAudit(req, 'delete', 'social_media_config', id, 'Deleted social_media_config: ' + id)
+      await createAudit(
+        req,
+        'delete',
+        'social_media_config',
+        id,
+        'Deleted social_media_config: ' + id
+      )
 
       return res.status(200).json({
         success: true,

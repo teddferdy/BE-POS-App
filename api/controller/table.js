@@ -19,10 +19,16 @@ exports.getTablesByStore = async (req, res) => {
       offset
     })
 
+    const [availableCount, occupiedCount, reservedCount] = await Promise.all([
+      Table.count({ where: { ...whereClause, status: 'available' } }),
+      Table.count({ where: { ...whereClause, status: 'occupied' } }),
+      Table.count({ where: { ...whereClause, status: 'reserved' } })
+    ])
+
     const stats = {
-      available: rows.filter(t => t.status === 'available').length,
-      occupied: rows.filter(t => t.status === 'occupied').length,
-      reserved: rows.filter(t => t.status === 'reserved').length,
+      available: availableCount,
+      occupied: occupiedCount,
+      reserved: reservedCount,
       total: count
     }
 
@@ -51,14 +57,16 @@ exports.getTableWithActiveOrders = async (req, res) => {
   try {
     const tables = await Table.findAll({
       where: store ? { store } : {},
-      include: [{
-        model: Order,
-        as: 'orders',
-        where: {
-          status: ['pending', 'confirmed', 'preparing', 'ready', 'served']
-        },
-        required: false
-      }],
+      include: [
+        {
+          model: Order,
+          as: 'orders',
+          where: {
+            status: ['pending', 'confirmed', 'preparing', 'ready', 'served']
+          },
+          required: false
+        }
+      ],
       order: [['name', 'ASC']]
     })
 
@@ -84,10 +92,10 @@ exports.getTableAvailability = async (req, res) => {
     })
 
     const summary = {
-      available: tables.filter(t => t.status === 'available').length,
-      occupied: tables.filter(t => t.status === 'occupied').length,
-      reserved: tables.filter(t => t.status === 'reserved').length,
-      maintenance: tables.filter(t => t.status === 'maintenance').length,
+      available: tables.filter((t) => t.status === 'available').length,
+      occupied: tables.filter((t) => t.status === 'occupied').length,
+      reserved: tables.filter((t) => t.status === 'reserved').length,
+      maintenance: tables.filter((t) => t.status === 'maintenance').length,
       total: tables.length
     }
 

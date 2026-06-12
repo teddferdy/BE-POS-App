@@ -17,7 +17,10 @@ exports.getDailyReport = async (req, res) => {
       if (startDate) where.tanggal[Op.gte] = startDate
       if (endDate) where.tanggal[Op.lte] = endDate
     }
-    const reports = await DailyReport.findAll({ where, order: [['tanggal', 'DESC']] })
+    const reports = await DailyReport.findAll({
+      where,
+      order: [['tanggal', 'DESC']]
+    })
     res.json({ success: true, data: reports })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
@@ -39,19 +42,38 @@ exports.getProfitLoss = async (req, res) => {
       }
     }
     const orders = await Order.findAll({ where: orderWhere })
-    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.totalPrice || 0), 0)
-    const totalDiscount = orders.reduce((sum, o) => sum + Number(o.discountAmount || 0), 0)
+    const totalRevenue = orders.reduce(
+      (sum, o) => sum + Number(o.totalPrice || 0),
+      0
+    )
+    const totalDiscount = orders.reduce(
+      (sum, o) => sum + Number(o.discountAmount || 0),
+      0
+    )
     const netRevenue = totalRevenue - totalDiscount
     // HPP from order items (simplified)
-    const orderIds = orders.map(o => o.id)
-    const items = orderIds.length > 0 ? await OrderItem.findAll({ where: { order: orderIds } }) : []
-    const totalHpp = items.reduce((sum, i) => sum + Number(i.hppSnapshot || i.price || 0), 0)
+    const orderIds = orders.map((o) => o.id)
+    const items =
+      orderIds.length > 0
+        ? await OrderItem.findAll({ where: { order: orderIds } })
+        : []
+    const totalHpp = items.reduce(
+      (sum, i) => sum + Number(i.hppSnapshot || i.price || 0),
+      0
+    )
     const grossProfit = netRevenue - totalHpp
     res.json({
       success: true,
       data: {
-        totalRevenue, totalDiscount, netRevenue, totalHpp, grossProfit,
-        grossMargin: netRevenue > 0 ? Math.round((grossProfit / netRevenue) * 10000) / 100 : 0
+        totalRevenue,
+        totalDiscount,
+        netRevenue,
+        totalHpp,
+        grossProfit,
+        grossMargin:
+          netRevenue > 0
+            ? Math.round((grossProfit / netRevenue) * 10000) / 100
+            : 0
       }
     })
   } catch (err) {
@@ -74,11 +96,13 @@ exports.getCashFlow = async (req, res) => {
     }
     const payments = await Transaction.findAll({ where: txWhere })
     const cashIn = { tunai: 0, qris: 0, transfer: 0, lainnya: 0 }
-    payments.forEach(p => {
+    payments.forEach((p) => {
       const type = (p.typePayment || '').toLowerCase()
-      if (type.includes('cash') || type === 'tunai') cashIn.tunai += Number(p.amount || 0)
+      if (type.includes('cash') || type === 'tunai')
+        cashIn.tunai += Number(p.amount || 0)
       else if (type.includes('qris')) cashIn.qris += Number(p.amount || 0)
-      else if (type.includes('transfer')) cashIn.transfer += Number(p.amount || 0)
+      else if (type.includes('transfer'))
+        cashIn.transfer += Number(p.amount || 0)
       else cashIn.lainnya += Number(p.amount || 0)
     })
     res.json({ success: true, data: cashIn })

@@ -23,6 +23,14 @@ router.get(
   typePaymentController.getAllTypePayment
 )
 
+// Get Type Payment By Id
+router.get(
+  '/get-by-id/:id',
+  authorization,
+  validateStoreAccess,
+  typePaymentController.getTypePaymentById
+)
+
 // Add Type Payment
 router.post(
   '/add-new-type-payment',

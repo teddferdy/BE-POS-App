@@ -4,7 +4,14 @@ const { Op } = require('sequelize')
 const stockHistoryController = {
   async getAll(req, res) {
     try {
-      const { referenceType, product, startDate, endDate, page = 1, limit = 50 } = req.query
+      const {
+        referenceType,
+        product,
+        startDate,
+        endDate,
+        page = 1,
+        limit = 50
+      } = req.query
 
       const where = {}
 
@@ -81,30 +88,6 @@ const stockHistoryController = {
     }
   },
 
-  async getByIngredient(req, res) {
-    try {
-      const { ingredientName } = req.params
-      const { store } = req.cookies
-
-      const history = await db.stock_history.findAll({
-        where: { store, ingredientName },
-        order: [['createdAt', 'DESC']]
-      })
-
-      return res.status(200).json({
-        success: true,
-        message: 'Success get ingredient stock history',
-        data: history
-      })
-    } catch (error) {
-      console.log(error)
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      })
-    }
-  },
-
   async getLowStock(req, res) {
     try {
       const store = req.cookies?.store || req.query?.store
@@ -117,9 +100,7 @@ const stockHistoryController = {
         attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit']
       })
 
-      const lowStockProducts = products.filter(
-        (p) => p.stock <= p.minStock
-      )
+      const lowStockProducts = products.filter((p) => p.stock <= p.minStock)
 
       const ingredientWhere = { status: 'active' }
       if (store) {
@@ -163,7 +144,14 @@ const stockHistoryController = {
             status: 'active',
             minStock: { [Op.gt]: 0 }
           },
-          attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit', 'store']
+          attributes: [
+            'id',
+            'nameProduct',
+            'stock',
+            'minStock',
+            'unit',
+            'store'
+          ]
         }),
         db.ingredient.findAll({
           where: { status: 'active' },
@@ -230,7 +218,9 @@ const stockHistoryController = {
           minStock: ing.minStock,
           unit: ing.unit,
           storeId: storeId || null,
-          storeName: storeId ? storeMap[storeId] || `Store #${storeId}` : 'Unknown'
+          storeName: storeId
+            ? storeMap[storeId] || `Store #${storeId}`
+            : 'Unknown'
         })
       }
 
@@ -248,7 +238,9 @@ const stockHistoryController = {
 
       if (search) {
         const q = search.toLowerCase()
-        filtered = filtered.filter((item) => item.name.toLowerCase().includes(q))
+        filtered = filtered.filter((item) =>
+          item.name.toLowerCase().includes(q)
+        )
       }
 
       // Sort by stock ascending

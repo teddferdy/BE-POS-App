@@ -10,35 +10,18 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 
 // Get tax configs - All authenticated users
 router.get('/', authorization, validateStoreAccess, taxConfigController.getAll)
-router.get('/get-all', authorization, validateStoreAccess, taxConfigController.getAll)
 router.get('/get-tax-config/:id', authorization, validateStoreAccess, taxConfigController.getById)
-router.get('/:id', authorization, validateStoreAccess, taxConfigController.getById)
 
 // Create/Edit/Delete - Admin & Super Admin only
-router.post(
-  '/',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  taxConfigController.create
-)
 router.post(
   '/add-new-tax-config',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   taxConfigController.create
 )
 router.put(
-  '/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  taxConfigController.update
-)
-router.put(
   '/edit-tax-config/:id',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   taxConfigController.update
-)
-router.delete(
-  '/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  taxConfigController.delete
 )
 router.delete(
   '/delete-tax-config/:id',

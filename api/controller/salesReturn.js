@@ -23,9 +23,23 @@ const salesReturnController = {
       const { count, rows } = await db.sales_return.findAndCountAll({
         where,
         include: [
-          { model: db.sales_return_item, as: 'items', include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] }] },
+          {
+            model: db.sales_return_item,
+            as: 'items',
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct']
+              }
+            ]
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.user, as: 'returnedByData', attributes: ['id', 'name'] }
+          {
+            model: db.user,
+            as: 'returnedByData',
+            attributes: ['id', 'fullName']
+          }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -45,7 +59,9 @@ const salesReturnController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -61,20 +77,40 @@ const salesReturnController = {
       const ret = await db.sales_return.findOne({
         where,
         include: [
-          { model: db.sales_return_item, as: 'items', include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] }] },
+          {
+            model: db.sales_return_item,
+            as: 'items',
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct']
+              }
+            ]
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.user, as: 'returnedByData', attributes: ['id', 'name'] }
+          {
+            model: db.user,
+            as: 'returnedByData',
+            attributes: ['id', 'fullName']
+          }
         ]
       })
 
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Sales return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Sales return not found' })
       }
 
-      return res.status(200).json({ success: true, message: 'Success', data: ret })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success', data: ret })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -89,20 +125,35 @@ const salesReturnController = {
 
       const ret = await db.sales_return.findOne({ where })
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Sales return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Sales return not found' })
       }
 
       if (ret.status !== 'pending') {
-        return res.status(400).json({ success: false, message: 'Only pending returns can be approved' })
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending returns can be approved'
+        })
       }
 
       await ret.update({ status: 'approved' })
-      await createAudit(req, 'update', 'sales_return', id, 'Approved sales return: ' + id)
+      await createAudit(
+        req,
+        'update',
+        'sales_return',
+        id,
+        'Approved sales return: ' + id
+      )
 
-      return res.status(200).json({ success: true, message: 'Sales return approved', data: ret })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Sales return approved', data: ret })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -121,49 +172,72 @@ const salesReturnController = {
       })
 
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Sales return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Sales return not found' })
       }
 
       if (ret.status !== 'pending') {
-        return res.status(400).json({ success: false, message: 'Only pending returns can be rejected' })
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending returns can be rejected'
+        })
       }
 
       const transaction = await db.sequelize.transaction()
       try {
         // Reverse stock: deduct what was added on creation
         for (const item of ret.items) {
-          const product = await db.product.findByPk(item.product, { transaction })
+          const product = await db.product.findByPk(item.product, {
+            transaction
+          })
           if (product) {
             const oldStock = Number(product.stock) || 0
-            await product.update({ stock: Math.max(0, oldStock - item.qty) }, { transaction })
+            await product.update(
+              { stock: Math.max(0, oldStock - item.qty) },
+              { transaction }
+            )
 
-            await db.stock_history.create({
-              product: item.product,
-              store: ret.store,
-              referenceType: 'sale_return_reversal',
-              quantityBefore: oldStock,
-              quantityChange: -item.qty,
-              quantityAfter: Math.max(0, oldStock - item.qty),
-              unit: item.unit || 'pcs',
-              notes: `Sales return rejected: ${ret.reason}`,
-              createdBy: req.user?.id || null
-            }, { transaction })
+            await db.stock_history.create(
+              {
+                product: item.product,
+                store: ret.store,
+                referenceType: 'sale_return_reversal',
+                quantityBefore: oldStock,
+                quantityChange: -item.qty,
+                quantityAfter: Math.max(0, oldStock - item.qty),
+                unit: item.unit || 'pcs',
+                notes: `Sales return rejected: ${ret.reason}`,
+                createdBy: req.user?.id || null
+              },
+              { transaction }
+            )
           }
         }
 
         await ret.update({ status: 'rejected' }, { transaction })
         await transaction.commit()
 
-        await createAudit(req, 'update', 'sales_return', id, 'Rejected sales return: ' + id)
+        await createAudit(
+          req,
+          'update',
+          'sales_return',
+          id,
+          'Rejected sales return: ' + id
+        )
 
-        return res.status(200).json({ success: true, message: 'Sales return rejected', data: ret })
+        return res
+          .status(200)
+          .json({ success: true, message: 'Sales return rejected', data: ret })
       } catch (err) {
         await transaction.rollback()
         throw err
       }
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

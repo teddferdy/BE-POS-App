@@ -10,9 +10,7 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 
 // Get suppliers - All authenticated users
 router.get('/', authorization, validateStoreAccess, supplierController.getAll)
-router.get('/get-all', authorization, validateStoreAccess, supplierController.getAll)
 router.get('/detail/:id', authorization, validateStoreAccess, supplierController.getDetail)
-router.get('/get-by-id/:id', authorization, validateStoreAccess, supplierController.getById)
 router.get('/:id', authorization, validateStoreAccess, supplierController.getById)
 
 // Create/Edit/Delete - Admin & Super Admin only
@@ -21,28 +19,13 @@ router.post(
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   supplierController.create
 )
-router.post(
-  '/add',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  supplierController.create
-)
 router.put(
   '/:id',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   supplierController.update
 )
-router.put(
-  '/edit/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  supplierController.update
-)
 router.delete(
   '/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  supplierController.delete
-)
-router.delete(
-  '/delete/:id',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   supplierController.delete
 )

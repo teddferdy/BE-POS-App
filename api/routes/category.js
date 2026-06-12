@@ -45,9 +45,6 @@ const categoryController = require('../controller/category')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 
-// Get All List Category - All authenticated users
-router.get('/get-category', authorization, categoryController.getAllCategory)
-
 // Get All List To Table
 router.get(
   '/get-category-all',

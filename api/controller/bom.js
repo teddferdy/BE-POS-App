@@ -9,13 +9,28 @@ const bomController = {
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const where = { ...(store ? { store } : {}) }
-      if (search) where['$productData.nameProduct$'] = { [Op.iLike]: `%${search}%` }
+      if (search)
+        where['$productData.nameProduct$'] = { [Op.iLike]: `%${search}%` }
 
       const { count, rows } = await db.bom_header.findAndCountAll({
         where,
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku'] },
-          { model: db.bom_line, as: 'lines', include: [{ model: db.product, as: 'ingredientData', attributes: ['id', 'nameProduct', 'sku'] }] }
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct', 'sku']
+          },
+          {
+            model: db.bom_line,
+            as: 'lines',
+            include: [
+              {
+                model: db.product,
+                as: 'ingredientData',
+                attributes: ['id', 'nameProduct', 'sku']
+              }
+            ]
+          }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -26,11 +41,18 @@ const bomController = {
         success: true,
         message: 'Success',
         data: rows,
-        pagination: { total: count, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(count / parseInt(limit)) }
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -40,15 +62,36 @@ const bomController = {
       const bom = await db.bom_header.findOne({
         where: { id },
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku', 'composition'] },
-          { model: db.bom_line, as: 'lines', include: [{ model: db.product, as: 'ingredientData', attributes: ['id', 'nameProduct', 'sku', 'sellingPrice'] }] }
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct', 'sku', 'composition']
+          },
+          {
+            model: db.bom_line,
+            as: 'lines',
+            include: [
+              {
+                model: db.product,
+                as: 'ingredientData',
+                attributes: ['id', 'nameProduct', 'sku', 'sellingPrice']
+              }
+            ]
+          }
         ]
       })
-      if (!bom) return res.status(404).json({ success: false, message: 'BOM not found' })
-      return res.status(200).json({ success: true, message: 'Success', data: bom })
+      if (!bom)
+        return res
+          .status(404)
+          .json({ success: false, message: 'BOM not found' })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success', data: bom })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -57,32 +100,53 @@ const bomController = {
       const store = req.cookies.store || req.user?.store
       const { productId, name, notes, lines } = req.body
       if (!productId || !lines?.length) {
-        return res.status(400).json({ success: false, message: 'productId and lines are required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'productId and lines are required' })
       }
 
-      const existing = await db.bom_header.findOne({ where: { productId, store } })
+      const existing = await db.bom_header.findOne({
+        where: { productId, store }
+      })
       if (existing) {
-        return res.status(400).json({ success: false, message: 'BOM already exists for this product' })
+        return res.status(400).json({
+          success: false,
+          message: 'BOM already exists for this product'
+        })
       }
 
       const bom = await db.bom_header.create({
-        store, productId, name: name || `BOM-${Date.now()}`, notes,
+        store,
+        productId,
+        name: name || `BOM-${Date.now()}`,
+        notes,
         createdBy: req.user?.id
       })
 
       const bomLines = lines.map((l) => ({
-        bomHeaderId: bom.id, ingredientId: l.ingredientId, qty: l.qty || 0, unit: l.unit || 'pcs', notes: l.notes
+        bomHeaderId: bom.id,
+        ingredientId: l.ingredientId,
+        qty: l.qty || 0,
+        unit: l.unit || 'pcs',
+        notes: l.notes
       }))
       await db.bom_line.bulkCreate(bomLines)
 
       const result = await db.bom_header.findByPk(bom.id, {
-        include: [{ model: db.product, as: 'productData' }, { model: db.bom_line, as: 'lines' }]
+        include: [
+          { model: db.product, as: 'productData' },
+          { model: db.bom_line, as: 'lines' }
+        ]
       })
 
-      return res.status(201).json({ success: true, message: 'BOM created', data: result })
+      return res
+        .status(201)
+        .json({ success: true, message: 'BOM created', data: result })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -92,26 +156,40 @@ const bomController = {
       const { name, notes, lines } = req.body
 
       const bom = await db.bom_header.findByPk(id)
-      if (!bom) return res.status(404).json({ success: false, message: 'BOM not found' })
+      if (!bom)
+        return res
+          .status(404)
+          .json({ success: false, message: 'BOM not found' })
 
       await bom.update({ name, notes, modifiedBy: req.user?.id })
 
       if (lines) {
         await db.bom_line.destroy({ where: { bomHeaderId: id } })
         const bomLines = lines.map((l) => ({
-          bomHeaderId: id, ingredientId: l.ingredientId, qty: l.qty || 0, unit: l.unit || 'pcs', notes: l.notes
+          bomHeaderId: id,
+          ingredientId: l.ingredientId,
+          qty: l.qty || 0,
+          unit: l.unit || 'pcs',
+          notes: l.notes
         }))
         await db.bom_line.bulkCreate(bomLines)
       }
 
       const result = await db.bom_header.findByPk(id, {
-        include: [{ model: db.product, as: 'productData' }, { model: db.bom_line, as: 'lines' }]
+        include: [
+          { model: db.product, as: 'productData' },
+          { model: db.bom_line, as: 'lines' }
+        ]
       })
 
-      return res.status(200).json({ success: true, message: 'BOM updated', data: result })
+      return res
+        .status(200)
+        .json({ success: true, message: 'BOM updated', data: result })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -119,7 +197,10 @@ const bomController = {
     try {
       const { id } = req.params
       const bom = await db.bom_header.findByPk(id)
-      if (!bom) return res.status(404).json({ success: false, message: 'BOM not found' })
+      if (!bom)
+        return res
+          .status(404)
+          .json({ success: false, message: 'BOM not found' })
 
       await db.bom_line.destroy({ where: { bomHeaderId: id } })
       await bom.destroy()
@@ -127,7 +208,9 @@ const bomController = {
       return res.status(200).json({ success: true, message: 'BOM deleted' })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

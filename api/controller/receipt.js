@@ -39,7 +39,9 @@ const receiptController = {
       })
 
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Order not found' })
       }
 
       const receipt = {
@@ -49,12 +51,14 @@ const receiptController = {
         orderNumber: order.orderNumber || `INV-${order.id}`,
         cashier: order.userData?.name || '-',
         customer: order.memberData?.name || 'Umum',
-        date: order.createdAt ? new Date(order.createdAt).toLocaleString('id-ID') : '',
-        items: (order.items || []).map(item => ({
+        date: order.createdAt
+          ? new Date(order.createdAt).toLocaleString('id-ID')
+          : '',
+        items: (order.items || []).map((item) => ({
           name: item.productData?.nameProduct || item.productName || '-',
           qty: item.quantity || 0,
           price: item.price || 0,
-          total: item.total || (item.quantity * item.price) || 0
+          total: item.total || item.quantity * item.price || 0
         })),
         subtotal: order.subTotal || 0,
         discount: order.discountAmount || 0,
@@ -73,7 +77,9 @@ const receiptController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

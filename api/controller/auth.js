@@ -10,7 +10,11 @@ const { Op } = require('sequelize')
 const parseAccessMenu = (menu) => {
   if (Array.isArray(menu)) return menu
   if (typeof menu === 'string') {
-    try { return JSON.parse(menu) } catch (e) { return [] }
+    try {
+      return JSON.parse(menu)
+    } catch (e) {
+      return []
+    }
   }
   return []
 }
@@ -368,7 +372,13 @@ exports.registerNewUser = async (req, res, next) => {
         statusActive: true,
         modifiedAt: moment().format('YYYY-MM-DD HH:mm:ss')
       })
-      createAudit(req, 'create', 'user', createUser.id, `Created user: ${createUser.userName || createUser.id}`)
+      createAudit(
+        req,
+        'create',
+        'user',
+        createUser.id,
+        `Created user: ${createUser.userName || createUser.id}`
+      )
 
       const result = createUser.toJSON()
       delete result.password // Remove the password before sending it back
@@ -435,7 +445,13 @@ exports.editUser = async (req, res, next) => {
       image: image,
       deletedAt: null
     })
-    createAudit(req, 'update', 'user', updatedUser.id, `Updated user: ${updatedUser.id}`)
+    createAudit(
+      req,
+      'update',
+      'user',
+      updatedUser.id,
+      `Updated user: ${updatedUser.id}`
+    )
 
     const token = generateToken({ id: updatedUser.id })
 
@@ -535,10 +551,7 @@ exports.logout = async (req, res, next) => {
       })
     }
 
-    await User.update(
-      { statusActive: false },
-      { where: { id: user.id } }
-    )
+    await User.update({ statusActive: false }, { where: { id: user.id } })
 
     res.clearCookie('token')
 

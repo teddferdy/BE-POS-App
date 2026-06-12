@@ -7,13 +7,13 @@ exports.getAllMember = async (req, res) => {
   try {
     const { nameMember, phoneNumber, page = 1, limit = 10 } = req.query
     const filters = {}
-    
+
     if (nameMember) {
       filters.name = {
         [Op.like]: `%${nameMember}%`
       }
     }
-    
+
     if (phoneNumber) {
       filters.phoneNumber = {
         [Op.like]: `%${phoneNumber}%`
@@ -21,7 +21,7 @@ exports.getAllMember = async (req, res) => {
     }
 
     const offset = (page - 1) * limit
-    
+
     const { count, rows } = await Member.findAndCountAll({
       where: filters,
       offset: parseInt(offset),
@@ -99,14 +99,27 @@ exports.addNewMember = async (req, res) => {
         gender: body.gender,
         address: body.address,
         tier: body.tier === '' ? null : body.tier,
-        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
+        status:
+          body.status !== undefined
+            ? body.status === true
+              ? 'active'
+              : body.status === false
+                ? 'inactive'
+                : body.status
+            : 'active',
         totalPoints: body.point || 0,
         lifetimePoints: body.point || 0,
         createdBy: body.createdBy
       })
 
       if (createdMember.getDataValue) {
-        createAudit(req, 'create', 'member', createdMember.id, `Created member: ${createdMember.name}`)
+        createAudit(
+          req,
+          'create',
+          'member',
+          createdMember.id,
+          `Created member: ${createdMember.name}`
+        )
         return res.status(201).json({
           success: true,
           message: 'Member Berhasil Di Buat',
@@ -131,7 +144,17 @@ exports.addNewMember = async (req, res) => {
 exports.editMember = async (req, res) => {
   try {
     const { id } = req.params
-    const { nameMember, phoneNumber, email, birthDate, gender, address, tier, status, point } = req.body
+    const {
+      nameMember,
+      phoneNumber,
+      email,
+      birthDate,
+      gender,
+      address,
+      tier,
+      status,
+      point
+    } = req.body
 
     const member = await Member.findByPk(id)
 
@@ -159,7 +182,15 @@ exports.editMember = async (req, res) => {
 
     const updatedMember = await member.update(updateData)
 
-    createAudit(req, 'update', 'member', id, `Updated member: ${id}`, member.dataValues, updateData)
+    createAudit(
+      req,
+      'update',
+      'member',
+      id,
+      `Updated member: ${id}`,
+      member.dataValues,
+      updateData
+    )
 
     return res.status(200).json({
       success: true,
@@ -191,7 +222,13 @@ exports.deleteMember = async (req, res) => {
 
     await member.destroy()
 
-    createAudit(req, 'delete', 'member', id, `Deleted member: ${member.nameMember}`)
+    createAudit(
+      req,
+      'delete',
+      'member',
+      id,
+      `Deleted member: ${member.nameMember}`
+    )
 
     return res.status(200).json({
       success: true,
@@ -227,7 +264,13 @@ exports.editMemberById = async (req, res) => {
         lifetimePoints: newLifetime
       })
 
-      createAudit(req, 'update', 'member', getMember.id, `Updated member points: ${getMember.name}`)
+      createAudit(
+        req,
+        'update',
+        'member',
+        getMember.id,
+        `Updated member points: ${getMember.name}`
+      )
       return res.status(200).json({
         success: true,
         message: 'Sukses',

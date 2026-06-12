@@ -2,74 +2,6 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 
 const overviewController = {
-  async getDashboard(req, res) {
-    try {
-      const { store } = req.query
-
-      const [
-        products,
-        categories,
-        locations,
-        members,
-        users,
-        bestSelling
-      ] = await Promise.all([
-        db.product.findAll({
-          where: store ? { store: { [Op.contains]: [parseInt(store)] } } : {},
-          attributes: ['id', 'status']
-        }),
-        db.category.findAll({ where: { store }, attributes: ['id', 'status'] }),
-        db.location.findAll({ attributes: ['id', 'status'] }),
-        db.member.findAll({ where: { store }, attributes: ['id'] }),
-        db.user.findAll({ attributes: ['id'] }),
-        db.best_selling.findAll({
-          where: store ? { store } : {},
-          order: [['totalSelling', 'DESC']],
-          limit: 5
-        })
-      ])
-
-      const counts = {
-        products: {
-          total: products.length,
-          active: products.filter(p => p.status).length,
-          inactive: products.filter(p => !p.status).length
-        },
-        categories: {
-          total: categories.length,
-          active: categories.filter(c => c.status).length,
-          inactive: categories.filter(c => !c.status).length
-        },
-        locations: {
-          total: locations.length,
-          active: locations.filter(l => l.status).length,
-          inactive: locations.filter(l => !l.status).length
-        },
-        members: {
-          total: members.length
-        },
-        users: {
-          total: users.length
-        }
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: 'Success get dashboard data',
-        data: {
-          counts,
-          bestSelling
-        }
-      })
-    } catch (error) {
-      console.log(error)
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      })
-    }
-  },
-
   async getProductSummary(req, res) {
     try {
       const { store } = req.query
@@ -84,8 +16,8 @@ const overviewController = {
         message: 'Success get product summary',
         data: {
           total: products.length,
-          active: products.filter(p => p.status).length,
-          inactive: products.filter(p => !p.status).length
+          active: products.filter((p) => p.status === 'active').length,
+          inactive: products.filter((p) => p.status === 'inactive').length
         }
       })
     } catch (error) {
@@ -111,8 +43,8 @@ const overviewController = {
         message: 'Success get category summary',
         data: {
           total: categories.length,
-          active: categories.filter(c => c.status).length,
-          inactive: categories.filter(c => !c.status).length
+          active: categories.filter((c) => c.status === 'active').length,
+          inactive: categories.filter((c) => c.status === 'inactive').length
         }
       })
     } catch (error) {
@@ -135,8 +67,8 @@ const overviewController = {
         message: 'Success get location summary',
         data: {
           total: locations.length,
-          active: locations.filter(l => l.status).length,
-          inactive: locations.filter(l => !l.status).length
+          active: locations.filter((l) => l.status === 'active').length,
+          inactive: locations.filter((l) => l.status === 'inactive').length
         }
       })
     } catch (error) {

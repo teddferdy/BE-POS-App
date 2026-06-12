@@ -89,12 +89,25 @@ exports.addNewRole = async (req, res) => {
       const creadtedRole = await Role.create({
         name: body.name,
         description: body.description,
-        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
+        status:
+          body.status !== undefined
+            ? body.status === true
+              ? 'active'
+              : body.status === false
+                ? 'inactive'
+                : body.status
+            : 'active',
         accessMenu: body.accessMenu || [],
         createdBy: body.createdBy
       })
 
-      createAudit(req, 'create', 'role', creadtedRole.id, `Created role: ${creadtedRole.id}`)
+      createAudit(
+        req,
+        'create',
+        'role',
+        creadtedRole.id,
+        `Created role: ${creadtedRole.id}`
+      )
 
       if (creadtedRole.getDataValue) {
         return res.status(200).json({
@@ -125,7 +138,14 @@ exports.editRoleById = async (req, res) => {
       }
     })
 
-    const bodyStatus = body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active'
+    const bodyStatus =
+      body.status !== undefined
+        ? body.status === true
+          ? 'active'
+          : body.status === false
+            ? 'inactive'
+            : body.status
+        : 'active'
 
     if (
       !getDuplicate?.dataValues ||
@@ -135,7 +155,14 @@ exports.editRoleById = async (req, res) => {
         {
           name: body.name,
           description: body.description,
-          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
+          status:
+            body.status !== undefined
+              ? body.status === true
+                ? 'active'
+                : body.status === false
+                  ? 'inactive'
+                  : body.status
+              : 'active',
           accessMenu: body.accessMenu || [],
           createdBy: body?.createdBy,
           modifiedBy: body?.modifiedBy
@@ -150,7 +177,13 @@ exports.editRoleById = async (req, res) => {
         return data
       })
 
-      createAudit(req, 'update', 'role', req.params.id, `Updated role: ${req.params.id}`)
+      createAudit(
+        req,
+        'update',
+        'role',
+        req.params.id,
+        `Updated role: ${req.params.id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -171,15 +204,22 @@ exports.editRoleById = async (req, res) => {
   }
 }
 
+const SYSTEM_ROLE_TYPES = ['super_admin', 'admin', 'kasir', 'user']
+
 exports.deleteRoleById = async (req, res) => {
   const body = req.body
 
   try {
+    const role = await Role.findByPk(req.params.id)
+    if (role && SYSTEM_ROLE_TYPES.includes(role.roleType)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Role default tidak dapat dihapus'
+      })
+    }
+
     // Clean up user.roleId references for affected users
-    await User.update(
-      { roleId: null },
-      { where: { roleId: req.params.id } }
-    )
+    await User.update({ roleId: null }, { where: { roleId: req.params.id } })
 
     const getId = await Role.destroy({
       where: {
@@ -188,7 +228,13 @@ exports.deleteRoleById = async (req, res) => {
     })
 
     if (getId) {
-      createAudit(req, 'delete', 'role', req.params.id, `Deleted role: ${req.params.id}`)
+      createAudit(
+        req,
+        'delete',
+        'role',
+        req.params.id,
+        `Deleted role: ${req.params.id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -265,7 +311,10 @@ exports.updateUserRole = async (req, res) => {
       })
     }
 
-    if (currentUserRole === 'admin' && (user.roleType === 'super_admin' || role.roleType === 'super_admin')) {
+    if (
+      currentUserRole === 'admin' &&
+      (user.roleType === 'super_admin' || role.roleType === 'super_admin')
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Anda tidak memiliki akses untuk mengubah role Super Admin'
@@ -337,7 +386,11 @@ exports.getUsersByRole = async (req, res) => {
       where: whereCondition,
       attributes: { exclude: ['password'] },
       include: [
-        { model: Role, as: 'role', attributes: ['id', 'name', 'roleType', 'accessMenu'] }
+        {
+          model: Role,
+          as: 'role',
+          attributes: ['id', 'name', 'roleType', 'accessMenu']
+        }
       ]
     })
 
@@ -370,7 +423,13 @@ exports.updateRoleAccessMenu = async (req, res) => {
 
     await role.update({ accessMenu: accessMenu })
 
-    createAudit(req, 'update', 'role', roleId, `Updated role access menu: ${roleId}`)
+    createAudit(
+      req,
+      'update',
+      'role',
+      roleId,
+      `Updated role access menu: ${roleId}`
+    )
 
     return res.status(200).json({
       success: true,

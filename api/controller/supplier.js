@@ -16,7 +16,7 @@ const generateOrderNumber = (prefix) => {
 }
 
 const supplierController = {
-    async getDetail(req, res) {
+  async getDetail(req, res) {
     try {
       const { id } = req.params
 
@@ -50,7 +50,7 @@ const supplierController = {
     }
   },
 
-    async getAll(req, res) {
+  async getAll(req, res) {
     try {
       const { search, status, page = 1, limit = 10 } = req.query
 
@@ -62,7 +62,8 @@ const supplierController = {
         ]
       }
       if (status !== undefined) {
-        where.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
+        where.status =
+          status === 'true' || status === 'active' ? 'active' : 'inactive'
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -104,7 +105,7 @@ const supplierController = {
     }
   },
 
-    async getById(req, res) {
+  async getById(req, res) {
     try {
       const { id } = req.params
       const supplier = await db.supplier.findByPk(id)
@@ -130,10 +131,11 @@ const supplierController = {
     }
   },
 
-    async create(req, res) {
+  async create(req, res) {
     try {
       const store = req.user?.store
-      const { name, contactPerson, phone, email, address, description } = req.body
+      const { name, contactPerson, phone, email, address, description } =
+        req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -154,8 +156,20 @@ const supplierController = {
         createdBy
       })
 
-      createNotification({ type: 'supplier_created', store, referenceId: supplier.id, referenceType: 'supplier', params: [name] }).catch(console.error)
-      createAudit(req, 'create', 'supplier', supplier.id, `Created supplier: ${name}`)
+      createNotification({
+        type: 'supplier_created',
+        store,
+        referenceId: supplier.id,
+        referenceType: 'supplier',
+        params: [name]
+      }).catch(console.error)
+      createAudit(
+        req,
+        'create',
+        'supplier',
+        supplier.id,
+        `Created supplier: ${name}`
+      )
 
       return res.status(201).json({
         success: true,
@@ -171,11 +185,19 @@ const supplierController = {
     }
   },
 
-    async update(req, res) {
+  async update(req, res) {
     try {
       const { id } = req.params
       const store = req.user?.store
-      const { name, contactPerson, phone, email, address, description, status } = req.body
+      const {
+        name,
+        contactPerson,
+        phone,
+        email,
+        address,
+        description,
+        status
+      } = req.body
       const modifiedBy = req.user?.id || null
 
       const supplier = await db.supplier.findByPk(id)
@@ -189,16 +211,31 @@ const supplierController = {
 
       await supplier.update({
         name: name || supplier.name,
-        contactPerson: contactPerson !== undefined ? contactPerson : supplier.contactPerson,
+        contactPerson:
+          contactPerson !== undefined ? contactPerson : supplier.contactPerson,
         phone: phone !== undefined ? phone : supplier.phone,
         email: email !== undefined ? email : supplier.email,
         address: address !== undefined ? address : supplier.address,
-        description: description !== undefined ? description : supplier.description,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : supplier.status,
+        description:
+          description !== undefined ? description : supplier.description,
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : supplier.status,
         modifiedBy
       })
 
-      createNotification({ type: 'supplier_updated', store, referenceId: id, referenceType: 'supplier', params: [name || supplier.name] }).catch(console.error)
+      createNotification({
+        type: 'supplier_updated',
+        store,
+        referenceId: id,
+        referenceType: 'supplier',
+        params: [name || supplier.name]
+      }).catch(console.error)
       createAudit(req, 'update', 'supplier', id, `Updated supplier: ${id}`)
 
       return res.status(200).json({
@@ -215,7 +252,7 @@ const supplierController = {
     }
   },
 
-    async delete(req, res) {
+  async delete(req, res) {
     try {
       const { id } = req.params
       const store = req.user?.store
@@ -233,8 +270,20 @@ const supplierController = {
 
       await supplier.destroy()
 
-      createNotification({ type: 'supplier_deleted', store, referenceId: id, referenceType: 'supplier', params: [supplier.name] }).catch(console.error)
-      createAudit(req, 'delete', 'supplier', id, `Deleted supplier: ${supplier.name}`)
+      createNotification({
+        type: 'supplier_deleted',
+        store,
+        referenceId: id,
+        referenceType: 'supplier',
+        params: [supplier.name]
+      }).catch(console.error)
+      createAudit(
+        req,
+        'delete',
+        'supplier',
+        id,
+        `Deleted supplier: ${supplier.name}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -251,98 +300,146 @@ const supplierController = {
 
   async downloadTemplate(req, res) {
     try {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Supplier Template');
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Supplier Template')
 
-      worksheet.addRow(['Name', 'Phone', 'Email', 'Address', 'Description']);
+      worksheet.addRow(['Name', 'Phone', 'Email', 'Address', 'Description'])
 
-      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: 'FFD3D3D3' }
-      };
+      }
 
       worksheet.columns = [
-        { width: 25 }, { width: 20 }, { width: 30 }, { width: 30 }, { width: 30 }
-      ];
+        { width: 25 },
+        { width: 20 },
+        { width: 30 },
+        { width: 30 },
+        { width: 30 }
+      ]
 
-      const buffer = await workbook.xlsx.writeBuffer();
+      const buffer = await workbook.xlsx.writeBuffer()
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', 'attachment; filename=supplier-template.xlsx');
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=supplier-template.xlsx'
+      )
 
-      return res.status(200).send(buffer);
+      return res.status(200).send(buffer)
     } catch (error) {
-      console.error('Error =>', error);
-      return res.status(500).json({ success: false, message: 'Internal server error' });
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async downloadData(req, res) {
     try {
-      const { store } = req.query;
-      const where = {};
-      if (store) where.store = store;
+      const { store } = req.query
+      const where = {}
+      if (store) where.store = store
 
-      const suppliers = await db.supplier.findAll({ where, order: [['createdAt', 'DESC']] });
+      const suppliers = await db.supplier.findAll({
+        where,
+        order: [['createdAt', 'DESC']]
+      })
 
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet('Suppliers Data');
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Suppliers Data')
 
-      worksheet.addRow(['ID', 'Name', 'Phone', 'Email', 'Address', 'Description', 'Status', 'Created At']);
+      worksheet.addRow([
+        'ID',
+        'Name',
+        'Phone',
+        'Email',
+        'Address',
+        'Description',
+        'Status',
+        'Created At'
+      ])
 
-      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
-      };
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
+      }
 
-      suppliers.forEach(s => worksheet.addRow([
-        s.id, s.name, s.phone, s.email, s.address, s.description,
-        s.status === 'active' ? 'Active' : 'Inactive',
-        s.createdAt ? s.createdAt.toISOString() : ''
-      ]));
+      suppliers.forEach((s) =>
+        worksheet.addRow([
+          s.id,
+          s.name,
+          s.phone,
+          s.email,
+          s.address,
+          s.description,
+          s.status === 'active' ? 'Active' : 'Inactive',
+          s.createdAt ? s.createdAt.toISOString() : ''
+        ])
+      )
 
       worksheet.columns = [
-        { width: 10 }, { width: 25 }, { width: 20 },
-        { width: 30 }, { width: 30 }, { width: 30 },
-        { width: 10 }, { width: 20 }
-      ];
+        { width: 10 },
+        { width: 25 },
+        { width: 20 },
+        { width: 30 },
+        { width: 30 },
+        { width: 30 },
+        { width: 10 },
+        { width: 20 }
+      ]
 
-      const buffer = await workbook.xlsx.writeBuffer();
+      const buffer = await workbook.xlsx.writeBuffer()
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', 'attachment; filename=suppliers-data.xlsx');
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=suppliers-data.xlsx'
+      )
 
-      return res.status(200).send(buffer);
+      return res.status(200).send(buffer)
     } catch (error) {
-      console.error('Error =>', error);
-      return res.status(500).json({ success: false, message: 'Internal server error' });
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async importData(req, res) {
     try {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No file uploaded' });
+        return res
+          .status(400)
+          .json({ success: false, message: 'No file uploaded' })
       }
 
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(req.file.buffer);
-      const worksheet = workbook.getWorksheet(1);
+      const workbook = new ExcelJS.Workbook()
+      await workbook.xlsx.load(req.file.buffer)
+      const worksheet = workbook.getWorksheet(1)
 
-      const suppliersToCreate = [];
-      const errors = [];
+      const suppliersToCreate = []
+      const errors = []
 
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        if (rowNumber === 1) return;
+        if (rowNumber === 1) return
 
         try {
-          const [name, phone, email, address, description] = row.values;
+          const [name, phone, email, address, description] = row.values
 
           if (!name) {
-            errors.push(`Row ${rowNumber}: Name is required`);
-            return;
+            errors.push(`Row ${rowNumber}: Name is required`)
+            return
           }
 
           suppliersToCreate.push({
@@ -353,27 +450,37 @@ const supplierController = {
             address: address?.trim() || null,
             description: description?.trim() || null,
             createdBy: req.user?.id || null
-          });
+          })
         } catch (error) {
-          errors.push(`Row ${rowNumber}: ${error.message}`);
+          errors.push(`Row ${rowNumber}: ${error.message}`)
         }
-      });
+      })
 
       if (errors.length > 0) {
-        return res.status(400).json({ success: false, message: 'Validation errors', errors });
+        return res
+          .status(400)
+          .json({ success: false, message: 'Validation errors', errors })
       }
 
-      const createdSuppliers = await db.supplier.bulkCreate(suppliersToCreate);
-      createAudit(req, 'import', 'supplier', null, `Imported ${createdSuppliers.length} suppliers`)
+      const createdSuppliers = await db.supplier.bulkCreate(suppliersToCreate)
+      createAudit(
+        req,
+        'import',
+        'supplier',
+        null,
+        `Imported ${createdSuppliers.length} suppliers`
+      )
 
       return res.status(201).json({
         success: true,
         message: `Successfully imported ${createdSuppliers.length} suppliers`,
         data: createdSuppliers
-      });
+      })
     } catch (error) {
-      console.error('Error =>', error);
-      return res.status(500).json({ success: false, message: 'Internal server error' });
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

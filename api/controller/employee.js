@@ -14,7 +14,11 @@ const { createAudit } = require('../../utils/auditLog')
 const parseAccessMenu = (menu) => {
   if (Array.isArray(menu)) return menu
   if (typeof menu === 'string') {
-    try { return JSON.parse(menu) } catch (e) { return [] }
+    try {
+      return JSON.parse(menu)
+    } catch (e) {
+      return []
+    }
   }
   return []
 }
@@ -152,12 +156,24 @@ exports.addEmployee = async (req, res) => {
       documents: documentUrls.length > 0 ? JSON.stringify(documentUrls) : null
     })
 
-    createAudit(req, 'create', 'employee', createUser.id, `Created employee: ${createUser.id}`)
+    createAudit(
+      req,
+      'create',
+      'employee',
+      createUser.id,
+      `Created employee: ${createUser.id}`
+    )
 
     const result = createUser.toJSON()
     delete result.password
 
-    createNotification({ type: 'employee_created', store: createUser.store, referenceId: createUser.id, referenceType: 'employee', params: [req.body.fullName] }).catch(console.error)
+    createNotification({
+      type: 'employee_created',
+      store: createUser.store,
+      referenceId: createUser.id,
+      referenceType: 'employee',
+      params: [req.body.fullName]
+    }).catch(console.error)
 
     return res.status(200).json({
       success: true,
@@ -189,26 +205,28 @@ exports.getAllEmployee = async (req, res) => {
       whereCondition.store = currentUserStore
     }
 
-    const [employees, total, activeCount, locationsResult] = await Promise.all([
-      User.findAll({
-        where: whereCondition,
-        attributes: { exclude: ['password'] },
-        include: [
-          { model: Location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: Position, as: 'positionData', attributes: ['id', 'name'] }
-        ],
-        limit,
-        offset,
-        order: [['createdAt', 'DESC']]
-      }),
-      User.count({ where: whereCondition }),
-      User.count({ where: { ...whereCondition, statusActive: true } }),
-      User.findAll({
-        where: { ...whereCondition, store: { [Op.ne]: null } },
-        attributes: ['store'],
-        group: ['store']
-      })
-    ])
+    const [employees, total, activeCount, inactiveCount, locationsResult] =
+      await Promise.all([
+        User.findAll({
+          where: whereCondition,
+          attributes: { exclude: ['password'] },
+          include: [
+            { model: Location, as: 'storeData', attributes: ['id', 'name'] },
+            { model: Position, as: 'positionData', attributes: ['id', 'name'] }
+          ],
+          limit,
+          offset,
+          order: [['createdAt', 'DESC']]
+        }),
+        User.count({ where: whereCondition }),
+        User.count({ where: { ...whereCondition, statusActive: true } }),
+        User.count({ where: { ...whereCondition, statusActive: false } }),
+        User.findAll({
+          where: { ...whereCondition, store: { [Op.ne]: null } },
+          attributes: ['store'],
+          group: ['store']
+        })
+      ])
 
     const totalPages = Math.ceil(total / limit)
 
@@ -226,7 +244,7 @@ exports.getAllEmployee = async (req, res) => {
       stats: {
         total,
         active: activeCount,
-        inactive: total - activeCount
+        inactive: inactiveCount
       }
     })
   } catch (error) {
@@ -438,7 +456,9 @@ exports.updateEmployee = async (req, res) => {
       store: body?.store ?? employee.store,
       shift: body?.shift ?? employee.shift,
       position: body?.position ?? employee.position,
-      accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : employee.accessMenu,
+      accessMenu: body?.accessMenu
+        ? parseAccessMenu(body.accessMenu)
+        : employee.accessMenu,
       roleId: body?.roleId ?? employee.roleId,
       contractDuration: body?.contractDuration ?? employee.contractDuration,
       endDate: body?.endDate ?? employee.endDate,
@@ -463,12 +483,24 @@ exports.updateEmployee = async (req, res) => {
 
     await employee.update(updateData)
 
-    createAudit(req, 'update', 'employee', employeeId, `Updated employee: ${employeeId}`)
+    createAudit(
+      req,
+      'update',
+      'employee',
+      employeeId,
+      `Updated employee: ${employeeId}`
+    )
 
     const result = employee.toJSON()
     delete result.password
 
-    createNotification({ type: 'employee_updated', store: employee.store, referenceId: employee.id, referenceType: 'employee', params: [req.body.fullName || employee.fullName] }).catch(console.error)
+    createNotification({
+      type: 'employee_updated',
+      store: employee.store,
+      referenceId: employee.id,
+      referenceType: 'employee',
+      params: [req.body.fullName || employee.fullName]
+    }).catch(console.error)
 
     return res.status(200).json({
       success: true,
@@ -505,7 +537,13 @@ exports.deleteEmployee = async (req, res) => {
 
     createAudit(req, 'delete', 'employee', id, `Deleted employee: ${id}`)
 
-    createNotification({ type: 'employee_deleted', store: employee.store, referenceId: employee.id, referenceType: 'employee', params: [employee.fullName || 'Unknown'] }).catch(console.error)
+    createNotification({
+      type: 'employee_deleted',
+      store: employee.store,
+      referenceId: employee.id,
+      referenceType: 'employee',
+      params: [employee.fullName || 'Unknown']
+    }).catch(console.error)
 
     return res.status(200).json({
       success: true,

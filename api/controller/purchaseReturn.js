@@ -23,9 +23,23 @@ const purchaseReturnController = {
       const { count, rows } = await db.purchase_return.findAndCountAll({
         where,
         include: [
-          { model: db.purchase_return_item, as: 'items', include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] }] },
+          {
+            model: db.purchase_return_item,
+            as: 'items',
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct']
+              }
+            ]
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.user, as: 'returnedByData', attributes: ['id', 'name'] }
+          {
+            model: db.user,
+            as: 'returnedByData',
+            attributes: ['id', 'fullName']
+          }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -45,7 +59,9 @@ const purchaseReturnController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -61,20 +77,40 @@ const purchaseReturnController = {
       const ret = await db.purchase_return.findOne({
         where,
         include: [
-          { model: db.purchase_return_item, as: 'items', include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] }] },
+          {
+            model: db.purchase_return_item,
+            as: 'items',
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct']
+              }
+            ]
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.user, as: 'returnedByData', attributes: ['id', 'name'] }
+          {
+            model: db.user,
+            as: 'returnedByData',
+            attributes: ['id', 'fullName']
+          }
         ]
       })
 
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Purchase return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Purchase return not found' })
       }
 
-      return res.status(200).json({ success: true, message: 'Success', data: ret })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success', data: ret })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -89,20 +125,35 @@ const purchaseReturnController = {
 
       const ret = await db.purchase_return.findOne({ where })
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Purchase return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Purchase return not found' })
       }
 
       if (ret.status !== 'pending') {
-        return res.status(400).json({ success: false, message: 'Only pending returns can be approved' })
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending returns can be approved'
+        })
       }
 
       await ret.update({ status: 'approved' })
-      await createAudit(req, 'update', 'purchase_return', id, 'Approved purchase return: ' + id)
+      await createAudit(
+        req,
+        'update',
+        'purchase_return',
+        id,
+        'Approved purchase return: ' + id
+      )
 
-      return res.status(200).json({ success: true, message: 'Purchase return approved', data: ret })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Purchase return approved', data: ret })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -121,49 +172,74 @@ const purchaseReturnController = {
       })
 
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Purchase return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Purchase return not found' })
       }
 
       if (ret.status !== 'pending') {
-        return res.status(400).json({ success: false, message: 'Only pending returns can be rejected' })
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending returns can be rejected'
+        })
       }
 
       const transaction = await db.sequelize.transaction()
       try {
         // Reverse stock: add back what was deducted on creation
         for (const item of ret.items) {
-          const product = await db.product.findByPk(item.product, { transaction })
+          const product = await db.product.findByPk(item.product, {
+            transaction
+          })
           if (product) {
             const oldStock = Number(product.stock) || 0
-            await product.update({ stock: oldStock + item.qty }, { transaction })
+            await product.update(
+              { stock: oldStock + item.qty },
+              { transaction }
+            )
 
-            await db.stock_history.create({
-              product: item.product,
-              store: ret.store,
-              referenceType: 'purchase_return_reversal',
-              quantityBefore: oldStock,
-              quantityChange: item.qty,
-              quantityAfter: oldStock + item.qty,
-              unit: item.unit || 'pcs',
-              notes: `Purchase return rejected: ${ret.reason}`,
-              createdBy: req.user?.id || null
-            }, { transaction })
+            await db.stock_history.create(
+              {
+                product: item.product,
+                store: ret.store,
+                referenceType: 'purchase_return_reversal',
+                quantityBefore: oldStock,
+                quantityChange: item.qty,
+                quantityAfter: oldStock + item.qty,
+                unit: item.unit || 'pcs',
+                notes: `Purchase return rejected: ${ret.reason}`,
+                createdBy: req.user?.id || null
+              },
+              { transaction }
+            )
           }
         }
 
         await ret.update({ status: 'rejected' }, { transaction })
         await transaction.commit()
 
-        await createAudit(req, 'update', 'purchase_return', id, 'Rejected purchase return: ' + id)
+        await createAudit(
+          req,
+          'update',
+          'purchase_return',
+          id,
+          'Rejected purchase return: ' + id
+        )
 
-        return res.status(200).json({ success: true, message: 'Purchase return rejected', data: ret })
+        return res.status(200).json({
+          success: true,
+          message: 'Purchase return rejected',
+          data: ret
+        })
       } catch (err) {
         await transaction.rollback()
         throw err
       }
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

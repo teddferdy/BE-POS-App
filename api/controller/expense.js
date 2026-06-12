@@ -17,7 +17,15 @@ const expenseController = {
   async getAll(req, res) {
     try {
       const { store } = req.cookies
-      const { category, status, startDate, endDate, paymentMethod, page = 1, limit = 50 } = req.query
+      const {
+        category,
+        status,
+        startDate,
+        endDate,
+        paymentMethod,
+        page = 1,
+        limit = 50
+      } = req.query
 
       const where = { store }
 
@@ -47,7 +55,10 @@ const expenseController = {
             attributes: ['id', 'name']
           }
         ],
-        order: [['date', 'DESC'], ['createdAt', 'DESC']],
+        order: [
+          ['date', 'DESC'],
+          ['createdAt', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })
@@ -123,7 +134,15 @@ const expenseController = {
   async create(req, res) {
     try {
       const { store } = req.cookies
-      const { category, description, amount, date, paymentMethod, notes, receipt } = req.body
+      const {
+        category,
+        description,
+        amount,
+        date,
+        paymentMethod,
+        notes,
+        receipt
+      } = req.body
       const createdBy = req.user?.id || null
 
       if (!category || !amount) {
@@ -149,7 +168,13 @@ const expenseController = {
         createdBy
       })
 
-      createAudit(req, 'create', 'expense', expense.id, `Created expense: ${expense.id}`)
+      createAudit(
+        req,
+        'create',
+        'expense',
+        expense.id,
+        `Created expense: ${expense.id}`
+      )
 
       const created = await db.expense.findOne({
         where: { id: expense.id },
@@ -180,7 +205,16 @@ const expenseController = {
     try {
       const { id } = req.params
       const { store } = req.cookies
-      const { category, description, amount, date, paymentMethod, status, notes, receipt } = req.body
+      const {
+        category,
+        description,
+        amount,
+        date,
+        paymentMethod,
+        status,
+        notes,
+        receipt
+      } = req.body
       const modifiedBy = req.user?.id || null
 
       const expense = await db.expense.findOne({
@@ -196,7 +230,8 @@ const expenseController = {
 
       await expense.update({
         category: category || expense.category,
-        description: description !== undefined ? description : expense.description,
+        description:
+          description !== undefined ? description : expense.description,
         amount: amount !== undefined ? amount : expense.amount,
         date: date || expense.date,
         paymentMethod: paymentMethod || expense.paymentMethod,
@@ -349,7 +384,12 @@ const expenseController = {
             attributes: ['id', 'name', 'icon']
           }
         ],
-        group: ['category', 'categoryData.id', 'categoryData.name', 'categoryData.icon'],
+        group: [
+          'category',
+          'categoryData.id',
+          'categoryData.name',
+          'categoryData.icon'
+        ],
         raw: false
       })
 

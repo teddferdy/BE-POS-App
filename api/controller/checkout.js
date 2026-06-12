@@ -103,11 +103,17 @@ exports.checkout = async (req, res) => {
 
       if (body.customerPhoneNumber) {
         try {
-          const member = await Member.findOne({ where: { phoneNumber: body.customerPhoneNumber, store: body.store } })
+          const member = await Member.findOne({
+            where: { phoneNumber: body.customerPhoneNumber, store: body.store }
+          })
           if (member) {
-            const tier = member.tier ? await MemberTier.findByPk(member.tier) : null
+            const tier = member.tier
+              ? await MemberTier.findByPk(member.tier)
+              : null
             const multiplier = tier?.pointMultiplier || 1
-            const pointsEarned = Math.floor((Number(body.totalPrice) || 0) / 1000 * Number(multiplier))
+            const pointsEarned = Math.floor(
+              ((Number(body.totalPrice) || 0) / 1000) * Number(multiplier)
+            )
             if (pointsEarned > 0) {
               await member.update({
                 totalPoints: (member.totalPoints || 0) + pointsEarned,
@@ -120,10 +126,22 @@ exports.checkout = async (req, res) => {
         }
       }
 
-      createAudit(req, 'create', 'checkout', creadtedCheckout.id, `Created checkout: ${creadtedCheckout.id}`)
+      createAudit(
+        req,
+        'create',
+        'checkout',
+        creadtedCheckout.id,
+        `Created checkout: ${creadtedCheckout.id}`
+      )
 
       if (creadtedCheckout?.getDataValue) {
-        createNotification({ type: 'payment_received', store: body.store, referenceId: creadtedCheckout.id, referenceType: 'checkout', params: [invoice, body.totalPrice] }).catch(console.error)
+        createNotification({
+          type: 'payment_received',
+          store: body.store,
+          referenceId: creadtedCheckout.id,
+          referenceType: 'checkout',
+          params: [invoice, body.totalPrice]
+        }).catch(console.error)
 
         return res.status(200).json({
           success: true,
@@ -177,9 +195,21 @@ exports.editCheckout = async (req, res) => {
       return data
     })
 
-    createAudit(req, 'update', 'checkout', checkoutId, `Updated checkout: ${checkoutId}`)
+    createAudit(
+      req,
+      'update',
+      'checkout',
+      checkoutId,
+      `Updated checkout: ${checkoutId}`
+    )
 
-    createNotification({ type: 'payment_received', store: body.store, referenceId: checkoutId, referenceType: 'checkout', params: [body.invoice, body.totalPrice] }).catch(console.error)
+    createNotification({
+      type: 'payment_received',
+      store: body.store,
+      referenceId: checkoutId,
+      referenceType: 'checkout',
+      params: [body.invoice, body.totalPrice]
+    }).catch(console.error)
 
     return res.status(200).json({
       success: true,
@@ -209,7 +239,13 @@ exports.deleteCheckout = async (req, res) => {
     })
 
     if (getId) {
-      createAudit(req, 'delete', 'checkout', checkoutId, `Deleted checkout: ${checkoutId}`)
+      createAudit(
+        req,
+        'delete',
+        'checkout',
+        checkoutId,
+        `Deleted checkout: ${checkoutId}`
+      )
 
       return res.status(200).json({
         success: true,

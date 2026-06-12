@@ -5,37 +5,6 @@ const { Op, Sequelize } = require('sequelize')
 const moment = require('moment')
 const sequelize = require('../../config/database')
 
-exports.getAllBestSelling = async (req, res) => {
-  const { store } = req.query
-
-  try {
-    const whereClause = store ? { store } : {}
-
-    const getAllBestSelling = await BestSelling.findAll({
-      where: whereClause
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues
-        }
-        return getData
-      })
-    )
-
-    return res.status(200).json({
-      success: true,
-      message: 'Success',
-      data: getAllBestSelling?.length > 0 ? getAllBestSelling : []
-    })
-  } catch (error) {
-    console.error('Error =>', error)
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi Kesalahan Internal Server'
-    })
-  }
-}
-
 exports.chartDataByYear = async (req, res) => {
   const { query } = req
   const { store, year } = query

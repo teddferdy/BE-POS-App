@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const purchaseOrderItem = sequelize.define(
     'purchase_order_item',
     {
       id: {
@@ -47,4 +47,17 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'purchase_order_item'
     }
   )
+
+  purchaseOrderItem.associate = (models) => {
+    purchaseOrderItem.belongsTo(models.purchase_order, {
+      foreignKey: 'purchaseOrder',
+      as: 'purchaseOrderData'
+    })
+    purchaseOrderItem.belongsTo(models.product, {
+      foreignKey: 'product',
+      as: 'productData'
+    })
+  }
+
+  return purchaseOrderItem
 }

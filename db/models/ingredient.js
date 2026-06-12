@@ -34,6 +34,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         defaultValue: 'pcs'
       },
+      baseUnit: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'pcs'
+      },
+      conversionFactor: {
+        type: DataTypes.FLOAT,
+        defaultValue: 1
+      },
       costPrice: {
         type: DataTypes.INTEGER,
         defaultValue: 0

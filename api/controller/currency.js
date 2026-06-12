@@ -26,7 +26,10 @@ const currencyController = {
 
       const { count, rows } = await db.currency.findAndCountAll({
         where,
-        order: [['isDefault', 'DESC'], ['createdAt', 'DESC']],
+        order: [
+          ['isDefault', 'DESC'],
+          ['createdAt', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })
@@ -44,7 +47,9 @@ const currencyController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -58,7 +63,9 @@ const currencyController = {
       })
 
       if (!currency) {
-        return res.status(404).json({ success: false, message: 'Currency not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Currency not found' })
       }
 
       return res.status(200).json({
@@ -68,7 +75,9 @@ const currencyController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -78,18 +87,26 @@ const currencyController = {
       const { code, name, symbol, exchangeRate, isDefault, status } = req.body
 
       if (!code || !name || !symbol) {
-        return res.status(400).json({ success: false, message: 'Code, name and symbol are required' })
+        return res.status(400).json({
+          success: false,
+          message: 'Code, name and symbol are required'
+        })
       }
 
       const existing = await db.currency.findOne({
         where: { code: code.toUpperCase(), ...(store ? { store } : {}) }
       })
       if (existing) {
-        return res.status(400).json({ success: false, message: 'Currency code already exists' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Currency code already exists' })
       }
 
       if (isDefault) {
-        await db.currency.update({ isDefault: false }, { where: store ? { store } : {} })
+        await db.currency.update(
+          { isDefault: false },
+          { where: store ? { store } : {} }
+        )
       }
 
       const currency = await db.currency.create({
@@ -99,11 +116,24 @@ const currencyController = {
         symbol,
         exchangeRate: exchangeRate || 1,
         isDefault: isDefault || false,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : 'active',
         createdBy: req.user?.id
       })
 
-      createAudit(req, 'create', 'currency', currency.id, `Created currency ${code} - ${name}`)
+      createAudit(
+        req,
+        'create',
+        'currency',
+        currency.id,
+        `Created currency ${code} - ${name}`
+      )
 
       return res.status(201).json({
         success: true,
@@ -112,7 +142,9 @@ const currencyController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -127,28 +159,46 @@ const currencyController = {
       })
 
       if (!currency) {
-        return res.status(404).json({ success: false, message: 'Currency not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Currency not found' })
       }
 
       const oldValues = { ...currency.get() }
 
       if (isDefault) {
-        await db.currency.update({ isDefault: false }, { where: store ? { store } : {} })
+        await db.currency.update(
+          { isDefault: false },
+          { where: store ? { store } : {} }
+        )
       }
 
       await currency.update({
         code: code?.toUpperCase() || currency.code,
         name: name || currency.name,
         symbol: symbol || currency.symbol,
-        exchangeRate: exchangeRate !== undefined ? exchangeRate : currency.exchangeRate,
+        exchangeRate:
+          exchangeRate !== undefined ? exchangeRate : currency.exchangeRate,
         isDefault: isDefault !== undefined ? isDefault : currency.isDefault,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : currency.status,
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : currency.status,
         modifiedBy: req.user?.id
       })
 
-      createAudit(req, 'update', 'currency', id,
+      createAudit(
+        req,
+        'update',
+        'currency',
+        id,
         `Updated currency ${currency.code}`,
-        oldValues, { ...currency.get() }
+        oldValues,
+        { ...currency.get() }
       )
 
       return res.status(200).json({
@@ -158,7 +208,9 @@ const currencyController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -172,21 +224,35 @@ const currencyController = {
       })
 
       if (!currency) {
-        return res.status(404).json({ success: false, message: 'Currency not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Currency not found' })
       }
 
       if (currency.isDefault) {
-        return res.status(400).json({ success: false, message: 'Cannot delete default currency' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Cannot delete default currency' })
       }
 
       await currency.destroy()
 
-      createAudit(req, 'delete', 'currency', id, `Deleted currency ${currency.code}`)
+      createAudit(
+        req,
+        'delete',
+        'currency',
+        id,
+        `Deleted currency ${currency.code}`
+      )
 
-      return res.status(200).json({ success: true, message: 'Success delete currency' })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success delete currency' })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -200,14 +266,25 @@ const currencyController = {
       })
 
       if (!currency) {
-        return res.status(404).json({ success: false, message: 'Currency not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Currency not found' })
       }
 
-      await db.currency.update({ isDefault: false }, { where: store ? { store } : {} })
+      await db.currency.update(
+        { isDefault: false },
+        { where: store ? { store } : {} }
+      )
 
       await currency.update({ isDefault: true, modifiedBy: req.user?.id })
 
-      createAudit(req, 'update', 'currency', id, `Set ${currency.code} as default currency`)
+      createAudit(
+        req,
+        'update',
+        'currency',
+        id,
+        `Set ${currency.code} as default currency`
+      )
 
       return res.status(200).json({
         success: true,
@@ -216,7 +293,9 @@ const currencyController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

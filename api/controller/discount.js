@@ -52,7 +52,9 @@ exports.getAllDiscount = async (req, res) => {
   try {
     const whereCondition = {}
     if (store) whereCondition.store = store
-    if (status !== undefined && status !== 'all') whereCondition.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
+    if (status !== undefined && status !== 'all')
+      whereCondition.status =
+        status === 'true' || status === 'active' ? 'active' : 'inactive'
 
     const { count, rows } = await Discount.findAndCountAll({
       where: whereCondition,
@@ -81,9 +83,9 @@ exports.getAllDiscount = async (req, res) => {
 exports.downloadTemplate = async (req, res) => {
   try {
     // Generate template Excel file
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Discount Template');
-    
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Discount Template')
+
     // Add headers
     worksheet.addRow([
       'Name',
@@ -94,16 +96,16 @@ exports.downloadTemplate = async (req, res) => {
       'Minimum Purchase',
       'Description',
       'Is Active (true/false)'
-    ]);
-    
+    ])
+
     // Style headers
-    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).font = { bold: true }
     worksheet.getRow(1).fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFD3D3D3' }
-    };
-    
+    }
+
     // Set column widths
     worksheet.columns = [
       { width: 20 }, // Name
@@ -113,47 +115,47 @@ exports.downloadTemplate = async (req, res) => {
       { width: 15 }, // End Date
       { width: 20 }, // Minimum Purchase
       { width: 30 }, // Description
-      { width: 15 }  // Is Active
-    ];
-    
+      { width: 15 } // Is Active
+    ]
+
     // Generate buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    
+    const buffer = await workbook.xlsx.writeBuffer()
+
     // Set response headers
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
+    )
     res.setHeader(
       'Content-Disposition',
       'attachment; filename=discount-template.xlsx'
-    );
-    
-    return res.status(200).send(buffer);
+    )
+
+    return res.status(200).send(buffer)
   } catch (error) {
-    console.error('Error =>', error);
+    console.error('Error =>', error)
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
-    });
+    })
   }
-};
+}
 
 // Download Excel Data - Super Admin only
 exports.downloadData = async (req, res) => {
   try {
-    const { store } = req.query;
-    const filters = {};
+    const { store } = req.query
+    const filters = {}
     if (store) {
-      filters.store = store;
+      filters.store = store
     }
-    
-    const discounts = await Discount.findAll({ where: filters });
-    
+
+    const discounts = await Discount.findAll({ where: filters })
+
     // Generate Excel file
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Discounts Data');
-    
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Discounts Data')
+
     // Add headers
     worksheet.addRow([
       'ID',
@@ -166,32 +168,34 @@ exports.downloadData = async (req, res) => {
       'Description',
       'Is Active',
       'Created At'
-    ]);
-    
+    ])
+
     // Style headers
-    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).font = { bold: true }
     worksheet.getRow(1).fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFD3D3D3' }
-    };
-    
+    }
+
     // Add data rows
-    discounts.forEach(discount => {
+    discounts.forEach((discount) => {
       worksheet.addRow([
         discount.id,
         discount.name,
         discount.type,
         discount.value,
-        discount.startDate ? discount.startDate.toISOString().split('T')[0] : '',
+        discount.startDate
+          ? discount.startDate.toISOString().split('T')[0]
+          : '',
         discount.endDate ? discount.endDate.toISOString().split('T')[0] : '',
         discount.minimumOrder,
         discount.description || '',
         discount.status === 'active' ? 'true' : 'false',
         discount.createdAt ? discount.createdAt.toISOString() : ''
-      ]);
-    });
-    
+      ])
+    })
+
     // Style data rows
     worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
       if (rowNumber > 1) {
@@ -202,11 +206,11 @@ exports.downloadData = async (req, res) => {
             left: { style: 'thin' },
             bottom: { style: 'thin' },
             right: { style: 'thin' }
-          };
-        });
+          }
+        })
       }
-    });
-    
+    })
+
     // Set column widths
     worksheet.columns = [
       { width: 10 }, // ID
@@ -218,31 +222,31 @@ exports.downloadData = async (req, res) => {
       { width: 20 }, // Minimum Purchase
       { width: 30 }, // Description
       { width: 10 }, // Is Active
-      { width: 20 }  // Created At
-    ];
-    
+      { width: 20 } // Created At
+    ]
+
     // Generate buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    
+    const buffer = await workbook.xlsx.writeBuffer()
+
     // Set response headers
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
+    )
     res.setHeader(
       'Content-Disposition',
       'attachment; filename=discounts-data.xlsx'
-    );
-    
-    return res.status(200).send(buffer);
+    )
+
+    return res.status(200).send(buffer)
   } catch (error) {
-    console.error('Error =>', error);
+    console.error('Error =>', error)
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
-    });
+    })
   }
-};
+}
 
 // Upload Excel - Super Admin only
 exports.importData = async (req, res) => {
@@ -251,59 +255,75 @@ exports.importData = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'No file uploaded'
-      });
+      })
     }
-    
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(req.file.buffer);
-    const worksheet = workbook.getWorksheet(1);
-    
-    const discountsToCreate = [];
-    const errors = [];
-    
+
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(req.file.buffer)
+    const worksheet = workbook.getWorksheet(1)
+
+    const discountsToCreate = []
+    const errors = []
+
     // Skip header row
     worksheet.eachRow({ includeEmpty: false }, async (row, rowNumber) => {
-      if (rowNumber === 1) return; // Skip header
-      
+      if (rowNumber === 1) return // Skip header
+
       try {
-        const [name, type, valueStr, startDateStr, endDateStr, minPurchaseStr, description, isActiveStr] = row.values;
-        
+        const [
+          name,
+          type,
+          valueStr,
+          startDateStr,
+          endDateStr,
+          minPurchaseStr,
+          description,
+          isActiveStr
+        ] = row.values
+
         // Validation
         if (!name || !type || !valueStr) {
-          errors.push(`Row ${rowNumber}: Missing required fields`);
-          return;
+          errors.push(`Row ${rowNumber}: Missing required fields`)
+          return
         }
-        
-        const value = parseFloat(valueStr);
+
+        const value = parseFloat(valueStr)
         if (isNaN(value) || value < 0) {
-          errors.push(`Row ${rowNumber}: Invalid value`);
-          return;
+          errors.push(`Row ${rowNumber}: Invalid value`)
+          return
         }
-        
-        const typeNormalized = type.toLowerCase().trim();
+
+        const typeNormalized = type.toLowerCase().trim()
         if (!['percentage', 'nominal'].includes(typeNormalized)) {
-          errors.push(`Row ${rowNumber}: Invalid type. Must be 'percentage' or 'nominal'`);
-          return;
+          errors.push(
+            `Row ${rowNumber}: Invalid type. Must be 'percentage' or 'nominal'`
+          )
+          return
         }
-        
-        const startDate = startDateStr ? new Date(startDateStr) : undefined;
-        const endDate = endDateStr ? new Date(endDateStr) : undefined;
-        const minimumOrder = parseFloat(minPurchaseStr) || 0;
-        const isActive = isActiveStr?.toLowerCase() === 'true' || isActiveStr === '1' || !!isActiveStr;
-        
+
+        const startDate = startDateStr ? new Date(startDateStr) : undefined
+        const endDate = endDateStr ? new Date(endDateStr) : undefined
+        const minimumOrder = parseFloat(minPurchaseStr) || 0
+        const isActive =
+          isActiveStr?.toLowerCase() === 'true' ||
+          isActiveStr === '1' ||
+          !!isActiveStr
+
         // Check for duplicate name
         const existingDiscount = await Discount.findOne({
-          where: { 
+          where: {
             name: name.trim(),
             ...(req.user?.store ? { store: req.user.store } : {})
           }
-        });
-        
+        })
+
         if (existingDiscount) {
-          errors.push(`Row ${rowNumber}: Discount with name '${name}' already exists`);
-          return;
+          errors.push(
+            `Row ${rowNumber}: Discount with name '${name}' already exists`
+          )
+          return
         }
-        
+
         discountsToCreate.push({
           name: name.trim(),
           type: typeNormalized === 'percentage' ? 'percent' : 'nominal',
@@ -315,40 +335,58 @@ exports.importData = async (req, res) => {
           status: isActive ? 'active' : 'inactive',
           store: req.user?.store,
           createdBy: req.user?.id
-        });
+        })
       } catch (error) {
-        errors.push(`Row ${rowNumber}: ${error.message}`);
+        errors.push(`Row ${rowNumber}: ${error.message}`)
       }
-    });
-    
+    })
+
     if (errors.length > 0) {
       return res.status(400).json({
         success: false,
         message: 'Validation errors occurred',
         errors: errors
-      });
+      })
     }
-    
+
     // Create all discounts
-    const createdDiscounts = await Discount.bulkCreate(discountsToCreate);
-    createAudit(req, 'import', 'discount', null, `Imported ${createdDiscounts.length} discounts`)
-    
+    const createdDiscounts = await Discount.bulkCreate(discountsToCreate)
+    createAudit(
+      req,
+      'import',
+      'discount',
+      null,
+      `Imported ${createdDiscounts.length} discounts`
+    )
+
     return res.status(201).json({
       success: true,
       message: `Successfully imported ${createdDiscounts.length} discounts`,
       data: createdDiscounts
-    });
+    })
   } catch (error) {
-    console.error('Error =>', error);
+    console.error('Error =>', error)
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
-    });
+    })
   }
-};
+}
 
 exports.postNewDiscount = async (req, res) => {
-  const { name, type, value, minimumOrder, maximumDiscount, startDate, endDate, status, createdBy, code, conditions } = req.body
+  const {
+    name,
+    type,
+    value,
+    minimumOrder,
+    maximumDiscount,
+    startDate,
+    endDate,
+    status,
+    createdBy,
+    code,
+    conditions
+  } = req.body
   const store = req.body.store || req.user?.store
   try {
     const discountType = type === 'percentage' ? 'percent' : type
@@ -372,10 +410,23 @@ exports.postNewDiscount = async (req, res) => {
         store,
         code: code || null,
         conditions: conditions || null,
-        status: status !== undefined ? (status === true || status === 'active' ? true : status === false || status === 'inactive' ? false : status) : true,
+        status:
+          status !== undefined
+            ? status === true || status === 'active'
+              ? true
+              : status === false || status === 'inactive'
+                ? false
+                : status
+            : true,
         createdBy
       })
-      createAudit(req, 'create', 'discount', postData.id, `Created discount: ${postData.name}`)
+      createAudit(
+        req,
+        'create',
+        'discount',
+        postData.id,
+        `Created discount: ${postData.name}`
+      )
       return res.status(200).json({
         success: true,
         message: 'Success',
@@ -401,7 +452,9 @@ exports.lookupByCode = async (req, res) => {
 
   try {
     if (!code) {
-      return res.status(400).json({ success: false, message: 'Code is required' })
+      return res
+        .status(400)
+        .json({ success: false, message: 'Code is required' })
     }
 
     const discount = await Discount.findOne({
@@ -413,22 +466,32 @@ exports.lookupByCode = async (req, res) => {
     })
 
     if (!discount) {
-      return res.status(404).json({ success: false, message: 'Promo code not found or inactive' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Promo code not found or inactive' })
     }
 
     // Validate date range
     const now = new Date()
     if (discount.startDate && new Date(discount.startDate) > now) {
-      return res.status(400).json({ success: false, message: 'Promo has not started yet' })
+      return res
+        .status(400)
+        .json({ success: false, message: 'Promo has not started yet' })
     }
     if (discount.endDate && new Date(discount.endDate) < now) {
-      return res.status(400).json({ success: false, message: 'Promo has expired' })
+      return res
+        .status(400)
+        .json({ success: false, message: 'Promo has expired' })
     }
 
-    return res.status(200).json({ success: true, message: 'Success', data: discount })
+    return res
+      .status(200)
+      .json({ success: true, message: 'Success', data: discount })
   } catch (error) {
     console.error('Error =>', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
@@ -443,7 +506,14 @@ exports.editDiscountById = async (req, res) => {
       }
     })
 
-    const bodyStatus = body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active'
+    const bodyStatus =
+      body.status !== undefined
+        ? body.status === true
+          ? 'active'
+          : body.status === false
+            ? 'inactive'
+            : body.status
+        : 'active'
 
     if (
       !getDuplicate?.dataValues ||
@@ -460,7 +530,14 @@ exports.editDiscountById = async (req, res) => {
           endDate: body.endDate,
           code: body.code || null,
           conditions: body.conditions || null,
-          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
+          status:
+            body.status !== undefined
+              ? body.status === true
+                ? 'active'
+                : body.status === false
+                  ? 'inactive'
+                  : body.status
+              : 'active',
           createdBy: body.createdBy,
           modifiedBy: body?.modifiedBy
         },
@@ -474,7 +551,13 @@ exports.editDiscountById = async (req, res) => {
       ).then(([_, data]) => {
         return data
       })
-      createAudit(req, 'update', 'discount', req.params.id, `Updated discount: ${body.name}`)
+      createAudit(
+        req,
+        'update',
+        'discount',
+        req.params.id,
+        `Updated discount: ${body.name}`
+      )
       return res.status(200).json({
         success: true,
         message: 'Sukses Ubah Discount',
@@ -507,7 +590,13 @@ exports.deleteDiscountById = async (req, res) => {
     })
 
     if (getId) {
-      createAudit(req, 'delete', 'discount', req.params.id, `Deleted discount: ${req.params.id}`)
+      createAudit(
+        req,
+        'delete',
+        'discount',
+        req.params.id,
+        `Deleted discount: ${req.params.id}`
+      )
       return res.status(200).json({
         success: true,
         message: 'Success Hapus Discount'

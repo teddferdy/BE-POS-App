@@ -3,7 +3,7 @@ const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const expenseCategoryController = {
-    async getAll(req, res) {
+  async getAll(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
       const { status, search } = req.query
@@ -39,7 +39,7 @@ const expenseCategoryController = {
     }
   },
 
-    async create(req, res) {
+  async create(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
       const { name, description, icon } = req.body
@@ -60,7 +60,13 @@ const expenseCategoryController = {
         createdBy
       })
 
-      createAudit(req, 'create', 'expense_category', category.id, `Created expense category: ${category.id}`)
+      createAudit(
+        req,
+        'create',
+        'expense_category',
+        category.id,
+        `Created expense category: ${category.id}`
+      )
 
       return res.status(201).json({
         success: true,
@@ -76,7 +82,7 @@ const expenseCategoryController = {
     }
   },
 
-    async update(req, res) {
+  async update(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
@@ -96,13 +102,27 @@ const expenseCategoryController = {
 
       await category.update({
         name: name || category.name,
-        description: description !== undefined ? description : category.description,
+        description:
+          description !== undefined ? description : category.description,
         icon: icon !== undefined ? icon : category.icon,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : category.status,
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : category.status,
         modifiedBy
       })
 
-      createAudit(req, 'update', 'expense_category', id, `Updated expense category: ${id}`)
+      createAudit(
+        req,
+        'update',
+        'expense_category',
+        id,
+        `Updated expense category: ${id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -118,7 +138,7 @@ const expenseCategoryController = {
     }
   },
 
-    async delete(req, res) {
+  async delete(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
@@ -136,7 +156,13 @@ const expenseCategoryController = {
 
       await category.destroy()
 
-      createAudit(req, 'delete', 'expense_category', id, `Deleted expense category: ${id}`)
+      createAudit(
+        req,
+        'delete',
+        'expense_category',
+        id,
+        `Deleted expense category: ${id}`
+      )
 
       return res.status(200).json({
         success: true,

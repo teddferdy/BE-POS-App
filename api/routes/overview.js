@@ -4,7 +4,6 @@ const overviewController = require('../controller/overview')
 const authorization = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
-router.get('/dashboard', authorization, validateStoreAccess, overviewController.getDashboard)
 router.get('/product', authorization, validateStoreAccess, overviewController.getProductSummary)
 router.get('/category', authorization, validateStoreAccess, overviewController.getCategorySummary)
 router.get('/location', authorization, validateStoreAccess, overviewController.getLocationSummary)

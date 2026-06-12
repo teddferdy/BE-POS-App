@@ -16,7 +16,14 @@ const goodsReceiptController = {
     try {
       const { store } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, poId, startDate, endDate } = req.query
+      const {
+        page = 1,
+        limit = 10,
+        status,
+        poId,
+        startDate,
+        endDate
+      } = req.query
 
       const where = {}
       if (store && userRole !== 'super_admin') where.store = store
@@ -48,9 +55,15 @@ const goodsReceiptController = {
 
       const stats = {
         total: count,
-        draft: await db.goodsReceipt.count({ where: { ...where, status: 'draft' } }),
-        completed: await db.goodsReceipt.count({ where: { ...where, status: 'completed' } }),
-        cancelled: await db.goodsReceipt.count({ where: { ...where, status: 'cancelled' } })
+        draft: await db.goodsReceipt.count({
+          where: { ...where, status: 'draft' }
+        }),
+        completed: await db.goodsReceipt.count({
+          where: { ...where, status: 'completed' }
+        }),
+        cancelled: await db.goodsReceipt.count({
+          where: { ...where, status: 'cancelled' }
+        })
       }
 
       return res.status(200).json({
@@ -67,7 +80,9 @@ const goodsReceiptController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -83,18 +98,30 @@ const goodsReceiptController = {
       const receipt = await db.goodsReceipt.findOne({
         where,
         include: [
-          { model: db.purchase_order, as: 'purchaseOrderData', attributes: ['id', 'orderNumber', 'status'] },
+          {
+            model: db.purchase_order,
+            as: 'purchaseOrderData',
+            attributes: ['id', 'orderNumber', 'status']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
           {
             model: db.goodsReceiptItem,
             as: 'items',
-            include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] }]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct']
+              }
+            ]
           }
         ]
       })
 
       if (!receipt) {
-        return res.status(404).json({ success: false, message: 'Goods receipt not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Goods receipt not found' })
       }
 
       let poItems = []
@@ -114,7 +141,9 @@ const goodsReceiptController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -143,7 +172,9 @@ const goodsReceiptController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -164,11 +195,15 @@ const goodsReceiptController = {
       })
 
       if (!po) {
-        return res.status(404).json({ success: false, message: 'Purchase order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Purchase order not found' })
       }
 
       if (po.status === 'cancelled') {
-        return res.status(400).json({ success: false, message: 'Cannot receive cancelled order' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Cannot receive cancelled order' })
       }
 
       const receiptNumber = generateReceiptNo()
@@ -177,15 +212,18 @@ const goodsReceiptController = {
       const transaction = await db.sequelize.transaction()
 
       try {
-        const receipt = await db.goodsReceipt.create({
-          store: effectiveStore,
-          receiptNumber,
-          purchaseOrderId,
-          receivedDate: receivedDate || new Date(),
-          status: 'completed',
-          notes,
-          createdBy: req.user?.id || null
-        }, { transaction })
+        const receipt = await db.goodsReceipt.create(
+          {
+            store: effectiveStore,
+            receiptNumber,
+            purchaseOrderId,
+            receivedDate: receivedDate || new Date(),
+            status: 'completed',
+            notes,
+            createdBy: req.user?.id || null
+          },
+          { transaction }
+        )
 
         const receiptItems = []
         for (const item of items) {
@@ -203,32 +241,43 @@ const goodsReceiptController = {
 
           if (item.purchaseOrderItem) {
             await db.purchase_order_item.update(
-              { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`) },
-              { where: { id: item.purchaseOrderItem, purchaseOrder: purchaseOrderId } },
+              {
+                receivedQuantity: db.sequelize.literal(
+                  `receivedQuantity + ${qty}`
+                )
+              },
+              {
+                where: {
+                  id: item.purchaseOrderItem,
+                  purchaseOrder: purchaseOrderId
+                }
+              },
               { transaction }
             )
           }
 
           if (item.product) {
-            const product = await db.product.findByPk(item.product, { transaction })
+            const product = await db.product.findByPk(item.product, {
+              transaction
+            })
             if (product) {
               const qtyBefore = Number(product.stock) || 0
-              await product.update(
-                { stock: qtyBefore + qty },
+              await product.update({ stock: qtyBefore + qty }, { transaction })
+
+              await db.stock_history.create(
+                {
+                  product: item.product,
+                  store: effectiveStore,
+                  referenceType: 'purchase',
+                  quantityBefore: qtyBefore,
+                  quantityChange: qty,
+                  quantityAfter: qtyBefore + qty,
+                  unit: item.unit || 'pcs',
+                  notes: `GR: ${receiptNumber} (PO: ${po.orderNumber})`,
+                  createdBy: req.user?.id || null
+                },
                 { transaction }
               )
-
-              await db.stock_history.create({
-                product: item.product,
-                store: effectiveStore,
-                referenceType: 'purchase',
-                quantityBefore: qtyBefore,
-                quantityChange: qty,
-                quantityAfter: qtyBefore + qty,
-                unit: item.unit || 'pcs',
-                notes: `GR: ${receiptNumber} (PO: ${po.orderNumber})`,
-                createdBy: req.user?.id || null
-              }, { transaction })
             }
           }
 
@@ -245,17 +294,20 @@ const goodsReceiptController = {
                 { transaction }
               )
 
-              await db.stock_history.create({
-                ingredientName: ingredient.name,
-                store: effectiveStore,
-                referenceType: 'purchase',
-                quantityBefore: qtyBefore,
-                quantityChange: qty,
-                quantityAfter: qtyBefore + qty,
-                unit: item.unit || ingredient.unit || 'pcs',
-                notes: `GR: ${receiptNumber} (PO: ${po.orderNumber})`,
-                createdBy: req.user?.id || null
-              }, { transaction })
+              await db.stock_history.create(
+                {
+                  ingredientName: ingredient.name,
+                  store: effectiveStore,
+                  referenceType: 'purchase',
+                  quantityBefore: qtyBefore,
+                  quantityChange: qty,
+                  quantityAfter: qtyBefore + qty,
+                  unit: item.unit || ingredient.unit || 'pcs',
+                  notes: `GR: ${receiptNumber} (PO: ${po.orderNumber})`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction }
+              )
             }
           }
         }
@@ -274,7 +326,10 @@ const goodsReceiptController = {
         )
 
         if (allReceived) {
-          await po.update({ status: 'received', receivedDate: receivedDate || new Date() }, { transaction })
+          await po.update(
+            { status: 'received', receivedDate: receivedDate || new Date() },
+            { transaction }
+          )
         } else {
           await po.update({ status: 'ordered' }, { transaction })
         }
@@ -285,7 +340,13 @@ const goodsReceiptController = {
           include: [{ model: db.goodsReceiptItem, as: 'items' }]
         })
 
-        await createAudit(req, 'create', 'goods_receipt', receipt.id, 'Created goods_receipt: ' + receipt.id)
+        await createAudit(
+          req,
+          'create',
+          'goods_receipt',
+          receipt.id,
+          'Created goods_receipt: ' + receipt.id
+        )
 
         return res.status(201).json({
           success: true,
@@ -298,7 +359,9 @@ const goodsReceiptController = {
       }
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -314,7 +377,9 @@ const goodsReceiptController = {
 
       const receipt = await db.goodsReceipt.findOne({ where })
       if (!receipt) {
-        return res.status(404).json({ success: false, message: 'Goods receipt not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Goods receipt not found' })
       }
 
       if (receipt.status !== 'draft') {
@@ -336,7 +401,9 @@ const goodsReceiptController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -351,7 +418,9 @@ const goodsReceiptController = {
 
       const receipt = await db.goodsReceipt.findOne({ where })
       if (!receipt) {
-        return res.status(404).json({ success: false, message: 'Goods receipt not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Goods receipt not found' })
       }
 
       if (receipt.status !== 'draft') {
@@ -364,12 +433,22 @@ const goodsReceiptController = {
       await db.goodsReceiptItem.destroy({ where: { goodsReceipt: id } })
       await receipt.destroy()
 
-      await createAudit(req, 'delete', 'goods_receipt', id, 'Deleted goods_receipt: ' + id)
+      await createAudit(
+        req,
+        'delete',
+        'goods_receipt',
+        id,
+        'Deleted goods_receipt: ' + id
+      )
 
-      return res.status(200).json({ success: true, message: 'Success delete goods receipt' })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success delete goods receipt' })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -381,7 +460,10 @@ const goodsReceiptController = {
       const userRole = req.user?.roleType
 
       if (!['completed', 'cancelled'].includes(status)) {
-        return res.status(400).json({ success: false, message: 'Status must be "completed" or "cancelled"' })
+        return res.status(400).json({
+          success: false,
+          message: 'Status must be "completed" or "cancelled"'
+        })
       }
 
       const where = { id }
@@ -389,7 +471,9 @@ const goodsReceiptController = {
 
       const receipt = await db.goodsReceipt.findOne({ where })
       if (!receipt) {
-        return res.status(404).json({ success: false, message: 'Goods receipt not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Goods receipt not found' })
       }
 
       if (receipt.status !== 'draft') {
@@ -405,7 +489,13 @@ const goodsReceiptController = {
         receivedDate: status === 'completed' ? new Date() : receipt.receivedDate
       })
 
-      await createAudit(req, 'update', 'goods_receipt', id, 'Changed goods_receipt status to ' + status + ': ' + id)
+      await createAudit(
+        req,
+        'update',
+        'goods_receipt',
+        id,
+        'Changed goods_receipt status to ' + status + ': ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -414,7 +504,9 @@ const goodsReceiptController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

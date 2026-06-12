@@ -10,11 +10,6 @@ router.get(
   authorization, validateStoreAccess,
   stockHistoryController.getByProduct
 )
-router.get(
-  '/get-by-ingredient/:ingredientName',
-  authorization, validateStoreAccess,
-  stockHistoryController.getByIngredient
-)
 router.get('/low-stock', authorization, validateStoreAccess, stockHistoryController.getLowStock)
 router.get('/low-stock-all', authorization, stockHistoryController.getLowStockAll)
 

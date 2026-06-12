@@ -26,7 +26,6 @@ router.post('/purchase-order/:id/return', authorization, validateStoreAccess, re
 router.post('/order/:id/return', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.returnSalesOrder)
 
 // Loyalty points
-router.post('/member/:id/add-points', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.addPoints)
 router.get('/member/:id/point-history', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getPointHistory)
 
 // Dashboard data

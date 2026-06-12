@@ -146,11 +146,24 @@ exports.addNewPosition = async (req, res) => {
         name: body.name,
         departmentId: body.departmentId,
         description: body.description,
-        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
+        status:
+          body.status !== undefined
+            ? body.status === true
+              ? 'active'
+              : body.status === false
+                ? 'inactive'
+                : body.status
+            : 'active',
         store: body.store || req.user?.store,
         createdBy: body.createdBy
       })
-      createAudit(req, 'create', 'position', creadtedPosition.id, `Created position: ${creadtedPosition.name || creadtedPosition.id}`)
+      createAudit(
+        req,
+        'create',
+        'position',
+        creadtedPosition.id,
+        `Created position: ${creadtedPosition.name || creadtedPosition.id}`
+      )
 
       if (creadtedPosition.getDataValue) {
         return res.status(200).json({
@@ -190,7 +203,14 @@ exports.editPositionById = async (req, res) => {
           name: body.name,
           departmentId: body.departmentId,
           description: body.description,
-          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
+          status:
+            body.status !== undefined
+              ? body.status === true
+                ? 'active'
+                : body.status === false
+                  ? 'inactive'
+                  : body.status
+              : 'active',
           store: body.store || req.user?.store,
           modifiedBy: body?.modifiedBy
         },
@@ -200,7 +220,13 @@ exports.editPositionById = async (req, res) => {
         }
       )
       const editPosition = rows[0]
-      createAudit(req, 'update', 'position', id, `Updated position: ${editPosition.name || id}`)
+      createAudit(
+        req,
+        'update',
+        'position',
+        id,
+        `Updated position: ${editPosition.name || id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -226,15 +252,18 @@ exports.deletePositionById = async (req, res) => {
     const positionId = req.params.id || req.body.id
 
     // Set position reference to null for users that reference this position
-    await User.update(
-      { position: null },
-      { where: { position: positionId } }
-    )
+    await User.update({ position: null }, { where: { position: positionId } })
 
     const getId = await Position.destroy({
       where: { id: positionId }
     })
-    createAudit(req, 'delete', 'position', positionId, `Deleted position: ${positionId}`)
+    createAudit(
+      req,
+      'delete',
+      'position',
+      positionId,
+      `Deleted position: ${positionId}`
+    )
 
     if (getId) {
       return res.status(200).json({
@@ -254,7 +283,12 @@ exports.deletePositionById = async (req, res) => {
     })
   }
 }
-const buildPositionTemplateWorksheet = (workbook, sheetName, positions, departments) => {
+const buildPositionTemplateWorksheet = (
+  workbook,
+  sheetName,
+  positions,
+  departments
+) => {
   const worksheet = workbook.addWorksheet(sheetName)
 
   const HEADERS = [
@@ -285,7 +319,11 @@ const buildPositionTemplateWorksheet = (workbook, sheetName, positions, departme
     .map((d) => `${d.id}.${d.name}`)
     .join(',')
 
-  const maxRows = Math.max(positions.length + 2, positions.length + 1, departments.length + 2)
+  const maxRows = Math.max(
+    positions.length + 2,
+    positions.length + 1,
+    departments.length + 2
+  )
   for (let row = 2; row <= maxRows; row++) {
     const idx = row - 2
     const item = positions[idx]
@@ -295,12 +333,12 @@ const buildPositionTemplateWorksheet = (workbook, sheetName, positions, departme
 
     if (item) {
       worksheet.getCell(`B${row}`).value = item.name
-      worksheet.getCell(`C${row}`).value =
-        item.departmentData
-          ? `${item.departmentData.id}.${item.departmentData.name}`
-          : ''
+      worksheet.getCell(`C${row}`).value = item.departmentData
+        ? `${item.departmentData.id}.${item.departmentData.name}`
+        : ''
       worksheet.getCell(`D${row}`).value = item.description || ''
-      worksheet.getCell(`E${row}`).value = item.status === 'active' ? 'Aktif' : 'Nonaktif'
+      worksheet.getCell(`E${row}`).value =
+        item.status === 'active' ? 'Aktif' : 'Nonaktif'
     }
 
     worksheet.getCell(`B${row}`).protection = { locked: false }
@@ -372,12 +410,12 @@ const buildPositionExportWorksheet = (workbook, sheetName, positions) => {
     worksheet.getCell(`A${rowNum}`).value = index + 1
     worksheet.getCell(`B${rowNum}`).value = pos.id
     worksheet.getCell(`C${rowNum}`).value = pos.name
-    worksheet.getCell(`D${rowNum}`).value =
-      pos.departmentData
-        ? `${pos.departmentData.id}.${pos.departmentData.name}`
-        : ''
+    worksheet.getCell(`D${rowNum}`).value = pos.departmentData
+      ? `${pos.departmentData.id}.${pos.departmentData.name}`
+      : ''
     worksheet.getCell(`E${rowNum}`).value = pos.description || ''
-    worksheet.getCell(`F${rowNum}`).value = pos.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`F${rowNum}`).value =
+      pos.status === 'active' ? 'Aktif' : 'Nonaktif'
   })
 
   worksheet.protect('', {
@@ -411,8 +449,14 @@ exports.downloadTemplate = async (req, res) => {
     buildPositionTemplateWorksheet(workbook, 'Jabatan', positions, departments)
 
     const data = await workbook.xlsx.writeBuffer()
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', 'attachment; filename=template-jabatan.xlsx')
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=template-jabatan.xlsx'
+    )
     res.send(data)
   } catch (error) {
     console.error('Error downloading template =>', error)
@@ -453,8 +497,14 @@ exports.downloadData = async (req, res) => {
     buildPositionExportWorksheet(workbook, 'Jabatan', positions)
 
     const data = await workbook.xlsx.writeBuffer()
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', 'attachment; filename=jabatan-data.xlsx')
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=jabatan-data.xlsx'
+    )
     res.send(data)
   } catch (error) {
     console.error('Error downloading data =>', error)
@@ -509,7 +559,8 @@ exports.uploadExcel = async (req, res) => {
     if (!isValid) {
       return res.status(400).json({
         success: false,
-        message: 'Header template tidak valid. Pastikan menggunakan template yang benar'
+        message:
+          'Header template tidak valid. Pastikan menggunakan template yang benar'
       })
     }
 
@@ -518,9 +569,15 @@ exports.uploadExcel = async (req, res) => {
       attributes: ['id', 'name']
     })
     const departmentMap = {}
-    departments.forEach((d) => { departmentMap[d.name.toLowerCase().trim()] = d.id })
-    departments.forEach((d) => { departmentMap[`${d.id}.${d.name}`.toLowerCase().trim()] = d.id })
-    departments.forEach((d) => { departmentMap[d.id.toString()] = d.id })
+    departments.forEach((d) => {
+      departmentMap[d.name.toLowerCase().trim()] = d.id
+    })
+    departments.forEach((d) => {
+      departmentMap[`${d.id}.${d.name}`.toLowerCase().trim()] = d.id
+    })
+    departments.forEach((d) => {
+      departmentMap[d.id.toString()] = d.id
+    })
 
     // Process rows
     const positionsToCreate = []
@@ -550,7 +607,9 @@ exports.uploadExcel = async (req, res) => {
           if (departmentMap[lowerDept]) {
             departmentId = departmentMap[lowerDept]
           } else {
-            errors.push(`Baris ${rowNumber}: Departemen "${departmentInput}" tidak ditemukan`)
+            errors.push(
+              `Baris ${rowNumber}: Departemen "${departmentInput}" tidak ditemukan`
+            )
             return
           }
         } else {
@@ -561,12 +620,23 @@ exports.uploadExcel = async (req, res) => {
         let status = null
         if (statusInput) {
           const lowerStatus = statusInput.toLowerCase().trim()
-          if (lowerStatus === 'aktif' || lowerStatus === 'active' || lowerStatus === 'true') {
+          if (
+            lowerStatus === 'aktif' ||
+            lowerStatus === 'active' ||
+            lowerStatus === 'true'
+          ) {
             status = 'active'
-          } else if (lowerStatus === 'nonaktif' || lowerStatus === 'non-active' || lowerStatus === 'nonactive' || lowerStatus === 'false') {
+          } else if (
+            lowerStatus === 'nonaktif' ||
+            lowerStatus === 'non-active' ||
+            lowerStatus === 'nonactive' ||
+            lowerStatus === 'false'
+          ) {
             status = 'inactive'
           } else {
-            errors.push(`Baris ${rowNumber}: Status "${statusInput}" tidak valid. Gunakan Aktif/Nonaktif`)
+            errors.push(
+              `Baris ${rowNumber}: Status "${statusInput}" tidak valid. Gunakan Aktif/Nonaktif`
+            )
             return
           }
         } else {
@@ -591,8 +661,12 @@ exports.uploadExcel = async (req, res) => {
     }
 
     // Check for duplicate names in upload
-    const uploadNames = positionsToCreate.map((p) => p.name.toLowerCase().trim())
-    const duplicateNames = uploadNames.filter((name, index, arr) => arr.indexOf(name) !== index)
+    const uploadNames = positionsToCreate.map((p) =>
+      p.name.toLowerCase().trim()
+    )
+    const duplicateNames = uploadNames.filter(
+      (name, index, arr) => arr.indexOf(name) !== index
+    )
 
     if (duplicateNames.length > 0) {
       return res.status(400).json({
@@ -605,10 +679,18 @@ exports.uploadExcel = async (req, res) => {
     const createdPositions = []
     for (const posData of positionsToCreate) {
       try {
-        const existing = await Position.findOne({ where: { name: posData.name } })
+        const existing = await Position.findOne({
+          where: { name: posData.name }
+        })
         if (!existing) {
           const pos = await Position.create(posData)
-          createAudit(req, 'create', 'position', pos.id, 'Created position: ' + (pos.name || pos.id))
+          createAudit(
+            req,
+            'create',
+            'position',
+            pos.id,
+            'Created position: ' + (pos.name || pos.id)
+          )
           createdPositions.push(pos)
         }
       } catch (error) {

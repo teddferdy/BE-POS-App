@@ -107,7 +107,13 @@ exports.postNewShift = async (req, res) => {
         createdBy: createdBy
       })
 
-      createAudit(req, 'create', 'shift', postData.id, `Created shift: ${postData.id}`)
+      createAudit(
+        req,
+        'create',
+        'shift',
+        postData.id,
+        `Created shift: ${postData.id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -130,15 +136,8 @@ exports.postNewShift = async (req, res) => {
 }
 
 exports.editShiftById = async (req, res) => {
-  const {
-    id,
-    name,
-    description,
-    startTime,
-    endTime,
-    createdBy,
-    modifiedBy
-  } = req.body
+  const { id, name, description, startTime, endTime, createdBy, modifiedBy } =
+    req.body
   try {
     const getDuplicate = await Shift.findOne({
       where: {
@@ -194,10 +193,7 @@ exports.deleteShiftById = async (req, res) => {
   const { id, name } = req.body
   try {
     // Clean up user.shift references for affected users
-    await User.update(
-      { shift: null },
-      { where: { shift: id } }
-    )
+    await User.update({ shift: null }, { where: { shift: id } })
 
     const getId = await Shift.destroy({
       where: {

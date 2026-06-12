@@ -1,10 +1,13 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 
+const getStore = (req) =>
+  req.body.storeId || req.body.store || req.query.store || req.cookies.store || req.cookies.activeStore || req.user?.store
+
 const cashRegisterController = {
   async open(req, res) {
     try {
-      const { store } = req.cookies
+      const store = getStore(req)
       const { openingBalance = 0, shift } = req.body
       const userId = req.user?.id || null
 
@@ -52,7 +55,7 @@ const cashRegisterController = {
   async close(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = getStore(req)
       const { closingBalance, notes } = req.body
 
       if (!store) {
@@ -64,7 +67,7 @@ const cashRegisterController = {
 
       const cashRegister = await db.cashRegister.findOne({
         where: { id, store, status: 'open' },
-        include: [{ model: db.user, as: 'userData', attributes: ['id', 'name'] }]
+        include: [{ model: db.user, as: 'userData', attributes: ['id', 'fullName'] }]
       })
 
       if (!cashRegister) {
@@ -152,7 +155,7 @@ const cashRegisterController = {
 
   async getCurrent(req, res) {
     try {
-      const { store } = req.cookies
+      const store = getStore(req)
       const userId = req.user?.id || null
 
       if (!store) {
@@ -168,15 +171,16 @@ const cashRegisterController = {
           {
             model: db.user,
             as: 'userData',
-            attributes: ['id', 'name']
+            attributes: ['id', 'fullName']
           }
         ]
       })
 
       if (!cashRegister) {
-        return res.status(404).json({
-          success: false,
-          message: 'No open cash register'
+        return res.status(200).json({
+          success: true,
+          message: 'No open cash register',
+          data: null
         })
       }
 
@@ -214,7 +218,7 @@ const cashRegisterController = {
 
   async getHistory(req, res) {
     try {
-      const { store } = req.cookies
+      const store = getStore(req)
       const { startDate, endDate, page = 1, limit = 50 } = req.query
 
       if (!store) {
@@ -240,7 +244,7 @@ const cashRegisterController = {
           {
             model: db.user,
             as: 'userData',
-            attributes: ['id', 'name']
+            attributes: ['id', 'fullName']
           }
         ],
         order: [['openedAt', 'DESC']],

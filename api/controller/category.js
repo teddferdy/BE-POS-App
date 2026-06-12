@@ -10,39 +10,6 @@ const {
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 
-// Get All List To Cashier List
-exports.getAllCategory = async (req, res) => {
-  try {
-    const categories = await Category.findAll({
-      where: { status: 'active' }
-    })
-
-    const data = categories.map((item) => ({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-      value: item.value,
-      image: item.image,
-      status: item.status,
-      store: item.store,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt
-    }))
-
-    return res.status(200).json({
-      success: true,
-      message: 'Success',
-      data: data
-    })
-  } catch (error) {
-    console.error('Error =>', error)
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi Kesalahan Internal Server'
-    })
-  }
-}
-
 // Get Category By Id
 exports.getCategoryById = async (req, res) => {
   try {

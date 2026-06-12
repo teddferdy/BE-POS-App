@@ -18,9 +18,10 @@ const purchaseOrderController = {
   async getAll(req, res) {
     try {
       const { store } = req.cookies
-      const { status, supplier, startDate, endDate, page = 1, limit = 20 } = req.query
+      const { status, supplier, startDate, endDate, page = 1, limit = 10 } = req.query
 
-      const where = { store }
+      const where = {}
+      if (store) where.store = store
       if (status) where.status = status
       if (supplier) where.supplier = supplier
       if (startDate || endDate) {
@@ -31,13 +32,18 @@ const purchaseOrderController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const { count, rows } = await db.purchaseOrder.findAndCountAll({
+      const { count, rows } = await db.purchase_order.findAndCountAll({
         where,
         include: [
           {
             model: db.supplier,
             as: 'supplierData',
             attributes: ['id', 'name', 'phone']
+          },
+          {
+            model: db.user,
+            as: 'picData',
+            attributes: ['id', 'fullName']
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -70,8 +76,11 @@ const purchaseOrderController = {
       const { id } = req.params
       const { store } = req.cookies
 
-      const purchaseOrder = await db.purchaseOrder.findOne({
-        where: { id, store },
+      const where = { id }
+      if (store) where.store = store
+
+      const purchaseOrder = await db.purchase_order.findOne({
+        where,
         include: [
           {
             model: db.supplier,
@@ -79,7 +88,12 @@ const purchaseOrderController = {
             attributes: ['id', 'name', 'phone', 'email', 'address']
           },
           {
-            model: db.purchaseOrderItem,
+            model: db.user,
+            as: 'picData',
+            attributes: ['id', 'fullName']
+          },
+          {
+            model: db.purchase_order_item,
             as: 'items',
             include: [
               {
@@ -116,7 +130,7 @@ const purchaseOrderController = {
   async create(req, res) {
     try {
       const { store } = req.cookies
-      const { supplier, items, discount = 0, notes, orderDate } = req.body
+      const { supplier, items, discount = 0, notes, orderDate, pic } = req.body
       const createdBy = req.user?.id || null
 
       if (!supplier || !items || items.length === 0) {
@@ -134,8 +148,8 @@ const purchaseOrderController = {
 
       const finalAmount = totalAmount - discount
 
-      const purchaseOrder = await db.purchaseOrder.create({
-        store,
+      const purchaseOrder = await db.purchase_order.create({
+        store: store || null,
         orderNumber,
         supplier,
         totalAmount,
@@ -144,7 +158,8 @@ const purchaseOrderController = {
         status: 'pending',
         orderDate: orderDate || new Date(),
         notes,
-        createdBy
+        createdBy,
+        pic
       })
 
       const orderItems = items.map((item) => ({
@@ -158,19 +173,25 @@ const purchaseOrderController = {
         receivedQuantity: 0
       }))
 
-      await db.purchaseOrderItem.bulkCreate(orderItems)
+      await db.purchase_order_item.bulkCreate(orderItems)
 
-      const createdOrder = await db.purchaseOrder.findOne({
+      const createdOrder = await db.purchase_order.findOne({
         where: { id: purchaseOrder.id },
         include: [
           {
-            model: db.purchaseOrderItem,
+            model: db.purchase_order_item,
             as: 'items'
           }
         ]
       })
 
-      await createAudit(req, 'create', 'purchase_order', purchaseOrder.id, 'Created purchase_order: ' + purchaseOrder.id)
+      await createAudit(
+        req,
+        'create',
+        'purchase_order',
+        purchaseOrder.id,
+        'Created purchase_order: ' + purchaseOrder.id
+      )
 
       return res.status(201).json({
         success: true,
@@ -190,11 +211,14 @@ const purchaseOrderController = {
     try {
       const { id } = req.params
       const { store } = req.cookies
-      const { supplier, items, discount, status, notes, orderDate } = req.body
+      const { supplier, items, discount, status, notes, orderDate, pic } = req.body
       const modifiedBy = req.user?.id || null
 
-      const purchaseOrder = await db.purchaseOrder.findOne({
-        where: { id, store }
+      const where = { id }
+      if (store) where.store = store
+
+      const purchaseOrder = await db.purchase_order.findOne({
+        where
       })
 
       if (!purchaseOrder) {
@@ -204,7 +228,10 @@ const purchaseOrderController = {
         })
       }
 
-      if (purchaseOrder.status === 'received' || purchaseOrder.status === 'cancelled') {
+      if (
+        purchaseOrder.status === 'received' ||
+        purchaseOrder.status === 'cancelled'
+      ) {
         return res.status(400).json({
           success: false,
           message: 'Cannot update received or cancelled order'
@@ -213,7 +240,7 @@ const purchaseOrderController = {
 
       let totalAmount = purchaseOrder.totalAmount
       if (items) {
-        await db.purchaseOrderItem.destroy({
+        await db.purchase_order_item.destroy({
           where: { purchaseOrder: id }
         })
 
@@ -228,14 +255,15 @@ const purchaseOrderController = {
           receivedQuantity: 0
         }))
 
-        await db.purchaseOrderItem.bulkCreate(orderItems)
+        await db.purchase_order_item.bulkCreate(orderItems)
 
         totalAmount = items.reduce((sum, item) => {
           return sum + item.quantity * item.price
         }, 0)
       }
 
-      const finalDiscount = discount !== undefined ? discount : purchaseOrder.discount
+      const finalDiscount =
+        discount !== undefined ? discount : purchaseOrder.discount
       const finalAmount = totalAmount - finalDiscount
 
       await purchaseOrder.update({
@@ -246,10 +274,17 @@ const purchaseOrderController = {
         status: status || purchaseOrder.status,
         notes: notes !== undefined ? notes : purchaseOrder.notes,
         orderDate: orderDate || purchaseOrder.orderDate,
-        modifiedBy
+        modifiedBy,
+        pic: pic !== undefined ? pic : purchaseOrder.pic
       })
 
-      await createAudit(req, 'update', 'purchase_order', id, 'Updated purchase_order: ' + id)
+      await createAudit(
+        req,
+        'update',
+        'purchase_order',
+        id,
+        'Updated purchase_order: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -271,9 +306,12 @@ const purchaseOrderController = {
       const { store } = req.cookies
       const { items, receivedDate } = req.body
 
-      const purchaseOrder = await db.purchaseOrder.findOne({
-        where: { id, store },
-        include: [{ model: db.purchaseOrderItem, as: 'items' }]
+      const where = { id }
+      if (store) where.store = store
+
+      const purchaseOrder = await db.purchase_order.findOne({
+        where,
+        include: [{ model: db.purchase_order_item, as: 'items' }]
       })
 
       if (!purchaseOrder) {
@@ -295,14 +333,16 @@ const purchaseOrderController = {
       try {
         if (items && items.length > 0) {
           for (const item of items) {
-            await db.purchaseOrderItem.update(
+            await db.purchase_order_item.update(
               { receivedQuantity: item.receivedQuantity },
               { where: { id: item.id, purchaseOrder: id } },
               { transaction }
             )
 
             if (item.product) {
-              const product = await db.product.findByPk(item.product, { transaction })
+              const product = await db.product.findByPk(item.product, {
+                transaction
+              })
               if (product) {
                 const quantityBefore = product.stock
                 const quantityChange = item.receivedQuantity
@@ -372,7 +412,13 @@ const purchaseOrderController = {
 
         await transaction.commit()
 
-        await createAudit(req, 'update', 'purchase_order', id, 'Received purchase_order: ' + id)
+        await createAudit(
+          req,
+          'update',
+          'purchase_order',
+          id,
+          'Received purchase_order: ' + id
+        )
 
         return res.status(200).json({
           success: true,
@@ -392,59 +438,16 @@ const purchaseOrderController = {
     }
   },
 
-  async cancel(req, res) {
-    try {
-      const { id } = req.params
-      const { store } = req.cookies
-      const { reason } = req.body
-
-      const purchaseOrder = await db.purchaseOrder.findOne({
-        where: { id, store }
-      })
-
-      if (!purchaseOrder) {
-        return res.status(404).json({
-          success: false,
-          message: 'Purchase order not found'
-        })
-      }
-
-      if (purchaseOrder.status === 'received') {
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot cancel received order'
-        })
-      }
-
-      await purchaseOrder.update({
-        status: 'cancelled',
-        notes: purchaseOrder.notes
-          ? `${purchaseOrder.notes}\nCancellation reason: ${reason}`
-          : `Cancellation reason: ${reason}`
-      })
-
-      await createAudit(req, 'update', 'purchase_order', id, 'Cancelled purchase_order: ' + id)
-
-      return res.status(200).json({
-        success: true,
-        message: 'Success cancel purchase order'
-      })
-    } catch (error) {
-      console.log(error)
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      })
-    }
-  },
-
   async delete(req, res) {
     try {
       const { id } = req.params
       const { store } = req.cookies
 
-      const purchaseOrder = await db.purchaseOrder.findOne({
-        where: { id, store }
+      const where = { id }
+      if (store) where.store = store
+
+      const purchaseOrder = await db.purchase_order.findOne({
+        where
       })
 
       if (!purchaseOrder) {
@@ -461,13 +464,19 @@ const purchaseOrderController = {
         })
       }
 
-      await db.purchaseOrderItem.destroy({
+      await db.purchase_order_item.destroy({
         where: { purchaseOrder: id }
       })
 
       await purchaseOrder.destroy()
 
-      await createAudit(req, 'delete', 'purchase_order', id, 'Deleted purchase_order: ' + id)
+      await createAudit(
+        req,
+        'delete',
+        'purchase_order',
+        id,
+        'Deleted purchase_order: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -487,27 +496,48 @@ const purchaseOrderController = {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Purchase Order Template')
 
-      worksheet.addRow(['Supplier Name', 'Product/Item', 'Quantity', 'Unit', 'Price', 'Notes'])
+      worksheet.addRow([
+        'Supplier Name',
+        'Product/Item',
+        'Quantity',
+        'Unit',
+        'Price',
+        'Notes'
+      ])
 
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
       }
 
       worksheet.columns = [
-        { width: 25 }, { width: 30 }, { width: 15 },
-        { width: 10 }, { width: 15 }, { width: 30 }
+        { width: 25 },
+        { width: 30 },
+        { width: 15 },
+        { width: 10 },
+        { width: 15 },
+        { width: 30 }
       ]
 
       const buffer = await workbook.xlsx.writeBuffer()
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', 'attachment; filename=po-template.xlsx')
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=po-template.xlsx'
+      )
 
       return res.status(200).send(buffer)
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -517,11 +547,11 @@ const purchaseOrderController = {
       const where = {}
       if (store) where.store = store
 
-      const orders = await db.purchaseOrder.findAll({
+      const orders = await db.purchase_order.findAll({
         where,
         include: [
           { model: db.supplier, as: 'supplierData', attributes: ['name'] },
-          { model: db.purchaseOrderItem, as: 'items' }
+          { model: db.purchase_order_item, as: 'items' }
         ],
         order: [['createdAt', 'DESC']]
       })
@@ -530,44 +560,72 @@ const purchaseOrderController = {
       const worksheet = workbook.addWorksheet('Purchase Orders')
 
       worksheet.addRow([
-        'Order No', 'Supplier', 'Total Amount', 'Discount',
-        'Final Amount', 'Status', 'Order Date', 'Created At'
+        'Order No',
+        'Supplier',
+        'Total Amount',
+        'Discount',
+        'Final Amount',
+        'Status',
+        'Order Date',
+        'Created At'
       ])
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
       }
 
-      orders.forEach(o => worksheet.addRow([
-        o.orderNumber, o.supplierData?.name || o.supplier,
-        o.totalAmount, o.discount, o.finalAmount,
-        o.status,
-        o.orderDate ? o.orderDate.toISOString().split('T')[0] : '',
-        o.createdAt ? o.createdAt.toISOString() : ''
-      ]))
+      orders.forEach((o) =>
+        worksheet.addRow([
+          o.orderNumber,
+          o.supplierData?.name || o.supplier,
+          o.totalAmount,
+          o.discount,
+          o.finalAmount,
+          o.status,
+          o.orderDate ? o.orderDate.toISOString().split('T')[0] : '',
+          o.createdAt ? o.createdAt.toISOString() : ''
+        ])
+      )
 
       worksheet.columns = [
-        { width: 20 }, { width: 25 }, { width: 15 },
-        { width: 10 }, { width: 15 }, { width: 12 },
-        { width: 15 }, { width: 20 }
+        { width: 20 },
+        { width: 25 },
+        { width: 15 },
+        { width: 10 },
+        { width: 15 },
+        { width: 12 },
+        { width: 15 },
+        { width: 20 }
       ]
 
       const buffer = await workbook.xlsx.writeBuffer()
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', 'attachment; filename=purchase-orders.xlsx')
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=purchase-orders.xlsx'
+      )
 
       return res.status(200).send(buffer)
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async importData(req, res) {
     try {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No file uploaded' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'No file uploaded' })
       }
 
       const workbook = new ExcelJS.Workbook()
@@ -581,16 +639,27 @@ const purchaseOrderController = {
         if (rowNumber === 1) return
 
         try {
-          const [supplierName, productItem, quantity, unit, price, notes] = row.values
+          const [supplierName, productItem, quantity, unit, price, notes] =
+            row.values
 
           if (!supplierName || !productItem || !quantity || !price) {
-            errors.push(`Row ${rowNumber}: Supplier, product, quantity and price are required`)
+            errors.push(
+              `Row ${rowNumber}: Supplier, product, quantity and price are required`
+            )
             return
           }
 
           ordersToCreate.push({
             supplier: supplierName.trim(),
-            items: [{ product: null, ingredientName: productItem.trim(), quantity: parseFloat(quantity), unit: (unit || 'pcs').trim(), price: parseFloat(price) }],
+            items: [
+              {
+                product: null,
+                ingredientName: productItem.trim(),
+                quantity: parseFloat(quantity),
+                unit: (unit || 'pcs').trim(),
+                price: parseFloat(price)
+              }
+            ],
             notes: notes?.trim() || null,
             store: req.cookies.store || req.user?.store
           })
@@ -600,12 +669,22 @@ const purchaseOrderController = {
       })
 
       if (errors.length > 0) {
-        return res.status(400).json({ success: false, message: 'Validation errors', errors })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Validation errors', errors })
       }
 
-      const createdOrders = await db.purchaseOrder.bulkCreate(ordersToCreate, { returning: true })
+      const createdOrders = await db.purchase_order.bulkCreate(ordersToCreate, {
+        returning: true
+      })
 
-      await createAudit(req, 'import', 'purchase_order', null, 'Imported purchase_order from file')
+      await createAudit(
+        req,
+        'import',
+        'purchase_order',
+        null,
+        'Imported purchase_order from file'
+      )
 
       return res.status(200).json({
         success: true,
@@ -614,7 +693,9 @@ const purchaseOrderController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

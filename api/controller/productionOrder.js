@@ -17,7 +17,14 @@ const productionOrderController = {
     try {
       const { store } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate, product } = req.query
+      const {
+        page = 1,
+        limit = 10,
+        status,
+        startDate,
+        endDate,
+        product
+      } = req.query
 
       const where = {}
       if (store && userRole !== 'super_admin') {
@@ -36,7 +43,11 @@ const productionOrderController = {
       const { count, rows } = await db.productionOrder.findAndCountAll({
         where,
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku', 'stock', 'unit'] },
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct', 'sku', 'stock', 'unit']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
         order: [['createdAt', 'DESC']],
@@ -47,7 +58,9 @@ const productionOrderController = {
       const stats = await Promise.all([
         db.productionOrder.count({ where: { ...where, status: 'draft' } }),
         db.productionOrder.count({ where: { ...where, status: 'planned' } }),
-        db.productionOrder.count({ where: { ...where, status: 'in_progress' } }),
+        db.productionOrder.count({
+          where: { ...where, status: 'in_progress' }
+        }),
         db.productionOrder.count({ where: { ...where, status: 'completed' } }),
         db.productionOrder.count({ where: { ...where, status: 'cancelled' } })
       ])
@@ -73,7 +86,9 @@ const productionOrderController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -95,7 +110,9 @@ const productionOrderController = {
       })
 
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Production order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Production order not found' })
       }
 
       let bomComponents = []
@@ -106,7 +123,13 @@ const productionOrderController = {
       // Try BOM table first
       const bomHeader = await db.bom_header.findOne({
         where: { productId: order.productItemId },
-        include: [{ model: db.bom_line, as: 'lines', include: [{ model: db.product, as: 'ingredientData' }] }]
+        include: [
+          {
+            model: db.bom_line,
+            as: 'lines',
+            include: [{ model: db.product, as: 'ingredientData' }]
+          }
+        ]
       })
       if (bomHeader?.lines?.length) {
         bomComponents = bomHeader.lines.map((l) => ({
@@ -128,7 +151,9 @@ const productionOrderController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -146,7 +171,9 @@ const productionOrderController = {
 
       const product = await db.product.findByPk(productItemId)
       if (!product) {
-        return res.status(404).json({ success: false, message: 'Product not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Product not found' })
       }
 
       const productionNo = generateProductionNo()
@@ -163,7 +190,13 @@ const productionOrderController = {
         createdBy: req.user?.id || null
       })
 
-      await createAudit(req, 'create', 'production_order', order.id, 'Created production_order: ' + order.id)
+      await createAudit(
+        req,
+        'create',
+        'production_order',
+        order.id,
+        'Created production_order: ' + order.id
+      )
 
       return res.status(201).json({
         success: true,
@@ -172,7 +205,9 @@ const productionOrderController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -188,7 +223,9 @@ const productionOrderController = {
 
       const order = await db.productionOrder.findOne({ where })
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Production order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Production order not found' })
       }
 
       if (!['draft', 'planned'].includes(order.status)) {
@@ -201,12 +238,19 @@ const productionOrderController = {
       await order.update({
         productItemId: productItemId || order.productItemId,
         plannedQty: plannedQty || order.plannedQty,
-        scheduledDate: scheduledDate !== undefined ? scheduledDate : order.scheduledDate,
+        scheduledDate:
+          scheduledDate !== undefined ? scheduledDate : order.scheduledDate,
         notes: notes !== undefined ? notes : order.notes,
         modifiedBy: req.user?.id || null
       })
 
-      await createAudit(req, 'update', 'production_order', id, 'Updated production_order: ' + id)
+      await createAudit(
+        req,
+        'update',
+        'production_order',
+        id,
+        'Updated production_order: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -215,7 +259,9 @@ const productionOrderController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -230,7 +276,9 @@ const productionOrderController = {
 
       const order = await db.productionOrder.findOne({ where })
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Production order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Production order not found' })
       }
 
       if (!['draft', 'cancelled'].includes(order.status)) {
@@ -241,12 +289,22 @@ const productionOrderController = {
       }
 
       await order.destroy()
-      await createAudit(req, 'delete', 'production_order', id, 'Deleted production_order: ' + id)
+      await createAudit(
+        req,
+        'delete',
+        'production_order',
+        id,
+        'Deleted production_order: ' + id
+      )
 
-      return res.status(200).json({ success: true, message: 'Success delete production order' })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success delete production order' })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -257,9 +315,17 @@ const productionOrderController = {
       const { store } = req.cookies
       const userRole = req.user?.roleType
 
-      const validStatuses = ['draft', 'planned', 'in_progress', 'completed', 'cancelled']
+      const validStatuses = [
+        'draft',
+        'planned',
+        'in_progress',
+        'completed',
+        'cancelled'
+      ]
       if (!validStatuses.includes(status)) {
-        return res.status(400).json({ success: false, message: 'Invalid status' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid status' })
       }
 
       const where = { id }
@@ -267,7 +333,9 @@ const productionOrderController = {
 
       const order = await db.productionOrder.findOne({ where })
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Production order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Production order not found' })
       }
 
       await order.update({
@@ -276,7 +344,13 @@ const productionOrderController = {
         completedDate: status === 'completed' ? new Date() : order.completedDate
       })
 
-      await createAudit(req, 'update', 'production_order', id, 'Changed status to ' + status + ': ' + id)
+      await createAudit(
+        req,
+        'update',
+        'production_order',
+        id,
+        'Changed status to ' + status + ': ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -285,7 +359,9 @@ const productionOrderController = {
       })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -304,7 +380,9 @@ const productionOrderController = {
       })
 
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Production order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Production order not found' })
       }
 
       if (order.status !== 'planned') {
@@ -317,7 +395,8 @@ const productionOrderController = {
       if (order.status === 'draft') {
         return res.status(400).json({
           success: false,
-          message: 'Order must be in "planned" status before starting production'
+          message:
+            'Order must be in "planned" status before starting production'
         })
       }
 
@@ -361,7 +440,9 @@ const productionOrderController = {
           let productComp = null
 
           if (ingredientId) {
-            productComp = await db.product.findByPk(ingredientId, { transaction })
+            productComp = await db.product.findByPk(ingredientId, {
+              transaction
+            })
           }
 
           if (!productComp && ingredientName) {
@@ -383,17 +464,20 @@ const productionOrderController = {
               { stock: Math.max(0, qtyBefore - qtyNeeded) },
               { transaction }
             )
-            await db.stock_history.create({
-              ingredientName: ingredient.name,
-              store: effectiveStore,
-              referenceType: 'production',
-              quantityBefore: qtyBefore,
-              quantityChange: -qtyNeeded,
-              quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
-              unit: ingredient.unit || comp.unit || 'pcs',
-              notes: `Production: ${product.nameProduct} (${order.productionNo})`,
-              createdBy: req.user?.id || null
-            }, { transaction })
+            await db.stock_history.create(
+              {
+                ingredientName: ingredient.name,
+                store: effectiveStore,
+                referenceType: 'production',
+                quantityBefore: qtyBefore,
+                quantityChange: -qtyNeeded,
+                quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
+                unit: ingredient.unit || comp.unit || 'pcs',
+                notes: `Production: ${product.nameProduct} (${order.productionNo})`,
+                createdBy: req.user?.id || null
+              },
+              { transaction }
+            )
           }
 
           if (productComp) {
@@ -402,17 +486,20 @@ const productionOrderController = {
               { stock: Math.max(0, qtyBefore - qtyNeeded) },
               { transaction }
             )
-            await db.stock_history.create({
-              product: productComp.id,
-              store: effectiveStore,
-              referenceType: 'production',
-              quantityBefore: qtyBefore,
-              quantityChange: -qtyNeeded,
-              quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
-              unit: productComp.unit || comp.unit || 'pcs',
-              notes: `Production: ${product.nameProduct} (${order.productionNo})`,
-              createdBy: req.user?.id || null
-            }, { transaction })
+            await db.stock_history.create(
+              {
+                product: productComp.id,
+                store: effectiveStore,
+                referenceType: 'production',
+                quantityBefore: qtyBefore,
+                quantityChange: -qtyNeeded,
+                quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
+                unit: productComp.unit || comp.unit || 'pcs',
+                notes: `Production: ${product.nameProduct} (${order.productionNo})`,
+                createdBy: req.user?.id || null
+              },
+              { transaction }
+            )
           }
         }
 
@@ -426,7 +513,13 @@ const productionOrderController = {
 
         await transaction.commit()
 
-        await createAudit(req, 'update', 'production_order', id, 'Started production: ' + id)
+        await createAudit(
+          req,
+          'update',
+          'production_order',
+          id,
+          'Started production: ' + id
+        )
 
         return res.status(200).json({
           success: true,
@@ -439,7 +532,9 @@ const productionOrderController = {
       }
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -459,7 +554,9 @@ const productionOrderController = {
       })
 
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Production order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Production order not found' })
       }
 
       if (order.status !== 'in_progress') {
@@ -477,22 +574,22 @@ const productionOrderController = {
 
       try {
         const qtyBefore = Number(product.stock) || 0
-        await product.update(
-          { stock: qtyBefore + finalQty },
+        await product.update({ stock: qtyBefore + finalQty }, { transaction })
+
+        await db.stock_history.create(
+          {
+            product: product.id,
+            store: effectiveStore,
+            referenceType: 'production',
+            quantityBefore: qtyBefore,
+            quantityChange: finalQty,
+            quantityAfter: qtyBefore + finalQty,
+            unit: product.unit || 'pcs',
+            notes: `Production complete: ${product.nameProduct} (${order.productionNo})`,
+            createdBy: req.user?.id || null
+          },
           { transaction }
         )
-
-        await db.stock_history.create({
-          product: product.id,
-          store: effectiveStore,
-          referenceType: 'production',
-          quantityBefore: qtyBefore,
-          quantityChange: finalQty,
-          quantityAfter: qtyBefore + finalQty,
-          unit: product.unit || 'pcs',
-          notes: `Production complete: ${product.nameProduct} (${order.productionNo})`,
-          createdBy: req.user?.id || null
-        }, { transaction })
 
         await order.update(
           {
@@ -506,7 +603,13 @@ const productionOrderController = {
 
         await transaction.commit()
 
-        await createAudit(req, 'update', 'production_order', id, 'Completed production: ' + id)
+        await createAudit(
+          req,
+          'update',
+          'production_order',
+          id,
+          'Completed production: ' + id
+        )
 
         return res.status(200).json({
           success: true,
@@ -519,7 +622,9 @@ const productionOrderController = {
       }
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

@@ -25,24 +25,36 @@ const splitBillController = {
         where: { order }
       })
 
-      if (existingSplits.length > 0 && existingSplits.some(s => s.status === 'pending')) {
+      if (
+        existingSplits.length > 0 &&
+        existingSplits.some((s) => s.status === 'pending')
+      ) {
         return res.status(400).json({
           success: false,
-          message: 'Order already has pending split bills. Complete or cancel them first.'
+          message:
+            'Order already has pending split bills. Complete or cancel them first.'
         })
       }
 
-      const splits = await Promise.all(items.map(item => {
-        return db.split_bill.create({
-          order,
-          splitNumber: generateSplitNumber(),
-          amount: item.amount,
-          status: 'pending',
-          createdBy
+      const splits = await Promise.all(
+        items.map((item) => {
+          return db.split_bill.create({
+            order,
+            splitNumber: generateSplitNumber(),
+            amount: item.amount,
+            status: 'pending',
+            createdBy
+          })
         })
-      }))
+      )
 
-      await createAudit(req, 'create', 'split_bill', splits[0]?.id, 'Created split_bill for order: ' + order)
+      await createAudit(
+        req,
+        'create',
+        'split_bill',
+        splits[0]?.id,
+        'Created split_bill for order: ' + order
+      )
 
       return res.status(201).json({
         success: true,
@@ -68,11 +80,11 @@ const splitBillController = {
       })
 
       const totalPaid = splits
-        .filter(s => s.status === 'paid')
+        .filter((s) => s.status === 'paid')
         .reduce((sum, s) => sum + s.amount, 0)
 
       const totalPending = splits
-        .filter(s => s.status === 'pending')
+        .filter((s) => s.status === 'pending')
         .reduce((sum, s) => sum + s.amount, 0)
 
       return res.status(200).json({
@@ -122,13 +134,19 @@ const splitBillController = {
         paymentMethod
       })
 
-      await createAudit(req, 'update', 'split_bill', split.id, 'Updated split_bill: ' + split.id)
+      await createAudit(
+        req,
+        'update',
+        'split_bill',
+        split.id,
+        'Updated split_bill: ' + split.id
+      )
 
       const allSplits = await db.split_bill.findAll({
         where: { order: split.order }
       })
 
-      const allPaid = allSplits.every(s => s.status === 'paid')
+      const allPaid = allSplits.every((s) => s.status === 'paid')
 
       if (allPaid) {
         const order = await db.order.findByPk(split.order)
@@ -179,7 +197,13 @@ const splitBillController = {
 
       await split.destroy()
 
-      await createAudit(req, 'delete', 'split_bill', id, 'Deleted split_bill: ' + id)
+      await createAudit(
+        req,
+        'delete',
+        'split_bill',
+        id,
+        'Deleted split_bill: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -233,7 +257,13 @@ const splitBillController = {
         status: 'pending'
       })
 
-      await createAudit(req, 'update', 'split_bill', newSplit.id, 'Merged split_bill: ' + newSplit.id)
+      await createAudit(
+        req,
+        'update',
+        'split_bill',
+        newSplit.id,
+        'Merged split_bill: ' + newSplit.id
+      )
 
       return res.status(201).json({
         success: true,

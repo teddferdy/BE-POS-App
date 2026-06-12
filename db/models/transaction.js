@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const transaction = sequelize.define(
     'transaction',
     {
       id: {
@@ -44,4 +44,10 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'transaction'
     }
   )
+
+  transaction.associate = (models) => {
+    transaction.belongsTo(models.order, { foreignKey: 'order', as: 'orderDetail' })
+  }
+
+  return transaction
 }

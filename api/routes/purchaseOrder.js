@@ -29,16 +29,11 @@ router.delete(
   purchaseOrderController.delete
 )
 
-// Receive/Cancel - Admin & Super Admin only
+// Receive - Admin & Super Admin only
 router.put(
   '/receive/:id',
   authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   purchaseOrderController.receive
-)
-router.put(
-  '/cancel/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  purchaseOrderController.cancel
 )
 
 // Download/Upload - Super Admin only

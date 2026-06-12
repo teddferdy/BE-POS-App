@@ -26,5 +26,6 @@ const uploadImage = multer({
 
 router.get('/setting', authorization, validateStoreAccess, invoiceController.getSetting)
 router.put('/setting', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), uploadImage.single('logo'), invoiceController.updateSetting)
+router.post('/setting/reset', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), invoiceController.resetSetting)
 
 module.exports = router

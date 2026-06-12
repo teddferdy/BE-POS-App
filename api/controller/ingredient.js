@@ -3,19 +3,18 @@ const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const ingredientController = {
-    async getAll(req, res) {
+  async getAll(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
       const { search, status, lowStock } = req.query
 
       const where = store ? { store } : {}
       if (search) {
-        where[Op.or] = [
-          { name: { [Op.iLike]: `%${search}%` } }
-        ]
+        where[Op.or] = [{ name: { [Op.iLike]: `%${search}%` } }]
       }
       if (status !== undefined) {
-        where.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
+        where.status =
+          status === 'true' || status === 'active' ? 'active' : 'inactive'
       }
 
       let ingredients = await db.ingredient.findAll({
@@ -31,9 +30,7 @@ const ingredientController = {
       })
 
       if (lowStock === 'true') {
-        ingredients = ingredients.filter(
-          (ing) => ing.stock <= ing.minStock
-        )
+        ingredients = ingredients.filter((ing) => ing.stock <= ing.minStock)
       }
 
       return res.status(200).json({
@@ -50,7 +47,7 @@ const ingredientController = {
     }
   },
 
-    async getById(req, res) {
+  async getById(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
@@ -87,10 +84,21 @@ const ingredientController = {
     }
   },
 
-    async create(req, res) {
+  async create(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
-      const { name, category, supplier, stock = 0, minStock = 0, unit, costPrice, status } = req.body
+      const {
+        name,
+        category,
+        supplier,
+        stock = 0,
+        minStock = 0,
+        unit,
+        costPrice,
+        status,
+        baseUnit,
+        conversionFactor
+      } = req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -108,11 +116,26 @@ const ingredientController = {
         stock,
         minStock,
         unit: unit || 'pcs',
+        baseUnit: baseUnit || unit || 'pcs',
+        conversionFactor: conversionFactor != null ? conversionFactor : 1,
         costPrice: costPrice || 0,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : 'active',
         createdBy
       })
-      createAudit(req, 'create', 'ingredient', ingredient.id, 'Created ingredient: ' + (ingredient.name || ingredient.id))
+      createAudit(
+        req,
+        'create',
+        'ingredient',
+        ingredient.id,
+        'Created ingredient: ' + (ingredient.name || ingredient.id)
+      )
 
       return res.status(201).json({
         success: true,
@@ -128,11 +151,22 @@ const ingredientController = {
     }
   },
 
-    async update(req, res) {
+  async update(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
-      const { name, category, supplier, stock, minStock, unit, costPrice, status } = req.body
+      const {
+        name,
+        category,
+        supplier,
+        stock,
+        minStock,
+        unit,
+        costPrice,
+        status,
+        baseUnit,
+        conversionFactor
+      } = req.body
       const modifiedBy = req.user?.id || null
 
       const ingredient = await db.ingredient.findOne({
@@ -155,8 +189,17 @@ const ingredientController = {
         stock: stock !== undefined ? stock : ingredient.stock,
         minStock: minStock !== undefined ? minStock : ingredient.minStock,
         unit: unit || ingredient.unit,
+        baseUnit: baseUnit !== undefined ? baseUnit : ingredient.baseUnit,
+        conversionFactor: conversionFactor != null ? conversionFactor : ingredient.conversionFactor,
         costPrice: costPrice !== undefined ? costPrice : ingredient.costPrice,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : ingredient.status,
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : ingredient.status,
         modifiedBy
       })
       createAudit(req, 'update', 'ingredient', id, 'Updated ingredient: ' + id)
@@ -192,7 +235,7 @@ const ingredientController = {
     }
   },
 
-    async adjustStock(req, res) {
+  async adjustStock(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store
@@ -262,7 +305,7 @@ const ingredientController = {
     }
   },
 
-    async delete(req, res) {
+  async delete(req, res) {
     try {
       const { id } = req.params
       const store = req.cookies.store || req.user?.store

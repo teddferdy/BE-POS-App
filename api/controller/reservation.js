@@ -19,7 +19,10 @@ exports.getAll = async (req, res) => {
       where,
       limit,
       offset,
-      order: [['reservationDate', 'DESC'], ['startTime', 'ASC']]
+      order: [
+        ['reservationDate', 'DESC'],
+        ['startTime', 'ASC']
+      ]
     })
 
     return res.status(200).json({
@@ -28,11 +31,13 @@ exports.getAll = async (req, res) => {
       totalItems: count,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
-      data: rows.map(r => r.dataValues)
+      data: rows.map((r) => r.dataValues)
     })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
@@ -41,30 +46,51 @@ exports.getById = async (req, res) => {
   const store = req.query.store || req.user?.store
 
   try {
-    const reservation = await Reservation.findOne({ where: { id, ...(store ? { store } : {}) } })
+    const reservation = await Reservation.findOne({
+      where: { id, ...(store ? { store } : {}) }
+    })
     if (!reservation) {
-      return res.status(404).json({ success: false, message: 'Reservation not found' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Reservation not found' })
     }
     return res.status(200).json({ success: true, data: reservation })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
 exports.create = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { customerName, customerPhone, customerEmail, guestCount, reservationDate, startTime, endTime, notes, tableId } = req.body
+  const {
+    customerName,
+    customerPhone,
+    customerEmail,
+    guestCount,
+    reservationDate,
+    startTime,
+    endTime,
+    notes,
+    tableId
+  } = req.body
 
   try {
     if (!customerName || !reservationDate || !startTime) {
-      return res.status(400).json({ success: false, message: 'customerName, reservationDate, and startTime are required' })
+      return res.status(400).json({
+        success: false,
+        message: 'customerName, reservationDate, and startTime are required'
+      })
     }
 
     if (tableId) {
       const table = await Table.findOne({ where: { id: tableId, store } })
       if (!table) {
-        return res.status(400).json({ success: false, message: 'Table not found' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Table not found' })
       }
     }
 
@@ -83,30 +109,59 @@ exports.create = async (req, res) => {
       createdBy: req.user?.id
     })
 
-    createAudit(req, 'create', 'reservation', reservation.id, `Created reservation for ${customerName}`)
+    createAudit(
+      req,
+      'create',
+      'reservation',
+      reservation.id,
+      `Created reservation for ${customerName}`
+    )
 
-    return res.status(201).json({ success: true, message: 'Reservation created', data: reservation })
+    return res.status(201).json({
+      success: true,
+      message: 'Reservation created',
+      data: reservation
+    })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
 exports.update = async (req, res) => {
   const { id } = req.params
   const store = req.body.store || req.user?.store
-  const { customerName, customerPhone, customerEmail, guestCount, reservationDate, startTime, endTime, notes, status, tableId } = req.body
+  const {
+    customerName,
+    customerPhone,
+    customerEmail,
+    guestCount,
+    reservationDate,
+    startTime,
+    endTime,
+    notes,
+    status,
+    tableId
+  } = req.body
 
   try {
-    const reservation = await Reservation.findOne({ where: { id, ...(store ? { store } : {}) } })
+    const reservation = await Reservation.findOne({
+      where: { id, ...(store ? { store } : {}) }
+    })
     if (!reservation) {
-      return res.status(404).json({ success: false, message: 'Reservation not found' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Reservation not found' })
     }
 
     if (tableId) {
       const table = await Table.findOne({ where: { id: tableId, store } })
       if (!table) {
-        return res.status(400).json({ success: false, message: 'Table not found' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Table not found' })
       }
     }
 
@@ -124,12 +179,24 @@ exports.update = async (req, res) => {
       modifiedBy: req.user?.id
     })
 
-    createAudit(req, 'update', 'reservation', id, `Updated reservation for ${customerName || reservation.customerName}`)
+    createAudit(
+      req,
+      'update',
+      'reservation',
+      id,
+      `Updated reservation for ${customerName || reservation.customerName}`
+    )
 
-    return res.status(200).json({ success: true, message: 'Reservation updated', data: reservation })
+    return res.status(200).json({
+      success: true,
+      message: 'Reservation updated',
+      data: reservation
+    })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
@@ -138,18 +205,26 @@ exports.remove = async (req, res) => {
   const store = req.body.store || req.user?.store
 
   try {
-    const reservation = await Reservation.findOne({ where: { id, ...(store ? { store } : {}) } })
+    const reservation = await Reservation.findOne({
+      where: { id, ...(store ? { store } : {}) }
+    })
     if (!reservation) {
-      return res.status(404).json({ success: false, message: 'Reservation not found' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Reservation not found' })
     }
 
     await reservation.destroy()
     createAudit(req, 'delete', 'reservation', id, `Deleted reservation #${id}`)
 
-    return res.status(200).json({ success: true, message: 'Reservation deleted' })
+    return res
+      .status(200)
+      .json({ success: true, message: 'Reservation deleted' })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }
 
@@ -159,31 +234,50 @@ exports.getAvailableTables = async (req, res) => {
 
   try {
     if (!date || !startTime) {
-      return res.status(400).json({ success: false, message: 'date and startTime are required' })
+      return res
+        .status(400)
+        .json({ success: false, message: 'date and startTime are required' })
     }
 
-    const allTables = await Table.findAll({ where: { store, status: { [db.Sequelize.Op.ne]: 'maintenance' } } })
+    const allTables = await Table.findAll({
+      where: { store, status: { [db.Sequelize.Op.ne]: 'maintenance' } }
+    })
 
     const conflictingReservations = await Reservation.findAll({
       where: {
         store,
         reservationDate: date,
         status: ['pending', 'confirmed'],
-        [db.Sequelize.Op.or]: endTime ? [
-          { startTime: { [db.Sequelize.Op.lt]: endTime }, endTime: { [db.Sequelize.Op.gt]: startTime } },
-          { startTime: { [db.Sequelize.Op.lt]: endTime }, endTime: null }
-        ] : [
-          { startTime: { [db.Sequelize.Op.lt]: `${String(Number(startTime.split(':')[0]) + 2).padStart(2, '0')}:00` }, endTime: { [db.Sequelize.Op.gt]: startTime } }
-        ]
+        [db.Sequelize.Op.or]: endTime
+          ? [
+              {
+                startTime: { [db.Sequelize.Op.lt]: endTime },
+                endTime: { [db.Sequelize.Op.gt]: startTime }
+              },
+              { startTime: { [db.Sequelize.Op.lt]: endTime }, endTime: null }
+            ]
+          : [
+              {
+                startTime: {
+                  [db.Sequelize.Op.lt]:
+                    `${String(Number(startTime.split(':')[0]) + 2).padStart(2, '0')}:00`
+                },
+                endTime: { [db.Sequelize.Op.gt]: startTime }
+              }
+            ]
       }
     })
 
-    const reservedTableIds = new Set(conflictingReservations.filter(r => r.tableId).map(r => r.tableId))
-    const available = allTables.filter(t => !reservedTableIds.has(t.id))
+    const reservedTableIds = new Set(
+      conflictingReservations.filter((r) => r.tableId).map((r) => r.tableId)
+    )
+    const available = allTables.filter((t) => !reservedTableIds.has(t.id))
 
     return res.status(200).json({ success: true, data: available })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }

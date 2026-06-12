@@ -94,6 +94,31 @@ exports.getAllTypePayment = async (req, res) => {
   }
 }
 
+exports.getTypePaymentById = async (req, res) => {
+  try {
+    const typePayment = await TypePayment.findByPk(req.params.id)
+
+    if (!typePayment) {
+      return res.status(404).json({
+        success: false,
+        message: 'TypePayment not found'
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: typePayment
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
 exports.postNewTypePayment = async (req, res) => {
   const { name, status, createdBy } = req.body
   const store = req.body.store || req.user?.store
@@ -109,10 +134,23 @@ exports.postNewTypePayment = async (req, res) => {
       const postData = await TypePayment.create({
         name: name,
         store: store,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : 'active',
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : 'active',
         createdBy: createdBy
       })
-      createAudit(req, 'create', 'type_payment', postData.id, 'Created type_payment: ' + (postData.name || postData.id))
+      createAudit(
+        req,
+        'create',
+        'type_payment',
+        postData.id,
+        'Created type_payment: ' + (postData.name || postData.id)
+      )
       return res.status(200).json({
         success: true,
         message: 'Success',
@@ -134,34 +172,47 @@ exports.postNewTypePayment = async (req, res) => {
 }
 
 exports.editTypePaymentById = async (req, res) => {
-    const body = req.body
-    const store = body.store || req.user?.store
-    try {
-      const getDuplicate = await TypePayment.findOne({
-        where: {
-          name: body.name,
-          ...(store ? { store } : {})
-        }
-      })
+  const body = req.body
+  const store = body.store || req.user?.store
+  try {
+    const getDuplicate = await TypePayment.findOne({
+      where: {
+        name: body.name,
+        ...(store ? { store } : {})
+      }
+    })
 
-      if (!getDuplicate || getDuplicate.id === parseInt(req.params.id)) {
-        const editTypePayment = await TypePayment?.update(
-          {
-            name: body.name,
-            status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active',
-            modifiedBy: body?.modifiedBy
-          },
-          {
-            returning: true,
-            where: {
-              id: req.params.id,
-              ...(store ? { store } : {})
-            }
+    if (!getDuplicate || getDuplicate.id === parseInt(req.params.id)) {
+      const editTypePayment = await TypePayment?.update(
+        {
+          name: body.name,
+          status:
+            body.status !== undefined
+              ? body.status === true
+                ? 'active'
+                : body.status === false
+                  ? 'inactive'
+                  : body.status
+              : 'active',
+          modifiedBy: body?.modifiedBy
+        },
+        {
+          returning: true,
+          where: {
+            id: req.params.id,
+            ...(store ? { store } : {})
           }
-        ).then(([_, data]) => {
-          return data
-        })
-      createAudit(req, 'update', 'type_payment', req.params.id, 'Updated type_payment: ' + req.params.id)
+        }
+      ).then(([_, data]) => {
+        return data
+      })
+      createAudit(
+        req,
+        'update',
+        'type_payment',
+        req.params.id,
+        'Updated type_payment: ' + req.params.id
+      )
 
       return res.status(200).json({
         success: true,
@@ -193,7 +244,13 @@ exports.deleteTypePaymentById = async (req, res) => {
         ...(store ? { store } : {})
       }
     })
-    createAudit(req, 'delete', 'type_payment', req.params.id, 'Deleted type_payment: ' + req.params.id)
+    createAudit(
+      req,
+      'delete',
+      'type_payment',
+      req.params.id,
+      'Deleted type_payment: ' + req.params.id
+    )
 
     if (getId) {
       return res.status(200).json({

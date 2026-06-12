@@ -16,22 +16,6 @@ router.put(
   authorization, validateStoreAccess,
   orderController.updateOrderItemStatus
 )
-router.post('/add-item', authorization, validateStoreAccess, orderController.addItemToOrder)
-router.delete(
-  '/remove-item',
-  authorization, validateStoreAccess,
-  orderController.removeItemFromOrder
-)
-router.put('/apply-discount', authorization, validateStoreAccess, orderController.applyDiscount)
-router.put('/payment', authorization, validateStoreAccess, orderController.payment)
-
-// Void order - Admin & Super Admin only
-router.put(
-  '/void',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
-  orderController.voidOrder
-)
-
 // Customer-facing (no auth)
 router.get('/customer-menu', orderController.getCustomerMenu)
 router.post('/customer-create', orderController.createCustomerOrder)

@@ -50,6 +50,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       modifiedBy: {
         type: DataTypes.INTEGER
+      },
+      pic: {
+        type: DataTypes.INTEGER
       }
     },
     {
@@ -61,6 +64,18 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   purchaseOrder.associate = (models) => {
+    purchaseOrder.belongsTo(models.supplier, {
+      foreignKey: 'supplier',
+      as: 'supplierData'
+    })
+    purchaseOrder.belongsTo(models.user, {
+      foreignKey: 'pic',
+      as: 'picData'
+    })
+    purchaseOrder.hasMany(models.purchase_order_item, {
+      foreignKey: 'purchaseOrder',
+      as: 'items'
+    })
     purchaseOrder.hasMany(models.goodsReceipt, {
       foreignKey: 'purchaseOrderId',
       as: 'goodsReceipts'

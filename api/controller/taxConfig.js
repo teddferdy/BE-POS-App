@@ -15,7 +15,8 @@ const taxConfigController = {
         where.name = { [Op.iLike]: `%${search}%` }
       }
       if (status !== undefined) {
-        where.status = status === 'true' || status === 'active' ? 'active' : 'inactive'
+        where.status =
+          status === 'true' || status === 'active' ? 'active' : 'inactive'
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -101,7 +102,13 @@ const taxConfigController = {
         description,
         createdBy
       })
-      createAudit(req, 'create', 'tax_config', tax.id, 'Created tax_config: ' + (tax.name || tax.id))
+      createAudit(
+        req,
+        'create',
+        'tax_config',
+        tax.id,
+        'Created tax_config: ' + (tax.name || tax.id)
+      )
 
       return res.status(201).json({
         success: true,
@@ -140,7 +147,14 @@ const taxConfigController = {
         rate: rate !== undefined ? parseInt(rate) : tax.rate,
         type: type || tax.type,
         description: description !== undefined ? description : tax.description,
-        status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : tax.status,
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : tax.status,
         modifiedBy
       })
       createAudit(req, 'update', 'tax_config', id, 'Updated tax_config: ' + id)
@@ -200,20 +214,35 @@ const taxConfigController = {
 
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
       }
 
-      worksheet.columns = [{ width: 25 }, { width: 10 }, { width: 15 }, { width: 30 }]
+      worksheet.columns = [
+        { width: 25 },
+        { width: 10 },
+        { width: 15 },
+        { width: 30 }
+      ]
 
       const buffer = await workbook.xlsx.writeBuffer()
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', 'attachment; filename=tax-config-template.xlsx')
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=tax-config-template.xlsx'
+      )
 
       return res.status(200).send(buffer)
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -223,44 +252,78 @@ const taxConfigController = {
       const where = {}
       if (store) where.store = store
 
-      const taxes = await db.taxConfig.findAll({ where, order: [['createdAt', 'DESC']] })
+      const taxes = await db.taxConfig.findAll({
+        where,
+        order: [['createdAt', 'DESC']]
+      })
 
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Tax Configs')
 
-      worksheet.addRow(['ID', 'Name', 'Rate', 'Type', 'Description', 'Status', 'Created At'])
+      worksheet.addRow([
+        'ID',
+        'Name',
+        'Rate',
+        'Type',
+        'Description',
+        'Status',
+        'Created At'
+      ])
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD3D3D3' }
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
       }
 
-      taxes.forEach(t => worksheet.addRow([
-        t.id, t.name, t.rate, t.type, t.description,
-        t.status === 'active' ? 'Active' : 'Inactive',
-        t.createdAt ? t.createdAt.toISOString() : ''
-      ]))
+      taxes.forEach((t) =>
+        worksheet.addRow([
+          t.id,
+          t.name,
+          t.rate,
+          t.type,
+          t.description,
+          t.status === 'active' ? 'Active' : 'Inactive',
+          t.createdAt ? t.createdAt.toISOString() : ''
+        ])
+      )
 
       worksheet.columns = [
-        { width: 10 }, { width: 25 }, { width: 10 },
-        { width: 15 }, { width: 30 }, { width: 10 }, { width: 20 }
+        { width: 10 },
+        { width: 25 },
+        { width: 10 },
+        { width: 15 },
+        { width: 30 },
+        { width: 10 },
+        { width: 20 }
       ]
 
       const buffer = await workbook.xlsx.writeBuffer()
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', 'attachment; filename=tax-configs.xlsx')
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=tax-configs.xlsx'
+      )
 
       return res.status(200).send(buffer)
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async importData(req, res) {
     try {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No file uploaded' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'No file uploaded' })
       }
 
       const workbook = new ExcelJS.Workbook()
@@ -295,11 +358,19 @@ const taxConfigController = {
       })
 
       if (errors.length > 0) {
-        return res.status(400).json({ success: false, message: 'Validation errors', errors })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Validation errors', errors })
       }
 
       const created = await db.taxConfig.bulkCreate(taxesToCreate)
-      createAudit(req, 'create', 'tax_config', null, 'Imported tax_configs: ' + created.length)
+      createAudit(
+        req,
+        'create',
+        'tax_config',
+        null,
+        'Imported tax_configs: ' + created.length
+      )
 
       return res.status(201).json({
         success: true,
@@ -308,7 +379,9 @@ const taxConfigController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

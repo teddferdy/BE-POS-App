@@ -73,7 +73,9 @@ exports.getAllProduct = async (req, res) => {
 
     const getAllProduct = await Product.findAll({
       where: filters,
-      include: [{ model: Category, as: 'categoryData', attributes: ['value', 'name'] }]
+      include: [
+        { model: Category, as: 'categoryData', attributes: ['value', 'name'] }
+      ]
     })
 
     const resolvedCategories = getAllProduct.map((items) => ({
@@ -87,7 +89,9 @@ exports.getAllProduct = async (req, res) => {
       price: items.price,
       costPrice: items.costPrice,
       category: items.category,
-      nameCategory: items.categoryData ? items.categoryData.value || items.categoryData.name : null,
+      nameCategory: items.categoryData
+        ? items.categoryData.value || items.categoryData.name
+        : null,
       ...items.dataValues
     }))
 
@@ -171,6 +175,8 @@ exports.postAddProduct = async (req, res) => {
     stock,
     minStock,
     unit,
+    baseUnit,
+    conversionFactor,
     point,
     barcode,
     brand,
@@ -204,7 +210,11 @@ exports.postAddProduct = async (req, res) => {
   const toJsonOrNull = (val) => {
     if (val === '' || val === null || val === undefined) return null
     if (typeof val === 'string') {
-      try { return JSON.parse(val) } catch { return null }
+      try {
+        return JSON.parse(val)
+      } catch {
+        return null
+      }
     }
     return val
   }
@@ -266,13 +276,23 @@ exports.postAddProduct = async (req, res) => {
       stock,
       minStock,
       unit,
+      baseUnit: baseUnit || unit || 'pcs',
+      conversionFactor: conversionFactor != null ? conversionFactor : 1,
       point: point || 0,
       barcode: barcode || null,
       brand: brand || null,
-        hasModifiers,
-      modifiers: hasModifiers ? (typeof modifiers === 'string' ? JSON.parse(modifiers) : modifiers) : [],
+      hasModifiers,
+      modifiers: hasModifiers
+        ? typeof modifiers === 'string'
+          ? JSON.parse(modifiers)
+          : modifiers
+        : [],
       isOption,
-      options: isOption ? (typeof options === 'string' ? JSON.parse(options) : options) : [],
+      options: isOption
+        ? typeof options === 'string'
+          ? JSON.parse(options)
+          : options
+        : [],
       isAvailable,
       status: normalizeStatus(status),
       createdBy,
@@ -305,8 +325,20 @@ exports.postAddProduct = async (req, res) => {
       })
     }
 
-    createNotification({ type: 'product_created', store: parsedStores?.[0] || req.user?.store, referenceId: postData.id, referenceType: 'product', params: [nameProduct] }).catch(console.error)
-    createAudit(req, 'create', 'product', postData.id, `Created product: ${postData.nameProduct}`)
+    createNotification({
+      type: 'product_created',
+      store: parsedStores?.[0] || req.user?.store,
+      referenceId: postData.id,
+      referenceType: 'product',
+      params: [nameProduct]
+    }).catch(console.error)
+    createAudit(
+      req,
+      'create',
+      'product',
+      postData.id,
+      `Created product: ${postData.nameProduct}`
+    )
 
     return res.status(200).json({
       success: true,
@@ -335,6 +367,8 @@ exports.editProductByLocationAndId = async (req, res) => {
     stock,
     minStock,
     unit,
+    baseUnit,
+    conversionFactor,
     point,
     barcode,
     brand,
@@ -367,7 +401,11 @@ exports.editProductByLocationAndId = async (req, res) => {
   const toJsonOrNull = (val) => {
     if (val === '' || val === null || val === undefined) return null
     if (typeof val === 'string') {
-      try { return JSON.parse(val) } catch { return null }
+      try {
+        return JSON.parse(val)
+      } catch {
+        return null
+      }
     }
     return val
   }
@@ -409,7 +447,8 @@ exports.editProductByLocationAndId = async (req, res) => {
     let parsedPriceTiers = []
     if (priceTiers) {
       try {
-        parsedPriceTiers = typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
+        parsedPriceTiers =
+          typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
       } catch (e) {
         parsedPriceTiers = []
       }
@@ -425,13 +464,23 @@ exports.editProductByLocationAndId = async (req, res) => {
       stock,
       minStock,
       unit,
+      baseUnit: baseUnit !== undefined ? baseUnit : getAllProductByIdAndLocation.baseUnit,
+      conversionFactor: conversionFactor != null ? conversionFactor : getAllProductByIdAndLocation.conversionFactor,
       point: point || 0,
       barcode: barcode || null,
       brand: brand || null,
-        hasModifiers,
-      modifiers: hasModifiers ? (typeof modifiers === 'string' ? JSON.parse(modifiers) : modifiers) : [],
+      hasModifiers,
+      modifiers: hasModifiers
+        ? typeof modifiers === 'string'
+          ? JSON.parse(modifiers)
+          : modifiers
+        : [],
       isOption,
-      options: isOption ? (typeof options === 'string' ? JSON.parse(options) : options) : [],
+      options: isOption
+        ? typeof options === 'string'
+          ? JSON.parse(options)
+          : options
+        : [],
       isAvailable,
       status: status !== undefined ? normalizeStatus(status) : undefined,
       store: parsedStores,
@@ -464,12 +513,21 @@ exports.editProductByLocationAndId = async (req, res) => {
         quantityChange: stockDiff,
         quantityAfter: newStock,
         unit: reqBody.unit || 'pcs',
-        notes: stockDiff > 0 ? 'Stock adjustment: added' : 'Stock adjustment: reduced',
+        notes:
+          stockDiff > 0
+            ? 'Stock adjustment: added'
+            : 'Stock adjustment: reduced',
         createdBy: req.body.createdBy
       })
     }
 
-    createNotification({ type: 'product_updated', store: getAllProductByIdAndLocation.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [nameProduct] }).catch(console.error)
+    createNotification({
+      type: 'product_updated',
+      store: getAllProductByIdAndLocation.store?.[0] || req.user?.store,
+      referenceId: id,
+      referenceType: 'product',
+      params: [nameProduct]
+    }).catch(console.error)
     createAudit(req, 'update', 'product', id, `Updated product: ${nameProduct}`)
 
     return res.status(200).json({
@@ -502,8 +560,20 @@ exports.deleteProductByIdAndLocation = async (req, res) => {
       where: { id }
     })
 
-    createNotification({ type: 'product_deleted', store: product.store?.[0] || req.user?.store, referenceId: id, referenceType: 'product', params: [product.nameProduct || 'Unknown'] }).catch(console.error)
-    createAudit(req, 'delete', 'product', id, `Deleted product: ${product.nameProduct}`)
+    createNotification({
+      type: 'product_deleted',
+      store: product.store?.[0] || req.user?.store,
+      referenceId: id,
+      referenceType: 'product',
+      params: [product.nameProduct || 'Unknown']
+    }).catch(console.error)
+    createAudit(
+      req,
+      'delete',
+      'product',
+      id,
+      `Deleted product: ${product.nameProduct}`
+    )
 
     return res.status(200).json({
       success: true,
@@ -615,12 +685,22 @@ exports.downloadData = async (req, res) => {
     })
 
     const buffer = await workbook.xlsx.writeBuffer()
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', `attachment; filename=products_${Date.now()}.xlsx`)
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=products_${Date.now()}.xlsx`
+    )
     res.send(buffer)
   } catch (err) {
     console.error('Error downloading products:', err)
-    res.status(500).json({ success: false, message: 'Gagal mengunduh produk', error: err.message })
+    res.status(500).json({
+      success: false,
+      message: 'Gagal mengunduh produk',
+      error: err.message
+    })
   }
 }
 
@@ -753,8 +833,14 @@ exports.importProduct = async (req, res) => {
           continue
         }
 
-        const statusValue = product.status ? (String(product.status).toLowerCase() === 'aktif' ? 'active' : 'inactive') : 'active'
-        const isOptionValue = product.isOption ? String(product.isOption).toLowerCase() === 'ya' : false
+        const statusValue = product.status
+          ? String(product.status).toLowerCase() === 'aktif'
+            ? 'active'
+            : 'inactive'
+          : 'active'
+        const isOptionValue = product.isOption
+          ? String(product.isOption).toLowerCase() === 'ya'
+          : false
 
         if (product.id) {
           const existingProduct = await Product.findOne({
@@ -883,7 +969,13 @@ exports.importProduct = async (req, res) => {
       }
     }
 
-    createAudit(req, 'import', 'product', null, `Imported ${results.created.length} products`)
+    createAudit(
+      req,
+      'import',
+      'product',
+      null,
+      `Imported ${results.created.length} products`
+    )
 
     res.status(200).json({
       success: true,
@@ -905,7 +997,9 @@ exports.getProductById = async (req, res) => {
     const id = req.params.id || req.query.id
 
     const product = await Product.findByPk(id, {
-      include: [{ model: Category, as: 'categoryData', attributes: ['id', 'name'] }]
+      include: [
+        { model: Category, as: 'categoryData', attributes: ['id', 'name'] }
+      ]
     })
 
     if (!product) {
@@ -917,19 +1011,39 @@ exports.getProductById = async (req, res) => {
 
     const data = product.toJSON()
     if (typeof data.options === 'string') {
-      try { data.options = JSON.parse(data.options) } catch { data.options = [] }
+      try {
+        data.options = JSON.parse(data.options)
+      } catch {
+        data.options = []
+      }
     }
     if (typeof data.modifiers === 'string') {
-      try { data.modifiers = JSON.parse(data.modifiers) } catch { data.modifiers = [] }
+      try {
+        data.modifiers = JSON.parse(data.modifiers)
+      } catch {
+        data.modifiers = []
+      }
     }
     if (typeof data.priceTiers === 'string') {
-      try { data.priceTiers = JSON.parse(data.priceTiers) } catch { data.priceTiers = [] }
+      try {
+        data.priceTiers = JSON.parse(data.priceTiers)
+      } catch {
+        data.priceTiers = []
+      }
     }
     if (typeof data.store === 'string') {
-      try { data.store = JSON.parse(data.store) } catch { data.store = [] }
+      try {
+        data.store = JSON.parse(data.store)
+      } catch {
+        data.store = []
+      }
     }
     if (typeof data.composition === 'string') {
-      try { data.composition = JSON.parse(data.composition) } catch { data.composition = [] }
+      try {
+        data.composition = JSON.parse(data.composition)
+      } catch {
+        data.composition = []
+      }
     }
 
     return res.status(200).json({

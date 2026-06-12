@@ -143,10 +143,27 @@ exports.addNewDepartment = async (req, res) => {
       const creadtedDepartment = await Department.create({
         name: body.name,
         description: body.description,
-        status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : (body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : 'active'),
+        status:
+          body.status !== undefined
+            ? body.status === true
+              ? 'active'
+              : body.status === false
+                ? 'inactive'
+                : body.status
+            : body.isActive !== undefined
+              ? body.isActive
+                ? 'active'
+                : 'inactive'
+              : 'active',
         createdBy: body.createdBy
       })
-      createAudit(req, 'create', 'department', creadtedDepartment.id, `Created department: ${creadtedDepartment.name || creadtedDepartment.id}`)
+      createAudit(
+        req,
+        'create',
+        'department',
+        creadtedDepartment.id,
+        `Created department: ${creadtedDepartment.name || creadtedDepartment.id}`
+      )
 
       if (creadtedDepartment.getDataValue) {
         return res.status(200).json({
@@ -193,7 +210,18 @@ exports.editDepartmentById = async (req, res) => {
         {
           name: body.name,
           description: body.description,
-          status: body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : (body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : 'active'),
+          status:
+            body.status !== undefined
+              ? body.status === true
+                ? 'active'
+                : body.status === false
+                  ? 'inactive'
+                  : body.status
+              : body.isActive !== undefined
+                ? body.isActive
+                  ? 'active'
+                  : 'inactive'
+                : 'active',
           modifiedBy: body?.modifiedBy
         },
         {
@@ -202,7 +230,13 @@ exports.editDepartmentById = async (req, res) => {
         }
       )
       const editDepartment = editRows[0]
-      createAudit(req, 'update', 'department', id, `Updated department: ${editDepartment.name || id}`)
+      createAudit(
+        req,
+        'update',
+        'department',
+        id,
+        `Updated department: ${editDepartment.name || id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -282,7 +316,7 @@ const buildDepartmentTemplateWorksheet = (workbook, sheetName, data) => {
     { key: 'status', header: 'Status (Aktif/Nonaktif)', width: 25 }
   ]
 
-  worksheet.columns = HEADERS.map(h => ({
+  worksheet.columns = HEADERS.map((h) => ({
     header: h.header,
     key: h.key,
     width: h.width
@@ -309,7 +343,8 @@ const buildDepartmentTemplateWorksheet = (workbook, sheetName, data) => {
     if (item) {
       worksheet.getCell(`B${row}`).value = item.name
       worksheet.getCell(`C${row}`).value = item.description || ''
-      worksheet.getCell(`D${row}`).value = item.status === 'active' ? 'Aktif' : 'Nonaktif'
+      worksheet.getCell(`D${row}`).value =
+        item.status === 'active' ? 'Aktif' : 'Nonaktif'
     }
 
     worksheet.getCell(`B${row}`).protection = { locked: false }
@@ -354,7 +389,7 @@ const buildDepartmentExportWorksheet = (workbook, sheetName, data) => {
     { key: 'status', header: 'Status', width: 20 }
   ]
 
-  worksheet.columns = HEADERS.map(h => ({
+  worksheet.columns = HEADERS.map((h) => ({
     header: h.header,
     key: h.key,
     width: h.width
@@ -376,7 +411,8 @@ const buildDepartmentExportWorksheet = (workbook, sheetName, data) => {
     worksheet.getCell(`B${rowNum}`).value = item.id
     worksheet.getCell(`C${rowNum}`).value = item.name
     worksheet.getCell(`D${rowNum}`).value = item.description || ''
-    worksheet.getCell(`E${rowNum}`).value = item.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`E${rowNum}`).value =
+      item.status === 'active' ? 'Aktif' : 'Nonaktif'
   })
 
   worksheet.protect('', {
@@ -401,8 +437,14 @@ exports.downloadTemplate = async (req, res) => {
     buildDepartmentTemplateWorksheet(workbook, 'Departemen', departments)
 
     const data = await workbook.xlsx.writeBuffer()
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', 'attachment; filename=template-departemen.xlsx')
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=template-departemen.xlsx'
+    )
     res.send(data)
   } catch (error) {
     console.error('Error downloading template =>', error)
@@ -437,8 +479,14 @@ exports.downloadData = async (req, res) => {
     buildDepartmentExportWorksheet(workbook, 'Departemen', departments)
 
     const data = await workbook.xlsx.writeBuffer()
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    res.setHeader('Content-Disposition', 'attachment; filename=departemen-data.xlsx')
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=departemen-data.xlsx'
+    )
     res.send(data)
   } catch (error) {
     console.error('Error downloading data =>', error)
@@ -463,7 +511,7 @@ exports.uploadExcel = async (req, res) => {
 
     const workbook = new excelJS.Workbook()
     await workbook.xlsx.load(req.file.buffer)
-    
+
     const worksheet = workbook.getWorksheet('Departemen')
     if (!worksheet) {
       return res.status(400).json({
@@ -492,7 +540,8 @@ exports.uploadExcel = async (req, res) => {
     if (!isValid) {
       return res.status(400).json({
         success: false,
-        message: 'Header template tidak valid. Pastikan menggunakan template yang benar'
+        message:
+          'Header template tidak valid. Pastikan menggunakan template yang benar'
       })
     }
 
@@ -520,12 +569,21 @@ exports.uploadExcel = async (req, res) => {
         let status = 'active'
         if (statusInput) {
           const lower = statusInput.toLowerCase().trim()
-          if (lower === 'nonaktif' || lower === 'non-active' || lower === 'nonactive' || lower === 'false') {
+          if (
+            lower === 'nonaktif' ||
+            lower === 'non-active' ||
+            lower === 'nonactive' ||
+            lower === 'false'
+          ) {
             status = 'inactive'
           }
         }
 
-        departmentsToCreate.push({ name, description: description || null, status })
+        departmentsToCreate.push({
+          name,
+          description: description || null,
+          status
+        })
       }
     })
 
@@ -538,7 +596,9 @@ exports.uploadExcel = async (req, res) => {
     }
 
     // Check for duplicates in the upload data
-    const uploadNames = departmentsToCreate.map(dept => dept.name.toLowerCase().trim())
+    const uploadNames = departmentsToCreate.map((dept) =>
+      dept.name.toLowerCase().trim()
+    )
     const duplicateNames = uploadNames.filter((n, i, a) => a.indexOf(n) !== i)
 
     if (duplicateNames.length > 0) {
@@ -552,10 +612,18 @@ exports.uploadExcel = async (req, res) => {
     const createdDepartments = []
     for (const deptData of departmentsToCreate) {
       try {
-        const existing = await Department.findOne({ where: { name: deptData.name } })
+        const existing = await Department.findOne({
+          where: { name: deptData.name }
+        })
         if (!existing) {
           const dept = await Department.create(deptData)
-          createAudit(req, 'create', 'department', dept.id, `Created department: ${dept.name || dept.id}`)
+          createAudit(
+            req,
+            'create',
+            'department',
+            dept.id,
+            `Created department: ${dept.name || dept.id}`
+          )
           createdDepartments.push(dept)
         }
       } catch (error) {
@@ -568,7 +636,6 @@ exports.uploadExcel = async (req, res) => {
       message: `Berhasil memproses ${createdDepartments.length} departemen baru`,
       data: { created: createdDepartments.length, errors: errors.length }
     })
-
   } catch (error) {
     console.error('Error processing upload =>', error)
     return res.status(500).json({

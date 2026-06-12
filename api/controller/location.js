@@ -39,28 +39,6 @@ const {
   parseLocationTemplate
 } = require('../../utils/excelTemplate')
 
-exports.getAllLocation = async (req, res) => {
-  try {
-    const userRole = req.user?.roleType
-    const userStore = req.user?.store
-
-    let whereCondition = {}
-    if (userRole === 'admin' || userRole === 'user') {
-      whereCondition.id = userStore
-    }
-
-    const locations = await Location.findAll({ where: whereCondition })
-    return res
-      .status(200)
-      .json({ success: true, message: 'Success', data: locations })
-  } catch (error) {
-    console.error('Error:', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Internal Server Error' })
-  }
-}
-
 exports.getAllLocationPublic = async (req, res) => {
   try {
     const locations = await Location.findAll({
@@ -93,19 +71,26 @@ exports.getAllLocationInTable = async (req, res) => {
       whereClause.category = category
     }
 
-    const [total, activeCount, citiesResult] = await Promise.all([
-      Location.count({ where: whereClause }),
-      Location.count({ where: { ...whereClause, status: 'active' } }),
-      Location.findAll({
-        where: whereClause,
-        attributes: [[sequelize.fn('DISTINCT', sequelize.col('city')), 'city']],
-        raw: true
-      })
-    ])
+    const [total, activeCount, inactiveCount, citiesResult] = await Promise.all(
+      [
+        Location.count({ where: whereClause }),
+        Location.count({ where: { status: 'active' } }),
+        Location.count({ where: { status: 'inactive' } }),
+        Location.findAll({
+          where: whereClause,
+          attributes: [
+            [sequelize.fn('DISTINCT', sequelize.col('city')), 'city']
+          ],
+          raw: true
+        })
+      ]
+    )
     const citiesCount = citiesResult.filter((r) => r.city).length
 
     const categoriesResult = await Location.findAll({
-      attributes: [[sequelize.fn('DISTINCT', sequelize.col('category')), 'category']],
+      attributes: [
+        [sequelize.fn('DISTINCT', sequelize.col('category')), 'category']
+      ],
       raw: true
     })
     const categories = categoriesResult
@@ -158,9 +143,9 @@ exports.getAllLocationInTable = async (req, res) => {
         limit: parseInt(limit)
       },
       stats: {
-        total,
+        total: activeCount + inactiveCount,
         active: activeCount,
-        inactive: total - activeCount,
+        inactive: inactiveCount,
         cities: citiesCount
       },
       categories
@@ -317,7 +302,8 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status: isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'active',
+      status:
+        isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'active',
       category,
       managerName,
       latitude: finalLatitude,
@@ -331,8 +317,20 @@ exports.addNewLocation = async (req, res) => {
     const newLocationId = `loc-${String(newLocation.id).padStart(3, '0')}`
     const storeId = `ST-${String(newLocation.id).padStart(3, '0')}`
 
-    createNotification({ type: 'location_created', store: newLocation.store, referenceId: newLocation.id, referenceType: 'location', params: [name] }).catch(console.error)
-    createAudit(req, 'create', 'location', newLocation.id, `Created location: ${name}`)
+    createNotification({
+      type: 'location_created',
+      store: newLocation.store,
+      referenceId: newLocation.id,
+      referenceType: 'location',
+      params: [name]
+    }).catch(console.error)
+    createAudit(
+      req,
+      'create',
+      'location',
+      newLocation.id,
+      `Created location: ${name}`
+    )
 
     return res.status(201).json({
       success: true,
@@ -422,7 +420,19 @@ exports.editLocationById = async (req, res) => {
       imageUrl = url
     }
 
-    const updatedData = { ...rest, image: imageUrl, name, status: status !== undefined ? (status === true ? 'active' : status === false ? 'inactive' : status) : undefined }
+    const updatedData = {
+      ...rest,
+      image: imageUrl,
+      name,
+      status:
+        status !== undefined
+          ? status === true
+            ? 'active'
+            : status === false
+              ? 'inactive'
+              : status
+          : undefined
+    }
 
     // Handle coordinates mapping
     if (coordinates) {
@@ -443,8 +453,22 @@ exports.editLocationById = async (req, res) => {
     // Only propagate status changes to related models (not name)
     await batchUpdateModels(id, { status: updatedData.status })
 
-    createNotification({ type: 'location_updated', store: id, referenceId: id, referenceType: 'location', params: [name] }).catch(console.error)
-    createAudit(req, 'update', 'location', id, `Updated location: ${name}`, dataExist, updatedData)
+    createNotification({
+      type: 'location_updated',
+      store: id,
+      referenceId: id,
+      referenceType: 'location',
+      params: [name]
+    }).catch(console.error)
+    createAudit(
+      req,
+      'update',
+      'location',
+      id,
+      `Updated location: ${name}`,
+      dataExist,
+      updatedData
+    )
 
     return res.status(200).json({
       success: true,
@@ -464,37 +488,37 @@ exports.editLocationById = async (req, res) => {
 // Different models need different status handling based on their field types
 const getLocationDeleteUpdates = () => [
   // Boolean status -> set status = false
-  { model: Discount,       update: { store: null, status: 'inactive' } },
+  { model: Discount, update: { store: null, status: 'inactive' } },
   { model: InvoiceSetting, update: { store: null, status: 'inactive' } },
-  { model: Member,         update: { store: null, status: 'inactive' } },
-  { model: SocialMedia,    update: { store: null, status: 'inactive' } },
-  { model: TypePayment,    update: { store: null, status: 'inactive' } },
-  { model: Shift,          update: { store: null, status: 'inactive' } },
-  { model: Ingredient,     update: { store: null, status: 'inactive' } },
-  { model: MemberTier,     update: { store: null, status: 'inactive' } },
-  { model: Supplier,       update: { store: null, status: 'inactive' } },
+  { model: Member, update: { store: null, status: 'inactive' } },
+  { model: SocialMedia, update: { store: null, status: 'inactive' } },
+  { model: TypePayment, update: { store: null, status: 'inactive' } },
+  { model: Shift, update: { store: null, status: 'inactive' } },
+  { model: Ingredient, update: { store: null, status: 'inactive' } },
+  { model: MemberTier, update: { store: null, status: 'inactive' } },
+  { model: Supplier, update: { store: null, status: 'inactive' } },
   { model: ExpenseCategory, update: { store: null, status: 'inactive' } },
-  { model: Position,       update: { store: null, status: 'inactive' } },
-  { model: Role,           update: { store: null, status: 'inactive' } },
+  { model: Position, update: { store: null, status: 'inactive' } },
+  { model: Role, update: { store: null, status: 'inactive' } },
 
   // ENUM status models -> set appropriate closed/cancelled state
-  { model: StockOpname,    update: { store: null, status: 'cancelled' } },
-  { model: Order,          update: { store: null, status: 'cancelled' } },
-  { model: PurchaseOrder,  update: { store: null, status: 'cancelled' } },
-  { model: CashRegister,   update: { store: null, status: 'closed' } },
-  { model: Expense,        update: { store: null, status: 'rejected' } },
-  { model: Table,          update: { store: null, status: 'maintenance' } },
+  { model: StockOpname, update: { store: null, status: 'cancelled' } },
+  { model: Order, update: { store: null, status: 'cancelled' } },
+  { model: PurchaseOrder, update: { store: null, status: 'cancelled' } },
+  { model: CashRegister, update: { store: null, status: 'closed' } },
+  { model: Expense, update: { store: null, status: 'rejected' } },
+  { model: Table, update: { store: null, status: 'maintenance' } },
 
   // No status field -> just null the store reference
-  { model: DailySummary,   update: { store: null } },
-  { model: StockHistory,   update: { store: null } },
+  { model: DailySummary, update: { store: null } },
+  { model: StockHistory, update: { store: null } },
 
   // Models without status field
-  { model: Checkout,       update: { store: null } },
-  { model: BestSelling,    update: { store: null } },
+  { model: Checkout, update: { store: null } },
+  { model: BestSelling, update: { store: null } },
 
   // Special: User -> also deactivate account
-  { model: User,           update: { store: null, statusActive: false } },
+  { model: User, update: { store: null, statusActive: false } }
 ]
 
 exports.deleteLocationById = async (req, res) => {
@@ -519,7 +543,10 @@ exports.deleteLocationById = async (req, res) => {
       try {
         await model.update(update, { where: { store: dbId } })
       } catch (modelError) {
-        console.error(`Error updating ${model.name || 'unknown'}:`, modelError.message)
+        console.error(
+          `Error updating ${model.name || 'unknown'}:`,
+          modelError.message
+        )
       }
     }
 
@@ -531,8 +558,20 @@ exports.deleteLocationById = async (req, res) => {
     // Hard delete the location (force: true bypasses paranoid if set)
     await Location.destroy({ where: { id: dbId } })
 
-    createNotification({ type: 'location_deleted', store: dbId, referenceId: dbId, referenceType: 'location', params: [location.name] }).catch(console.error)
-    createAudit(req, 'delete', 'location', dbId, `Deleted location: ${location.name}`)
+    createNotification({
+      type: 'location_deleted',
+      store: dbId,
+      referenceId: dbId,
+      referenceType: 'location',
+      params: [location.name]
+    }).catch(console.error)
+    createAudit(
+      req,
+      'delete',
+      'location',
+      dbId,
+      `Deleted location: ${location.name}`
+    )
 
     return res
       .status(200)
@@ -547,57 +586,41 @@ exports.deleteLocationById = async (req, res) => {
 
 const batchUpdateModels = async (id, updateFields) => {
   const modelsToUpdate = [
-    User, BestSelling, Checkout,
-    Category, Discount,
+    User,
+    BestSelling,
+    Checkout,
+    Category,
+    Discount,
     InvoiceSetting,
-    Member, SocialMedia, TypePayment, Shift,
-    Ingredient, CashRegister, DailySummary, StockOpname, StockHistory,
-    PurchaseOrder, Order, Expense, Table,
-    MemberTier, Supplier, ExpenseCategory, Position, Role
+    Member,
+    SocialMedia,
+    TypePayment,
+    Shift,
+    Ingredient,
+    CashRegister,
+    DailySummary,
+    StockOpname,
+    StockHistory,
+    PurchaseOrder,
+    Order,
+    Expense,
+    Table,
+    MemberTier,
+    Supplier,
+    ExpenseCategory,
+    Position,
+    Role
   ]
 
   for (const model of modelsToUpdate) {
     try {
       await model.update(updateFields, { where: { store: id } })
     } catch (modelError) {
-      console.error(`Error batch updating ${model.name || 'unknown'}:`, modelError.message)
+      console.error(
+        `Error batch updating ${model.name || 'unknown'}:`,
+        modelError.message
+      )
     }
-  }
-}
-
-exports.downloadTemplate = async (req, res) => {
-  try {
-    const existingLocations = await Location.findAll({
-      attributes: [
-        'id',
-        'name',
-        'image',
-        'address',
-        'detailLocation',
-        'phoneNumber',
-        'status'
-      ]
-    })
-
-    const buffer = await downloadLocationTemplate(existingLocations)
-
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename=template_lokasi.xlsx'
-    )
-
-    res.send(buffer)
-  } catch (err) {
-    console.error('Error downloading template:', err)
-    res.status(500).json({
-      success: false,
-      message: 'Gagal mengunduh template',
-      error: err.message
-    })
   }
 }
 
@@ -606,7 +629,9 @@ exports.getLocationById = async (req, res) => {
 
   try {
     if (!locationId) {
-      return res.status(400).json({ success: false, message: 'Location ID is required' })
+      return res
+        .status(400)
+        .json({ success: false, message: 'Location ID is required' })
     }
     const dbId = parseInt(locationId.replace('loc-', ''))
 
@@ -659,239 +684,5 @@ exports.getLocationById = async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: 'Internal Server Error' })
-  }
-}
-
-exports.importLocation = async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({
-      success: false,
-      message: 'File Excel diperlukan'
-    })
-  }
-
-  try {
-    if (!req.files || !req.files['file'] || !req.files['file'][0]) {
-      return res.status(400).json({
-        success: false,
-        message: 'File Excel diperlukan'
-      })
-    }
-
-    const locations = await parseLocationTemplate(req.files['file'][0].buffer)
-
-    if (!locations.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Data lokasi tidak ditemukan di file Excel'
-      })
-    }
-
-    const imageFiles = req.files['images'] || []
-    const imageMap = {}
-    const { writeFileSync, unlinkSync } = require('fs')
-    const { join } = require('path')
-    const tmpDir = '/tmp/location-import-images'
-    if (!require('fs').existsSync(tmpDir)) {
-      require('fs').mkdirSync(tmpDir, { recursive: true })
-    }
-
-    for (const file of imageFiles) {
-      const baseName = file.originalname.replace(/\.[^/.]+$/, '').toLowerCase()
-      const tmpPath = join(tmpDir, `${Date.now()}-${file.originalname}`)
-      writeFileSync(tmpPath, file.buffer)
-      imageMap[baseName] = tmpPath
-    }
-
-    const results = {
-      created: [],
-      updated: [],
-      errors: []
-    }
-
-    for (const location of locations) {
-      try {
-        if (!location.name) {
-          results.errors.push({
-            no: location.no,
-            message: 'Nama toko kosong'
-          })
-          continue
-        }
-
-        const statusValue = location.status.toLowerCase() === 'aktif' ? 'active' : 'inactive'
-        const locationFileName = location.name
-          .toLowerCase()
-          .replace(/\s+/g, '-')
-
-        if (location.id) {
-          const existingLocation = await Location.findOne({
-            where: { id: location.id }
-          })
-
-          if (existingLocation) {
-            const updateData = {
-              name: location.name,
-              address: location.address,
-              detailLocation: location.detailLocation,
-              phoneNumber: location.phoneNumber,
-              status: statusValue
-            }
-
-            let imageUrl = location.image
-
-            if (imageMap[locationFileName]) {
-              if (existingLocation.image) {
-                await deleteFromCloudinary(existingLocation.image)
-              }
-              imageUrl = await uploadToCloudinary(
-                imageMap[locationFileName],
-                'pos-app-locations'
-              )
-            } else if (
-              location.image &&
-              location.image !== existingLocation.image
-            ) {
-              if (existingLocation.image) {
-                await deleteFromCloudinary(existingLocation.image)
-              }
-              imageUrl = location.image
-            } else if (!location.image) {
-              imageUrl = existingLocation.image
-            }
-
-            if (imageUrl) {
-              updateData.image = imageUrl
-            }
-
-            await existingLocation.update(updateData)
-            results.updated.push({
-              id: location.id,
-              name: location.name
-            })
-          } else {
-            let imageUrl = location.image
-
-            if (imageMap[locationFileName]) {
-              imageUrl = await uploadToCloudinary(
-                imageMap[locationFileName],
-                'pos-app-locations'
-              )
-            }
-
-            const newLocation = await Location.create({
-              id: location.id,
-              name: location.name,
-              image: imageUrl || location.image,
-              address: location.address,
-              detailLocation: location.detailLocation,
-              phoneNumber: location.phoneNumber,
-              status: statusValue,
-              createdBy: req.user?.userName || req.user?.id || 'system'
-            })
-            if (newLocation) {
-              await newLocation.update({ store: newLocation.id })
-            }
-            results.created.push({
-              id: newLocation.id,
-              name: newLocation.name
-            })
-          }
-        } else {
-          const existingByName = await Location.findOne({
-            where: { name: location.name }
-          })
-
-          if (existingByName) {
-            const updateData = {
-              address: location.address,
-              detailLocation: location.detailLocation,
-              phoneNumber: location.phoneNumber,
-              status: statusValue
-            }
-
-            let imageUrl = location.image
-
-            if (imageMap[locationFileName]) {
-              if (existingByName.image) {
-                await deleteFromCloudinary(existingByName.image)
-              }
-              imageUrl = await uploadToCloudinary(
-                imageMap[locationFileName],
-                'pos-app-locations'
-              )
-            } else if (
-              location.image &&
-              location.image !== existingByName.image
-            ) {
-              if (existingByName.image) {
-                await deleteFromCloudinary(existingByName.image)
-              }
-              imageUrl = location.image
-            } else if (!location.image) {
-              imageUrl = existingByName.image
-            }
-
-            if (imageUrl) {
-              updateData.image = imageUrl
-            }
-
-            await existingByName.update(updateData)
-            results.updated.push({
-              id: existingByName.id,
-              name: location.name
-            })
-          } else {
-            let imageUrl = location.image
-
-            if (imageMap[locationFileName]) {
-              imageUrl = await uploadToCloudinary(
-                imageMap[locationFileName],
-                'pos-app-locations'
-              )
-            }
-
-            const newLocation = await Location.create({
-              name: location.name,
-              image: imageUrl || location.image,
-              address: location.address,
-              detailLocation: location.detailLocation,
-              phoneNumber: location.phoneNumber,
-              status: statusValue,
-              createdBy: req.user?.userName || req.user?.id || 'system'
-            })
-            if (newLocation) {
-              await newLocation.update({ store: newLocation.id })
-            }
-            results.created.push({
-              id: newLocation.id,
-              name: newLocation.name
-            })
-          }
-        }
-      } catch (err) {
-        results.errors.push({
-          no: location.no,
-          message: err.message
-        })
-      }
-    }
-
-    res.status(200).json({
-      success: true,
-      message: `Berhasil import ${results.created.length} lokasi baru dan ${results.updated.length} lokasi diupdate`,
-      data: results
-    })
-
-    Object.values(imageMap).forEach((p) => {
-      try { require('fs').unlinkSync(p) } catch {}
-    })
-  } catch (err) {
-    console.error('Error importing locations:', err)
-    res.status(500).json({
-      success: false,
-      message: 'Gagal mengimport lokasi',
-      error: err.message
-    })
   }
 }
