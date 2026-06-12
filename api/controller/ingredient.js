@@ -24,6 +24,11 @@ const ingredientController = {
             model: db.supplier,
             as: 'supplierData',
             attributes: ['id', 'name']
+          },
+          {
+            model: db.ingredientCategory,
+            as: 'categoryData',
+            attributes: ['id', 'name']
           }
         ],
         order: [['name', 'ASC']]
@@ -59,6 +64,11 @@ const ingredientController = {
             model: db.supplier,
             as: 'supplierData',
             attributes: ['id', 'name', 'phone']
+          },
+          {
+            model: db.ingredientCategory,
+            as: 'categoryData',
+            attributes: ['id', 'name']
           }
         ]
       })

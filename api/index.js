@@ -51,6 +51,7 @@ const salesReturnRoutes = require('./routes/salesReturn')
 const purchaseReturnRoutes = require('./routes/purchaseReturn')
 const bomRoutes = require('./routes/bom')
 const reservationRoutes = require('./routes/reservation')
+const ingredientCategoryRoutes = require('./routes/ingredientCategory')
 
 const app = express()
 const server = http.createServer(app)
@@ -125,7 +126,8 @@ const routes = [
     { path: '/sales-return', route: salesReturnRoutes },
     { path: '/purchase-return', route: purchaseReturnRoutes },
     { path: '/bom', route: bomRoutes },
-    { path: '/reservation', route: reservationRoutes }
+    { path: '/reservation', route: reservationRoutes },
+    { path: '/ingredient-category', route: ingredientCategoryRoutes }
   ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
