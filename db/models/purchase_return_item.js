@@ -14,7 +14,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       product: {
-        allowNull: false,
+        allowNull: true,
+        type: DataTypes.INTEGER
+      },
+      ingredient: {
+        allowNull: true,
         type: DataTypes.INTEGER
       },
       qty: {
@@ -45,6 +49,10 @@ module.exports = (sequelize, DataTypes) => {
     purchase_return_item.belongsTo(models.product, {
       foreignKey: 'product',
       as: 'productData'
+    })
+    purchase_return_item.belongsTo(models.ingredient, {
+      foreignKey: 'ingredient',
+      as: 'ingredientData'
     })
   }
 

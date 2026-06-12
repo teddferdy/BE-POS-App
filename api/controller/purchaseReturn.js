@@ -202,11 +202,37 @@ const purchaseReturnController = {
               {
                 product: item.product,
                 store: ret.store,
-                referenceType: 'purchase_return_reversal',
+                referenceType: 'adjustment',
                 quantityBefore: oldStock,
                 quantityChange: item.qty,
                 quantityAfter: oldStock + item.qty,
                 unit: item.unit || 'pcs',
+                notes: `Purchase return rejected: ${ret.reason}`,
+                createdBy: req.user?.id || null
+              },
+              { transaction }
+            )
+          }
+
+          const ingredient = item.ingredient
+            ? await db.ingredient.findByPk(item.ingredient, { transaction })
+            : null
+          if (ingredient) {
+            const oldStock = Number(ingredient.stock) || 0
+            await ingredient.update(
+              { stock: oldStock + item.qty },
+              { transaction }
+            )
+
+            await db.stock_history.create(
+              {
+                ingredientName: ingredient.name,
+                store: ret.store,
+                referenceType: 'adjustment',
+                quantityBefore: oldStock,
+                quantityChange: item.qty,
+                quantityAfter: oldStock + item.qty,
+                unit: item.unit || ingredient.unit || 'pcs',
                 notes: `Purchase return rejected: ${ret.reason}`,
                 createdBy: req.user?.id || null
               },

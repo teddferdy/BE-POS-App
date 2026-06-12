@@ -8,6 +8,7 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 router.get('/get-all', authorization, validateStoreAccess, goodsReceiptController.getAll)
 router.get('/get-by-id/:id', authorization, validateStoreAccess, goodsReceiptController.getById)
 router.get('/by-po/:poId', authorization, validateStoreAccess, goodsReceiptController.getByPO)
+router.get('/export', authorization, validateStoreAccess, goodsReceiptController.exportExcel)
 
 router.post(
   '/create',

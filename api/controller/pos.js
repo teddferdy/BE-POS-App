@@ -477,7 +477,6 @@ const posController = {
   async returnPurchaseOrder(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
       const { items, reason, returnedBy } = req.body
 
       const po = await db.purchase_order.findByPk(id)
@@ -494,6 +493,8 @@ const posController = {
           message: 'Only received purchase orders can be returned'
         })
       }
+
+      const store = req.cookies.store || req.body.store || po.store
 
       const result = await db.sequelize.transaction(async (t) => {
         const returnOrder = await db.purchase_return.create(
@@ -512,6 +513,7 @@ const posController = {
         const returnItems = items.map((item) => ({
           purchaseReturn: returnOrder.id,
           product: item.productId,
+          ingredient: item.ingredient,
           qty: item.qty,
           unit: item.unit || 'pcs',
           notes: item.notes || null
@@ -523,30 +525,60 @@ const posController = {
 
         // Update stock
         for (const item of items) {
-          const product = await db.product.findByPk(item.productId, {
-            transaction: t
-          })
-          if (product) {
-            const oldStock = Number(product.stock) || 0
-            await product.update(
-              { stock: oldStock - item.qty },
-              { transaction: t }
-            )
+          if (item.productId) {
+            const product = await db.product.findByPk(item.productId, {
+              transaction: t
+            })
+            if (product) {
+              const oldStock = Number(product.stock) || 0
+              await product.update(
+                { stock: oldStock - item.qty },
+                { transaction: t }
+              )
 
-            await db.stock_history.create(
-              {
-                product: item.productId,
-                store,
-                referenceType: 'purchase_return',
-                quantityBefore: oldStock,
-                quantityChange: -item.qty,
-                quantityAfter: oldStock - item.qty,
-                unit: item.unit || 'pcs',
-                notes: `Purchase return: ${reason}`,
-                createdBy: req.user?.id || null
-              },
-              { transaction: t }
-            )
+              await db.stock_history.create(
+                {
+                  product: item.productId,
+                  store,
+                  referenceType: 'purchase_return',
+                  quantityBefore: oldStock,
+                  quantityChange: -item.qty,
+                  quantityAfter: oldStock - item.qty,
+                  unit: item.unit || 'pcs',
+                  notes: `Purchase return: ${reason}`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction: t }
+              )
+            }
+          }
+
+          if (item.ingredient) {
+            const ingredient = await db.ingredient.findByPk(item.ingredient, {
+              transaction: t
+            })
+            if (ingredient) {
+              const oldStock = Number(ingredient.stock) || 0
+              await ingredient.update(
+                { stock: oldStock - item.qty },
+                { transaction: t }
+              )
+
+              await db.stock_history.create(
+                {
+                  ingredientName: ingredient.name,
+                  store,
+                  referenceType: 'purchase_return',
+                  quantityBefore: oldStock,
+                  quantityChange: -item.qty,
+                  quantityAfter: oldStock - item.qty,
+                  unit: item.unit || 'pcs',
+                  notes: `Purchase return: ${reason}`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction: t }
+              )
+            }
           }
         }
 

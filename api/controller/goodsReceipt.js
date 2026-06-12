@@ -22,11 +22,13 @@ const goodsReceiptController = {
         status,
         poId,
         startDate,
-        endDate
+        endDate,
+        store: queryStore
       } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') where.store = store
+      if (queryStore && userRole === 'super_admin') where.store = queryStore
+      else if (store && userRole !== 'super_admin') where.store = store
       if (status) where.status = status
       if (poId) where.purchaseOrderId = poId
       if (startDate || endDate) {
@@ -190,8 +192,11 @@ const goodsReceiptController = {
         })
       }
 
+      const poWhere = { id: purchaseOrderId }
+      if (store) poWhere.store = store
+
       const po = await db.purchase_order.findOne({
-        where: { id: purchaseOrderId, store }
+        where: poWhere
       })
 
       if (!po) {
@@ -236,7 +241,8 @@ const goodsReceiptController = {
             product: item.product || null,
             qtyReceived: qty,
             unit: item.unit || 'pcs',
-            conditionNotes: item.conditionNotes || null
+            conditionNotes: item.conditionNotes || null,
+            ingredientName: item.ingredientName || null
           })
 
           if (item.purchaseOrderItem) {
@@ -365,17 +371,240 @@ const goodsReceiptController = {
     }
   },
 
+  async exportExcel(req, res) {
+    try {
+      const { store } = req.cookies
+      const userRole = req.user?.roleType
+      const { status, startDate, endDate, store: queryStore } = req.query
+
+      const where = {}
+      if (queryStore && userRole === 'super_admin') where.store = queryStore
+      else if (store && userRole !== 'super_admin') where.store = store
+      if (status) where.status = status
+      if (startDate || endDate) {
+        where.receivedDate = {}
+        if (startDate) where.receivedDate[Op.gte] = new Date(startDate)
+        if (endDate) where.receivedDate[Op.lte] = new Date(endDate)
+      }
+
+      const rows = await db.goodsReceipt.findAll({
+        where,
+        include: [
+          {
+            model: db.purchase_order,
+            as: 'purchaseOrderData',
+            attributes: ['id', 'orderNumber', 'status']
+          },
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
+          { model: db.goodsReceiptItem, as: 'items' }
+        ],
+        order: [['createdAt', 'DESC']]
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success',
+        data: rows
+      })
+    } catch (error) {
+      console.error(error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async reverseStock(items, transaction, userId) {
+    for (const grItem of items) {
+      const qty = parseInt(grItem.qtyReceived) || 0
+      if (qty <= 0) continue
+
+      if (grItem.purchaseOrderItem) {
+        await db.purchase_order_item.update(
+          {
+            receivedQuantity: db.sequelize.literal(
+              `GREATEST(receivedQuantity - ${qty}, 0)`
+            )
+          },
+          { where: { id: grItem.purchaseOrderItem }, transaction }
+        )
+      }
+
+      if (grItem.product) {
+        const product = await db.product.findByPk(grItem.product, {
+          transaction
+        })
+        if (product) {
+          const qtyBefore = Number(product.stock) || 0
+          await product.update(
+            { stock: Math.max(qtyBefore - qty, 0) },
+            { transaction }
+          )
+          await db.stock_history.create(
+            {
+              product: grItem.product,
+              store: grItem.store || null,
+              referenceType: 'adjustment',
+              quantityBefore: qtyBefore,
+              quantityChange: -qty,
+              quantityAfter: Math.max(qtyBefore - qty, 0),
+              unit: grItem.unit || 'pcs',
+              notes: `GR reversal: ${grItem.id || 'update'}`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+
+      const ingName =
+        grItem.ingredientName ||
+        (grItem.poItemData?.ingredientName) ||
+        (grItem.poItemData?.ingredientData?.name)
+      if (ingName) {
+        const ingredient = await db.ingredient.findOne({
+          where: { name: { [Op.iLike]: ingName.trim() } },
+          transaction
+        })
+        if (ingredient) {
+          const qtyBefore = Number(ingredient.stock) || 0
+          await ingredient.update(
+            { stock: Math.max(qtyBefore - qty, 0) },
+            { transaction }
+          )
+          await db.stock_history.create(
+            {
+              ingredientName: ingredient.name,
+              store: grItem.store || null,
+              referenceType: 'adjustment',
+              quantityBefore: qtyBefore,
+              quantityChange: -qty,
+              quantityAfter: Math.max(qtyBefore - qty, 0),
+              unit: grItem.unit || ingredient.unit || 'pcs',
+              notes: `GR reversal: ${grItem.id || 'update'}`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+    }
+  },
+
+  async applyStock(items, receipt, transaction, userId) {
+    for (const item of items) {
+      const qty = parseInt(item.qtyReceived) || 0
+      if (qty <= 0) continue
+
+      if (item.purchaseOrderItem) {
+        await db.purchase_order_item.update(
+          {
+            receivedQuantity: db.sequelize.literal(
+              `receivedQuantity + ${qty}`
+            )
+          },
+          {
+            where: {
+              id: item.purchaseOrderItem,
+              purchaseOrder: receipt.purchaseOrderId
+            }
+          },
+          { transaction }
+        )
+      }
+
+      if (item.product) {
+        const product = await db.product.findByPk(item.product, { transaction })
+        if (product) {
+          const qtyBefore = Number(product.stock) || 0
+          await product.update(
+            { stock: qtyBefore + qty },
+            { transaction }
+          )
+          await db.stock_history.create(
+            {
+              product: item.product,
+              store: receipt.store,
+              referenceType: 'purchase',
+              quantityBefore: qtyBefore,
+              quantityChange: qty,
+              quantityAfter: qtyBefore + qty,
+              unit: item.unit || 'pcs',
+              notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+
+      const ingName =
+        item.ingredientName ||
+        (item.poItemData?.ingredientName) ||
+        (item.poItemData?.ingredientData?.name)
+      if (ingName) {
+        const ingredient = await db.ingredient.findOne({
+          where: { name: { [Op.iLike]: ingName.trim() } },
+          transaction
+        })
+        if (ingredient) {
+          const qtyBefore = Number(ingredient.stock) || 0
+          await ingredient.update(
+            { stock: qtyBefore + qty },
+            { transaction }
+          )
+          await db.stock_history.create(
+            {
+              ingredientName: ingredient.name,
+              store: receipt.store,
+              referenceType: 'purchase',
+              quantityBefore: qtyBefore,
+              quantityChange: qty,
+              quantityAfter: qtyBefore + qty,
+              unit: item.unit || ingredient.unit || 'pcs',
+              notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+    }
+  },
+
   async update(req, res) {
     try {
       const { id } = req.params
       const { store } = req.cookies
       const userRole = req.user?.roleType
-      const { notes } = req.body
+      const { notes, receivedDate, items } = req.body
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const receipt = await db.goodsReceipt.findOne({ where })
+      const receipt = await db.goodsReceipt.findOne({
+        where,
+        include: [
+          {
+            model: db.goodsReceiptItem,
+            as: 'items',
+            include: [
+              {
+                model: db.purchase_order_item,
+                as: 'poItemData',
+                include: [
+                  {
+                    model: db.ingredient,
+                    as: 'ingredientData',
+                    attributes: ['id', 'name']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+
       if (!receipt) {
         return res
           .status(404)
@@ -389,15 +618,67 @@ const goodsReceiptController = {
         })
       }
 
-      await receipt.update({
-        notes: notes !== undefined ? notes : receipt.notes,
-        modifiedBy: req.user?.id || null
+      const oldItems = receipt.items || []
+
+      const transaction = await db.sequelize.transaction()
+      try {
+        await this.reverseStock(oldItems, transaction, req.user?.id)
+
+        await receipt.update(
+          {
+            notes: notes !== undefined ? notes : receipt.notes,
+            receivedDate: receivedDate || receipt.receivedDate,
+            modifiedBy: req.user?.id || null
+          },
+          { transaction }
+        )
+
+        await db.goodsReceiptItem.destroy({
+          where: { goodsReceipt: id },
+          transaction
+        })
+
+        if (items && items.length > 0) {
+          const newItems = items
+            .filter((item) => parseInt(item.qtyReceived) > 0)
+            .map((item) => ({
+              goodsReceipt: id,
+              purchaseOrderItem: item.purchaseOrderItem || null,
+              product: item.product || null,
+              qtyReceived: parseInt(item.qtyReceived),
+              unit: item.unit || 'pcs',
+              conditionNotes: item.conditionNotes || null,
+              ingredientName: item.ingredientName || null
+            }))
+
+          if (newItems.length > 0) {
+            await db.goodsReceiptItem.bulkCreate(newItems, { transaction })
+            await this.applyStock(newItems, receipt, transaction, req.user?.id)
+          }
+        }
+
+        await transaction.commit()
+      } catch (err) {
+        await transaction.rollback()
+        throw err
+      }
+
+      const updated = await db.goodsReceipt.findByPk(receipt.id, {
+        include: [{ model: db.goodsReceiptItem, as: 'items' }]
       })
+
+      await createAudit(
+        req,
+        'update',
+        'goods_receipt',
+        id,
+        'Updated goods_receipt: ' + id
+      )
 
       return res.status(200).json({
         success: true,
         message: 'Success update goods receipt',
-        data: receipt
+        data: updated
       })
     } catch (error) {
       console.error(error)
@@ -416,7 +697,28 @@ const goodsReceiptController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const receipt = await db.goodsReceipt.findOne({ where })
+      const receipt = await db.goodsReceipt.findOne({
+        where,
+        include: [
+          {
+            model: db.goodsReceiptItem,
+            as: 'items',
+            include: [
+              {
+                model: db.purchase_order_item,
+                as: 'poItemData',
+                include: [
+                  {
+                    model: db.ingredient,
+                    as: 'ingredientData',
+                    attributes: ['id', 'name']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
       if (!receipt) {
         return res
           .status(404)
@@ -430,8 +732,21 @@ const goodsReceiptController = {
         })
       }
 
-      await db.goodsReceiptItem.destroy({ where: { goodsReceipt: id } })
-      await receipt.destroy()
+      const transaction = await db.sequelize.transaction()
+      try {
+        const oldItems = receipt.items || []
+        await this.reverseStock(oldItems, transaction, req.user?.id)
+
+        await db.goodsReceiptItem.destroy({
+          where: { goodsReceipt: id },
+          transaction
+        })
+        await receipt.destroy({ transaction })
+        await transaction.commit()
+      } catch (err) {
+        await transaction.rollback()
+        throw err
+      }
 
       await createAudit(
         req,
@@ -469,7 +784,28 @@ const goodsReceiptController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const receipt = await db.goodsReceipt.findOne({ where })
+      const receipt = await db.goodsReceipt.findOne({
+        where,
+        include: [
+          {
+            model: db.goodsReceiptItem,
+            as: 'items',
+            include: [
+              {
+                model: db.purchase_order_item,
+                as: 'poItemData',
+                include: [
+                  {
+                    model: db.ingredient,
+                    as: 'ingredientData',
+                    attributes: ['id', 'name']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
       if (!receipt) {
         return res
           .status(404)
@@ -483,11 +819,34 @@ const goodsReceiptController = {
         })
       }
 
-      await receipt.update({
-        status,
-        modifiedBy: req.user?.id || null,
-        receivedDate: status === 'completed' ? new Date() : receipt.receivedDate
-      })
+      const transaction = await db.sequelize.transaction()
+      try {
+        if (status === 'completed') {
+          const items = (receipt.items || []).map((i) => ({
+            ...i.toJSON(),
+            purchaseOrderItem: i.purchaseOrderItem,
+            product: i.product,
+            qtyReceived: i.qtyReceived,
+            unit: i.unit,
+            ingredientName: i.ingredientName
+          }))
+          await this.applyStock(items, receipt, transaction, req.user?.id)
+        }
+
+        await receipt.update(
+          {
+            status,
+            modifiedBy: req.user?.id || null,
+            receivedDate:
+              status === 'completed' ? new Date() : receipt.receivedDate
+          },
+          { transaction }
+        )
+        await transaction.commit()
+      } catch (err) {
+        await transaction.rollback()
+        throw err
+      }
 
       await createAudit(
         req,

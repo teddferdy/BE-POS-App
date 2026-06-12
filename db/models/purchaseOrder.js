@@ -53,6 +53,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       pic: {
         type: DataTypes.INTEGER
+      },
+      dueDate: {
+        type: DataTypes.DATEONLY
       }
     },
     {
@@ -79,6 +82,14 @@ module.exports = (sequelize, DataTypes) => {
     purchaseOrder.hasMany(models.goodsReceipt, {
       foreignKey: 'purchaseOrderId',
       as: 'goodsReceipts'
+    })
+    purchaseOrder.belongsTo(models.location, {
+      foreignKey: 'store',
+      as: 'storeData'
+    })
+    purchaseOrder.hasMany(models.purchase_payment, {
+      foreignKey: 'purchaseOrder',
+      as: 'payments'
     })
   }
 

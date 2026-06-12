@@ -17,8 +17,8 @@ const generateOrderNumber = (prefix) => {
 const purchaseOrderController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
-      const { status, supplier, startDate, endDate, page = 1, limit = 10 } = req.query
+      const store = req.cookies.store || req.query.store
+      const { status, supplier, startDate, endDate, search, page = 1, limit = 10 } = req.query
 
       const where = {}
       if (store) where.store = store
@@ -29,11 +29,30 @@ const purchaseOrderController = {
         if (startDate) where.orderDate[Op.gte] = new Date(startDate)
         if (endDate) where.orderDate[Op.lte] = new Date(endDate)
       }
+      if (search) {
+        where[Op.or] = [
+          { orderNumber: { [Op.iLike]: `%${search}%` } },
+          { '$supplierData.name$': { [Op.iLike]: `%${search}%` } }
+        ]
+      }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const { count, rows } = await db.purchase_order.findAndCountAll({
         where,
+        attributes: {
+          include: [
+            [
+              db.Sequelize.literal(`(
+                SELECT COALESCE(SUM(amount), 0)
+                FROM purchase_payment
+                WHERE purchase_payment.purchaseOrder = purchase_order.id
+                  AND purchase_payment.deletedAt IS NULL
+              )`),
+              'totalPaid'
+            ]
+          ]
+        },
         include: [
           {
             model: db.supplier,
@@ -44,11 +63,17 @@ const purchaseOrderController = {
             model: db.user,
             as: 'picData',
             attributes: ['id', 'fullName']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name']
           }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
-        offset
+        offset,
+        distinct: true
       })
 
       return res.status(200).json({
@@ -93,6 +118,11 @@ const purchaseOrderController = {
             attributes: ['id', 'fullName']
           },
           {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name']
+          },
+          {
             model: db.purchase_order_item,
             as: 'items',
             include: [
@@ -107,6 +137,11 @@ const purchaseOrderController = {
                 attributes: ['id', 'name', 'unit']
               }
             ]
+          },
+          {
+            model: db.purchase_payment,
+            as: 'payments',
+            attributes: ['id', 'amount', 'paymentDate', 'paymentMethod', 'reference', 'notes']
           }
         ]
       })
@@ -134,8 +169,8 @@ const purchaseOrderController = {
 
   async create(req, res) {
     try {
-      const { store } = req.cookies
-      const { supplier, items, discount = 0, notes, orderDate, pic } = req.body
+      const store = req.cookies.store || req.body.store
+      const { supplier, items, discount = 0, notes, orderDate, pic, dueDate } = req.body
       const createdBy = req.user?.id || null
 
       if (!supplier || !items || items.length === 0) {
@@ -164,7 +199,8 @@ const purchaseOrderController = {
         orderDate: orderDate || new Date(),
         notes,
         createdBy,
-        pic
+        pic,
+        dueDate: dueDate || null
       })
 
       const orderItems = items.map((item) => ({
@@ -217,7 +253,7 @@ const purchaseOrderController = {
     try {
       const { id } = req.params
       const { store } = req.cookies
-      const { supplier, items, discount, status, notes, orderDate, pic } = req.body
+      const { supplier, items, discount, status, notes, orderDate, pic, dueDate } = req.body
       const modifiedBy = req.user?.id || null
 
       const where = { id }
@@ -282,7 +318,8 @@ const purchaseOrderController = {
         notes: notes !== undefined ? notes : purchaseOrder.notes,
         orderDate: orderDate || purchaseOrder.orderDate,
         modifiedBy,
-        pic: pic !== undefined ? pic : purchaseOrder.pic
+        pic: pic !== undefined ? pic : purchaseOrder.pic,
+        dueDate: dueDate !== undefined ? dueDate : purchaseOrder.dueDate
       })
 
       await createAudit(

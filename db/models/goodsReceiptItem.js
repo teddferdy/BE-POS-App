@@ -29,6 +29,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       conditionNotes: {
         type: DataTypes.TEXT
+      },
+      ingredientName: {
+        type: DataTypes.STRING
       }
     },
     {
