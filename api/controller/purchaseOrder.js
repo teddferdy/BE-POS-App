@@ -47,7 +47,7 @@ const purchaseOrderController = {
                 SELECT COALESCE(SUM(amount), 0)
                 FROM purchase_payment
                 WHERE "purchase_payment"."purchaseOrder" = "purchase_order"."id"
-                  AND purchase_payment.deletedAt IS NULL
+                  AND "purchase_payment"."deletedAt" IS NULL
               )`),
               'totalPaid'
             ]
