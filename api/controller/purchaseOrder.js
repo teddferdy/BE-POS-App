@@ -100,6 +100,11 @@ const purchaseOrderController = {
                 model: db.product,
                 as: 'productData',
                 attributes: ['id', 'nameProduct']
+              },
+              {
+                model: db.ingredient,
+                as: 'ingredientData',
+                attributes: ['id', 'name', 'unit']
               }
             ]
           }
@@ -165,6 +170,7 @@ const purchaseOrderController = {
       const orderItems = items.map((item) => ({
         purchaseOrder: purchaseOrder.id,
         product: item.product || null,
+        ingredient: item.ingredient || null,
         ingredientName: item.ingredientName || null,
         quantity: item.quantity,
         unit: item.unit || 'pcs',
@@ -247,6 +253,7 @@ const purchaseOrderController = {
         const orderItems = items.map((item) => ({
           purchaseOrder: id,
           product: item.product || null,
+          ingredient: item.ingredient || null,
           ingredientName: item.ingredientName || null,
           quantity: item.quantity,
           unit: item.unit || 'pcs',
@@ -369,19 +376,20 @@ const purchaseOrderController = {
               }
             }
 
-            if (item.ingredientName) {
-              const ingredient = await db.ingredient.findOne({
-                where: { name: item.ingredientName, store },
-                transaction
-              })
+            if (item.ingredient || item.ingredientName) {
+              const ingredient = item.ingredient
+                ? await db.ingredient.findByPk(item.ingredient, { transaction })
+                : await db.ingredient.findOne({
+                    where: { name: item.ingredientName, store },
+                    transaction
+                  })
 
               if (ingredient) {
                 const quantityBefore = ingredient.stock
-
                 await db.stockHistory.create(
                   {
                     store,
-                    ingredientName: item.ingredientName,
+                    ingredientName: ingredient.name,
                     referenceType: 'purchase',
                     referenceId: id,
                     quantityBefore,
@@ -392,7 +400,6 @@ const purchaseOrderController = {
                   },
                   { transaction }
                 )
-
                 await ingredient.update(
                   { stock: ingredient.stock + item.receivedQuantity },
                   { transaction }
