@@ -442,7 +442,7 @@ exports.downloadTemplate = async (req, res) => {
           attributes: ['id', 'name']
         }
       ],
-      order: [['id', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -490,7 +490,7 @@ exports.downloadData = async (req, res) => {
           attributes: ['id', 'name']
         }
       ],
-      order: [['id', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const workbook = new excelJS.Workbook()

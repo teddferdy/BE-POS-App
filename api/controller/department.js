@@ -430,7 +430,7 @@ exports.downloadTemplate = async (req, res) => {
 
     const departments = await Department.findAll({
       attributes: ['name', 'description', 'status'],
-      order: [['id', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -472,7 +472,7 @@ exports.downloadData = async (req, res) => {
     const departments = await Department.findAll({
       where: whereCondition,
       attributes: ['id', 'name', 'description', 'status'],
-      order: [['id', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const workbook = new excelJS.Workbook()

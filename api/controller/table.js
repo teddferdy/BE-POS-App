@@ -14,7 +14,7 @@ exports.getTablesByStore = async (req, res) => {
 
     const { count, rows } = await Table.findAndCountAll({
       where: whereClause,
-      order: [['name', 'ASC']],
+      order: [['createdAt', 'DESC']],
       limit,
       offset
     })
@@ -67,7 +67,7 @@ exports.getTableWithActiveOrders = async (req, res) => {
           required: false
         }
       ],
-      order: [['name', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     return res.status(200).json({

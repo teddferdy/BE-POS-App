@@ -32,7 +32,7 @@ const ingredientController = {
             attributes: ['id', 'name']
           }
         ],
-        order: [['name', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
 
       if (lowStock === 'true') {
@@ -354,12 +354,12 @@ const ingredientController = {
       const categories = await db.ingredientCategory.findAll({
         where: store ? { store } : {},
         attributes: ['name'],
-        order: [['name', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
       const suppliers = await db.supplier.findAll({
         where: store ? { store } : {},
         attributes: ['name'],
-        order: [['name', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
       const catList = categories.map((c) => c.name).join(',')
       const suppList = suppliers.map((s) => s.name).join(',')
@@ -497,7 +497,7 @@ const ingredientController = {
           { model: db.supplier, as: 'supplierData', attributes: ['id', 'name'] },
           { model: db.ingredientCategory, as: 'categoryData', attributes: ['id', 'name'] }
         ],
-        order: [['name', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
 
       const workbook = new excelJS.Workbook()

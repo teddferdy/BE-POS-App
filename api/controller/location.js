@@ -102,7 +102,7 @@ exports.getAllLocationInTable = async (req, res) => {
       where: whereClause,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['id', 'DESC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const data = locations.map((loc) => ({
@@ -162,7 +162,7 @@ exports.getAllLocationInTable = async (req, res) => {
 exports.generateLocationId = async (req, res) => {
   try {
     const lastLocation = await Location.findOne({
-      order: [['id', 'DESC']],
+      order: [['createdAt', 'DESC']],
       attributes: ['id']
     })
 
@@ -255,7 +255,7 @@ exports.addNewLocation = async (req, res) => {
     } else {
       // Generate new ID based on current max
       const lastLocation = await Location.findOne({
-        order: [['id', 'DESC']],
+        order: [['createdAt', 'DESC']],
         attributes: ['id']
       })
       nextId = (lastLocation?.id || 0) + 1

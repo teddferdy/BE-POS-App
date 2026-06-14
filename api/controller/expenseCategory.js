@@ -22,7 +22,7 @@ const expenseCategoryController = {
 
       const categories = await db.expense_category.findAll({
         where,
-        order: [['name', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
 
       return res.status(200).json({

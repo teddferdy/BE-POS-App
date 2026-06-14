@@ -341,7 +341,7 @@ exports.deleteCategoryById = async (req, res) => {
 exports.exportCategory = async (req, res) => {
   try {
     const categories = await Category.findAll({
-      order: [['id', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -440,7 +440,7 @@ exports.exportCategory = async (req, res) => {
 exports.downloadData = async (req, res) => {
   try {
     const categories = await Category.findAll({
-      order: [['id', 'ASC']]
+      order: [['createdAt', 'DESC']]
     })
 
     const workbook = new excelJS.Workbook()
