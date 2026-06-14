@@ -208,6 +208,35 @@ exports.getSalesSummary = async (req, res) => {
       { replacements: chartReplacements, type: db.sequelize.QueryTypes.SELECT }
     )
 
+    // Per-store sales chart (multi-store support)
+    const storeChartReplacements = { ...(store && { store }) }
+    let storeChartWhere = `WHERE "paymentStatus" = 'paid'`
+    if (store) storeChartWhere += ` AND "store" = :store`
+    if (dateRange[Op.gte]) {
+      storeChartWhere += ` AND "createdAt" >= :startDate AND "createdAt" <= :endDate`
+      storeChartReplacements.startDate = dateRange[Op.gte]
+      storeChartReplacements.endDate = dateRange[Op.lte]
+    }
+
+    const rawStoreChart = await db.sequelize.query(
+      `SELECT "store", DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
+       FROM "order" ${storeChartWhere}
+       GROUP BY "store", DATE("createdAt")
+       ORDER BY "store", date ASC`,
+      { replacements: storeChartReplacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+
+    // Group by storeId and merge with store names
+    const storeChartMap = {}
+    for (const row of rawStoreChart) {
+      const sid = Number(row.store)
+      if (!storeChartMap[sid]) storeChartMap[sid] = { storeId: sid, data: [] }
+      storeChartMap[sid].data.push({
+        date: row.date,
+        sales: Number(row.sales || 0)
+      })
+    }
+
     // Store breakdown
     const storeWhere = store ? { id: store } : {}
     const locations = await db.location.findAll({
@@ -232,6 +261,16 @@ exports.getSalesSummary = async (req, res) => {
     })
     const stores = await Promise.all(storePromises)
 
+    // Merge store names into store chart
+    const storeSalesChart = stores.map((s) => ({
+      storeId: s.id,
+      storeName: s.name,
+      data: (storeChartMap[s.id]?.data || []).map((d) => ({
+        date: d.date,
+        sales: d.sales
+      }))
+    }))
+
     return res.status(200).json({
       success: true,
       data: {
@@ -241,6 +280,7 @@ exports.getSalesSummary = async (req, res) => {
         totalCustomers: Number(totalMembers || 0),
         totalStores: Number(activeLocations || 0),
         salesChart: Array.isArray(salesChart) ? salesChart : [],
+        storeSalesChart,
         stores
       }
     })
