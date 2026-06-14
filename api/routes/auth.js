@@ -59,8 +59,8 @@ router.get(
   authController.generateEmployeeId
 )
 
-// Reset Password
-router.post('/reset-password', authorization, authController.resetPassword)
+// Reset Password (public - no auth required)
+router.post('/reset-password', authController.resetPassword)
 
 // Edit User - based on role
 router.put('/edit-user', authorization, upload, authController.editUser)

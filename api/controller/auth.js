@@ -486,33 +486,38 @@ exports.editUser = async (req, res, next) => {
 exports.resetPassword = async (req, res, next) => {
   const body = req?.body
 
-  if (!body?.oldPassword || !body?.password) {
+  if (!body?.email || !body?.newPassword || !body?.confirmPassword) {
     return res.status(400).json({
-      error: 'Old Password dan New Password tidak boleh kosong'
+      error: 'Email, New Password, dan Confirm Password harus diisi'
+    })
+  }
+
+  if (body.newPassword !== body.confirmPassword) {
+    return res.status(400).json({
+      error: 'New Password dan Confirm Password tidak cocok'
+    })
+  }
+
+  if (body.newPassword.length < 6) {
+    return res.status(400).json({
+      error: 'Password minimal 6 karakter'
     })
   }
 
   try {
-    const existingUser = await User.findByPk(req.user.id)
+    const existingUser = await User.findOne({ where: { email: body.email.toLowerCase() } })
 
     if (!existingUser) {
       return res.status(404).json({
-        error: 'User tidak ditemukan'
+        error: 'Email tidak ditemukan'
       })
     }
 
-    const isMatch = bcrypt.compareSync(body.oldPassword, existingUser.password)
-    if (!isMatch) {
-      return res.status(403).json({
-        error: 'Old Password tidak sesuai'
-      })
-    }
-
-    existingUser.password = bcrypt.hashSync(body.password, 10)
+    existingUser.password = bcrypt.hashSync(body.newPassword, 10)
     await existingUser.save()
 
     return res.status(200).json({
-      message: 'Success Mereset Password User'
+      message: 'Password berhasil direset. Silakan login dengan password baru.'
     })
   } catch (error) {
     console.log('ERROR =>', error)
