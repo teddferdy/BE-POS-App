@@ -348,14 +348,13 @@ exports.registerNewUser = async (req, res, next) => {
         where: { roleType: 'user' }
       })
 
-      // Create new user in the database
-      const hashedPassword = bcrypt.hashSync(body?.password, 10)
+      // Create new user in the database (password auto-hashed by model hook)
       const createUser = await User.create({
         roleType: 'user', // Default role is user
         roleId: defaultRole?.id || null, // Assign default role ID
         userType: body.userType || 'user', // Use the provided userType, default to 'user'
         userName: body?.userName,
-        password: hashedPassword,
+        password: body?.password,
         email: body?.email,
         address: body.address,
         employeeID: employeeID, // Assign generated Employee ID
@@ -513,7 +512,7 @@ exports.resetPassword = async (req, res, next) => {
       })
     }
 
-    existingUser.password = bcrypt.hashSync(body.newPassword, 10)
+    existingUser.password = body.newPassword
     await existingUser.save()
 
     return res.status(200).json({
