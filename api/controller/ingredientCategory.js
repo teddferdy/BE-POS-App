@@ -18,7 +18,7 @@ const ingredientCategoryController = {
 
       const categories = await db.ingredientCategory.findAll({
         where,
-        order: [['name', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
 
       return res.status(200).json({
