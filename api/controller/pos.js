@@ -832,10 +832,10 @@ const posController = {
       ])
 
       const [lowStockProductCount] = await db.sequelize.query(
-        `SELECT COUNT(*)::int as count FROM "product" WHERE status = 'active' AND "minStock" > 0 AND "stock" <= "minStock"`,
+        `SELECT COUNT(*)::int as count FROM "product" WHERE status = 'active' AND "deletedAt" IS NULL AND "minStock" > 0 AND "stock" <= "minStock"`,
         { type: db.sequelize.QueryTypes.SELECT }
       )
-      let lowStockIngQuery = `SELECT COUNT(*)::int as count FROM "ingredient" WHERE status = 'active' AND "stock" <= "minStock"`
+      let lowStockIngQuery = `SELECT COUNT(*)::int as count FROM "ingredient" WHERE status = 'active' AND "deletedAt" IS NULL AND "stock" <= "minStock"`
       const ingReplacements = {}
       if (store) {
         lowStockIngQuery += ` AND store = :store`
