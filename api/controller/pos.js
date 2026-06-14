@@ -752,21 +752,60 @@ const posController = {
   async getDashboardSummary(req, res) {
     try {
       const { store } = req.cookies
-      const { startDate, endDate } = req.query
+      let { startDate, endDate, filter } = req.query
 
-      const orderWhere = { paymentStatus: 'paid' }
-      if (store) {
-        orderWhere.store = store
+      // Auto-compute date range based on filter preset
+      if (filter && !startDate && !endDate) {
+        const now = new Date()
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+        if (filter === 'daily') {
+          startDate = todayStart.toISOString()
+          endDate = new Date(todayStart.getTime() + 86400000 - 1).toISOString()
+        } else if (filter === 'monthly') {
+          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+          const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+          startDate = monthStart.toISOString()
+          endDate = monthEnd.toISOString()
+        } else {
+          // weekly — Mon to Sun of current week
+          const daysSinceMonday = (now.getDay() + 6) % 7
+          const monday = new Date(todayStart)
+          monday.setDate(todayStart.getDate() - daysSinceMonday)
+          startDate = monday.toISOString()
+          endDate = new Date(monday.getTime() + 7 * 86400000 - 1).toISOString()
+        }
       }
 
+      const orderWhere = { paymentStatus: 'paid' }
+      if (store) orderWhere.store = store
       if (startDate || endDate) {
         orderWhere.createdAt = {}
         if (startDate) orderWhere.createdAt[Op.gte] = new Date(startDate)
-        if (endDate)
-          orderWhere.createdAt[Op.lte] = new Date(endDate + 'T23:59:59')
+        if (endDate) orderWhere.createdAt[Op.lte] = new Date(endDate)
       }
 
       const productWhere = { status: 'active' }
+
+      // Determine chart grouping based on filter
+      let chartGroupBy, chartLimit
+      if (filter === 'daily') {
+        chartGroupBy = `DATE_TRUNC('hour', "createdAt")`
+        chartLimit = 24
+      } else if (filter === 'monthly') {
+        chartGroupBy = `DATE("createdAt")`
+        chartLimit = 31
+      } else {
+        chartGroupBy = `DATE("createdAt")`
+        chartLimit = 7
+      }
+
+      const chartReplacements = Object.assign(
+        {},
+        startDate && { startDate },
+        endDate && { endDate },
+        store && { store }
+      )
 
       const [
         totalSales,
@@ -783,24 +822,16 @@ const posController = {
         db.member.count(),
         db.sequelize.query(
           `
-          SELECT DATE("createdAt") as date, SUM("totalPrice") as sales
+          SELECT ${chartGroupBy} as date, SUM("totalPrice") as sales
           FROM "order"
           WHERE "paymentStatus" = 'paid'
-          ${startDate && endDate ? 'AND "createdAt" BETWEEN :startDate AND :endDate' : ''}
+          ${(startDate && endDate) ? 'AND "createdAt" >= :startDate AND "createdAt" <= :endDate' : ''}
           ${store ? 'AND "store" = :store' : ''}
-          GROUP BY DATE("createdAt")
-          ORDER BY date DESC
-          LIMIT 7
+          GROUP BY date
+          ORDER BY date ASC
+          LIMIT ${chartLimit}
         `,
-          {
-            replacements: Object.assign(
-              {},
-              startDate && { startDate },
-              endDate && { endDate },
-              store && { store }
-            ),
-            type: db.sequelize.QueryTypes.SELECT
-          }
+          { replacements: chartReplacements, type: db.sequelize.QueryTypes.SELECT }
         ),
         db.sequelize.query(
           `
@@ -818,7 +849,7 @@ const posController = {
           }
         ),
         db.order.findAll({
-          where: { ...(store ? { store } : {}) },
+          where: { ...(store ? { store } : {}), ...(startDate || endDate ? { createdAt: orderWhere.createdAt } : {}) },
           order: [['createdAt', 'DESC']],
           limit: 10,
           include: [
@@ -860,7 +891,8 @@ const posController = {
           salesChart: salesChart || [],
           bestSellers: bestSellers || [],
           recentOrders: recentOrders || [],
-          lowStock
+          lowStock,
+          filter: filter || 'weekly'
         }
       })
     } catch (error) {
@@ -1025,10 +1057,9 @@ const posController = {
       // Format items text - more compact
       const itemLines = (order.items || [])
         .map((i) => {
-          const line = `• ${i.productName || 'Item'}  ${i.quantity}x  Rp ${(i.totalPrice || 0).toLocaleString('id')}`
-          return encodeURIComponent(line)
+          return `• ${i.productName || 'Item'}  ${i.quantity}x  Rp ${(i.totalPrice || 0).toLocaleString('id')}`
         })
-        .join('%0A')
+        .join('\n')
 
       const date = new Date(order.createdAt).toLocaleString('id-ID', {
         weekday: 'long',
@@ -1039,31 +1070,32 @@ const posController = {
         minute: '2-digit'
       })
 
-      const tableInfo = order.table ? `Meja: ${order.table.name}%0A` : ''
-      const customerInfo = order.customerName ? `Pelanggan: ${order.customerName}%0A` : ''
+      const tableInfo = order.table ? `Meja: ${order.table.name}\n` : ''
+      const customerInfo = order.customerName ? `Pelanggan: ${order.customerName}\n` : ''
       const itemsSection = order.items?.length
-        ? `%0A━━━ *PESANAN* ━━━%0A${itemLines}`
+        ? `\n━━━ *PESANAN* ━━━\n${itemLines}`
         : ''
 
       const statusText = order.paymentStatus === 'paid' ? 'LUNAS ✅' : (order.paymentStatus || 'BELUM DIBAYAR')
 
-      const text = encodeURIComponent(
-        `╔══════════════════════╗%0A` +
-          `      *STRUK PEMBAYARAN*%0A` +
-          `╚══════════════════════╝%0A%0A` +
-          `No. Invoice: *${order.orderNumber || order.id}*%0A` +
-          `Tanggal: ${date}%0A` +
-          `${customerInfo}` +
-          `${tableInfo}` +
-          `Status: ${statusText}%0A` +
-          `${itemsSection}%0A%0A` +
-          `──────────────────────%0A` +
-          `*Total: Rp ${(order.totalPrice || 0).toLocaleString('id')}*%0A` +
-          `Pembayaran: ${order.paymentMethod || '-'}%0A` +
-          `──────────────────────%0A%0A` +
-          `📎 PDF Invoice: ${pdfUrl}%0A%0A` +
-          `Terima kasih telah berbelanja 🙏`
-      )
+      const rawText =
+        `╔══════════════════════╗\n` +
+        `      *STRUK PEMBAYARAN*\n` +
+        `╚══════════════════════╝\n\n` +
+        `No. Invoice: *${order.orderNumber || order.id}*\n` +
+        `Tanggal: ${date}\n` +
+        `${customerInfo}` +
+        `${tableInfo}` +
+        `Status: ${statusText}\n` +
+        `${itemsSection}\n\n` +
+        `──────────────────────\n` +
+        `*Total: Rp ${(order.totalPrice || 0).toLocaleString('id')}*\n` +
+        `Pembayaran: ${order.paymentMethod || '-'}\n` +
+        `──────────────────────\n\n` +
+        `📎 PDF Invoice: ${pdfUrl}\n\n` +
+        `Terima kasih telah berbelanja 🙏`
+
+      const text = encodeURIComponent(rawText)
 
       const cleanPhone = phone.replace(/[^0-9]/g, '')
       const waNumber = cleanPhone.startsWith('0')

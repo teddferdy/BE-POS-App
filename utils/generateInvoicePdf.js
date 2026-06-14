@@ -77,10 +77,12 @@ const generateInvoicePdf = (order, storeData, items) => {
   for (const item of items || []) {
     doc.fontSize(7).font('Helvetica')
     const name = item.productName || 'Item'
-    doc.text(name, leftMargin, doc.y, { width: col2 - leftMargin })
-    doc.text(String(item.quantity || 0), col2, doc.y - 10, { width: 30, align: 'center' })
-    doc.text(formatPrice(item.price || 0), col3 - 10, doc.y - 10, { width: 50, align: 'right' })
-    doc.text(formatPrice(item.totalPrice || 0), col4 - 50, doc.y - 10, { width: 50, align: 'right' })
+    const yStart = doc.y
+    doc.text(name, leftMargin, yStart, { width: col2 - leftMargin })
+    doc.text(String(item.quantity || 0), col2, yStart, { width: 30, align: 'center' })
+    doc.text(formatPrice(item.price || 0), col3 - 10, yStart, { width: 50, align: 'right' })
+    doc.text(formatPrice(item.totalPrice || 0), col4 - 50, yStart, { width: 50, align: 'right' })
+    doc.y = yStart + 12
     doc.moveDown(0.1)
   }
 
@@ -94,31 +96,29 @@ const generateInvoicePdf = (order, storeData, items) => {
   const valueX = col4 - 50
 
   doc.fontSize(8).font('Helvetica')
-  doc.text('Subtotal', labelX, doc.y, { width: totalWidth - 50 })
-  doc.text(formatPrice(order.subTotal || 0), valueX, doc.y - 10, { width: 50, align: 'right' })
-  doc.moveDown(0.1)
+  const writeRow = (label, value, bold) => {
+    const yPos = doc.y
+    doc.text(label, labelX, yPos, { width: totalWidth - 50 })
+    doc.text(value, valueX, yPos, { width: 50, align: 'right' })
+    doc.y = yPos + 12
+    doc.moveDown(0.1)
+  }
+  writeRow('Subtotal', formatPrice(order.subTotal || 0))
 
   if (order.discountAmount > 0) {
-    doc.text('Diskon', labelX, doc.y, { width: totalWidth - 50 })
-    doc.text('-' + formatPrice(order.discountAmount), valueX, doc.y - 10, { width: 50, align: 'right' })
-    doc.moveDown(0.1)
+    writeRow('Diskon', '-' + formatPrice(order.discountAmount))
   }
 
   if (order.serviceChargeAmount > 0) {
-    doc.text('Biaya Layanan', labelX, doc.y, { width: totalWidth - 50 })
-    doc.text(formatPrice(order.serviceChargeAmount), valueX, doc.y - 10, { width: 50, align: 'right' })
-    doc.moveDown(0.1)
+    writeRow('Biaya Layanan', formatPrice(order.serviceChargeAmount))
   }
 
   if (order.taxAmount > 0) {
-    doc.text('Pajak', labelX, doc.y, { width: totalWidth - 50 })
-    doc.text(formatPrice(order.taxAmount), valueX, doc.y - 10, { width: 50, align: 'right' })
-    doc.moveDown(0.1)
+    writeRow('Pajak', formatPrice(order.taxAmount))
   }
 
   doc.fontSize(10).font('Helvetica-Bold')
-  doc.text('TOTAL', labelX, doc.y, { width: totalWidth - 50 })
-  doc.text(formatPrice(order.totalPrice || 0), valueX, doc.y - 12, { width: 50, align: 'right' })
+  writeRow('TOTAL', formatPrice(order.totalPrice || 0))
   doc.moveDown(0.5)
 
   doc.fontSize(7).font('Helvetica')

@@ -246,18 +246,14 @@ exports.deleteMember = async (req, res) => {
 
 exports.editMemberById = async (req, res) => {
   const body = req.body
+  const memberId = Number(req.params.phoneNumber)
   try {
-    const getMember = await Member.findOne({
-      where: {
-        name: body.nameMember,
-        phoneNumber: body?.phoneNumber
-      }
-    })
+    const getMember = await Member.findByPk(memberId)
 
     if (getMember) {
-      const addedPoints = Number(body.point) || 0
-      const newTotal = getMember.totalPoints + addedPoints
-      const newLifetime = getMember.lifetimePoints + addedPoints
+      const addedPoints = Number(body.points) || 0
+      const newTotal = (getMember.totalPoints || 0) + addedPoints
+      const newLifetime = (getMember.lifetimePoints || 0) + addedPoints
 
       await getMember.update({
         totalPoints: newTotal,

@@ -161,6 +161,136 @@ exports.getProfitLoss = async (req, res) => {
   }
 }
 
+exports.getSalesSummary = async (req, res) => {
+  try {
+    const { store } = req.cookies
+    const { startDate, endDate, filter } = req.query
+
+    let dateRange = {}
+    if (filter === 'today') {
+      const now = new Date()
+      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      dateRange = { [Op.gte]: s, [Op.lte]: new Date(s.getTime() + 86400000 - 1) }
+    } else if (startDate && endDate) {
+      dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
+    }
+
+    const orderWhere = { paymentStatus: 'paid' }
+    if (store) orderWhere.store = store
+    if (dateRange[Op.gte]) orderWhere.createdAt = dateRange
+
+    const [totalSales, totalOrders, activeLocations, totalMembers] = await Promise.all([
+      Order.sum('totalPrice', { where: orderWhere }),
+      Order.count({ where: orderWhere }),
+      db.location.count({ where: { status: 'active', ...(store ? { id: store } : {}) } }),
+      db.member.count({ where: store ? { store } : {} })
+    ])
+
+    const totalSalesNum = Number(totalSales || 0)
+    const totalOrdersNum = Number(totalOrders || 0)
+    const avgTransaction = totalOrdersNum > 0 ? totalSalesNum / totalOrdersNum : 0
+
+    // Sales chart by date
+    const chartReplacements = { ...(store && { store }) }
+    let chartWhere = `WHERE "paymentStatus" = 'paid'`
+    if (store) chartWhere += ` AND "store" = :store`
+    if (dateRange[Op.gte]) {
+      chartWhere += ` AND "createdAt" >= :startDate AND "createdAt" <= :endDate`
+      chartReplacements.startDate = dateRange[Op.gte]
+      chartReplacements.endDate = dateRange[Op.lte]
+    }
+
+    const salesChart = await db.sequelize.query(
+      `SELECT DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
+       FROM "order" ${chartWhere}
+       GROUP BY DATE("createdAt")
+       ORDER BY date ASC`,
+      { replacements: chartReplacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+
+    // Store breakdown
+    const storeWhere = store ? { id: store } : {}
+    const locations = await db.location.findAll({
+      where: { ...storeWhere },
+      attributes: ['id', 'name', 'city']
+    })
+
+    const storePromises = locations.map(async (loc) => {
+      const locWhere = { paymentStatus: 'paid', store: loc.id }
+      if (dateRange[Op.gte]) locWhere.createdAt = dateRange
+      const [sales, ordersCount] = await Promise.all([
+        Order.sum('totalPrice', { where: locWhere }),
+        Order.count({ where: locWhere })
+      ])
+      return {
+        id: loc.id,
+        name: loc.name,
+        city: loc.city,
+        sales: Number(sales || 0),
+        transactions: Number(ordersCount || 0)
+      }
+    })
+    const stores = await Promise.all(storePromises)
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalSales: totalSalesNum,
+        totalOrders: totalOrdersNum,
+        avgTransaction: Math.round(avgTransaction),
+        totalCustomers: Number(totalMembers || 0),
+        totalStores: Number(activeLocations || 0),
+        salesChart: Array.isArray(salesChart) ? salesChart : [],
+        stores
+      }
+    })
+  } catch (err) {
+    console.error('Sales summary error:', err)
+    return res.status(500).json({ success: false, message: err.message })
+  }
+}
+
+exports.getBestSellerReport = async (req, res) => {
+  try {
+    const { store } = req.cookies
+    const { limit = 10 } = req.query
+
+    const where = store ? { store } : {}
+
+    const [bestSelling, productCount] = await Promise.all([
+      db.best_selling.findAll({
+        where,
+        order: [['totalSelling', 'DESC']],
+        limit: parseInt(limit),
+        attributes: ['productId', 'nameProduct', 'totalSelling', 'image']
+      }),
+      db.product.count({ where: { status: 'active', ...(store ? { store } : {}) } })
+    ])
+
+    const totalUnitsSold = bestSelling.reduce((s, p) => s + Number(p.totalSelling || 0), 0)
+    return res.status(200).json({
+      success: true,
+      data: {
+        bestSellers: bestSelling.map((p) => ({
+          id: p.productId,
+          name: p.nameProduct,
+          image: p.image,
+          sold: Number(p.totalSelling || 0),
+          revenue: 0
+        })),
+        summary: {
+          totalUnitsSold,
+          totalRevenue: 0,
+          activeProducts: Number(productCount || 0)
+        }
+      }
+    })
+  } catch (err) {
+    console.error('Best seller report error:', err)
+    return res.status(500).json({ success: false, message: err.message })
+  }
+}
+
 exports.getCashFlow = async (req, res) => {
   try {
     const { store, startDate, endDate } = req.query

@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const expense = sequelize.define(
     'expense',
     {
       id: {
@@ -59,4 +59,17 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'expense'
     }
   )
+
+  expense.associate = (models) => {
+    expense.belongsTo(models.expense_category, {
+      foreignKey: 'category',
+      as: 'categoryData'
+    })
+    expense.belongsTo(models.user, {
+      foreignKey: 'createdBy',
+      as: 'creator'
+    })
+  }
+
+  return expense
 }

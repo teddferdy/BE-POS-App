@@ -175,6 +175,13 @@ exports.editTypePaymentById = async (req, res) => {
   const body = req.body
   const store = body.store || req.user?.store
   try {
+    const existing = await TypePayment.findByPk(req.params.id)
+    if (existing?.isSystem) {
+      return res.status(403).json({
+        success: false,
+        message: 'Metode pembayaran sistem tidak dapat diedit'
+      })
+    }
     const getDuplicate = await TypePayment.findOne({
       where: {
         name: body.name,
@@ -238,6 +245,13 @@ exports.deleteTypePaymentById = async (req, res) => {
 
   try {
     const store = body.store || req.user?.store
+    const target = await TypePayment.findByPk(req.params.id)
+    if (target?.isSystem) {
+      return res.status(403).json({
+        success: false,
+        message: 'Metode pembayaran sistem tidak dapat dihapus'
+      })
+    }
     const getId = await TypePayment.destroy({
       where: {
         id: req.params.id,

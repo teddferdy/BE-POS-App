@@ -30,7 +30,7 @@ const expenseController = {
         limit = 50
       } = req.query
 
-      const where = { store }
+      const where = store ? { store } : {}
 
       if (category) where.category = category
       if (status) where.status = status
@@ -48,14 +48,14 @@ const expenseController = {
         where,
         include: [
           {
-            model: db.expenseCategory,
+            model: db.expense_category,
             as: 'categoryData',
             attributes: ['id', 'name', 'icon']
           },
           {
             model: db.user,
             as: 'creator',
-            attributes: ['id', 'name']
+            attributes: ['id', 'fullName']
           }
         ],
         order: [
@@ -66,7 +66,7 @@ const expenseController = {
         offset
       })
 
-      const totalAmount = await db.expense.sum('amount', { where: { store } })
+      const totalAmount = await db.expense.sum('amount', { where })
 
       return res.status(200).json({
         success: true,
@@ -97,18 +97,21 @@ const expenseController = {
       const { id } = req.params
       const store = getStore(req)
 
+      const where = { id }
+      if (store) where.store = store
+
       const expense = await db.expense.findOne({
-        where: { id, store },
+        where,
         include: [
           {
-            model: db.expenseCategory,
+            model: db.expense_category,
             as: 'categoryData',
             attributes: ['id', 'name', 'icon']
           },
           {
             model: db.user,
             as: 'creator',
-            attributes: ['id', 'name']
+            attributes: ['id', 'fullName']
           }
         ]
       })
@@ -183,7 +186,7 @@ const expenseController = {
         where: { id: expense.id },
         include: [
           {
-            model: db.expenseCategory,
+            model: db.expense_category,
             as: 'categoryData',
             attributes: ['id', 'name']
           }
@@ -220,9 +223,10 @@ const expenseController = {
       } = req.body
       const modifiedBy = req.user?.id || null
 
-      const expense = await db.expense.findOne({
-        where: { id, store }
-      })
+      const where = { id }
+      if (store) where.store = store
+
+      const expense = await db.expense.findOne({ where })
 
       if (!expense) {
         return res.status(404).json({
@@ -265,9 +269,10 @@ const expenseController = {
       const { id } = req.params
       const store = getStore(req)
 
-      const expense = await db.expense.findOne({
-        where: { id, store }
-      })
+      const where = { id }
+      if (store) where.store = store
+
+      const expense = await db.expense.findOne({ where })
 
       if (!expense) {
         return res.status(404).json({
@@ -298,9 +303,10 @@ const expenseController = {
       const { id } = req.params
       const store = getStore(req)
 
-      const expense = await db.expense.findOne({
-        where: { id, store }
-      })
+      const where = { id }
+      if (store) where.store = store
+
+      const expense = await db.expense.findOne({ where })
 
       if (!expense) {
         return res.status(404).json({
@@ -331,9 +337,10 @@ const expenseController = {
       const { id } = req.params
       const store = getStore(req)
 
-      const expense = await db.expense.findOne({
-        where: { id, store }
-      })
+      const where = { id }
+      if (store) where.store = store
+
+      const expense = await db.expense.findOne({ where })
 
       if (!expense) {
         return res.status(404).json({
@@ -364,7 +371,7 @@ const expenseController = {
       const store = getStore(req)
       const { startDate, endDate } = req.query
 
-      const where = { store, status: 'approved' }
+      const where = store ? { store, status: 'approved' } : { status: 'approved' }
 
       if (startDate || endDate) {
         where.date = {}
@@ -382,7 +389,7 @@ const expenseController = {
         ],
         include: [
           {
-            model: db.expenseCategory,
+            model: db.expense_category,
             as: 'categoryData',
             attributes: ['id', 'name', 'icon']
           }

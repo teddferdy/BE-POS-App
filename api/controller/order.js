@@ -394,7 +394,7 @@ exports.createOrder = async (req, res) => {
           quantityAfter: newStock >= 0 ? newStock : 0,
           unit: product.unit || 'pcs',
           notes: `Penjualan: ${orderNumber}`,
-          createdBy: cashierId
+      createdBy: cashierId
         })
 
         // Update best_selling
@@ -471,24 +471,34 @@ exports.createOrder = async (req, res) => {
 }
 
 exports.getOrdersByStore = async (req, res) => {
-  const { store, status, date, table } = req.query
+  const { store, status, date, table, startDate, endDate, page, limit } = req.query
 
   try {
-    const where = { store }
-    if (status) {
-      where.status = status
-    }
+    const where = {}
+    if (store) where.store = store
+    if (status) where.status = status
+    if (req.query.paymentStatus) where.paymentStatus = req.query.paymentStatus
     if (date) {
       where.createdAt = {
         [require('sequelize').Op.gte]: new Date(date + ' 00:00:00'),
         [require('sequelize').Op.lte]: new Date(date + ' 23:59:59')
       }
     }
+    if (startDate && endDate) {
+      where.createdAt = {
+        [require('sequelize').Op.gte]: new Date(startDate + ' 00:00:00'),
+        [require('sequelize').Op.lte]: new Date(endDate + ' 23:59:59')
+      }
+    }
     if (table) {
       where.tableId = table
     }
 
-    const orders = await Order.findAll({
+    const pageNum = parseInt(page) || 1
+    const limitNum = parseInt(limit) || 50
+    const offset = (pageNum - 1) * limitNum
+
+    const { count: total, rows: orders } = await Order.findAndCountAll({
       where,
       include: [
         {
@@ -496,12 +506,20 @@ exports.getOrdersByStore = async (req, res) => {
           as: 'items'
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      limit: limitNum,
+      offset
     })
 
     return res.status(200).json({
       message: 'Success',
-      data: orders
+      data: orders,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum)
+      }
     })
   } catch (error) {
     console.error('Error:', error)
