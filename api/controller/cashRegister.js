@@ -38,10 +38,12 @@ const cashRegisterController = {
         openedAt: new Date()
       })
 
+      const location = await db.location.findByPk(store, { attributes: ['id', 'name', 'address', 'city'] })
+
       return res.status(201).json({
         success: true,
         message: 'Cash register opened',
-        data: cashRegister
+        data: { ...cashRegister.toJSON(), storeData: location }
       })
     } catch (error) {
       console.log(error)
@@ -67,7 +69,10 @@ const cashRegisterController = {
 
       const cashRegister = await db.cashRegister.findOne({
         where: { id, store, status: 'open' },
-        include: [{ model: db.user, as: 'userData', attributes: ['id', 'fullName'] }]
+        include: [
+          { model: db.user, as: 'userData', attributes: ['id', 'fullName'] },
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
+        ]
       })
 
       if (!cashRegister) {
@@ -172,6 +177,11 @@ const cashRegisterController = {
             model: db.user,
             as: 'userData',
             attributes: ['id', 'fullName']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name', 'address', 'city']
           }
         ]
       })
@@ -198,13 +208,28 @@ const cashRegisterController = {
 
       const totalSales = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0)
 
+      const expenses = await db.expense.findAll({
+        where: {
+          store,
+          createdBy: userId,
+          date: { [Op.gte]: cashRegister.openedAt },
+          status: 'approved'
+        },
+        attributes: ['id', 'amount', 'description', 'date']
+      })
+
+      const totalExpenses = expenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+
       return res.status(200).json({
         success: true,
         message: 'Success get current register',
         data: {
           register: cashRegister,
           currentSales: totalSales,
-          totalTransactions: orders.length
+          totalExpenses,
+          expenses,
+          totalTransactions: orders.length,
+          expectedCash: cashRegister.openingBalance + totalSales - totalExpenses
         }
       })
     } catch (error) {
@@ -245,6 +270,11 @@ const cashRegisterController = {
             model: db.user,
             as: 'userData',
             attributes: ['id', 'fullName']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name', 'address', 'city']
           }
         ],
         order: [['openedAt', 'DESC']],

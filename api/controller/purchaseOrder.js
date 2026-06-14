@@ -180,6 +180,13 @@ const purchaseOrderController = {
         })
       }
 
+      if (!dueDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tanggal jatuh tempo wajib diisi'
+        })
+      }
+
       const orderNumber = generateOrderNumber('PO')
 
       const totalAmount = items.reduce((sum, item) => {
@@ -200,7 +207,7 @@ const purchaseOrderController = {
         notes,
         createdBy,
         pic,
-        dueDate: dueDate || null
+        dueDate
       })
 
       const orderItems = items.map((item) => ({
@@ -276,7 +283,14 @@ const purchaseOrderController = {
       ) {
         return res.status(400).json({
           success: false,
-          message: 'Cannot update received or cancelled order'
+          message: 'Cannot update received or cancelled purchase order'
+        })
+      }
+
+      if (dueDate !== undefined && !dueDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tanggal jatuh tempo wajib diisi'
         })
       }
 
@@ -391,7 +405,7 @@ const purchaseOrderController = {
                 const quantityBefore = product.stock
                 const quantityChange = item.receivedQuantity
 
-                await db.stockHistory.create(
+                await db.stock_history.create(
                   {
                     store,
                     product: item.product,
@@ -423,7 +437,7 @@ const purchaseOrderController = {
 
               if (ingredient) {
                 const quantityBefore = ingredient.stock
-                await db.stockHistory.create(
+                await db.stock_history.create(
                   {
                     store,
                     ingredientName: ingredient.name,

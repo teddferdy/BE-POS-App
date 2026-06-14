@@ -2,6 +2,9 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
+const getStore = (req) =>
+  req.body.storeId || req.body.store || req.query.store || req.cookies.store || req.cookies.activeStore || req.user?.store
+
 const generateExpenseNumber = () => {
   const date = new Date()
   const year = date.getFullYear()
@@ -16,7 +19,7 @@ const generateExpenseNumber = () => {
 const expenseController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const store = getStore(req)
       const {
         category,
         status,
@@ -92,7 +95,7 @@ const expenseController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = getStore(req)
 
       const expense = await db.expense.findOne({
         where: { id, store },
@@ -133,7 +136,7 @@ const expenseController = {
 
   async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = getStore(req)
       const {
         category,
         description,
@@ -164,7 +167,7 @@ const expenseController = {
         paymentMethod: paymentMethod || 'cash',
         notes,
         receipt,
-        status: 'approved',
+        status: 'pending',
         createdBy
       })
 
@@ -204,7 +207,7 @@ const expenseController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = getStore(req)
       const {
         category,
         description,
@@ -260,7 +263,7 @@ const expenseController = {
   async approve(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = getStore(req)
 
       const expense = await db.expense.findOne({
         where: { id, store }
@@ -293,7 +296,7 @@ const expenseController = {
   async reject(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = getStore(req)
 
       const expense = await db.expense.findOne({
         where: { id, store }
@@ -326,7 +329,7 @@ const expenseController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = getStore(req)
 
       const expense = await db.expense.findOne({
         where: { id, store }
@@ -358,7 +361,7 @@ const expenseController = {
 
   async getSummary(req, res) {
     try {
-      const { store } = req.cookies
+      const store = getStore(req)
       const { startDate, endDate } = req.query
 
       const where = { store, status: 'approved' }

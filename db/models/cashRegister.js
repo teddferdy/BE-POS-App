@@ -76,6 +76,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'user',
       as: 'userData'
     })
+    cashRegister.belongsTo(models.location, {
+      foreignKey: 'store',
+      as: 'storeData'
+    })
   }
 
   return cashRegister

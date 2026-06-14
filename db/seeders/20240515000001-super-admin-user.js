@@ -24,7 +24,10 @@ module.exports = {
     )
 
     if (existingUser.length > 0) {
-      console.log('Super Admin user already exists.')
+      await queryInterface.sequelize.query(
+        `UPDATE "user" SET "fullName" = 'Super Admin' WHERE "roleType" = 'super_admin' AND ("fullName" IS NULL OR "fullName" = '');`
+      )
+      console.log('Super Admin user already exists. Full name updated.')
       return
     }
 
@@ -32,6 +35,7 @@ module.exports = {
 
     const superAdminUser = {
       userName: 'super_admin',
+      fullName: 'Super Admin',
       password: hashedPassword,
       email: 'superadmin@posapp.com',
       roleType: 'super_admin',

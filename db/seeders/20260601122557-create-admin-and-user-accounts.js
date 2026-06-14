@@ -6,12 +6,12 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     // Get role IDs
     const roles = await queryInterface.sequelize.query(
-      `SELECT id, "roleType" FROM role WHERE "roleType" IN ('admin', 'cashier', 'user');`,
+      `SELECT id, "roleType" FROM role WHERE "roleType" IN ('admin', 'kasir', 'user');`,
       { type: Sequelize.QueryTypes.SELECT }
     )
 
     const adminRoleId = roles.find(r => r.roleType === 'admin')?.id
-    const cashierRoleId = roles.find(r => r.roleType === 'cashier')?.id
+    const kasirRoleId = roles.find(r => r.roleType === 'kasir')?.id
     const userRoleId = roles.find(r => r.roleType === 'user')?.id
 
     if (!adminRoleId || !userRoleId) {
@@ -34,6 +34,7 @@ module.exports = {
       const hashedPassword = await bcrypt.hash('admin123', 10)
       users.push({
         userName: 'admin',
+        fullName: 'Admin',
         password: hashedPassword,
         email: 'admin@posapp.com',
         roleType: 'admin',
@@ -46,16 +47,17 @@ module.exports = {
       })
     }
 
-    // Kasir Utama (cashier role - can access cashier, products, members)
+    // Kasir Utama (kasir role - can access cashier, products, members)
     if (!existingUsernames.includes('kasir_utama')) {
       const hashedPassword = await bcrypt.hash('kasir123', 10)
       users.push({
         userName: 'kasir_utama',
+        fullName: 'Kasir Utama',
         password: hashedPassword,
         email: 'kasir@posapp.com',
-        roleType: cashierRoleId ? 'cashier' : 'user',
-        roleId: cashierRoleId || userRoleId,
-        userType: cashierRoleId ? 'cashier' : 'user',
+        roleType: kasirRoleId ? 'kasir' : 'user',
+        roleId: kasirRoleId || userRoleId,
+        userType: kasirRoleId ? 'kasir' : 'user',
         statusEmployee: true,
         statusActive: true,
         createdAt: new Date(),
@@ -68,6 +70,7 @@ module.exports = {
       const hashedPassword = await bcrypt.hash('staff123', 10)
       users.push({
         userName: 'staff_gudang',
+        fullName: 'Staff Gudang',
         password: hashedPassword,
         email: 'staff@posapp.com',
         roleType: 'user',
@@ -87,7 +90,16 @@ module.exports = {
         console.log(`Username: ${u.userName}, Password: ${u.roleType === 'admin' ? 'admin123' : u.userName === 'kasir_utama' ? 'kasir123' : 'staff123'}`)
       })
     } else {
-      console.log('All user accounts already exist')
+      await queryInterface.sequelize.query(
+        `UPDATE "user" SET "fullName" = CASE "userName"
+          WHEN 'admin' THEN 'Admin'
+          WHEN 'kasir_utama' THEN 'Kasir Utama'
+          WHEN 'staff_gudang' THEN 'Staff Gudang'
+        END
+        WHERE "userName" IN ('admin', 'kasir_utama', 'staff_gudang')
+        AND ("fullName" IS NULL OR "fullName" = '');`
+      )
+      console.log('All user accounts already exist. Full names updated.')
     }
   },
 

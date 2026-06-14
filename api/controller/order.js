@@ -150,12 +150,14 @@ exports.createOrder = async (req, res) => {
     cashierName,
     items,
     discountId,
+    discountAmount,
     promoCode,
     customerId,
     customerName,
     customerPhone,
     notes,
     source,
+    paymentMethod,
     currencyId,
     currencyCode,
     exchangeRate
@@ -313,6 +315,19 @@ exports.createOrder = async (req, res) => {
       }
     }
 
+    // Stock validation
+    for (const item of items) {
+      const prod = await Product.findByPk(item.product || item.productId)
+      if (!prod) {
+        return res.status(400).json({ message: `Product not found: ${item.productName || item.product || item.productId}` })
+      }
+      if (prod.stock !== null && Number(prod.stock) < Number(item.quantity)) {
+        return res.status(400).json({
+          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${prod.stock}, diminta: ${item.quantity}`
+        })
+      }
+    }
+
     const order = await Order.create({
       orderNumber,
       store,
@@ -323,8 +338,10 @@ exports.createOrder = async (req, res) => {
       customerName,
       customerPhone,
       notes,
+      paymentMethod,
       source: source || 'pos',
-      status: 'pending',
+      status: 'paid',
+      paymentStatus: 'paid',
       subTotal: totals.subTotal,
       totalQuantity: totals.totalQuantity,
       discountType,
@@ -342,6 +359,8 @@ exports.createOrder = async (req, res) => {
     })
 
     for (const item of items) {
+      const product = await Product.findByPk(item.product || item.productId)
+      const costPrice = product ? Number(product.costPrice || product.price || 0) : 0
       await OrderItem.create({
         order: order.id,
         product: item.product || item.productId,
@@ -352,33 +371,84 @@ exports.createOrder = async (req, res) => {
         modifiers: item.modifiers || [],
         notes: item.notes,
         totalPrice: item.subtotal || item.totalPrice,
+        hppSnapshot: costPrice,
         status: 'pending'
+      })
+    }
+
+    // Reduce stock & create stock history
+    for (const item of items) {
+      const product = await Product.findByPk(item.product || item.productId)
+      if (product) {
+        const oldStock = Number(product.stock) || 0
+        const newStock = oldStock - Number(item.quantity)
+        await product.update({ stock: newStock >= 0 ? newStock : 0 })
+
+        await db.stock_history.create({
+          product: product.id,
+          store,
+          referenceType: 'sale',
+          referenceId: order.id,
+          quantityBefore: oldStock,
+          quantityChange: -Number(item.quantity),
+          quantityAfter: newStock >= 0 ? newStock : 0,
+          unit: product.unit || 'pcs',
+          notes: `Penjualan: ${orderNumber}`,
+          createdBy: cashierId
+        })
+
+        // Update best_selling
+        const findBs = await db.best_selling.findOne({
+          where: { productId: product.id, nameProduct: item.productName, store }
+        })
+        if (findBs) {
+          await db.best_selling.update(
+            { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
+            { where: { productId: product.id, nameProduct: item.productName } }
+          )
+        } else {
+          await db.best_selling.create({
+            productId: product.id,
+            nameProduct: item.productName,
+            image: product.image || null,
+            totalSelling: Number(item.quantity),
+            store
+          })
+        }
+      }
+    }
+
+    // Create transaction record
+    if (paymentMethod) {
+      await db.transaction.create({
+        order: order.id,
+        typePayment: paymentMethod,
+        amount: totals.totalPrice,
+        createdBy: cashierId
       })
     }
 
     await OrderStatus.create({
       order: order.id,
-      status: 'pending',
+      status: 'paid',
       createdBy: cashierId,
-      notes: `Created by ${cashierName}`
+      notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
     })
 
     const fullOrder = await Order.findOne({
       where: { id: order.id },
       include: [
-        {
-          model: OrderItem,
-          as: 'items'
-        }
+        { model: OrderItem, as: 'items' },
+        { model: db.transaction, as: 'transactions' }
       ]
     })
 
     createNotification({
-      type: 'order_created',
+      type: 'payment_received',
       store,
       referenceId: order.id,
       referenceType: 'order',
-      params: [orderNumber]
+      params: [orderNumber, totals.totalPrice]
     }).catch(console.error)
     createAudit(
       req,
@@ -401,7 +471,7 @@ exports.createOrder = async (req, res) => {
 }
 
 exports.getOrdersByStore = async (req, res) => {
-  const { store, status, date } = req.query
+  const { store, status, date, table } = req.query
 
   try {
     const where = { store }
@@ -413,6 +483,9 @@ exports.getOrdersByStore = async (req, res) => {
         [require('sequelize').Op.gte]: new Date(date + ' 00:00:00'),
         [require('sequelize').Op.lte]: new Date(date + ' 23:59:59')
       }
+    }
+    if (table) {
+      where.tableId = table
     }
 
     const orders = await Order.findAll({
@@ -481,6 +554,8 @@ exports.updateOrderStatus = async (req, res) => {
       })
     }
 
+    const oldStatus = order.status
+
     await order.update({ status })
 
     await OrderStatus.create({
@@ -489,6 +564,51 @@ exports.updateOrderStatus = async (req, res) => {
       createdBy: changedBy,
       notes: notes || (changedByName ? `By ${changedByName}` : null)
     })
+
+    // If transitioning from pending/unpaid to paid, reduce stock
+    if (status === 'paid' && oldStatus !== 'paid') {
+      const items = await OrderItem.findAll({ where: { order: id } })
+
+      for (const item of items) {
+        const product = await Product.findByPk(item.product)
+        if (product) {
+          const oldStock = Number(product.stock) || 0
+          const newStock = Math.max(0, oldStock - Number(item.quantity))
+          await product.update({ stock: newStock })
+
+          await db.stock_history.create({
+            product: product.id,
+            store,
+            referenceType: 'sale',
+            referenceId: order.id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(item.quantity),
+            quantityAfter: newStock,
+            unit: product.unit || 'pcs',
+            notes: `Penjualan: ${order.orderNumber}`,
+            createdBy: changedBy
+          })
+
+          const findBs = await db.best_selling.findOne({
+            where: { productId: product.id, nameProduct: item.productName, store }
+          })
+          if (findBs) {
+            await db.best_selling.update(
+              { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
+              { where: { productId: product.id, nameProduct: item.productName } }
+            )
+          } else {
+            await db.best_selling.create({
+              productId: product.id,
+              nameProduct: item.productName,
+              image: product.image || null,
+              totalSelling: Number(item.quantity),
+              store
+            })
+          }
+        }
+      }
+    }
 
     if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
       await Table.update(
@@ -612,18 +732,21 @@ exports.getCustomerMenu = async (req, res) => {
     }
 
     const products = await db.product.findAll({
-      where: { store, status: 'active' },
+      where: {
+        store: { [require('sequelize').Op.contains]: [Number(store)] },
+        status: 'active'
+      },
       include: [
         { model: db.category, as: 'categoryData', attributes: ['name'] }
       ],
       order: [
         ['categoryData', 'name', 'ASC'],
-        ['name', 'ASC']
+        ['nameProduct', 'ASC']
       ]
     })
 
     const categories = await db.category.findAll({
-      where: { store, status: 'active' },
+      where: { store: Number(store), status: 'active' },
       order: [['name', 'ASC']]
     })
 
@@ -659,20 +782,24 @@ exports.createCustomerOrder = async (req, res) => {
 
     let subTotal = 0
     let totalQuantity = 0
-    const orderItems = items.map((item) => {
+    const orderItems = []
+    for (const item of items) {
       const subtotal = item.price * item.quantity
       subTotal += subtotal
       totalQuantity += item.quantity
-      return {
+      const prod = item.productId ? await db.product.findByPk(item.productId) : null
+      const costPrice = prod ? Number(prod.costPrice || prod.price || 0) : 0
+      orderItems.push({
         product: item.productId,
         productName: item.productName,
         quantity: item.quantity,
         price: item.price,
         totalPrice: subtotal,
+        hppSnapshot: costPrice,
         notes: item.notes || null,
         status: 'pending'
-      }
-    })
+      })
+    }
 
     const order = await db.order.create({
       orderNumber,
@@ -707,5 +834,155 @@ exports.createCustomerOrder = async (req, res) => {
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ error: 'Internal Server Error' })
+  }
+}
+
+exports.getReceiptHTML = async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const order = await db.order.findByPk(id, {
+      include: [
+        { model: db.order_item, as: 'items' },
+        { model: db.table, as: 'table' }
+      ]
+    })
+
+    if (!order) {
+      return res.status(404).send('<h1>Order not found</h1>')
+    }
+
+    const storeData = order.store
+      ? await db.location.findByPk(order.store, {
+          attributes: ['name', 'address', 'phoneNumber']
+        })
+      : null
+
+    const setting = order.store
+      ? await db.invoice_setting.findOne({ where: { store: order.store } })
+      : null
+
+    const showLogo = setting?.showLogo !== false
+    const showStoreName = setting?.showStoreName !== false
+    const showAddress = setting?.showAddress !== false
+    const logoUrl = setting?.logo || null
+
+    const formatPrice = (v) =>
+      'Rp' + Number(v || 0).toLocaleString('id-ID')
+
+    const date = new Date(order.createdAt).toLocaleString('id-ID', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+
+    const itemsHtml = (order.items || [])
+      .map(
+        (item, i) => `
+      <tr>
+        <td style="padding:6px 4px;border-bottom:1px dashed #ccc">${i + 1}. ${item.productName || '-'}</td>
+        <td style="text-align:center;padding:6px 4px;border-bottom:1px dashed #ccc">${item.quantity}</td>
+        <td style="text-align:right;padding:6px 4px;border-bottom:1px dashed #ccc">${formatPrice(item.price)}</td>
+        <td style="text-align:right;padding:6px 4px;border-bottom:1px dashed #ccc">${formatPrice(item.totalPrice)}</td>
+      </tr>`
+      )
+      .join('')
+
+    const STATUS_LABELS = {
+      paid: 'LUNAS',
+      unpaid: 'BELUM DIBAYAR',
+      partial: 'DP'
+    }
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice - ${order.orderNumber}</title>
+  <style>
+    body { font-family: 'Courier New', monospace; font-size: 13px; margin: 0; padding: 20px; color: #000; }
+    .receipt { max-width: 380px; margin: 0 auto; }
+    .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 12px; }
+    .header h2 { margin: 4px 0; text-transform: uppercase; font-size: 16px; }
+    .header p { margin: 2px 0; font-size: 11px; color: #555; }
+    .info { border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; font-size: 11px; }
+    .info div { display: flex; justify-content: space-between; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #000; padding: 4px; }
+    th.right { text-align: right; }
+    th.center { text-align: center; }
+    .totals { border-top: 1px dashed #000; padding-top: 8px; margin-top: 4px; font-size: 12px; }
+    .totals > div { display: flex; justify-content: space-between; padding: 2px 0; }
+    .totals .grand-total { font-weight: bold; font-size: 15px; border-top: 1px solid #000; padding-top: 6px; margin-top: 6px; }
+    .footer { text-align: center; margin-top: 16px; font-size: 11px; color: #888; border-top: 1px dashed #ccc; padding-top: 12px; }
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; }
+    .status-paid { background: #d4edda; color: #155724; }
+    .status-unpaid { background: #fff3cd; color: #856404; }
+    @media print { body { padding: 0; } .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    <div class="header">
+      ${showLogo && logoUrl ? `<img src="${logoUrl}" style="max-height:50px;margin-bottom:6px" />` : ''}
+      ${showStoreName ? `<h2>${storeData?.name || 'TOKO'}</h2>` : ''}
+      ${showAddress && storeData ? `<p>${[storeData.address, storeData.phoneNumber].filter(Boolean).join(' | ')}</p>` : ''}
+    </div>
+
+    <div class="info">
+      <div><span>Invoice</span><strong>${order.orderNumber}</strong></div>
+      <div><span>Tanggal</span><span>${date}</span></div>
+      <div><span>Kasir</span><span>${order.cashierName || '-'}</span></div>
+      ${order.customerName ? `<div><span>Pelanggan</span><span>${order.customerName}</span></div>` : ''}
+      ${order.table?.name ? `<div><span>Meja</span><span>${order.table.name}</span></div>` : ''}
+      <div style="margin-top:4px">
+        <span class="status-badge ${order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid'}">
+          ${STATUS_LABELS[order.paymentStatus] || order.paymentStatus || 'BELUM DIBAYAR'}
+        </span>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th><th class="center">Qty</th><th class="right">Harga</th><th class="right">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml}
+      </tbody>
+    </table>
+
+    <div class="totals">
+      <div><span>Subtotal</span><span>${formatPrice(order.subTotal)}</span></div>
+      ${order.discountAmount > 0 ? `<div><span>Diskon</span><span style="color:#c00">-${formatPrice(order.discountAmount)}</span></div>` : ''}
+      ${order.serviceChargeAmount > 0 ? `<div><span>Biaya Layanan</span><span>${formatPrice(order.serviceChargeAmount)}</span></div>` : ''}
+      ${order.taxAmount > 0 ? `<div><span>Pajak</span><span>${formatPrice(order.taxAmount)}</span></div>` : ''}
+      <div class="grand-total"><span>TOTAL</span><span>${formatPrice(order.totalPrice)}</span></div>
+      <div><span>${order.paymentMethod || '-'}</span><span>${formatPrice(order.totalPrice)}</span></div>
+    </div>
+
+    <div class="footer">
+      Terima kasih atas kunjungan Anda
+    </div>
+
+    <div class="no-print" style="text-align:center;margin-top:20px">
+      <button onclick="window.print()" style="padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #ccc;border-radius:6px;background:#fff">
+        Cetak / Simpan PDF
+      </button>
+      <p style="font-size:11px;color:#999;margin-top:6px">Tekan tombol di atas, lalu pilih "Save as PDF"</p>
+    </div>
+  </div>
+</body>
+</html>`
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    return res.status(200).send(html)
+  } catch (error) {
+    console.error('Error generating receipt:', error)
+    return res.status(500).send('<h1>Internal Server Error</h1>')
   }
 }

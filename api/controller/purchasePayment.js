@@ -93,6 +93,26 @@ const purchasePaymentController = {
         })
       }
 
+      // Over-payment guard
+      const po = await db.purchase_order.findByPk(purchaseOrder)
+      if (!po) {
+        return res.status(404).json({
+          success: false,
+          message: 'Purchase order not found'
+        })
+      }
+
+      const existingPayments = await db.purchase_payment.sum('amount', {
+        where: { purchaseOrder, deletedAt: null }
+      })
+      const totalPaid = existingPayments || 0
+      if (totalPaid + Number(amount) > Number(po.finalAmount)) {
+        return res.status(400).json({
+          success: false,
+          message: `Over-payment not allowed. Total paid: ${totalPaid}, remaining: ${Number(po.finalAmount) - totalPaid}, attempting to pay: ${amount}`
+        })
+      }
+
       const payment = await db.purchase_payment.create({
         store: store || null,
         purchaseOrder,
@@ -112,6 +132,12 @@ const purchasePaymentController = {
         payment.id,
         'Recorded payment: ' + payment.id + ' for PO: ' + purchaseOrder
       )
+
+      // Auto-update PO status to 'received' if fully paid
+      const newTotalPaid = totalPaid + Number(amount)
+      if (newTotalPaid >= Number(po.finalAmount) && po.status !== 'received') {
+        await po.update({ status: 'received' })
+      }
 
       return res.status(201).json({
         success: true,

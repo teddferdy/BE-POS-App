@@ -1,6 +1,6 @@
 const db = require('../../db/models')
 const BestSelling = db.best_selling
-const Checkout = db.checkout
+const Order = db.order
 const { Op, Sequelize } = require('sequelize')
 const moment = require('moment')
 const sequelize = require('../../config/database')
@@ -13,18 +13,18 @@ exports.chartDataByYear = async (req, res) => {
     const replacements = { year }
     let storeCondition = ''
     if (store) {
-      storeCondition = 'AND co."store" = :store'
+      storeCondition = 'AND o."store" = :store'
       replacements.store = store
     }
     const [result] = await sequelize.query(`
         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month, 
-          coalesce(sum(co."totalPrice"), 0) as "totalAmount",
-          coalesce(COUNT(co."dateCheckout"), 0) AS "countCheckout"
+          coalesce(sum(o."totalPrice"), 0) as "totalAmount",
+          coalesce(COUNT(o.id), 0) AS "countCheckout"
         FROM generate_series(
           (DATE :year || '-01-01'), 
           (DATE :year || '-12-31'), 
           '1 month') AS months(month)
-        LEFT JOIN checkout co ON date_trunc('month', co."dateCheckout") = months.month
+        LEFT JOIN "order" o ON date_trunc('month', o."createdAt") = months.month AND o."paymentStatus" = 'paid'
         ${storeCondition}
         GROUP BY months.month
         ORDER BY months.month ASC
@@ -85,7 +85,8 @@ exports.chartDataByMonth = async (req, res) => {
 
   try {
     const whereClause = {
-      dateCheckout: {
+      paymentStatus: 'paid',
+      createdAt: {
         [Op.gte]: moment().subtract(numberLastDate, 'days').toDate()
       }
     }
@@ -94,10 +95,10 @@ exports.chartDataByMonth = async (req, res) => {
       whereClause.store = store
     }
 
-    const datas = await Checkout.findAll({
+    const datas = await Order.findAll({
       where: whereClause,
       attributes: [
-        [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
+        [Sequelize.literal(`DATE("createdAt")`), 'date'],
         [Sequelize.literal(`COUNT(*)`), 'count']
       ],
       raw: true,
@@ -143,14 +144,15 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res) => {
   }
 
   try {
-    const datas = await Checkout.findAll({
+    const datas = await Order.findAll({
       where: {
-        dateCheckout: {
+        paymentStatus: 'paid',
+        createdAt: {
           [Op.gte]: moment().subtract(7, 'days').toDate()
         }
       },
       attributes: [
-        [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
+        [Sequelize.literal(`DATE("createdAt")`), 'date'],
         [Sequelize.literal(`COUNT(*)`), 'count']
       ],
       raw: true,
@@ -196,14 +198,15 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res) => {
   }
 
   try {
-    const datas = await Checkout.findAll({
+    const datas = await Order.findAll({
       where: {
-        dateCheckout: {
+        paymentStatus: 'paid',
+        createdAt: {
           [Op.gte]: moment().subtract(2, 'days').toDate()
         }
       },
       attributes: [
-        [Sequelize.literal(`DATE("dateCheckout")`), 'date'],
+        [Sequelize.literal(`DATE("createdAt")`), 'date'],
         [Sequelize.literal(`COUNT(*)`), 'count']
       ],
       raw: true,
@@ -241,7 +244,8 @@ exports.getEarningToday = async (req, res) => {
 
   try {
     const whereClause = {
-      dateCheckout: {
+      paymentStatus: 'paid',
+      createdAt: {
         [Op.gt]: NOW
       }
     }
@@ -250,7 +254,7 @@ exports.getEarningToday = async (req, res) => {
       whereClause.store = store
     }
 
-    const datas = await Checkout.findAll({
+    const datas = await Order.findAll({
       where: whereClause
     }).then((res) => {
       return res.map((items) => {

@@ -401,9 +401,10 @@ const productionOrderController = {
       }
 
       // Get BOM components from BOM table first, fallback to product.composition
+      const prodData = order.productData
       let bomComponents = []
       const bomHeader = await db.bom_header.findOne({
-        where: { productId: product.id },
+        where: { productId: prodData.id },
         include: [{ model: db.bom_line, as: 'lines' }]
       })
       if (bomHeader?.lines?.length) {
@@ -412,8 +413,8 @@ const productionOrderController = {
           qty: l.qty,
           unit: l.unit
         }))
-      } else if (product.composition?.length) {
-        bomComponents = product.composition
+      } else if (prodData.composition?.length) {
+        bomComponents = prodData.composition
       }
 
       if (!bomComponents.length) {
@@ -473,7 +474,7 @@ const productionOrderController = {
                 quantityChange: -qtyNeeded,
                 quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
                 unit: ingredient.unit || comp.unit || 'pcs',
-                notes: `Production: ${product.nameProduct} (${order.productionNo})`,
+                notes: `Production: ${prodData.nameProduct} (${order.productionNo})`,
                 createdBy: req.user?.id || null
               },
               { transaction }
@@ -495,7 +496,7 @@ const productionOrderController = {
                 quantityChange: -qtyNeeded,
                 quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
                 unit: productComp.unit || comp.unit || 'pcs',
-                notes: `Production: ${product.nameProduct} (${order.productionNo})`,
+                notes: `Production: ${prodData.nameProduct} (${order.productionNo})`,
                 createdBy: req.user?.id || null
               },
               { transaction }

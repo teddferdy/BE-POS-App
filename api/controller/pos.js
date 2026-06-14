@@ -331,6 +331,11 @@ const posController = {
             { transaction: t }
           )
 
+          // Increment stock at destination (net zero global change)
+          const destOldStock = Number(product.stock) || 0
+          const destNewStock = destOldStock + Number(item.qty)
+          await product.update({ stock: destNewStock }, { transaction: t })
+
           // Record inflow to destination store
           await db.stock_history.create(
             {
@@ -749,16 +754,16 @@ const posController = {
       const { store } = req.cookies
       const { startDate, endDate } = req.query
 
-      const checkoutWhere = {}
+      const orderWhere = { paymentStatus: 'paid' }
       if (store) {
-        checkoutWhere.store = store
+        orderWhere.store = store
       }
 
       if (startDate || endDate) {
-        checkoutWhere.createdAt = {}
-        if (startDate) checkoutWhere.createdAt[Op.gte] = new Date(startDate)
+        orderWhere.createdAt = {}
+        if (startDate) orderWhere.createdAt[Op.gte] = new Date(startDate)
         if (endDate)
-          checkoutWhere.createdAt[Op.lte] = new Date(endDate + 'T23:59:59')
+          orderWhere.createdAt[Op.lte] = new Date(endDate + 'T23:59:59')
       }
 
       const productWhere = { status: 'active' }
@@ -772,15 +777,15 @@ const posController = {
         bestSellers,
         recentOrders
       ] = await Promise.all([
-        db.checkout.sum('totalPrice', { where: checkoutWhere }),
-        db.checkout.count({ where: checkoutWhere }),
+        db.order.sum('totalPrice', { where: orderWhere }),
+        db.order.count({ where: orderWhere }),
         db.product.count({ where: productWhere }),
         db.member.count(),
         db.sequelize.query(
           `
           SELECT DATE("createdAt") as date, SUM("totalPrice") as sales
-          FROM "checkout"
-          WHERE 1=1
+          FROM "order"
+          WHERE "paymentStatus" = 'paid'
           ${startDate && endDate ? 'AND "createdAt" BETWEEN :startDate AND :endDate' : ''}
           ${store ? 'AND "store" = :store' : ''}
           GROUP BY DATE("createdAt")
@@ -812,12 +817,18 @@ const posController = {
             type: db.sequelize.QueryTypes.SELECT
           }
         ),
-        db.checkout.findAll({
-          attributes: { exclude: ['deletedAt', 'invoice'] },
-          where: checkoutWhere,
+        db.order.findAll({
+          where: { ...(store ? { store } : {}) },
           order: [['createdAt', 'DESC']],
-          limit: 10
-        })
+          limit: 10,
+          include: [
+            { model: db.order_item, as: 'items', attributes: ['id', 'productName', 'quantity', 'totalPrice'] },
+            { model: db.table, as: 'table', attributes: ['name'] }
+          ]
+        }).then(orders => orders.map(o => {
+          const json = o.toJSON()
+          return { ...json, tableName: json.table?.name || null, table: json.table?.name || null }
+        }))
       ])
 
       const [lowStockProductCount] = await db.sequelize.query(
@@ -1001,14 +1012,26 @@ const posController = {
         })
       }
 
+      const baseUrl = (process.env.BASE_URL || (req.protocol + '://' + req.get('host')))
+
+      // Generate PDF
+      const storeData = order.store
+        ? await db.location.findByPk(order.store, { attributes: ['name', 'address', 'phoneNumber'] })
+        : null
+      const { generateInvoicePdf } = require('../../utils/generateInvoicePdf')
+      const { fileName } = await generateInvoicePdf(order, storeData, order.items || [])
+      const pdfUrl = `${baseUrl}/invoices/${fileName}`
+
+      // Format items text - more compact
       const itemLines = (order.items || [])
         .map((i) => {
-          const line = `- ${i.productName || 'Item'} (${i.quantity}x) = Rp ${(i.totalPrice || 0).toLocaleString('id')}`
+          const line = `• ${i.productName || 'Item'}  ${i.quantity}x  Rp ${(i.totalPrice || 0).toLocaleString('id')}`
           return encodeURIComponent(line)
         })
         .join('%0A')
 
       const date = new Date(order.createdAt).toLocaleString('id-ID', {
+        weekday: 'long',
         day: 'numeric',
         month: 'long',
         year: 'numeric',
@@ -1017,19 +1040,29 @@ const posController = {
       })
 
       const tableInfo = order.table ? `Meja: ${order.table.name}%0A` : ''
+      const customerInfo = order.customerName ? `Pelanggan: ${order.customerName}%0A` : ''
       const itemsSection = order.items?.length
-        ? `%0A*Pesanan:*%0A${itemLines}`
+        ? `%0A━━━ *PESANAN* ━━━%0A${itemLines}`
         : ''
 
+      const statusText = order.paymentStatus === 'paid' ? 'LUNAS ✅' : (order.paymentStatus || 'BELUM DIBAYAR')
+
       const text = encodeURIComponent(
-        `*INVOICE #${order.orderNumber || order.id}*%0A` +
+        `╔══════════════════════╗%0A` +
+          `      *STRUK PEMBAYARAN*%0A` +
+          `╚══════════════════════╝%0A%0A` +
+          `No. Invoice: *${order.orderNumber || order.id}*%0A` +
           `Tanggal: ${date}%0A` +
+          `${customerInfo}` +
           `${tableInfo}` +
-          `Status: ${order.paymentStatus === 'paid' ? 'LUNAS' : order.paymentStatus}%0A` +
+          `Status: ${statusText}%0A` +
           `${itemsSection}%0A%0A` +
+          `──────────────────────%0A` +
           `*Total: Rp ${(order.totalPrice || 0).toLocaleString('id')}*%0A` +
-          `Pembayaran: ${order.paymentMethod || '-'}%0A%0A` +
-          `Terima kasih telah berbelanja!`
+          `Pembayaran: ${order.paymentMethod || '-'}%0A` +
+          `──────────────────────%0A%0A` +
+          `📎 PDF Invoice: ${pdfUrl}%0A%0A` +
+          `Terima kasih telah berbelanja 🙏`
       )
 
       const cleanPhone = phone.replace(/[^0-9]/g, '')
@@ -1041,7 +1074,7 @@ const posController = {
       return res.status(200).json({
         success: true,
         message: 'WhatsApp link generated',
-        data: { waLink, orderId, phone }
+        data: { waLink, pdfUrl, orderId, phone }
       })
     } catch (error) {
       console.error('Error =>', error)

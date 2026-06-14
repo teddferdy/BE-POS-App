@@ -50,6 +50,14 @@ exports.addNewTransaction = async (id, order) => {
           store: order[index].store
         })
       }
+
+      // Reduce product stock
+      const prod = await db.product.findByPk(order[index].idProduct)
+      if (prod) {
+        const oldStock = Number(prod.stock) || 0
+        const newStock = oldStock - Number(order[index].count)
+        await prod.update({ stock: newStock >= 0 ? newStock : 0 })
+      }
     } catch (error) {
       console.error(error)
     }
