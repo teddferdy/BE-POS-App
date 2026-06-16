@@ -1,4 +1,12 @@
 const jwt = require('jsonwebtoken')
+const userContext = require('./userContext')
+
+const setUserContext = (userId) => {
+  const store = userContext.getStore()
+  if (store) {
+    store.userId = userId
+  }
+}
 
 const getToken = (req) => {
   let token = req?.cookies?.token
@@ -12,9 +20,7 @@ const getToken = (req) => {
 }
 
 const authorization = (req, res, next) => {
-  console.log('REQ =>', req)
   const getTokenValue = getToken(req)
-  console.log('getTokenValue =>', getTokenValue)
 
   if (!getTokenValue) {
     return res.status(401).json({
@@ -28,6 +34,7 @@ const authorization = (req, res, next) => {
       process.env.JWT_SECRET_KEY || 'secret-key-user'
     )
     req.user = decoded
+    setUserContext(decoded.id)
     return next()
   } catch (error) {
     return res.status(401).json({
@@ -52,6 +59,7 @@ const requireRole = (...roles) => {
         process.env.JWT_SECRET_KEY || 'secret-key-user'
       )
       req.user = decoded
+      setUserContext(decoded.id)
 
       if (!roles.includes(decoded.roleType)) {
         return res.status(403).json({
@@ -70,3 +78,4 @@ const requireRole = (...roles) => {
 
 module.exports = authorization
 module.exports.requireRole = requireRole
+module.exports.setUserContext = setUserContext

@@ -9,6 +9,7 @@ const compression = require('compression')
 
 const { initSocket } = require('./service/socket')
 const { initClient } = require('../utils/whatsappClient')
+const userContext = require('../utils/userContext')
 
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
@@ -87,6 +88,10 @@ app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(cookieParser())
 app.use(express.static('public'))
+
+app.use((req, res, next) => {
+  userContext.run({ userId: undefined }, () => next())
+})
 
 const routes = [
   { path: '/auth', route: authRoutes },

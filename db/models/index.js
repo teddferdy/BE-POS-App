@@ -23,6 +23,39 @@ if (config.use_env_variable) {
   )
 }
 
+const userContext = require('../../utils/userContext')
+
+sequelize.addHook('beforeCreate', (instance) => {
+  const rawAttrs = instance.constructor?.rawAttributes || {}
+  const userId = userContext.getStore()?.userId
+  if (!userId) return
+
+  if (rawAttrs.createdBy && !instance.getDataValue('createdBy')) {
+    instance.setDataValue('createdBy', userId)
+  }
+})
+
+sequelize.addHook('beforeSave', (instance) => {
+  const rawAttrs = instance.constructor?.rawAttributes || {}
+  const userId = userContext.getStore()?.userId
+  if (!userId) return
+
+  if (rawAttrs.modifiedBy && !instance.getDataValue('modifiedBy')) {
+    instance.setDataValue('modifiedBy', userId)
+  }
+})
+
+sequelize.addHook('beforeBulkUpdate', (options) => {
+  const userId = userContext.getStore()?.userId
+  if (!userId) return
+  if (options.attributes && options.attributes.modifiedBy !== undefined) return
+  const rawAttrs = options.model?.rawAttributes || {}
+  if (rawAttrs.modifiedBy) {
+    options.attributes = options.attributes || {}
+    options.attributes.modifiedBy = userId
+  }
+})
+
 fs.readdirSync(__dirname)
   .filter((file) => {
     return (
