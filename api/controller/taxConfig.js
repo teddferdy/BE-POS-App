@@ -9,8 +9,21 @@ const taxConfigController = {
       const store = req.query.store || req.cookies.store || req.user?.store
       const { page = 1, limit = 10, search, status } = req.query
 
+      // Auto-seed default PPh 2026 data if table is empty
+      const totalAll = await db.taxConfig.count()
+      if (totalAll === 0) {
+        const defaults = [
+          { name: 'PPN 11%', rate: 11, type: 'PPN', description: 'Pajak Pertambahan Nilai standar barang/jasa', status: 'active' },
+          { name: 'PPh 23 2%', rate: 2, type: 'PPh', description: 'Pajak Penghasilan Pasal 23 atas jasa', status: 'active' },
+          { name: 'Non-Pajak', rate: 0, type: 'Non-Pajak', description: 'Transaksi tidak dikenakan pajak', status: 'active' }
+        ]
+        await db.taxConfig.bulkCreate(defaults, { individualHooks: false })
+      }
+
       const where = {}
-      if (store) where.store = store
+      if (store) {
+        where[Op.or] = [{ store }, { store: null }]
+      }
       if (search) {
         where.name = { [Op.iLike]: `%${search}%` }
       }
