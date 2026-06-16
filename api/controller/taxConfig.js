@@ -429,3 +429,5 @@ async function seedDefaultTaxes () {
   ]
   await db.taxConfig.bulkCreate(defaults, { individualHooks: false })
 }
+
+module.exports = taxConfigController
