@@ -1,8 +1,6 @@
-const db = require('../db/models')
-
 const userCache = {}
 
-async function enrichAuditFields(records) {
+async function enrichAuditFields(db, records) {
   if (!records || !Array.isArray(records)) return
   const ids = new Set()
   records.forEach((r) => {

@@ -71,7 +71,7 @@ sequelize.addHook('afterFind', async (result, options) => {
   const rawAttrs = model.rawAttributes || {}
   if (!rawAttrs.createdBy && !rawAttrs.modifiedBy) return
   const records = Array.isArray(result) ? result : [result]
-  await enrichAuditFields(records)
+  await enrichAuditFields(db, records)
 })
 
 fs.readdirSync(__dirname)
