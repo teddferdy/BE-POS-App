@@ -251,6 +251,8 @@ exports.login = async (req, res) => {
     // Generate token dengan role info
     const getToken = generateToken({
       id: findUser.id,
+      userName: findUser.userName,
+      fullName: findUser.fullName,
       roleType: findUser.roleType || 'user',
       roleId: findUser.roleId,
       store: findUser.store
@@ -383,7 +385,12 @@ exports.registerNewUser = async (req, res, next) => {
       delete result.password // Remove the password before sending it back
 
       // Generate token
-      result.token = generateToken({ id: result?.id })
+      result.token = generateToken({
+        id: result?.id,
+        userName: result?.userName,
+        fullName: result?.fullName,
+        roleType: result?.roleType || 'user'
+      })
 
       console.log('RESULT =>', result)
 

@@ -1,10 +1,12 @@
 const jwt = require('jsonwebtoken')
 const userContext = require('./userContext')
 
-const setUserContext = (userId) => {
+const setUserContext = (decoded) => {
   const store = userContext.getStore()
   if (store) {
-    store.userId = userId
+    store.userId = decoded.id
+    store.userName = decoded.userName
+    store.fullName = decoded.fullName
   }
 }
 
@@ -34,7 +36,7 @@ const authorization = (req, res, next) => {
       process.env.JWT_SECRET_KEY || 'secret-key-user'
     )
     req.user = decoded
-    setUserContext(decoded.id)
+    setUserContext(decoded)
     return next()
   } catch (error) {
     return res.status(401).json({
@@ -59,7 +61,7 @@ const requireRole = (...roles) => {
         process.env.JWT_SECRET_KEY || 'secret-key-user'
       )
       req.user = decoded
-      setUserContext(decoded.id)
+      setUserContext(decoded)
 
       if (!roles.includes(decoded.roleType)) {
         return res.status(403).json({

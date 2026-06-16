@@ -27,33 +27,51 @@ const userContext = require('../../utils/userContext')
 
 sequelize.addHook('beforeCreate', (instance) => {
   const rawAttrs = instance.constructor?.rawAttributes || {}
-  const userId = userContext.getStore()?.userId
-  if (!userId) return
+  const store = userContext.getStore()
+  if (!store?.userId) return
 
   if (rawAttrs.createdBy && !instance.getDataValue('createdBy')) {
-    instance.setDataValue('createdBy', userId)
+    const type = rawAttrs.createdBy.type?.key || ''
+    const value = type === 'STRING' ? (store.userName || store.userId) : store.userId
+    instance.setDataValue('createdBy', value)
   }
 })
 
 sequelize.addHook('beforeSave', (instance) => {
   const rawAttrs = instance.constructor?.rawAttributes || {}
-  const userId = userContext.getStore()?.userId
-  if (!userId) return
+  const store = userContext.getStore()
+  if (!store?.userId) return
 
   if (rawAttrs.modifiedBy && !instance.getDataValue('modifiedBy')) {
-    instance.setDataValue('modifiedBy', userId)
+    const type = rawAttrs.modifiedBy.type?.key || ''
+    const value = type === 'STRING' ? (store.userName || store.userId) : store.userId
+    instance.setDataValue('modifiedBy', value)
   }
 })
 
 sequelize.addHook('beforeBulkUpdate', (options) => {
-  const userId = userContext.getStore()?.userId
-  if (!userId) return
+  const store = userContext.getStore()
+  if (!store?.userId) return
   if (options.attributes && options.attributes.modifiedBy !== undefined) return
   const rawAttrs = options.model?.rawAttributes || {}
   if (rawAttrs.modifiedBy) {
+    const type = rawAttrs.modifiedBy.type?.key || ''
+    const value = type === 'STRING' ? (store.userName || store.userId) : store.userId
     options.attributes = options.attributes || {}
-    options.attributes.modifiedBy = userId
+    options.attributes.modifiedBy = value
   }
+})
+
+const { enrichAuditFields } = require('../../utils/auditFields')
+
+sequelize.addHook('afterFind', async (result, options) => {
+  if (!result) return
+  const model = options?.model
+  if (!model) return
+  const rawAttrs = model.rawAttributes || {}
+  if (!rawAttrs.createdBy && !rawAttrs.modifiedBy) return
+  const records = Array.isArray(result) ? result : [result]
+  await enrichAuditFields(records)
 })
 
 fs.readdirSync(__dirname)
