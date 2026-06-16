@@ -67,7 +67,7 @@ const ingredientCategoryController = {
 
   async create(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.body.store || req.cookies.store || req.user?.store
       const { name, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -114,7 +114,7 @@ const ingredientCategoryController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.body.store || req.cookies.store || req.user?.store
       const { name, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -150,6 +150,7 @@ const ingredientCategoryController = {
               ? 'inactive'
               : status
           : category.status,
+        store: store || category.store,
         modifiedBy
       })
 
