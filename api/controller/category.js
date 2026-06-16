@@ -169,12 +169,15 @@ exports.addNewCategory = async (req, res) => {
 
     const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
 
+    const store = body.store || req.cookies.store || req.user?.store || null
+
     const createdCategory = await Category.create({
       name: body?.name,
       description: body?.description || null,
       image: imageUrl,
       value: body?.value || body?.name?.toLowerCase(),
       status: status,
+      store: store,
       createdBy: body.createdBy
     })
 
@@ -252,6 +255,8 @@ exports.editCategoryById = async (req, res) => {
 
     const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
 
+    const store = body.store || category.store
+
     const [affectedCount, updatedRows] = await Category.update(
       {
         name: body?.name,
@@ -259,6 +264,7 @@ exports.editCategoryById = async (req, res) => {
         image: imageUrl,
         value: body?.value || body?.name?.toLowerCase(),
         status: status,
+        store: store,
         modifiedBy: body?.modifiedBy
       },
       {
