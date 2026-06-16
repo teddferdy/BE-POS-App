@@ -47,4 +47,7 @@ router.post(
   taxConfigController.importData
 )
 
+// Seed default PPh 2026 data
+router.post('/seed', authorization, validateStoreAccess, taxConfigController.seed)
+
 module.exports = router

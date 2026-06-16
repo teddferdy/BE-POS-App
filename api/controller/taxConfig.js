@@ -12,12 +12,7 @@ const taxConfigController = {
       // Auto-seed default PPh 2026 data if table is empty
       const totalAll = await db.taxConfig.count()
       if (totalAll === 0) {
-        const defaults = [
-          { name: 'PPN 11%', rate: 11, type: 'PPN', description: 'Pajak Pertambahan Nilai standar barang/jasa', status: 'active' },
-          { name: 'PPh 23 2%', rate: 2, type: 'PPh', description: 'Pajak Penghasilan Pasal 23 atas jasa', status: 'active' },
-          { name: 'Non-Pajak', rate: 0, type: 'Non-Pajak', description: 'Transaksi tidak dikenakan pajak', status: 'active' }
-        ]
-        await db.taxConfig.bulkCreate(defaults, { individualHooks: false })
+        await seedDefaultTaxes()
       }
 
       const where = {}
@@ -396,7 +391,41 @@ const taxConfigController = {
         .status(500)
         .json({ success: false, message: 'Internal server error' })
     }
+  },
+
+  async seed(req, res) {
+    try {
+      const totalAll = await db.taxConfig.count()
+      if (totalAll > 0) {
+        return res.status(200).json({
+          success: true,
+          message: `Tax configs already exist (${totalAll} records). No seeding needed.`,
+          count: totalAll
+        })
+      }
+
+      await seedDefaultTaxes()
+
+      const count = await db.taxConfig.count()
+      return res.status(201).json({
+        success: true,
+        message: `Successfully seeded ${count} default PPh 2026 tax configs`,
+        count
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
   }
 }
 
-module.exports = taxConfigController
+async function seedDefaultTaxes () {
+  const defaults = [
+    { name: 'PPN 11%', rate: 11, type: 'PPN', description: 'Pajak Pertambahan Nilai standar barang/jasa', status: 'active' },
+    { name: 'PPh 23 2%', rate: 2, type: 'PPh', description: 'Pajak Penghasilan Pasal 23 atas jasa', status: 'active' },
+    { name: 'Non-Pajak', rate: 0, type: 'Non-Pajak', description: 'Transaksi tidak dikenakan pajak', status: 'active' }
+  ]
+  await db.taxConfig.bulkCreate(defaults, { individualHooks: false })
+}
