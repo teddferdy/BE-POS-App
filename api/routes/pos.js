@@ -39,6 +39,11 @@ router.put('/product/update-price-by-store', authorization, validateStoreAccess,
 router.post('/invoice/send-wa', authorization, validateStoreAccess, posController.sendInvoiceWhatsApp)
 router.post('/invoice/send-email', authorization, validateStoreAccess, posController.sendInvoiceEmail)
 
+// WhatsApp connection management
+router.get('/whatsapp/status', authorization, posController.getWhatsAppStatus)
+router.post('/whatsapp/logout', authorization, requireRole('super_admin', 'admin'), posController.logoutWhatsApp)
+router.post('/whatsapp/restart', authorization, requireRole('super_admin', 'admin'), posController.restartWhatsApp)
+
 // Stock by batch/expiry
 router.post('/product/add-batch', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.addBatch)
 router.get('/product/batches', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getBatches)

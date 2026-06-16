@@ -8,6 +8,7 @@ const helmet = require('helmet')
 const compression = require('compression')
 
 const { initSocket } = require('./service/socket')
+const { initClient } = require('../utils/whatsappClient')
 
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
@@ -157,6 +158,7 @@ const port = process.env.PORT || 5001
 
 if (!process.env.VERCEL) {
   initSocket(server)
+  initClient()
   server.listen(port, () => {
     console.log(`Server running on port ${port}`)
     console.log(`Socket.IO enabled`)

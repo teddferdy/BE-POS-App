@@ -8,128 +8,186 @@ const generateInvoicePdf = (order, storeData, items) => {
 
   const fileName = `invoice-${order.orderNumber || order.id}.pdf`
   const filePath = path.join(invoiceDir, fileName)
-  const doc = new PDFDocument({ size: [226, 'auto'], margin: 10 })
+  const doc = new PDFDocument({ size: [226, 10000], margin: 8 })
   const stream = fs.createWriteStream(filePath)
   doc.pipe(stream)
 
-  const formatPrice = (v) => 'Rp ' + Number(v || 0).toLocaleString('id-ID')
-  const center = (text, y, opts = {}) => {
-    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
-    doc.fontSize(opts.fontSize || 9).font(opts.bold ? 'Helvetica-Bold' : 'Helvetica')
-    const textWidth = doc.widthOfString(text)
-    doc.text(text, (width - textWidth) / 2 + doc.page.margins.left, y || doc.y, { align: 'center' })
+  const fmt = (v) => 'Rp' + Number(v || 0).toLocaleString('id-ID')
+  const M = doc.page.margins.left
+  const PW = doc.page.width - M - doc.page.margins.right
+
+  const center = (text, opts = {}) => {
+    doc.font(opts.font || 'Courier')
+    if (opts.size) doc.fontSize(opts.size)
+    if (opts.color) doc.fillColor(opts.color)
+    const tw = doc.widthOfString(text)
+    doc.text(text, M + (PW - tw) / 2, doc.y)
   }
 
-  // Header
-  doc.fontSize(12).font('Helvetica-Bold')
-  center(storeData?.name || 'TOKO', doc.y, { bold: true, fontSize: 12 })
-  doc.moveDown(0.3)
-
-  doc.fontSize(7).font('Helvetica')
-  if (storeData?.address) center(storeData.address, doc.y, { fontSize: 7 })
-  if (storeData?.phoneNumber) center('Telp: ' + storeData.phoneNumber, doc.y, { fontSize: 7 })
-  doc.moveDown(0.3)
-
-  // Separator
-  doc.fontSize(8).font('Helvetica')
-  const line = (y) => {
-    const left = doc.page.margins.left
-    const w = doc.page.width - left - doc.page.margins.right
-    doc.moveTo(left, y || doc.y).lineTo(left + w, y || doc.y).stroke()
-    doc.moveDown(0.3)
+  const writeRow = (left, right, opts = {}) => {
+    const y = doc.y
+    doc.font(opts.bold ? 'Courier-Bold' : 'Courier')
+    if (opts.size) doc.fontSize(opts.size)
+    if (opts.color) doc.fillColor(opts.color)
+    doc.text(left, M, y)
+    if (right != null) {
+      const rw = doc.widthOfString(right)
+      doc.text(right, M + PW - rw, y)
+    }
+    doc.y = y + (opts.lh || 10)
   }
-  line()
+
+  const hr = (style = 'solid') => {
+    doc.fontSize(5).font('Courier')
+    const dashW = doc.widthOfString('-')
+    const spaceW = doc.widthOfString(' ')
+    const count = Math.floor(PW / dashW)
+
+    let line
+    if (style === 'solid') {
+      line = '-'.repeat(count)
+    } else if (style === 'light') {
+      const pairW = dashW + spaceW
+      const pairs = Math.floor(PW / pairW)
+      line = Array.from({ length: pairs }, () => '- ').join('').trimEnd()
+    } else {
+      const pairW = dashW + spaceW
+      const pairs = Math.floor(PW / pairW)
+      line = Array.from({ length: pairs }, () => '- ').join('').trimEnd()
+    }
+
+    const color = style === 'light' ? '#F3F4F6' : '#D1D5DB'
+    doc.fillColor(color)
+    doc.text(line, M, doc.y, { width: PW })
+  }
+
+  // ── Header ──
+  doc.font('Courier-Bold').fontSize(10).fillColor('#1F2937')
+  center((storeData?.name || 'TOKO').toUpperCase(), { size: 10, font: 'Courier-Bold', color: '#1F2937' })
+  doc.moveDown(0.15)
+
+  doc.font('Courier').fontSize(6.5).fillColor('#6B7280')
+  if (storeData?.address) center(storeData.address, { size: 6.5, font: 'Courier', color: '#6B7280' })
+  if (storeData?.phoneNumber) center('Telp: ' + storeData.phoneNumber, { size: 6.5, font: 'Courier', color: '#6B7280' })
   doc.moveDown(0.2)
 
-  // Invoice info
-  const date = new Date(order.createdAt).toLocaleString('id-ID', {
-    day: 'numeric', month: 'long', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
-  })
-  const leftMargin = doc.page.margins.left
-  doc.fontSize(8).font('Helvetica')
-  doc.text(`Invoice  : ${order.orderNumber || order.id}`, leftMargin, doc.y, { continued: false })
-  doc.text(`Tanggal  : ${date}`, leftMargin, doc.y, { continued: false })
-  doc.text(`Kasir    : ${order.cashierName || '-'}`, leftMargin, doc.y, { continued: false })
-  if (order.customerName) doc.text(`Pelanggan: ${order.customerName}`, leftMargin, doc.y)
-  if (order.table?.name) doc.text(`Meja     : ${order.table.name}`, leftMargin, doc.y)
-  doc.moveDown(0.2)
-  line()
-  doc.moveDown(0.2)
+  hr('solid')
+  doc.moveDown(0.15)
 
-  // Column headers
-  doc.fontSize(7).font('Helvetica-Bold')
-  const col1 = leftMargin
-  const col2 = doc.page.width - doc.page.margins.right - 100
-  const col3 = doc.page.width - doc.page.margins.right - 50
-  const col4 = doc.page.width - doc.page.margins.right
-  doc.text('Item', col1, doc.y, { width: col2 - col1 })
-  doc.text('Qty', col2, doc.y, { width: 30, align: 'center' })
-  doc.text('Harga', col3 - 10, doc.y, { width: 50, align: 'right' })
-  doc.text('Total', col4 - 50, doc.y, { width: 50, align: 'right' })
-  doc.moveDown(0.2)
+  // ── Date & Invoice ──
+  const d = new Date(order.createdAt)
+  const dateStr = d.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  const invNum = order.orderNumber || order.id || '-'
+  const cashier = order.cashierName || '-'
 
-  doc.fontSize(7).font('Helvetica')
-  line()
+  writeRow(dateStr, timeStr, { size: 6.5, color: '#6B7280', lh: 9 })
+  writeRow('Invoice: ' + invNum, 'Kasir: ' + cashier, { size: 6.5, color: '#6B7280', lh: 9 })
   doc.moveDown(0.1)
 
-  // Items
+  hr('dashed')
+  doc.moveDown(0.1)
+
+  // ── Member Info ──
+  if (order.customerName) {
+    doc.font('Courier-Bold').fontSize(6.5).fillColor('#374151')
+    writeRow(order.customerName, '', { size: 6.5, color: '#374151', bold: true, lh: 10 })
+    if (order.customerTier) writeRow('  Tier: ' + order.customerTier, '', { size: 6, color: '#6B7280', lh: 8 })
+    if (order.customerPoints) writeRow('  Poin: ' + Number(order.customerPoints).toLocaleString('id-ID'), '', { size: 6, color: '#6B7280', lh: 8 })
+    doc.moveDown(0.1)
+    hr('dashed')
+    doc.moveDown(0.1)
+  }
+
+  // ── Table ──
+  const colItem = M
+  const colQty = M + PW * 0.42
+  const colPrice = M + PW * 0.58
+  const colTotal = M + PW * 0.78
+
+  doc.font('Courier-Bold').fontSize(6.5).fillColor('#4B5563')
+  const yHead = doc.y
+  doc.text('Item', colItem, yHead)
+  doc.text('Qty', colQty, yHead, { width: 18, align: 'center' })
+  doc.text('Harga', colPrice, yHead, { width: PW * 0.2, align: 'right' })
+  doc.text('Total', colTotal, yHead, { width: PW * 0.22, align: 'right' })
+  doc.y = yHead + 9
+  doc.moveDown(0.1)
+
+  hr('solid')
+  doc.moveDown(0.05)
+
   for (const item of items || []) {
-    doc.fontSize(7).font('Helvetica')
-    const name = item.productName || 'Item'
+    const name = item.productName || item.name || 'Item'
+    const qty = item.quantity || item.qty || 0
+    const price = item.price || 0
+    const total = item.totalPrice || item.total || item.subtotal || qty * price
     const yStart = doc.y
-    doc.text(name, leftMargin, yStart, { width: col2 - leftMargin })
-    doc.text(String(item.quantity || 0), col2, yStart, { width: 30, align: 'center' })
-    doc.text(formatPrice(item.price || 0), col3 - 10, yStart, { width: 50, align: 'right' })
-    doc.text(formatPrice(item.totalPrice || 0), col4 - 50, yStart, { width: 50, align: 'right' })
-    doc.y = yStart + 12
-    doc.moveDown(0.1)
+
+    doc.font('Courier').fontSize(6.5).fillColor('#374151')
+    doc.text(name, colItem, yStart, { width: colQty - colItem - 2 })
+
+    doc.fillColor('#4B5563')
+    doc.text(String(qty), colQty, yStart, { width: 18, align: 'center' })
+    doc.text(fmt(price), colPrice, yStart, { width: PW * 0.2, align: 'right' })
+
+    doc.fillColor('#374151')
+    doc.text(fmt(total), colTotal, yStart, { width: PW * 0.22, align: 'right' })
+
+    doc.y = yStart + 9
+    hr('light')
   }
 
-  // Totals
+  doc.moveDown(0.1)
+
+  // ── Totals ──
+  const subtotal = order.subTotal || items.reduce((s, i) => s + Number(i.totalPrice || i.price * i.quantity || 0), 0)
+  const tax = order.taxAmount || Math.round(subtotal * 0.1)
+  const discount = order.discountAmount || 0
+  const serviceCharge = order.serviceChargeAmount || 0
+
+  hr('solid')
+  doc.moveDown(0.1)
+
+  writeRow('Subtotal', fmt(subtotal), { size: 7, color: '#374151', lh: 11 })
+  if (discount > 0) writeRow('Diskon', '-' + fmt(discount), { size: 7, color: '#374151', lh: 11 })
+  if (serviceCharge > 0) writeRow('Biaya Layanan', fmt(serviceCharge), { size: 7, color: '#374151', lh: 11 })
+  writeRow('Pajak (10%)', fmt(tax), { size: 7, color: '#374151', lh: 11 })
+
+  doc.moveDown(0.1)
+  doc.fontSize(4).fillColor('#D1D5DB').font('Courier')
+  const dashW2 = doc.widthOfString('-')
+  const count2 = Math.floor(PW / dashW2)
+  doc.text('-'.repeat(count2), M, doc.y, { width: PW })
+  doc.moveDown(0.1)
+
+  doc.font('Courier-Bold').fontSize(9).fillColor('#111827')
+  writeRow('TOTAL', fmt(order.totalPrice || 0), { size: 9, color: '#111827', bold: true, lh: 14 })
+
   doc.moveDown(0.2)
-  line()
+
+  // ── Payment ──
+  doc.font('Courier').fontSize(6.5).fillColor('#6B7280')
+  writeRow('Pembayaran: ' + (order.paymentMethod || '-'), '', { size: 6.5, color: '#6B7280', lh: 9 })
+
+  if (order.paymentMethod === 'Tunai') {
+    const cashAmount = order.cashAmount || 0
+    const changeAmount = order.changeAmount || 0
+    if (cashAmount > 0) writeRow('Tunai', fmt(cashAmount), { size: 6.5, color: '#6B7280', lh: 9 })
+    if (changeAmount > 0) writeRow('Kembali', fmt(changeAmount), { size: 6.5, color: '#6B7280', lh: 9 })
+  }
+
+  if (order.paymentStatus === 'paid') {
+    writeRow('Status: LUNAS', '', { size: 6.5, color: '#6B7280', lh: 9 })
+  }
+
   doc.moveDown(0.2)
+  hr('dashed')
+  doc.moveDown(0.15)
 
-  const totalWidth = col4 - leftMargin
-  const labelX = leftMargin
-  const valueX = col4 - 50
-
-  doc.fontSize(8).font('Helvetica')
-  const writeRow = (label, value, bold) => {
-    const yPos = doc.y
-    doc.text(label, labelX, yPos, { width: totalWidth - 50 })
-    doc.text(value, valueX, yPos, { width: 50, align: 'right' })
-    doc.y = yPos + 12
-    doc.moveDown(0.1)
-  }
-  writeRow('Subtotal', formatPrice(order.subTotal || 0))
-
-  if (order.discountAmount > 0) {
-    writeRow('Diskon', '-' + formatPrice(order.discountAmount))
-  }
-
-  if (order.serviceChargeAmount > 0) {
-    writeRow('Biaya Layanan', formatPrice(order.serviceChargeAmount))
-  }
-
-  if (order.taxAmount > 0) {
-    writeRow('Pajak', formatPrice(order.taxAmount))
-  }
-
-  doc.fontSize(10).font('Helvetica-Bold')
-  writeRow('TOTAL', formatPrice(order.totalPrice || 0))
-  doc.moveDown(0.5)
-
-  doc.fontSize(7).font('Helvetica')
-  doc.text(`Pembayaran: ${order.paymentMethod || '-'}`, leftMargin, doc.y)
-  doc.text(`Status: ${order.paymentStatus === 'paid' ? 'LUNAS' : order.paymentStatus}`, leftMargin, doc.y)
-
-  doc.moveDown(0.5)
-  line()
-  doc.moveDown(0.3)
-
-  center('Terima kasih telah berbelanja!', doc.y, { fontSize: 8 })
+  // ── Footer ──
+  doc.font('Courier-Oblique').fontSize(6.5).fillColor('#9CA3AF')
+  center('Terima kasih atas kunjungan Anda', { size: 6.5, font: 'Courier-Oblique', color: '#9CA3AF' })
 
   doc.end()
 

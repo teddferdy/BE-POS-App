@@ -94,6 +94,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
+      redeemPoints: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
       supplier: {
         type: DataTypes.INTEGER,
         allowNull: true

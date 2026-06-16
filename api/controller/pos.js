@@ -1,5 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const path = require('path')
+const { getConnectionStatus, sendDocument, logout, restartClient } = require('../../utils/whatsappClient')
 
 const posController = {
   // Barcode lookup untuk POS scan
@@ -1044,17 +1046,43 @@ const posController = {
         })
       }
 
-      const baseUrl = (process.env.BASE_URL || (req.protocol + '://' + req.get('host')))
+      const status = getConnectionStatus()
+      if (!status.ready) {
+        return res.status(400).json({
+          success: false,
+          message: 'WhatsApp tidak terhubung. Silakan scan QR code di pengaturan.',
+          data: { waConnected: false }
+        })
+      }
 
       // Generate PDF
       const storeData = order.store
         ? await db.location.findByPk(order.store, { attributes: ['name', 'address', 'phoneNumber'] })
         : null
       const { generateInvoicePdf } = require('../../utils/generateInvoicePdf')
-      const { fileName } = await generateInvoicePdf(order, storeData, order.items || [])
-      const pdfUrl = `${baseUrl}/invoices/${fileName}`
+      const { fileName, filePath } = await generateInvoicePdf(order, storeData, order.items || [])
 
-      // Format items text - more compact
+      // Look up member points
+      let memberInfo = null
+      if (order.customerPhone) {
+        const member = await db.member.findOne({
+          where: { phoneNumber: order.customerPhone, store: order.store }
+        })
+        if (member && member.totalPoints > 0) {
+          let tierName = null
+          if (member.tier) {
+            const tier = await db.member_tier.findByPk(member.tier)
+            if (tier) tierName = tier.name
+          }
+          memberInfo = {
+            name: member.name,
+            totalPoints: member.totalPoints,
+            tierName,
+          }
+        }
+      }
+
+      // Format items text
       const itemLines = (order.items || [])
         .map((i) => {
           return `• ${i.productName || 'Item'}  ${i.quantity}x  Rp ${(i.totalPrice || 0).toLocaleString('id')}`
@@ -1078,7 +1106,18 @@ const posController = {
 
       const statusText = order.paymentStatus === 'paid' ? 'LUNAS ✅' : (order.paymentStatus || 'BELUM DIBAYAR')
 
-      const rawText =
+      // Build member points section
+      let pointsSection = ''
+      if (memberInfo) {
+        pointsSection =
+          `\n━━━ *POIN MEMBER* ━━━\n` +
+          `Nama: ${memberInfo.name}\n` +
+          `Total Poin: ${memberInfo.totalPoints.toLocaleString('id')}\n` +
+          (memberInfo.tierName ? `Tier: ${memberInfo.tierName}\n` : '') +
+          `\n`
+      }
+
+      const caption =
         `╔══════════════════════╗\n` +
         `      *STRUK PEMBAYARAN*\n` +
         `╚══════════════════════╝\n\n` +
@@ -1091,28 +1130,23 @@ const posController = {
         `──────────────────────\n` +
         `*Total: Rp ${(order.totalPrice || 0).toLocaleString('id')}*\n` +
         `Pembayaran: ${order.paymentMethod || '-'}\n` +
-        `──────────────────────\n\n` +
-        `📎 PDF Invoice: ${pdfUrl}\n\n` +
+        `──────────────────────\n` +
+        `${pointsSection}` +
         `Terima kasih telah berbelanja 🙏`
 
-      const text = encodeURIComponent(rawText)
-
-      const cleanPhone = phone.replace(/[^0-9]/g, '')
-      const waNumber = cleanPhone.startsWith('0')
-        ? '62' + cleanPhone.slice(1)
-        : cleanPhone
-      const waLink = `https://wa.me/${waNumber}?text=${text}`
+      // Send PDF via WhatsApp
+      await sendDocument(phone, filePath, caption)
 
       return res.status(200).json({
         success: true,
-        message: 'WhatsApp link generated',
-        data: { waLink, pdfUrl, orderId, phone }
+        message: 'Invoice berhasil dikirim via WhatsApp',
+        data: { orderId, phone }
       })
     } catch (error) {
       console.error('Error =>', error)
       return res.status(500).json({
         success: false,
-        message: 'Internal server error'
+        message: error.message || 'Gagal mengirim invoice via WhatsApp'
       })
     }
   },
@@ -1262,6 +1296,56 @@ const posController = {
       return res.status(500).json({
         success: false,
         message: 'Internal server error'
+      })
+    }
+  },
+
+  // Get WhatsApp connection status
+  async getWhatsAppStatus(req, res) {
+    try {
+      const status = getConnectionStatus()
+      return res.status(200).json({
+        success: true,
+        message: 'WhatsApp status',
+        data: status
+      })
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      })
+    }
+  },
+  
+  // Logout WhatsApp
+  async logoutWhatsApp(req, res) {
+    try {
+      await logout()
+      return res.status(200).json({
+        success: true,
+        message: 'WhatsApp berhasil diputuskan. Silakan refresh halaman untuk scan QR baru.'
+      })
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      })
+    }
+  },
+
+  // Restart WhatsApp client (logout + re-init)
+  async restartWhatsApp(req, res) {
+    try {
+      const result = await restartClient()
+      return res.status(200).json({
+        success: true,
+        message: 'WhatsApp client restarting',
+        data: { initialized: !!result }
+      })
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
       })
     }
   }
