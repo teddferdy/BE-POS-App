@@ -65,13 +65,17 @@ sequelize.addHook('beforeBulkUpdate', (options) => {
 const { enrichAuditFields } = require('../../utils/auditFields')
 
 sequelize.addHook('afterFind', async (result, options) => {
-  if (!result) return
-  const model = options?.model
-  if (!model) return
-  const rawAttrs = model.rawAttributes || {}
-  if (!rawAttrs.createdBy && !rawAttrs.modifiedBy) return
-  const records = Array.isArray(result) ? result : [result]
-  await enrichAuditFields(db, records)
+  try {
+    if (!result) return
+    const model = options?.model
+    if (!model) return
+    const rawAttrs = model.rawAttributes || {}
+    if (!rawAttrs.createdBy && !rawAttrs.modifiedBy) return
+    const records = Array.isArray(result) ? result : [result]
+    await enrichAuditFields(db, records)
+  } catch (e) {
+    console.error('afterFind hook error:', e.message)
+  }
 })
 
 fs.readdirSync(__dirname)
