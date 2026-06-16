@@ -104,6 +104,7 @@ const createNotification = async ({
   referenceId,
   referenceType,
   params = [],
+  createdBy,
 }) => {
   try {
     const config = notificationTypes[type];
@@ -122,6 +123,7 @@ const createNotification = async ({
       description,
       referenceId,
       referenceType,
+      createdBy,
     });
 
     if (store) {

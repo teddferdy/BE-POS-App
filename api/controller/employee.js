@@ -172,7 +172,8 @@ exports.addEmployee = async (req, res) => {
       store: createUser.store,
       referenceId: createUser.id,
       referenceType: 'employee',
-      params: [req.body.fullName]
+      params: [req.body.fullName],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
 
     return res.status(200).json({
@@ -499,7 +500,8 @@ exports.updateEmployee = async (req, res) => {
       store: employee.store,
       referenceId: employee.id,
       referenceType: 'employee',
-      params: [req.body.fullName || employee.fullName]
+      params: [req.body.fullName || employee.fullName],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
 
     return res.status(200).json({
@@ -542,7 +544,8 @@ exports.deleteEmployee = async (req, res) => {
       store: employee.store,
       referenceId: employee.id,
       referenceType: 'employee',
-      params: [employee.fullName || 'Unknown']
+      params: [employee.fullName || 'Unknown'],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
 
     return res.status(200).json({

@@ -448,7 +448,8 @@ exports.createOrder = async (req, res) => {
       store,
       referenceId: order.id,
       referenceType: 'order',
-      params: [orderNumber, totals.totalPrice]
+      params: [orderNumber, totals.totalPrice],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(
       req,

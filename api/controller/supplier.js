@@ -161,7 +161,8 @@ const supplierController = {
         store,
         referenceId: supplier.id,
         referenceType: 'supplier',
-        params: [name]
+        params: [name],
+        createdBy: req.user?.fullName || 'System'
       }).catch(console.error)
       createAudit(
         req,
@@ -234,7 +235,8 @@ const supplierController = {
         store,
         referenceId: id,
         referenceType: 'supplier',
-        params: [name || supplier.name]
+        params: [name || supplier.name],
+        createdBy: req.user?.fullName || 'System'
       }).catch(console.error)
       createAudit(req, 'update', 'supplier', id, `Updated supplier: ${id}`)
 
@@ -275,7 +277,8 @@ const supplierController = {
         store,
         referenceId: id,
         referenceType: 'supplier',
-        params: [supplier.name]
+        params: [supplier.name],
+        createdBy: req.user?.fullName || 'System'
       }).catch(console.error)
       createAudit(
         req,

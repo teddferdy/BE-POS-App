@@ -331,7 +331,8 @@ exports.postAddProduct = async (req, res) => {
       store: parsedStores?.[0] || req.user?.store,
       referenceId: postData.id,
       referenceType: 'product',
-      params: [nameProduct]
+      params: [nameProduct],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(
       req,
@@ -528,7 +529,8 @@ exports.editProductByLocationAndId = async (req, res) => {
       store: getAllProductByIdAndLocation.store?.[0] || req.user?.store,
       referenceId: id,
       referenceType: 'product',
-      params: [nameProduct]
+      params: [nameProduct],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(req, 'update', 'product', id, `Updated product: ${nameProduct}`)
 
@@ -567,7 +569,8 @@ exports.deleteProductByIdAndLocation = async (req, res) => {
       store: product.store?.[0] || req.user?.store,
       referenceId: id,
       referenceType: 'product',
-      params: [product.nameProduct || 'Unknown']
+      params: [product.nameProduct || 'Unknown'],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(
       req,

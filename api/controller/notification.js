@@ -27,13 +27,21 @@ exports.getAllNotifications = async (req, res) => {
       where: whereCondition,
       order: [['createdAt', 'DESC']],
       offset,
-      limit: parseInt(limit)
+      limit: parseInt(limit),
+      include: [{ model: db.location, as: 'storeData', attributes: ['name'] }]
+    })
+
+    const data = rows.map((n) => {
+      const notif = n.toJSON()
+      notif.storeName = notif.storeData?.name || notif.store
+      delete notif.storeData
+      return notif
     })
 
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: rows,
+      data: data,
       pagination: {
         total: count,
         page: parseInt(page),

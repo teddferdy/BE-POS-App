@@ -9,6 +9,7 @@
     "dev": "nodemon api/index.js",
     "sync": "node scripts/migrate.js",
     "sync:inventory": "node scripts/migrate-inventory.js",
+    "reset-data": "node scripts/reset-data.js",
     "migrate": "npx sequelize-cli db:migrate",
     "migrate:create": "npx sequelize-cli migration:generate"
   },

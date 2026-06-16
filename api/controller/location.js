@@ -130,7 +130,11 @@ exports.getAllLocationInTable = async (req, res) => {
         { day: 'Saturday', open: null, close: null },
         { day: 'Sunday', open: null, close: null }
       ],
-      socialMedia: loc.socialMedia || []
+      socialMedia: loc.socialMedia || [],
+      createdAt: loc.createdAt,
+      updatedAt: loc.updatedAt,
+      createdBy: loc.createdBy || null,
+      modifiedBy: loc.modifiedBy || null
     }))
 
     return res.status(200).json({
@@ -322,7 +326,8 @@ exports.addNewLocation = async (req, res) => {
       store: newLocation.store,
       referenceId: newLocation.id,
       referenceType: 'location',
-      params: [name]
+      params: [name],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(
       req,
@@ -458,7 +463,8 @@ exports.editLocationById = async (req, res) => {
       store: id,
       referenceId: id,
       referenceType: 'location',
-      params: [name]
+      params: [name],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(
       req,
@@ -563,7 +569,8 @@ exports.deleteLocationById = async (req, res) => {
       store: dbId,
       referenceId: dbId,
       referenceType: 'location',
-      params: [location.name]
+      params: [location.name],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
     createAudit(
       req,

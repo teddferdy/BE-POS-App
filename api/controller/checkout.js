@@ -148,7 +148,8 @@ exports.checkout = async (req, res) => {
           store: body.store,
           referenceId: creadtedCheckout.id,
           referenceType: 'checkout',
-          params: [invoice, body.totalPrice]
+          params: [invoice, body.totalPrice],
+          createdBy: req.user?.fullName || 'System'
         }).catch(console.error)
 
         return res.status(200).json({
@@ -216,7 +217,8 @@ exports.editCheckout = async (req, res) => {
       store: body.store,
       referenceId: checkoutId,
       referenceType: 'checkout',
-      params: [body.invoice, body.totalPrice]
+      params: [body.invoice, body.totalPrice],
+      createdBy: req.user?.fullName || 'System'
     }).catch(console.error)
 
     return res.status(200).json({
