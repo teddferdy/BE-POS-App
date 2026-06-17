@@ -178,7 +178,7 @@ exports.addNewCategory = async (req, res) => {
       value: body?.value || body?.name?.toLowerCase(),
       status: status,
       store: store,
-      createdBy: body.createdBy
+      createdBy: req.user?.userName || req.user?.id || 'system'
     })
 
     if (createdCategory.getDataValue) {
@@ -265,7 +265,7 @@ exports.editCategoryById = async (req, res) => {
         value: body?.value || body?.name?.toLowerCase(),
         status: status,
         store: store,
-        modifiedBy: body?.modifiedBy
+        modifiedBy: req.user?.userName || req.user?.id || 'system'
       },
       {
         returning: true,
