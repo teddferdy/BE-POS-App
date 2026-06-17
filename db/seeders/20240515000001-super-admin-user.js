@@ -38,6 +38,7 @@ module.exports = {
       fullName: 'Super Admin',
       password: hashedPassword,
       email: 'superadmin@posapp.com',
+      employeeID: 'EMP-0001',
       roleType: 'super_admin',
       roleId: superAdminRoleId,
       userType: 'super_admin',
