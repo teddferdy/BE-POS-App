@@ -1,33 +1,40 @@
 const excelJS = require('exceljs')
 
+const UNIT_OPTIONS = [
+  'pcs','item','unit','buah','pasang','set','lusin','pack','box','karton',
+  'kg','gram','liter','ml','meter','cm','cup','gelas','porsi'
+]
+
+const BASE_UNIT_OPTIONS = ['pcs','gram','ml','cm','buah','lembar']
+
 const TEMPLATE_HEADERS = [
   { key: 'no', header: 'No.', width: 8 },
-  { key: 'id', header: 'ID', width: 15 },
   { key: 'nameProduct', header: 'Nama Produk', width: 25 },
-  { key: 'image', header: 'Gambar (URL)', width: 30 },
-  { key: 'description', header: 'Deskripsi', width: 30 },
+  { key: 'sku', header: 'SKU', width: 15 },
+  { key: 'barcode', header: 'Barcode', width: 18 },
+  { key: 'brand', header: 'Brand/Merek', width: 15 },
   { key: 'category', header: 'Kategori', width: 20 },
+  { key: 'tipeProduk', header: 'Tipe Produk', width: 15 },
+  { key: 'description', header: 'Deskripsi', width: 30 },
+  { key: 'unit', header: 'Satuan', width: 12 },
+  { key: 'baseUnit', header: 'Base Satuan', width: 12 },
+  { key: 'conversionFactor', header: 'Faktor Konversi', width: 15 },
+  { key: 'supplier', header: 'Supplier', width: 18 },
+  { key: 'tax', header: 'Pajak', width: 18 },
   { key: 'price', header: 'Harga', width: 15 },
-  { key: 'status', header: 'Status', width: 10 },
-  { key: 'isOption', header: 'Opsi', width: 10 },
-  { key: 'option', header: 'Daftar Opsi', width: 25 },
-  { key: 'stock', header: 'Stok', width: 12 },
   { key: 'costPrice', header: 'Harga Beli', width: 15 },
+  { key: 'stock', header: 'Stok', width: 12 },
   { key: 'minStock', header: 'Min Stok', width: 12 },
-  { key: 'unit', header: 'Satuan', width: 10 }
+  { key: 'point', header: 'Point', width: 10 },
+  { key: 'redeemPoints', header: 'Point Redeem', width: 12 },
+  { key: 'status', header: 'Status', width: 10 },
+  { key: 'isAvailable', header: 'Tersedia', width: 10 },
+  { key: 'isOption', header: 'Opsi', width: 10 },
+  { key: 'options', header: 'Daftar Opsi', width: 25 }
 ]
 
 const REQUIRED_HEADERS = [
-  'No.',
-  'ID',
-  'Nama Produk',
-  'Gambar (URL)',
-  'Deskripsi',
-  'Kategori',
-  'Harga',
-  'Status',
-  'Opsi',
-  'Daftar Opsi'
+  'No.', 'Nama Produk', 'Kategori', 'Harga'
 ]
 
 const validateTemplateHeaders = (headers) => {
@@ -35,7 +42,12 @@ const validateTemplateHeaders = (headers) => {
   return REQUIRED_HEADERS.every((required) => headerNames.includes(required))
 }
 
-const downloadProductTemplate = async (categories, existingProducts = []) => {
+const downloadProductTemplate = async ({
+  categories = [],
+  existingProducts = [],
+  suppliers = [],
+  taxConfigs = []
+} = {}) => {
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Produk')
 
@@ -55,68 +67,67 @@ const downloadProductTemplate = async (categories, existingProducts = []) => {
   headerRow.alignment = { horizontal: 'center' }
   headerRow.height = 25
 
-  const categoryList = categories.map((c) => c.name).join(',')
-  worksheet.getCell('F2').dataValidation = {
-    type: 'list',
-    allowBlank: true,
-    formula1: [`"${categoryList}"`],
-    showDropDown: true
-  }
+  const categoryDropdown = categories.map((c) => c.name).join(',')
+  const supplierDropdown = suppliers.map((s) => s.name).join(',')
+  const taxDropdown = taxConfigs.map((t) => `${t.name} (${t.rate}%)`).join(',')
+  const unitDropdown = UNIT_OPTIONS.join(',')
+  const baseUnitDropdown = BASE_UNIT_OPTIONS.join(',')
 
-  worksheet.getCell('H2').dataValidation = {
-    type: 'list',
-    allowBlank: true,
-    formula1: ['"Aktif,Nonaktif"'],
-    showDropDown: true
-  }
-
-  worksheet.getCell('I2').dataValidation = {
-    type: 'list',
-    allowBlank: true,
-    formula1: ['"Ya,Tidak"'],
-    showDropDown: true
+  const applyDataValidation = (row) => {
+    const validations = {
+      F: categoryDropdown && `"${categoryDropdown}"`,
+      G: '"menu,bahan_baku"',
+      I: `"${unitDropdown}"`,
+      J: `"${baseUnitDropdown}"`,
+      L: supplierDropdown && `"${supplierDropdown}"`,
+      M: taxDropdown && `"${taxDropdown}"`,
+      T: '"Aktif,Nonaktif"',
+      U: '"Ya,Tidak"',
+      V: '"Ya,Tidak"'
+    }
+    Object.entries(validations).forEach(([col, formula]) => {
+      if (formula) {
+        worksheet.getCell(`${col}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [formula]
+        }
+      }
+    })
   }
 
   const maxRows = Math.max(existingProducts.length + 2, 12)
   for (let row = 2; row <= maxRows; row++) {
     worksheet.getCell(`A${row}`).value = row - 1
-    worksheet.getCell(`H${row}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formula1: ['"Aktif,Nonaktif"'],
-      showDropDown: true
-    }
-    worksheet.getCell(`I${row}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formula1: ['"Ya,Tidak"'],
-      showDropDown: true
-    }
-    worksheet.getCell(`F${row}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formula1: [`"${categoryList}"`],
-      showDropDown: true
-    }
+    applyDataValidation(row)
   }
 
   existingProducts.forEach((prod, index) => {
-    const rowNum = index + 2
-    worksheet.getCell(`B${rowNum}`).value = prod.id
-    worksheet.getCell(`C${rowNum}`).value = prod.nameProduct
-    worksheet.getCell(`D${rowNum}`).value = prod.image || ''
-    worksheet.getCell(`E${rowNum}`).value = prod.description || ''
-    worksheet.getCell(`F${rowNum}`).value = prod.categoryName || ''
-    worksheet.getCell(`G${rowNum}`).value = prod.price || 0
-    worksheet.getCell(`H${rowNum}`).value = prod.status === 'active' ? 'Aktif' : 'Nonaktif'
-    worksheet.getCell(`I${rowNum}`).value = prod.isOption ? 'Ya' : 'Tidak'
-    worksheet.getCell(`J${rowNum}`).value = prod.options
-      ? (Array.isArray(prod.options) ? prod.options.join(',') : prod.options)
+    const r = index + 2
+    worksheet.getCell(`B${r}`).value = prod.nameProduct
+    worksheet.getCell(`C${r}`).value = prod.sku || ''
+    worksheet.getCell(`D${r}`).value = prod.barcode || ''
+    worksheet.getCell(`E${r}`).value = prod.brand || ''
+    worksheet.getCell(`F${r}`).value = prod.categoryName || ''
+    worksheet.getCell(`G${r}`).value = prod.tipeProduk || 'menu'
+    worksheet.getCell(`H${r}`).value = prod.description || ''
+    worksheet.getCell(`I${r}`).value = prod.unit || 'pcs'
+    worksheet.getCell(`J${r}`).value = prod.baseUnit || 'pcs'
+    worksheet.getCell(`K${r}`).value = prod.conversionFactor || 1
+    worksheet.getCell(`L${r}`).value = prod.supplierName || ''
+    worksheet.getCell(`M${r}`).value = prod.taxName || ''
+    worksheet.getCell(`N${r}`).value = prod.price || 0
+    worksheet.getCell(`O${r}`).value = prod.costPrice || 0
+    worksheet.getCell(`P${r}`).value = prod.stock || 0
+    worksheet.getCell(`Q${r}`).value = prod.minStock || 0
+    worksheet.getCell(`R${r}`).value = prod.point || 0
+    worksheet.getCell(`S${r}`).value = prod.redeemPoints || 0
+    worksheet.getCell(`T${r}`).value = prod.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`U${r}`).value = prod.isAvailable !== false ? 'Ya' : 'Tidak'
+    worksheet.getCell(`V${r}`).value = prod.isOption ? 'Ya' : 'Tidak'
+    worksheet.getCell(`W${r}`).value = prod.options
+      ? (Array.isArray(prod.options) ? JSON.stringify(prod.options) : prod.options)
       : ''
-    worksheet.getCell(`K${rowNum}`).value = prod.stock || 0
-    worksheet.getCell(`L${rowNum}`).value = prod.costPrice || 0
-    worksheet.getCell(`M${rowNum}`).value = prod.minStock || 0
-    worksheet.getCell(`N${rowNum}`).value = prod.unit || 'pcs'
   })
 
   return workbook.xlsx.writeBuffer()
@@ -148,24 +159,33 @@ const parseProductTemplate = async (buffer) => {
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber >= startRow) {
       const rowData = row.values
-      if (rowData[1] || rowData[3]) {
+      if (rowData[1] || rowData[2]) {
         products.push({
           no: rowData[1],
-          id: rowData[2] ? String(rowData[2]).trim() : null,
-          nameProduct: rowData[3] ? String(rowData[3]).trim() : '',
-          image: rowData[4] ? String(rowData[4]).trim() : '',
-          description: rowData[5] ? String(rowData[5]).trim() : '',
+          nameProduct: rowData[2] ? String(rowData[2]).trim() : '',
+          sku: rowData[3] ? String(rowData[3]).trim() : '',
+          barcode: rowData[4] ? String(rowData[4]).trim() : '',
+          brand: rowData[5] ? String(rowData[5]).trim() : '',
           category: rowData[6] ? String(rowData[6]).trim() : '',
-          price: rowData[7] ? parseFloat(rowData[7]) : 0,
-          status: rowData[8] ? String(rowData[8]).trim() : 'Aktif',
-          isOption: rowData[9] ? String(rowData[9]).trim() : 'Tidak',
-          options: rowData[10]
-            ? String(rowData[10]).split(',').map(s => s.trim()).filter(Boolean)
-            : [],
-          stock: rowData[11] ? parseFloat(rowData[11]) : 0,
-          costPrice: rowData[12] ? parseFloat(rowData[12]) : 0,
-          minStock: rowData[13] ? parseFloat(rowData[13]) : 0,
-          unit: rowData[14] ? String(rowData[14]).trim() : 'pcs'
+          tipeProduk: rowData[7] ? String(rowData[7]).trim() : 'menu',
+          description: rowData[8] ? String(rowData[8]).trim() : '',
+          unit: rowData[9] ? String(rowData[9]).trim() : 'pcs',
+          baseUnit: rowData[10] ? String(rowData[10]).trim() : 'pcs',
+          conversionFactor: rowData[11] ? parseFloat(rowData[11]) : 1,
+          supplier: rowData[12] ? String(rowData[12]).trim() : '',
+          tax: rowData[13] ? String(rowData[13]).trim() : '',
+          price: rowData[14] ? parseFloat(rowData[14]) : 0,
+          costPrice: rowData[15] ? parseFloat(rowData[15]) : 0,
+          stock: rowData[16] ? parseFloat(rowData[16]) : 0,
+          minStock: rowData[17] ? parseFloat(rowData[17]) : 0,
+          point: rowData[18] ? parseFloat(rowData[18]) : 0,
+          redeemPoints: rowData[19] ? parseFloat(rowData[19]) : 0,
+          status: rowData[20] ? String(rowData[20]).trim() : 'Aktif',
+          isAvailable: rowData[21] ? String(rowData[21]).trim() : 'Ya',
+          isOption: rowData[22] ? String(rowData[22]).trim() : 'Tidak',
+          options: rowData[23]
+            ? String(rowData[23]).trim()
+            : ''
         })
       }
     }
@@ -424,5 +444,7 @@ module.exports = {
   LOCATION_HEADERS,
   LOCATION_REQUIRED_HEADERS,
   INVOICE_LOGO_HEADERS,
-  INVOICE_LOGO_REQUIRED_HEADERS
+  INVOICE_LOGO_REQUIRED_HEADERS,
+  UNIT_OPTIONS,
+  BASE_UNIT_OPTIONS
 }

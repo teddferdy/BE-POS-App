@@ -218,7 +218,8 @@ const taxConfigController = {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Tax Config Template')
 
-      worksheet.addRow(['Name', 'Rate', 'Type', 'Description'])
+      const headers = ['Name', 'Type', 'Rate', 'Description', 'Status']
+      worksheet.addRow(headers)
 
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
@@ -229,10 +230,24 @@ const taxConfigController = {
 
       worksheet.columns = [
         { width: 25 },
-        { width: 10 },
         { width: 15 },
-        { width: 30 }
+        { width: 10 },
+        { width: 30 },
+        { width: 12 }
       ]
+
+      for (let row = 2; row <= 12; row++) {
+        worksheet.getCell(`B${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"PPN,PPh,Non-Pajak"']
+        }
+        worksheet.getCell(`E${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Active,Inactive"']
+        }
+      }
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -271,8 +286,8 @@ const taxConfigController = {
       worksheet.addRow([
         'ID',
         'Name',
-        'Rate',
         'Type',
+        'Rate',
         'Description',
         'Status',
         'Created At'
@@ -288,8 +303,8 @@ const taxConfigController = {
         worksheet.addRow([
           t.id,
           t.name,
+          t.type === 'percentage' ? 'Persentase' : t.type,
           t.rate,
-          t.type,
           t.description,
           t.status === 'active' ? 'Active' : 'Inactive',
           t.createdAt ? t.createdAt.toISOString() : ''
@@ -299,8 +314,8 @@ const taxConfigController = {
       worksheet.columns = [
         { width: 10 },
         { width: 25 },
-        { width: 10 },
         { width: 15 },
+        { width: 10 },
         { width: 30 },
         { width: 10 },
         { width: 20 }
@@ -345,19 +360,26 @@ const taxConfigController = {
         if (rowNumber === 1) return
 
         try {
-          const [name, rate, type, description] = row.values
+          const [name, type, rate, description, status] = row.values
 
-          if (!name || !rate) {
+          if (!name || rate === undefined || rate === null) {
             errors.push(`Row ${rowNumber}: Name and rate are required`)
             return
           }
+
+          const statusValue = status
+            ? String(status).toLowerCase() === 'active'
+              ? 'active'
+              : 'inactive'
+            : 'active'
 
           taxesToCreate.push({
             store: req.cookies.store || req.user?.store,
             name: name.trim(),
             rate: parseInt(rate),
-            type: (type || 'percentage').trim(),
+            type: 'percentage',
             description: description?.trim() || null,
+            status: statusValue,
             createdBy: req.user?.id || null
           })
         } catch (error) {

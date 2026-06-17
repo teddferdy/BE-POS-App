@@ -306,7 +306,8 @@ const supplierController = {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Supplier Template')
 
-      worksheet.addRow(['Name', 'Phone', 'Email', 'Address', 'Description'])
+      const headers = ['Name', 'Contact Person', 'Phone', 'Email', 'Address', 'Status']
+      worksheet.addRow(headers)
 
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
@@ -317,11 +318,20 @@ const supplierController = {
 
       worksheet.columns = [
         { width: 25 },
+        { width: 22 },
         { width: 20 },
         { width: 30 },
         { width: 30 },
-        { width: 30 }
+        { width: 12 }
       ]
+
+      for (let row = 2; row <= 12; row++) {
+        worksheet.getCell(`F${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Active,Non-Active"']
+        }
+      }
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -360,10 +370,10 @@ const supplierController = {
       worksheet.addRow([
         'ID',
         'Name',
+        'Contact Person',
         'Phone',
         'Email',
         'Address',
-        'Description',
         'Status',
         'Created At'
       ])
@@ -379,10 +389,10 @@ const supplierController = {
         worksheet.addRow([
           s.id,
           s.name,
+          s.contactPerson || '',
           s.phone,
           s.email,
           s.address,
-          s.description,
           s.status === 'active' ? 'Active' : 'Inactive',
           s.createdAt ? s.createdAt.toISOString() : ''
         ])
@@ -391,8 +401,8 @@ const supplierController = {
       worksheet.columns = [
         { width: 10 },
         { width: 25 },
+        { width: 22 },
         { width: 20 },
-        { width: 30 },
         { width: 30 },
         { width: 30 },
         { width: 10 },
@@ -438,20 +448,27 @@ const supplierController = {
         if (rowNumber === 1) return
 
         try {
-          const [name, phone, email, address, description] = row.values
+          const [name, contactPerson, phone, email, address, status] = row.values
 
           if (!name) {
             errors.push(`Row ${rowNumber}: Name is required`)
             return
           }
 
+          const statusValue = status
+            ? String(status).toLowerCase() === 'active'
+              ? 'active'
+              : 'inactive'
+            : 'active'
+
           suppliersToCreate.push({
             store: req.user?.store,
             name: name.trim(),
+            contactPerson: contactPerson?.toString().trim() || null,
             phone: phone?.toString().trim() || null,
             email: email?.trim() || null,
             address: address?.trim() || null,
-            description: description?.trim() || null,
+            status: statusValue,
             createdBy: req.user?.id || null
           })
         } catch (error) {

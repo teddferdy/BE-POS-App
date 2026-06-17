@@ -723,36 +723,62 @@ exports.downloadTemplate = async (req, res) => {
       })
     }
 
-    const existingProducts = await Product.findAll({
-      include: [
-        {
-          model: Category,
-          as: 'categoryData',
-          attributes: ['name']
-        }
-      ]
+    const Supplier = db.supplier
+    const TaxConfig = db.taxConfig
+
+    const [existingProducts, suppliers, taxConfigs] = await Promise.all([
+      Product.findAll({
+        include: [
+          { model: Category, as: 'categoryData', attributes: ['name'] }
+        ]
+      }),
+      Supplier.findAll({ attributes: ['id', 'name'], where: { status: 'active' } }),
+      TaxConfig.findAll({ attributes: ['id', 'name', 'rate'], where: { status: 'active' } })
+    ])
+
+    const supplierMap = {}
+    suppliers.forEach(s => { supplierMap[s.id] = s.name })
+    const taxMap = {}
+    taxConfigs.forEach(t => { taxMap[t.id] = `${t.name} (${t.rate}%)` })
+
+    const productsWithData = existingProducts.map((p) => {
+      let taxName = ''
+      if (p.tax) {
+        const taxData = typeof p.tax === 'string' ? JSON.parse(p.tax) : p.tax
+        taxName = taxData?.name ? `${taxData.name} (${taxData.rate}%)` : (taxMap[p.tax] || '')
+      }
+      return {
+        nameProduct: p.nameProduct,
+        sku: p.sku || '',
+        barcode: p.barcode || '',
+        brand: p.brand || '',
+        description: p.description || '',
+        categoryName: p.categoryData?.name || '',
+        tipeProduk: p.tipeProduk || 'menu',
+        unit: p.unit || 'pcs',
+        baseUnit: p.baseUnit || 'pcs',
+        conversionFactor: p.conversionFactor || 1,
+        supplierName: supplierMap[p.supplier] || '',
+        taxName,
+        price: p.price || 0,
+        costPrice: p.costPrice || 0,
+        stock: p.stock || 0,
+        minStock: p.minStock || 0,
+        point: p.point || 0,
+        redeemPoints: p.redeemPoints || 0,
+        status: p.status,
+        isAvailable: p.isAvailable,
+        isOption: p.isOption,
+        options: p.options || []
+      }
     })
 
-    const productsWithCategory = existingProducts.map((p) => ({
-      id: p.id,
-      nameProduct: p.nameProduct,
-      image: p.image || '',
-      description: p.description,
-      categoryName: p.categoryData?.name || '',
-      price: p.price,
-      stock: p.stock || 0,
-      costPrice: p.costPrice || 0,
-      minStock: p.minStock || 0,
-      unit: p.unit || 'pcs',
-      status: p.status,
-      isOption: p.isOption,
-      options: p.options || []
-    }))
-
-    const buffer = await downloadProductTemplate(
+    const buffer = await downloadProductTemplate({
       categories,
-      productsWithCategory
-    )
+      existingProducts: productsWithData,
+      suppliers,
+      taxConfigs
+    })
 
     res.setHeader(
       'Content-Type',
@@ -802,189 +828,124 @@ exports.importProduct = async (req, res) => {
       imageMap[baseName] = file.path
     })
 
-    const categories = await Category.findAll({
-      attributes: ['id', 'name']
-    })
+    const Supplier = db.supplier
+    const TaxConfig = db.taxConfig
+
+    const [categories, suppliers, taxConfigs] = await Promise.all([
+      Category.findAll({ attributes: ['id', 'name'] }),
+      Supplier.findAll({ attributes: ['id', 'name'] }),
+      TaxConfig.findAll({ attributes: ['id', 'name', 'rate'] })
+    ])
+
     const categoryMap = categories.reduce((acc, cat) => {
       acc[cat.name.toLowerCase()] = cat.id
       return acc
     }, {})
+    const supplierMap = suppliers.reduce((acc, s) => {
+      acc[s.name.toLowerCase()] = s.id
+      return acc
+    }, {})
+    const taxMap = taxConfigs.reduce((acc, t) => {
+      const label = `${t.name} (${t.rate}%)`.toLowerCase()
+      acc[label] = { id: t.id, name: t.name, rate: t.rate }
+      return acc
+    }, {})
 
-    const results = {
-      created: [],
-      updated: [],
-      errors: []
+    const parseOptions = (val) => {
+      if (!val) return []
+      try {
+        const parsed = JSON.parse(val)
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return val.split(',').map(s => s.trim()).filter(Boolean)
+      }
     }
+
+    const results = { created: [], updated: [], errors: [] }
 
     for (const product of products) {
       try {
         if (!product.nameProduct) {
-          results.errors.push({
-            no: product.no,
-            message: 'Nama produk kosong'
-          })
+          results.errors.push({ no: product.no, message: 'Nama produk kosong' })
           continue
         }
 
         const categoryId = product.category
           ? categoryMap[product.category.toLowerCase()]
           : null
-
         if (!categoryId && product.category) {
-          results.errors.push({
-            no: product.no,
-            message: `Kategori "${product.category}" tidak ditemukan`
-          })
+          results.errors.push({ no: product.no, message: `Kategori "${product.category}" tidak ditemukan` })
           continue
         }
 
-        const statusValue = product.status
-          ? String(product.status).toLowerCase() === 'aktif'
-            ? 'active'
-            : 'inactive'
-          : 'active'
-        const isOptionValue = product.isOption
-          ? String(product.isOption).toLowerCase() === 'ya'
-          : false
+        const supplierId = product.supplier
+          ? (supplierMap[product.supplier.toLowerCase()] || null)
+          : null
+        const taxData = product.tax
+          ? (taxMap[product.tax.toLowerCase()] || null)
+          : null
 
-        if (product.id) {
-          const existingProduct = await Product.findOne({
-            where: {
-              id: product.id
-            }
-          })
+        const statusValue = String(product.status).toLowerCase() === 'aktif' ? 'active' : 'inactive'
+        const isOptionValue = String(product.isOption).toLowerCase() === 'ya'
+        const isAvailableValue = String(product.isAvailable).toLowerCase() === 'ya'
 
-          if (existingProduct) {
-            const updateData = {
-              nameProduct: product.nameProduct,
-              description: product.description,
-              category: categoryId,
-              price: product.price,
-              stock: product.stock,
-              costPrice: product.costPrice,
-              minStock: product.minStock,
-              unit: product.unit,
-              status: statusValue,
-              isOption: isOptionValue,
-              options: product.options || []
-            }
+        const productData = {
+          nameProduct: product.nameProduct,
+          sku: product.sku || null,
+          barcode: product.barcode || null,
+          brand: product.brand || null,
+          description: product.description || null,
+          category: categoryId,
+          tipeProduk: product.tipeProduk || 'menu',
+          unit: product.unit || 'pcs',
+          baseUnit: product.baseUnit || 'pcs',
+          conversionFactor: product.conversionFactor || 1,
+          supplier: supplierId,
+          tax: taxData ? JSON.stringify(taxData) : null,
+          price: product.price || 0,
+          costPrice: product.costPrice || 0,
+          stock: product.stock || 0,
+          minStock: product.minStock || 0,
+          point: product.point || 0,
+          redeemPoints: product.redeemPoints || 0,
+          status: statusValue,
+          isAvailable: isAvailableValue,
+          isOption: isOptionValue,
+          options: parseOptions(product.options)
+        }
 
-            let imageUrl = product.image
+        const productFileName = product.nameProduct.toLowerCase().replace(/\s+/g, '-')
+        let imageUrl = null
+        if (imageMap[productFileName]) {
+          imageUrl = await uploadToCloudinary(imageMap[productFileName], 'pos-app-products')
+        }
 
-            const productFileName = product.nameProduct
-              .toLowerCase()
-              .replace(/\s+/g, '-')
-            if (imageMap[productFileName]) {
-              if (existingProduct.image) {
-                await deleteFromCloudinary(existingProduct.image)
-              }
-              imageUrl = await uploadToCloudinary(
-                imageMap[productFileName],
-                'pos-app-products'
-              )
-            } else if (
-              product.image &&
-              product.image !== existingProduct.image
-            ) {
-              if (existingProduct.image) {
-                await deleteFromCloudinary(existingProduct.image)
-              }
-              imageUrl = product.image
-            }
+        const newProduct = await Product.create({
+          ...productData,
+          image: imageUrl || null
+        })
 
-            if (imageUrl) {
-              updateData.image = imageUrl
-            }
-
-            await existingProduct.update(updateData)
-            results.updated.push({
-              id: product.id,
-              nameProduct: product.nameProduct
-            })
-          } else {
-            let imageUrl = product.image
-
-            const productFileName = product.nameProduct
-              .toLowerCase()
-              .replace(/\s+/g, '-')
-            if (imageMap[productFileName]) {
-              imageUrl = await uploadToCloudinary(
-                imageMap[productFileName],
-                'pos-app-products'
-              )
-            }
-
-            const newProduct = await Product.create({
-              id: product.id,
-              nameProduct: product.nameProduct,
-              image: imageUrl || null,
-              description: product.description,
-              category: categoryId,
-              price: product.price,
-              stock: product.stock,
-              costPrice: product.costPrice,
-              minStock: product.minStock,
-              unit: product.unit,
-              status: statusValue,
-              isOption: isOptionValue,
-              options: product.options || []
-            })
-            results.created.push({
-              id: newProduct.id,
-              nameProduct: newProduct.nameProduct
-            })
-          }
-        } else {
-          let imageUrl = product.image
-
-          const productFileName = product.nameProduct
-            .toLowerCase()
-            .replace(/\s+/g, '-')
-          if (imageMap[productFileName]) {
-            imageUrl = await uploadToCloudinary(
-              imageMap[productFileName],
-              'pos-app-products'
-            )
-          }
-
-          const newProduct = await Product.create({
-            nameProduct: product.nameProduct,
-            image: imageUrl || null,
-            description: product.description,
-            category: categoryId,
-            price: product.price,
-            stock: product.stock,
-            costPrice: product.costPrice,
-            minStock: product.minStock,
-            unit: product.unit,
-            status: statusValue,
-            isOption: isOptionValue,
-            options: product.options || []
-          })
-          results.created.push({
-            id: newProduct.id,
-            nameProduct: newProduct.nameProduct
+        if (productData.stock > 0) {
+          await StockHistory.create({
+            product: newProduct.id,
+            type: 'in',
+            quantity: productData.stock,
+            note: 'Initial stock from import',
+            createdBy: req.user?.id || null
           })
         }
+
+        results.created.push({ id: newProduct.id, nameProduct: newProduct.nameProduct })
       } catch (err) {
-        results.errors.push({
-          no: product.no,
-          message: err.message
-        })
+        results.errors.push({ no: product.no, message: err.message })
       }
     }
 
-    createAudit(
-      req,
-      'import',
-      'product',
-      null,
-      `Imported ${results.created.length} products`
-    )
+    createAudit(req, 'import', 'product', null, `Imported ${results.created.length} products`)
 
     res.status(200).json({
       success: true,
-      message: `Berhasil import ${results.created.length} produk baru dan ${results.updated.length} produk diupdate`,
+      message: `Berhasil import ${results.created.length} produk`,
       data: results
     })
   } catch (err) {

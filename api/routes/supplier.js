@@ -33,17 +33,17 @@ router.delete(
 // Download/Upload - Super Admin only
 router.get(
   '/template',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   supplierController.downloadTemplate
 )
 router.get(
   '/download',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   supplierController.downloadData
 )
 router.post(
   '/import',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
   uploadExcel.single('file'),
   supplierController.importData
 )

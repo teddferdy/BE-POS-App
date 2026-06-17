@@ -672,6 +672,8 @@ exports.getLocationById = async (req, res) => {
       mainBranch: location.mainBranch,
       createdAt: location.createdAt,
       updatedAt: location.updatedAt,
+      createdBy: location.createdBy || null,
+      modifiedBy: location.modifiedBy || null,
       openingHours: location.openingHours || [
         { day: 'Monday', open: null, close: null },
         { day: 'Tuesday', open: null, close: null },

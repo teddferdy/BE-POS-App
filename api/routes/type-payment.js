@@ -1,11 +1,14 @@
 const express = require('express')
 const router = express.Router()
+const multer = require('multer')
 
 const typePaymentController = require('../controller/type-payment')
 // Authorization
 const authorization = require('../../utils/authorization')
 const { requireRole } = authorization
 const { validateStoreAccess } = require('../../utils/storeValidation')
+
+const uploadExcel = multer({ storage: multer.memoryStorage() })
 
 // get Type Payment By Location And Active
 router.get(
@@ -56,6 +59,28 @@ router.delete(
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
   typePaymentController.deleteTypePaymentById
+)
+
+// Download Template
+router.get(
+  '/template',
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  typePaymentController.downloadTemplate
+)
+
+// Download Data
+router.get(
+  '/download',
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  typePaymentController.downloadData
+)
+
+// Import Data
+router.post(
+  '/import',
+  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  uploadExcel.single('file'),
+  typePaymentController.importData
 )
 
 module.exports = router

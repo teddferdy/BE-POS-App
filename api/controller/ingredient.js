@@ -379,7 +379,7 @@ const ingredientController = {
         { header: 'Stok Awal', key: 'stock', width: 12 },
         { header: 'Minimal Stok', key: 'minStock', width: 14 },
         { header: 'Harga Beli (Rp)', key: 'costPrice', width: 16 },
-        { header: 'Status (active/inactive)', key: 'status', width: 24 }
+        { header: 'Status', key: 'status', width: 14 }
       ]
 
       const headerRow = ws.getRow(1)
@@ -418,10 +418,10 @@ const ingredientController = {
         }
         ws.getCell(`K${r}`).dataValidation = {
           type: 'list',
-          formulae: ['"active,inactive"'],
+          formulae: ['"Active,Inactive"'],
           showErrorMessage: true,
           errorTitle: 'Status tidak valid',
-          error: 'Pilih active atau inactive'
+          error: 'Pilih Active atau Inactive'
         }
       }
 
@@ -444,7 +444,7 @@ const ingredientController = {
       ws.getCell(`H${sampleRow}`).value = 0
       ws.getCell(`I${sampleRow}`).value = 10
       ws.getCell(`J${sampleRow}`).value = 12000
-      ws.getCell(`K${sampleRow}`).value = 'active'
+      ws.getCell(`K${sampleRow}`).value = 'Active'
 
       // Unlock all data cells so users can edit freely
       for (let r = 1; r <= 200; r++) {
@@ -534,7 +534,7 @@ const ingredientController = {
           stock: ing.stock,
           minStock: ing.minStock,
           costPrice: ing.costPrice || 0,
-          status: ing.status || 'active'
+          status: ing.status === 'active' ? 'Active' : 'Inactive'
         })
       })
 
@@ -567,7 +567,7 @@ const ingredientController = {
       }
 
       // Validate headers
-      const expected = ['No', 'Nama Bahan Baku', 'Kategori', 'Supplier', 'Unit Pembelian', 'Base Unit', 'Faktor Konversi', 'Stok Awal', 'Minimal Stok', 'Harga Beli (Rp)', 'Status (active/inactive)']
+      const expected = ['No', 'Nama Bahan Baku', 'Kategori', 'Supplier', 'Unit Pembelian', 'Base Unit', 'Faktor Konversi', 'Stok Awal', 'Minimal Stok', 'Harga Beli (Rp)', 'Status']
       const headers = []
       ws.getRow(1).eachCell((cell) => { headers.push(cell.value ? String(cell.value).trim() : '') })
       const headerValid = expected.every((h, i) => headers[i] === h)

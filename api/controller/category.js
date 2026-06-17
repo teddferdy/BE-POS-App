@@ -350,6 +350,15 @@ exports.exportCategory = async (req, res) => {
       order: [['createdAt', 'DESC']]
     })
 
+    const Location = db.location
+    const stores = await Location.findAll({
+      where: { status: 'active' },
+      attributes: ['id', 'name'],
+      order: [['name', 'ASC']]
+    })
+    const storeNames = stores.map(s => s.name)
+    const storeDropdown = ['All Stores', ...storeNames].join(',')
+
     const workbook = new excelJS.Workbook()
     const worksheet = workbook.addWorksheet('Category')
 
@@ -357,7 +366,7 @@ exports.exportCategory = async (req, res) => {
       { header: 'No', key: 'no', width: 8 },
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Description', key: 'description', width: 30 },
-      { header: 'Value', key: 'value', width: 20 },
+      { header: 'Store', key: 'store', width: 20 },
       { header: 'isActive', key: 'isActive', width: 12 }
     ]
 
@@ -375,6 +384,9 @@ exports.exportCategory = async (req, res) => {
       cell.protection = { locked: true }
     })
 
+    const storeNameById = {}
+    stores.forEach(s => { storeNameById[s.id] = s.name })
+
     let rowIndex = 2
     categories.forEach((cat) => {
       const no = rowIndex - 1
@@ -388,11 +400,21 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`C${rowIndex}`).value = cat.description || ''
       worksheet.getCell(`C${rowIndex}`).protection = { locked: false }
 
-      worksheet.getCell(`D${rowIndex}`).value = cat.value || ''
+      worksheet.getCell(`D${rowIndex}`).value = cat.store ? (storeNameById[cat.store] || 'All Stores') : 'All Stores'
       worksheet.getCell(`D${rowIndex}`).protection = { locked: false }
+      worksheet.getCell(`D${rowIndex}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${storeDropdown}"`]
+      }
 
-      worksheet.getCell(`E${rowIndex}`).value = cat.status === 'active' ? 'TRUE' : 'FALSE'
+      worksheet.getCell(`E${rowIndex}`).value = cat.status === 'active' ? 'Active' : 'Non-Active'
       worksheet.getCell(`E${rowIndex}`).protection = { locked: false }
+      worksheet.getCell(`E${rowIndex}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Active,Non-Active"']
+      }
 
       rowIndex++
     })
@@ -406,6 +428,18 @@ exports.exportCategory = async (req, res) => {
       ;['B', 'C', 'D', 'E'].forEach((col) => {
         worksheet.getCell(`${col}${row}`).protection = { locked: false }
       })
+
+      worksheet.getCell(`D${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${storeDropdown}"`]
+      }
+
+      worksheet.getCell(`E${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Active,Non-Active"']
+      }
     }
 
     worksheet.protect('', {
@@ -524,7 +558,7 @@ exports.importCategory = async (req, res) => {
       headers.push(cell.value ? cell.value.toString().trim() : '')
     })
 
-    const EXPECTED = ['No', 'Name', 'Description', 'Value', 'isActive']
+    const EXPECTED = ['No', 'Name', 'Description', 'Store', 'isActive']
     const isValid = EXPECTED.every((h, i) => headers[i] === h)
     if (!isValid) {
       return res.status(400).json({
@@ -532,6 +566,14 @@ exports.importCategory = async (req, res) => {
         message: 'Header tidak valid. Pastikan menggunakan template yang benar'
       })
     }
+
+    const Location = db.location
+    const stores = await Location.findAll({
+      where: { status: 'active' },
+      attributes: ['id', 'name']
+    })
+    const storeByName = {}
+    stores.forEach(s => { storeByName[s.name] = s.id })
 
     const categories = []
     const errors = []
@@ -545,19 +587,23 @@ exports.importCategory = async (req, res) => {
       }
 
       const description = row.getCell(3).value ? String(row.getCell(3).value).trim() : null
-      const value = row.getCell(4).value ? String(row.getCell(4).value).trim() : String(name).toLowerCase()
+
+      const storeCell = row.getCell(4).value
+      const storeName = storeCell ? String(storeCell).trim() : 'All Stores'
+      const storeId = storeName === 'All Stores' ? null : (storeByName[storeName] || null)
+
       const isActiveCell = row.getCell(5).value
       let isActive = true
       if (isActiveCell !== null && isActiveCell !== undefined) {
         const strVal = String(isActiveCell).toLowerCase().trim()
-        isActive = strVal === 'true' || strVal === '1' || strVal === 'yes'
+        isActive = strVal === 'true' || strVal === '1' || strVal === 'yes' || strVal === 'active'
       }
 
       const nameStr = String(name).trim()
       categories.push({
         name: nameStr,
         description,
-        value: value || nameStr.toLowerCase(),
+        store: storeId,
         status: isActive ? 'active' : 'inactive',
         createdBy: req.user?.userName || req.user?.id || 'system'
       })
