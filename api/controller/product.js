@@ -194,7 +194,8 @@ exports.postAddProduct = async (req, res) => {
     currencyId,
     currencyCode,
     tipeProduk,
-    composition
+    composition,
+    redeemPoints
   } = req.body
 
   const normalizeStatus = (val) => {
