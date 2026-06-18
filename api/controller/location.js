@@ -43,7 +43,7 @@ exports.getAllLocationPublic = async (req, res) => {
   try {
     const locations = await Location.findAll({
       where: { status: 'active' },
-      attributes: ['id', 'name', 'city', 'province', 'detailLocation']
+      attributes: ['id', 'store', 'name', 'city', 'province', 'detailLocation', 'latitude', 'longitude']
     })
     return res
       .status(200)
