@@ -722,7 +722,7 @@ const posController = {
           {
             model: db.member,
             as: 'memberData',
-            attributes: ['id', 'name', 'phone']
+            attributes: ['id', 'name', 'phoneNumber']
           }
         ],
         order: [['createdAt', 'DESC']],
