@@ -17,11 +17,16 @@ const {
 } = require('../../utils/excelTemplate')
 
 exports.getProductByLocationSuperAdmin = async (req, res) => {
+  const { store } = req.query
+
   try {
+    const whereCondition = { status: 'active' }
+    if (store) {
+      whereCondition.store = { [Op.contains]: [Number(store)] }
+    }
+
     const getAllProduct = await Product.findAll({
-      where: {
-        status: 'active'
-      }
+      where: whereCondition
     }).then((res) =>
       res.map((items) => {
         const getData = {
