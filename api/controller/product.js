@@ -111,7 +111,7 @@ exports.getAllProduct = async (req, res) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res) => {
-  const { page = 1, pageSize = 10, status = 'all' } = req.query
+  const { page = 1, pageSize = 10, status = 'all', store } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -126,6 +126,8 @@ exports.getAllProductInTable = async (req, res) => {
     const whereCondition = {
       ...statusCondition
     }
+
+    if (store) whereCondition.store = store
 
     const getAllProduct = await Product.findAll({
       where: whereCondition,

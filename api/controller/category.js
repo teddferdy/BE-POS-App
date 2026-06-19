@@ -52,7 +52,7 @@ exports.getCategoryById = async (req, res) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
-  const { page = 1, pageSize = 10, status = 'all' } = req.query
+  const { page = 1, pageSize = 10, status = 'all', store } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -63,6 +63,8 @@ exports.getAllCategoryInTable = async (req, res) => {
     } else if (status === 'inactive' || status === 'false') {
       whereClause.status = 'inactive'
     }
+
+    if (store) whereClause.store = store
 
     const [categories, productCounts, totalCategories, activeCount, inactiveCount] = await Promise.all([
       Category.findAll({
