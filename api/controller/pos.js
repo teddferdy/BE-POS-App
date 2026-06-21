@@ -1,7 +1,12 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const path = require('path')
-const { getConnectionStatus, sendDocument, logout, restartClient } = require('../../utils/whatsappClient')
+const {
+  getConnectionStatus,
+  sendDocument,
+  logout,
+  restartClient
+} = require('../../utils/whatsappClient')
 
 const posController = {
   // Barcode lookup untuk POS scan
@@ -759,14 +764,26 @@ const posController = {
       // Auto-compute date range based on filter preset
       if (filter && !startDate && !endDate) {
         const now = new Date()
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const todayStart = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate()
+        )
 
         if (filter === 'daily') {
           startDate = todayStart.toISOString()
           endDate = new Date(todayStart.getTime() + 86400000 - 1).toISOString()
         } else if (filter === 'monthly') {
           const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-          const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+          const monthEnd = new Date(
+            now.getFullYear(),
+            now.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+            999
+          )
           startDate = monthStart.toISOString()
           endDate = monthEnd.toISOString()
         } else {
@@ -827,13 +844,16 @@ const posController = {
           SELECT ${chartGroupBy} as date, SUM("totalPrice") as sales
           FROM "order"
           WHERE "paymentStatus" = 'paid'
-          ${(startDate && endDate) ? 'AND "createdAt" >= :startDate AND "createdAt" <= :endDate' : ''}
+          ${startDate && endDate ? 'AND "createdAt" >= :startDate AND "createdAt" <= :endDate' : ''}
           ${store ? 'AND "store" = :store' : ''}
           GROUP BY date
           ORDER BY date ASC
           LIMIT ${chartLimit}
         `,
-          { replacements: chartReplacements, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: chartReplacements,
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         db.sequelize.query(
           `
@@ -850,18 +870,35 @@ const posController = {
             type: db.sequelize.QueryTypes.SELECT
           }
         ),
-        db.order.findAll({
-          where: { ...(store ? { store } : {}), ...(startDate || endDate ? { createdAt: orderWhere.createdAt } : {}) },
-          order: [['createdAt', 'DESC']],
-          limit: 10,
-          include: [
-            { model: db.order_item, as: 'items', attributes: ['id', 'productName', 'quantity', 'totalPrice'] },
-            { model: db.table, as: 'table', attributes: ['name'] }
-          ]
-        }).then(orders => orders.map(o => {
-          const json = o.toJSON()
-          return { ...json, tableName: json.table?.name || null, table: json.table?.name || null }
-        }))
+        db.order
+          .findAll({
+            where: {
+              ...(store ? { store } : {}),
+              ...(startDate || endDate
+                ? { createdAt: orderWhere.createdAt }
+                : {})
+            },
+            order: [['createdAt', 'DESC']],
+            limit: 10,
+            include: [
+              {
+                model: db.order_item,
+                as: 'items',
+                attributes: ['id', 'productName', 'quantity', 'totalPrice']
+              },
+              { model: db.table, as: 'table', attributes: ['name'] }
+            ]
+          })
+          .then((orders) =>
+            orders.map((o) => {
+              const json = o.toJSON()
+              return {
+                ...json,
+                tableName: json.table?.name || null,
+                table: json.table?.name || null
+              }
+            })
+          )
       ])
 
       const [lowStockProductCount] = await db.sequelize.query(
@@ -1050,17 +1087,24 @@ const posController = {
       if (!status.ready) {
         return res.status(400).json({
           success: false,
-          message: 'WhatsApp tidak terhubung. Silakan scan QR code di pengaturan.',
+          message:
+            'WhatsApp tidak terhubung. Silakan scan QR code di pengaturan.',
           data: { waConnected: false }
         })
       }
 
       // Generate PDF
       const storeData = order.store
-        ? await db.location.findByPk(order.store, { attributes: ['name', 'address', 'phoneNumber'] })
+        ? await db.location.findByPk(order.store, {
+            attributes: ['name', 'address', 'phoneNumber']
+          })
         : null
       const { generateInvoicePdf } = require('../../utils/generateInvoicePdf')
-      const { fileName, filePath } = await generateInvoicePdf(order, storeData, order.items || [])
+      const { fileName, filePath } = await generateInvoicePdf(
+        order,
+        storeData,
+        order.items || []
+      )
 
       // Look up member points
       let memberInfo = null
@@ -1077,7 +1121,7 @@ const posController = {
           memberInfo = {
             name: member.name,
             totalPoints: member.totalPoints,
-            tierName,
+            tierName
           }
         }
       }
@@ -1099,12 +1143,17 @@ const posController = {
       })
 
       const tableInfo = order.table ? `Meja: ${order.table.name}\n` : ''
-      const customerInfo = order.customerName ? `Pelanggan: ${order.customerName}\n` : ''
+      const customerInfo = order.customerName
+        ? `Pelanggan: ${order.customerName}\n`
+        : ''
       const itemsSection = order.items?.length
         ? `\n━━━ *PESANAN* ━━━\n${itemLines}`
         : ''
 
-      const statusText = order.paymentStatus === 'paid' ? 'LUNAS ✅' : (order.paymentStatus || 'BELUM DIBAYAR')
+      const statusText =
+        order.paymentStatus === 'paid'
+          ? 'LUNAS ✅'
+          : order.paymentStatus || 'BELUM DIBAYAR'
 
       // Build member points section
       let pointsSection = ''
@@ -1316,14 +1365,15 @@ const posController = {
       })
     }
   },
-  
+
   // Logout WhatsApp
   async logoutWhatsApp(req, res) {
     try {
       await logout()
       return res.status(200).json({
         success: true,
-        message: 'WhatsApp berhasil diputuskan. Silakan refresh halaman untuk scan QR baru.'
+        message:
+          'WhatsApp berhasil diputuskan. Silakan refresh halaman untuk scan QR baru.'
       })
     } catch (error) {
       return res.status(500).json({

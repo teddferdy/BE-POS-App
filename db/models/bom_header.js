@@ -26,6 +26,10 @@ module.exports = (sequelize, DataTypes) => {
       notes: {
         type: DataTypes.TEXT
       },
+      status: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },

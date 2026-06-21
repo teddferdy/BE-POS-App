@@ -2,7 +2,12 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 
 const getStore = (req) =>
-  req.body.storeId || req.body.store || req.query.store || req.cookies.store || req.cookies.activeStore || req.user?.store
+  req.body.storeId ||
+  req.body.store ||
+  req.query.store ||
+  req.cookies.store ||
+  req.cookies.activeStore ||
+  req.user?.store
 
 const cashRegisterController = {
   async open(req, res) {
@@ -38,7 +43,9 @@ const cashRegisterController = {
         openedAt: new Date()
       })
 
-      const location = await db.location.findByPk(store, { attributes: ['id', 'name', 'address', 'city'] })
+      const location = await db.location.findByPk(store, {
+        attributes: ['id', 'name', 'address', 'city']
+      })
 
       return res.status(201).json({
         success: true,
@@ -144,8 +151,11 @@ const cashRegisterController = {
             totalSales,
             totalExpenses,
             totalPayments,
-            expectedCash: cashRegister.openingBalance + totalSales - totalExpenses,
-            variance: (closingBalance || 0) - (cashRegister.openingBalance + totalSales - totalExpenses)
+            expectedCash:
+              cashRegister.openingBalance + totalSales - totalExpenses,
+            variance:
+              (closingBalance || 0) -
+              (cashRegister.openingBalance + totalSales - totalExpenses)
           }
         }
       })
@@ -206,7 +216,10 @@ const cashRegisterController = {
         attributes: ['id', 'totalPrice', 'createdAt']
       })
 
-      const totalSales = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0)
+      const totalSales = orders.reduce(
+        (sum, order) => sum + (order.totalPrice || 0),
+        0
+      )
 
       const expenses = await db.expense.findAll({
         where: {
@@ -218,7 +231,10 @@ const cashRegisterController = {
         attributes: ['id', 'amount', 'description', 'date']
       })
 
-      const totalExpenses = expenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+      const totalExpenses = expenses.reduce(
+        (sum, exp) => sum + Number(exp.amount || 0),
+        0
+      )
 
       return res.status(200).json({
         success: true,

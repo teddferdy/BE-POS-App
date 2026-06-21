@@ -62,13 +62,21 @@ const supplierController = {
         ]
       }
       if (status !== undefined) {
-        where.status =
-          status === 'true' || status === 'active' ? 'active' : 'inactive'
+        // Handle string status values directly (including 'draft')
+        if (typeof status === 'string') {
+          where.status = status
+        } else {
+          // Handle boolean status values
+          where.status =
+            status === true || status === 'true' || status === 'active'
+              ? 'active'
+              : 'inactive'
+        }
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [suppliers, total, activeCount, inactiveCount] = await Promise.all([
+      const [suppliers, total, activeCount, inactiveCount, draftCount] = await Promise.all([
         db.supplier.findAll({
           where,
           order: [['createdAt', 'DESC']],
@@ -77,7 +85,8 @@ const supplierController = {
         }),
         db.supplier.count({ where }),
         db.supplier.count({ where: { ...where, status: 'active' } }),
-        db.supplier.count({ where: { ...where, status: 'inactive' } })
+        db.supplier.count({ where: { ...where, status: 'inactive' } }),
+        db.supplier.count({ where: { ...where, status: 'draft' } })
       ])
 
       return res.status(200).json({
@@ -93,7 +102,8 @@ const supplierController = {
         stats: {
           total,
           active: activeCount,
-          inactive: inactiveCount
+          inactive: inactiveCount,
+          draft: draftCount
         }
       })
     } catch (error) {
@@ -134,25 +144,65 @@ const supplierController = {
   async create(req, res) {
     try {
       const store = req.user?.store
-      const { name, contactPerson, phone, email, address, description } =
+      const { name, contactPerson, phone, email, address, description, isActive, status } =
         req.body
       const createdBy = req.user?.id || null
 
-      if (!name) {
+      const trimmedName = name?.trim()
+
+      if (!trimmedName && status !== 'draft') {
         return res.status(400).json({
           success: false,
           message: 'Name is required'
         })
       }
 
+      const existing = await db.supplier.findOne({
+        where: {
+          [Op.or]: [
+            { name: { [Op.iLike]: trimmedName } },
+            ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : []),
+            ...(phone?.trim() ? [{ phone }] : [])
+          ]
+        },
+        paranoid: false
+      })
+
+      if (existing) {
+        const field =
+          existing.name.toLowerCase() === trimmedName.toLowerCase()
+            ? 'Name'
+            : existing.email?.toLowerCase() === email?.trim()?.toLowerCase()
+              ? 'Email'
+              : 'Phone'
+        return res.status(409).json({
+          success: false,
+          message: `${field} already exists`
+        })
+      }
+
+      const supplierStatus =
+        status !== undefined
+          ? status === true
+            ? 'active'
+            : status === false
+              ? 'inactive'
+              : status
+          : isActive !== undefined
+            ? isActive
+              ? 'active'
+              : 'inactive'
+            : 'active'
+
       const supplier = await db.supplier.create({
         store,
-        name,
-        contactPerson,
-        phone,
-        email,
-        address,
-        description,
+        name: trimmedName,
+        contactPerson: contactPerson?.trim() || null,
+        phone: phone?.trim() || null,
+        email: email?.trim() || null,
+        address: address?.trim() || null,
+        description: description?.trim() || null,
+        status: supplierStatus,
         createdBy
       })
 
@@ -210,15 +260,43 @@ const supplierController = {
         })
       }
 
+      const trimmedName = name?.trim()
+      if (name && trimmedName) {
+        const existing = await db.supplier.findOne({
+          where: {
+            id: { [Op.ne]: id },
+            [Op.or]: [
+              { name: { [Op.iLike]: trimmedName } },
+              ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : []),
+              ...(phone?.trim() ? [{ phone }] : [])
+            ]
+          },
+          paranoid: false
+        })
+
+        if (existing) {
+          const field =
+            existing.name.toLowerCase() === trimmedName.toLowerCase()
+              ? 'Name'
+              : existing.email?.toLowerCase() === email?.trim()?.toLowerCase()
+                ? 'Email'
+                : 'Phone'
+          return res.status(409).json({
+            success: false,
+            message: `${field} already exists`
+          })
+        }
+      }
+
       await supplier.update({
-        name: name || supplier.name,
+        name: trimmedName ?? supplier.name,
         contactPerson:
-          contactPerson !== undefined ? contactPerson : supplier.contactPerson,
-        phone: phone !== undefined ? phone : supplier.phone,
-        email: email !== undefined ? email : supplier.email,
-        address: address !== undefined ? address : supplier.address,
+          contactPerson !== undefined ? contactPerson?.trim() || null : supplier.contactPerson,
+        phone: phone !== undefined ? phone?.trim() || null : supplier.phone,
+        email: email !== undefined ? email?.trim() || null : supplier.email,
+        address: address !== undefined ? address?.trim() || null : supplier.address,
         description:
-          description !== undefined ? description : supplier.description,
+          description !== undefined ? description?.trim() || null : supplier.description,
         status:
           status !== undefined
             ? status === true
@@ -325,13 +403,13 @@ const supplierController = {
         { width: 12 }
       ]
 
-      for (let row = 2; row <= 12; row++) {
-        worksheet.getCell(`F${row}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: ['"Active,Non-Active"']
-        }
-      }
+       for (let row = 2; row <= 12; row++) {
+         worksheet.getCell(`F${row}`).dataValidation = {
+           type: 'list',
+           allowBlank: true,
+           formulae: ['"Active,Non-Active,Draft"']
+         }
+       }
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -385,18 +463,18 @@ const supplierController = {
         fgColor: { argb: 'FFD3D3D3' }
       }
 
-      suppliers.forEach((s) =>
-        worksheet.addRow([
-          s.id,
-          s.name,
-          s.contactPerson || '',
-          s.phone,
-          s.email,
-          s.address,
-          s.status === 'active' ? 'Active' : 'Inactive',
-          s.createdAt ? s.createdAt.toISOString() : ''
-        ])
-      )
+       suppliers.forEach((s) =>
+         worksheet.addRow([
+           s.id,
+           s.name,
+           s.contactPerson || '',
+           s.phone,
+           s.email,
+           s.address,
+           s.status === 'active' ? 'Active' : s.status === 'draft' ? 'Draft' : 'Inactive',
+           s.createdAt ? s.createdAt.toISOString() : ''
+         ])
+       )
 
       worksheet.columns = [
         { width: 10 },

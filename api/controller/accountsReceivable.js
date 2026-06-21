@@ -7,7 +7,14 @@ const accountsReceivableController = {
     try {
       const { store } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 20, status, customerId, startDate, endDate } = req.query
+      const {
+        page = 1,
+        limit = 20,
+        status,
+        customerId,
+        startDate,
+        endDate
+      } = req.query
 
       const where = {}
       if (store && userRole !== 'super_admin') where.store = store
@@ -24,8 +31,22 @@ const accountsReceivableController = {
       const { count, rows } = await db.accounts_receivable.findAndCountAll({
         where,
         include: [
-          { model: db.order, as: 'orderData', attributes: ['id', 'orderNumber', 'totalPrice', 'createdAt'] },
-          { model: db.ar_payment, as: 'payments', attributes: ['id', 'amount', 'paymentDate', 'paymentMethod', 'reference'] }
+          {
+            model: db.order,
+            as: 'orderData',
+            attributes: ['id', 'orderNumber', 'totalPrice', 'createdAt']
+          },
+          {
+            model: db.ar_payment,
+            as: 'payments',
+            attributes: [
+              'id',
+              'amount',
+              'paymentDate',
+              'paymentMethod',
+              'reference'
+            ]
+          }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -34,7 +55,7 @@ const accountsReceivableController = {
 
       // Compute aging and update overdue status
       const now = new Date()
-      const enriched = rows.map(ar => {
+      const enriched = rows.map((ar) => {
         const data = ar.toJSON()
         const due = new Date(data.dueDate)
         const diffDays = Math.floor((now - due) / (1000 * 60 * 60 * 24))
@@ -59,7 +80,9 @@ const accountsReceivableController = {
       })
     } catch (error) {
       console.error('AR list error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -68,7 +91,19 @@ const accountsReceivableController = {
       const { id } = req.params
       const ar = await db.accounts_receivable.findByPk(id, {
         include: [
-          { model: db.order, as: 'orderData', attributes: ['id', 'orderNumber', 'totalPrice', 'createdAt', 'paymentMethod', 'cashierName', 'items'] },
+          {
+            model: db.order,
+            as: 'orderData',
+            attributes: [
+              'id',
+              'orderNumber',
+              'totalPrice',
+              'createdAt',
+              'paymentMethod',
+              'cashierName',
+              'items'
+            ]
+          },
           { model: db.ar_payment, as: 'payments' }
         ]
       })
@@ -85,22 +120,37 @@ const accountsReceivableController = {
       return res.status(200).json({ success: true, data })
     } catch (error) {
       console.error('AR getById error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async create(req, res) {
     try {
       const { store } = req.cookies
-      const { orderId, customerId, customerName, totalAmount, dueDate, creditTerm, notes } = req.body
+      const {
+        orderId,
+        customerId,
+        customerName,
+        totalAmount,
+        dueDate,
+        creditTerm,
+        notes
+      } = req.body
 
       if (!orderId || !totalAmount) {
-        return res.status(400).json({ success: false, message: 'Order and total amount are required' })
+        return res.status(400).json({
+          success: false,
+          message: 'Order and total amount are required'
+        })
       }
 
       const order = await db.order.findByPk(orderId)
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Order not found' })
       }
 
       const invoiceNo = `INV-${order.orderNumber || order.id}-${Date.now()}`
@@ -123,12 +173,22 @@ const accountsReceivableController = {
         createdBy: req.user?.id || null
       })
 
-      await createAudit(req, 'create', 'accounts_receivable', ar.id, `Created AR: ${invoiceNo} for order: ${orderId}`)
+      await createAudit(
+        req,
+        'create',
+        'accounts_receivable',
+        ar.id,
+        `Created AR: ${invoiceNo} for order: ${orderId}`
+      )
 
-      return res.status(201).json({ success: true, message: 'AR created successfully', data: ar })
+      return res
+        .status(201)
+        .json({ success: true, message: 'AR created successfully', data: ar })
     } catch (error) {
       console.error('AR create error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -138,7 +198,9 @@ const accountsReceivableController = {
       const { amount, paymentDate, paymentMethod, reference, notes } = req.body
 
       if (!amount || amount <= 0) {
-        return res.status(400).json({ success: false, message: 'Amount is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Amount is required' })
       }
 
       const ar = await db.accounts_receivable.findByPk(id)
@@ -147,7 +209,9 @@ const accountsReceivableController = {
       }
 
       if (ar.status === 'PAID') {
-        return res.status(400).json({ success: false, message: 'AR is already fully paid' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'AR is already fully paid' })
       }
 
       // Over-payment guard
@@ -179,12 +243,22 @@ const accountsReceivableController = {
         status: newStatus
       })
 
-      await createAudit(req, 'create', 'ar_payment', payment.id, `Recorded payment ${payment.id} for AR: ${ar.id}`)
+      await createAudit(
+        req,
+        'create',
+        'ar_payment',
+        payment.id,
+        `Recorded payment ${payment.id} for AR: ${ar.id}`
+      )
 
-      return res.status(201).json({ success: true, message: 'Payment recorded', data: payment })
+      return res
+        .status(201)
+        .json({ success: true, message: 'Payment recorded', data: payment })
     } catch (error) {
       console.error('AR payment error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -199,8 +273,16 @@ const accountsReceivableController = {
       const arList = await db.accounts_receivable.findAll({
         where,
         include: [
-          { model: db.order, as: 'orderData', attributes: ['id', 'orderNumber'] },
-          { model: db.ar_payment, as: 'payments', attributes: ['id', 'amount', 'paymentDate'] }
+          {
+            model: db.order,
+            as: 'orderData',
+            attributes: ['id', 'orderNumber']
+          },
+          {
+            model: db.ar_payment,
+            as: 'payments',
+            attributes: ['id', 'amount', 'paymentDate']
+          }
         ],
         order: [['dueDate', 'ASC']]
       })
@@ -236,7 +318,9 @@ const accountsReceivableController = {
       })
     } catch (error) {
       console.error('AR aging error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -258,12 +342,22 @@ const accountsReceivableController = {
       updates.modifiedBy = req.user?.id || null
 
       await ar.update(updates)
-      await createAudit(req, 'update', 'accounts_receivable', id, `Updated AR: ${ar.invoiceNo}`)
+      await createAudit(
+        req,
+        'update',
+        'accounts_receivable',
+        id,
+        `Updated AR: ${ar.invoiceNo}`
+      )
 
-      return res.status(200).json({ success: true, message: 'AR updated', data: ar })
+      return res
+        .status(200)
+        .json({ success: true, message: 'AR updated', data: ar })
     } catch (error) {
       console.error('AR update error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -278,12 +372,20 @@ const accountsReceivableController = {
       await db.ar_payment.destroy({ where: { arId: id } })
       await ar.destroy()
 
-      await createAudit(req, 'delete', 'accounts_receivable', id, `Deleted AR: ${ar.invoiceNo}`)
+      await createAudit(
+        req,
+        'delete',
+        'accounts_receivable',
+        id,
+        `Deleted AR: ${ar.invoiceNo}`
+      )
 
       return res.status(200).json({ success: true, message: 'AR deleted' })
     } catch (error) {
       console.error('AR delete error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

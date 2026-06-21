@@ -30,17 +30,29 @@ exports.getDailyReport = async (req, res) => {
       order: [['createdAt', 'DESC']]
     })
 
-    const totalRevenue = orders.reduce((s, o) => s + Number(o.totalPrice || 0), 0)
-    const totalDiscount = orders.reduce((s, o) => s + Number(o.discountAmount || 0), 0)
+    const totalRevenue = orders.reduce(
+      (s, o) => s + Number(o.totalPrice || 0),
+      0
+    )
+    const totalDiscount = orders.reduce(
+      (s, o) => s + Number(o.discountAmount || 0),
+      0
+    )
     const netRevenue = totalRevenue - totalDiscount
     const totalOrders = orders.length
-    const totalQty = orders.reduce((s, o) => s + Number(o.totalQuantity || 0), 0)
+    const totalQty = orders.reduce(
+      (s, o) => s + Number(o.totalQuantity || 0),
+      0
+    )
 
     let totalHpp = 0
     const orderIds = orders.map((o) => o.id)
     if (orderIds.length > 0) {
       const items = await OrderItem.findAll({ where: { order: orderIds } })
-      totalHpp = items.reduce((s, i) => s + Number(i.hppSnapshot || i.price || 0), 0)
+      totalHpp = items.reduce(
+        (s, i) => s + Number(i.hppSnapshot || i.price || 0),
+        0
+      )
     }
 
     const grossProfit = netRevenue - totalHpp
@@ -81,9 +93,10 @@ exports.getDailyReport = async (req, res) => {
     }
 
     // Compute per-day HPP from order items
-    const allOrderItems = orderIds.length > 0
-      ? await OrderItem.findAll({ where: { order: orderIds } })
-      : []
+    const allOrderItems =
+      orderIds.length > 0
+        ? await OrderItem.findAll({ where: { order: orderIds } })
+        : []
     for (const item of allOrderItems) {
       const orderObj = orders.find((o) => o.id === item.order)
       if (orderObj) {
@@ -99,13 +112,16 @@ exports.getDailyReport = async (req, res) => {
       const day = dateMap[d]
       day.grossProfit = day.totalPenjualanBersih - day.totalHpp
       day.netProfit = day.grossProfit
-      day.foodCostPersen = day.totalPenjualanBersih > 0
-        ? Math.round((day.totalHpp / day.totalPenjualanBersih) * 10000) / 100
-        : 0
+      day.foodCostPersen =
+        day.totalPenjualanBersih > 0
+          ? Math.round((day.totalHpp / day.totalPenjualanBersih) * 10000) / 100
+          : 0
       delete day.orderIds
     }
 
-    const reportData = Object.values(dateMap).sort((a, b) => b.tanggal.localeCompare(a.tanggal))
+    const reportData = Object.values(dateMap).sort((a, b) =>
+      b.tanggal.localeCompare(a.tanggal)
+    )
 
     res.json({
       success: true,
@@ -132,18 +148,27 @@ exports.getProfitLoss = async (req, res) => {
       }
     }
     const orders = await Order.findAll({ where: orderWhere })
-    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.totalPrice || 0), 0)
-    const totalDiscount = orders.reduce((sum, o) => sum + Number(o.discountAmount || 0), 0)
+    const totalRevenue = orders.reduce(
+      (sum, o) => sum + Number(o.totalPrice || 0),
+      0
+    )
+    const totalDiscount = orders.reduce(
+      (sum, o) => sum + Number(o.discountAmount || 0),
+      0
+    )
     const netRevenue = totalRevenue - totalDiscount
     const orderIds = orders.map((o) => o.id)
-    const items = orderIds.length > 0
-      ? await OrderItem.findAll({ where: { order: orderIds } })
-      : []
-    const totalHpp = items.reduce((sum, i) => sum + Number(i.hppSnapshot || i.price || 0), 0)
+    const items =
+      orderIds.length > 0
+        ? await OrderItem.findAll({ where: { order: orderIds } })
+        : []
+    const totalHpp = items.reduce(
+      (sum, i) => sum + Number(i.hppSnapshot || i.price || 0),
+      0
+    )
     const grossProfit = netRevenue - totalHpp
-    const marginPersen = netRevenue > 0
-      ? Math.round((grossProfit / netRevenue) * 10000) / 100
-      : 0
+    const marginPersen =
+      netRevenue > 0 ? Math.round((grossProfit / netRevenue) * 10000) / 100 : 0
 
     res.json({
       success: true,
@@ -170,7 +195,10 @@ exports.getSalesSummary = async (req, res) => {
     if (filter === 'today') {
       const now = new Date()
       const s = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      dateRange = { [Op.gte]: s, [Op.lte]: new Date(s.getTime() + 86400000 - 1) }
+      dateRange = {
+        [Op.gte]: s,
+        [Op.lte]: new Date(s.getTime() + 86400000 - 1)
+      }
     } else if (startDate && endDate) {
       dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
     }
@@ -179,16 +207,20 @@ exports.getSalesSummary = async (req, res) => {
     if (store) orderWhere.store = store
     if (dateRange[Op.gte]) orderWhere.createdAt = dateRange
 
-    const [totalSales, totalOrders, activeLocations, totalMembers] = await Promise.all([
-      Order.sum('totalPrice', { where: orderWhere }),
-      Order.count({ where: orderWhere }),
-      db.location.count({ where: { status: 'active', ...(store ? { id: store } : {}) } }),
-      db.member.count({ where: store ? { store } : {} })
-    ])
+    const [totalSales, totalOrders, activeLocations, totalMembers] =
+      await Promise.all([
+        Order.sum('totalPrice', { where: orderWhere }),
+        Order.count({ where: orderWhere }),
+        db.location.count({
+          where: { status: 'active', ...(store ? { id: store } : {}) }
+        }),
+        db.member.count({ where: store ? { store } : {} })
+      ])
 
     const totalSalesNum = Number(totalSales || 0)
     const totalOrdersNum = Number(totalOrders || 0)
-    const avgTransaction = totalOrdersNum > 0 ? totalSalesNum / totalOrdersNum : 0
+    const avgTransaction =
+      totalOrdersNum > 0 ? totalSalesNum / totalOrdersNum : 0
 
     // Sales chart by date
     const chartReplacements = { ...(store && { store }) }
@@ -223,7 +255,10 @@ exports.getSalesSummary = async (req, res) => {
        FROM "order" ${storeChartWhere}
        GROUP BY "store", DATE("createdAt")
        ORDER BY "store", date ASC`,
-      { replacements: storeChartReplacements, type: db.sequelize.QueryTypes.SELECT }
+      {
+        replacements: storeChartReplacements,
+        type: db.sequelize.QueryTypes.SELECT
+      }
     )
 
     // Group by storeId and merge with store names
@@ -304,10 +339,15 @@ exports.getBestSellerReport = async (req, res) => {
         limit: parseInt(limit),
         attributes: ['productId', 'nameProduct', 'totalSelling', 'image']
       }),
-      db.product.count({ where: { status: 'active', ...(store ? { store } : {}) } })
+      db.product.count({
+        where: { status: 'active', ...(store ? { store } : {}) }
+      })
     ])
 
-    const totalUnitsSold = bestSelling.reduce((s, p) => s + Number(p.totalSelling || 0), 0)
+    const totalUnitsSold = bestSelling.reduce(
+      (s, p) => s + Number(p.totalSelling || 0),
+      0
+    )
     return res.status(200).json({
       success: true,
       data: {
@@ -356,7 +396,8 @@ exports.getCashFlow = async (req, res) => {
       if (type.includes('cash') || type === 'tunai')
         penerimaanTunai += Number(p.amount || 0)
       else if (type.includes('qris')) penerimaanQris += Number(p.amount || 0)
-      else if (type.includes('transfer')) penerimaanTransfer += Number(p.amount || 0)
+      else if (type.includes('transfer'))
+        penerimaanTransfer += Number(p.amount || 0)
       else lainnya += Number(p.amount || 0)
     })
 
@@ -368,8 +409,12 @@ exports.getCashFlow = async (req, res) => {
       if (endDate) expWhere.date[Op.lte] = endDate
     }
     const expenses = await Expense.findAll({ where: expWhere })
-    const totalPengeluaran = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
-    const totalKasMasuk = penerimaanTunai + penerimaanQris + penerimaanTransfer + lainnya
+    const totalPengeluaran = expenses.reduce(
+      (s, e) => s + Number(e.amount || 0),
+      0
+    )
+    const totalKasMasuk =
+      penerimaanTunai + penerimaanQris + penerimaanTransfer + lainnya
 
     res.json({
       success: true,

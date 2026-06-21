@@ -319,7 +319,9 @@ exports.createOrder = async (req, res) => {
     for (const item of items) {
       const prod = await Product.findByPk(item.product || item.productId)
       if (!prod) {
-        return res.status(400).json({ message: `Product not found: ${item.productName || item.product || item.productId}` })
+        return res.status(400).json({
+          message: `Product not found: ${item.productName || item.product || item.productId}`
+        })
       }
       if (prod.stock !== null && Number(prod.stock) < Number(item.quantity)) {
         return res.status(400).json({
@@ -360,7 +362,9 @@ exports.createOrder = async (req, res) => {
 
     for (const item of items) {
       const product = await Product.findByPk(item.product || item.productId)
-      const costPrice = product ? Number(product.costPrice || product.price || 0) : 0
+      const costPrice = product
+        ? Number(product.costPrice || product.price || 0)
+        : 0
       await OrderItem.create({
         order: order.id,
         product: item.product || item.productId,
@@ -394,7 +398,7 @@ exports.createOrder = async (req, res) => {
           quantityAfter: newStock >= 0 ? newStock : 0,
           unit: product.unit || 'pcs',
           notes: `Penjualan: ${orderNumber}`,
-      createdBy: cashierId
+          createdBy: cashierId
         })
 
         // Update best_selling
@@ -403,7 +407,9 @@ exports.createOrder = async (req, res) => {
         })
         if (findBs) {
           await db.best_selling.update(
-            { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
+            {
+              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
+            },
             { where: { productId: product.id, nameProduct: item.productName } }
           )
         } else {
@@ -472,7 +478,8 @@ exports.createOrder = async (req, res) => {
 }
 
 exports.getOrdersByStore = async (req, res) => {
-  const { store, status, date, table, startDate, endDate, page, limit } = req.query
+  const { store, status, date, table, startDate, endDate, page, limit } =
+    req.query
 
   try {
     const where = {}
@@ -609,12 +616,21 @@ exports.updateOrderStatus = async (req, res) => {
           })
 
           const findBs = await db.best_selling.findOne({
-            where: { productId: product.id, nameProduct: item.productName, store }
+            where: {
+              productId: product.id,
+              nameProduct: item.productName,
+              store
+            }
           })
           if (findBs) {
             await db.best_selling.update(
-              { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
-              { where: { productId: product.id, nameProduct: item.productName } }
+              {
+                totalSelling:
+                  Number(findBs.totalSelling) + Number(item.quantity)
+              },
+              {
+                where: { productId: product.id, nameProduct: item.productName }
+              }
             )
           } else {
             await db.best_selling.create({
@@ -806,7 +822,9 @@ exports.createCustomerOrder = async (req, res) => {
       const subtotal = item.price * item.quantity
       subTotal += subtotal
       totalQuantity += item.quantity
-      const prod = item.productId ? await db.product.findByPk(item.productId) : null
+      const prod = item.productId
+        ? await db.product.findByPk(item.productId)
+        : null
       const costPrice = prod ? Number(prod.costPrice || prod.price || 0) : 0
       orderItems.push({
         product: item.productId,
@@ -886,8 +904,7 @@ exports.getReceiptHTML = async (req, res) => {
     const showAddress = setting?.showAddress !== false
     const logoUrl = setting?.logo || null
 
-    const formatPrice = (v) =>
-      'Rp' + Number(v || 0).toLocaleString('id-ID')
+    const formatPrice = (v) => 'Rp' + Number(v || 0).toLocaleString('id-ID')
 
     const date = new Date(order.createdAt).toLocaleString('id-ID', {
       weekday: 'long',

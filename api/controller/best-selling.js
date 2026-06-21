@@ -16,7 +16,8 @@ exports.chartDataByYear = async (req, res) => {
       storeCondition = 'AND o."store" = :store'
       replacements.store = store
     }
-    const [result] = await sequelize.query(`
+    const [result] = await sequelize.query(
+      `
         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month, 
           coalesce(sum(o."totalPrice"), 0) as "totalAmount",
           coalesce(COUNT(o.id), 0) AS "countCheckout"
@@ -28,7 +29,9 @@ exports.chartDataByYear = async (req, res) => {
         ${storeCondition}
         GROUP BY months.month
         ORDER BY months.month ASC
-      `, { replacements })
+      `,
+      { replacements }
+    )
 
     return res.status(200).json({
       success: true,
@@ -68,10 +71,14 @@ exports.chartDataByMonth = async (req, res) => {
 
   const firstDay = query?.startDate
     ? moment(query?.startDate).format('YYYY/MM/DD')
-    : moment(new Date(date.getFullYear(), date.getMonth(), 1)).format('YYYY/MM/DD')
+    : moment(new Date(date.getFullYear(), date.getMonth(), 1)).format(
+        'YYYY/MM/DD'
+      )
   const lastDay = query?.endDate
     ? moment(query?.endDate).format('YYYY/MM/DD')
-    : moment(new Date(date.getFullYear(), date.getMonth() + 1, 0)).format('YYYY/MM/DD')
+    : moment(new Date(date.getFullYear(), date.getMonth() + 1, 0)).format(
+        'YYYY/MM/DD'
+      )
   const numberLastDate = moment(lastDay).format('DD')
   const arrIntervalDate = getDateRange(firstDay, lastDay)
 

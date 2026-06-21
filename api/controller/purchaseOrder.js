@@ -18,7 +18,15 @@ const purchaseOrderController = {
   async getAll(req, res) {
     try {
       const store = req.cookies.store || req.query.store
-      const { status, supplier, startDate, endDate, search, page = 1, limit = 10 } = req.query
+      const {
+        status,
+        supplier,
+        startDate,
+        endDate,
+        search,
+        page = 1,
+        limit = 10
+      } = req.query
 
       const where = {}
       if (store) where.store = store
@@ -141,7 +149,14 @@ const purchaseOrderController = {
           {
             model: db.purchase_payment,
             as: 'payments',
-            attributes: ['id', 'amount', 'paymentDate', 'paymentMethod', 'reference', 'notes']
+            attributes: [
+              'id',
+              'amount',
+              'paymentDate',
+              'paymentMethod',
+              'reference',
+              'notes'
+            ]
           }
         ]
       })
@@ -170,7 +185,16 @@ const purchaseOrderController = {
   async create(req, res) {
     try {
       const store = req.cookies.store || req.body.store
-      const { supplier, items, discount = 0, notes, orderDate, pic, dueDate } = req.body
+      const {
+        supplier,
+        items,
+        discount = 0,
+        notes,
+        orderDate,
+        pic,
+        dueDate,
+        status
+      } = req.body
       const createdBy = req.user?.id || null
 
       if (!supplier || !items || items.length === 0) {
@@ -202,7 +226,7 @@ const purchaseOrderController = {
         totalAmount,
         discount,
         finalAmount,
-        status: 'pending',
+        status: status || 'pending',
         orderDate: orderDate || new Date(),
         notes,
         createdBy,
@@ -260,7 +284,16 @@ const purchaseOrderController = {
     try {
       const { id } = req.params
       const { store } = req.cookies
-      const { supplier, items, discount, status, notes, orderDate, pic, dueDate } = req.body
+      const {
+        supplier,
+        items,
+        discount,
+        status,
+        notes,
+        orderDate,
+        pic,
+        dueDate
+      } = req.body
       const modifiedBy = req.user?.id || null
 
       const where = { id }

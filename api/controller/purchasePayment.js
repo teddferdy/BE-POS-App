@@ -41,7 +41,11 @@ const purchasePaymentController = {
       const purchaseOrders = await db.purchase_order.findAll({
         where: poWhere,
         include: [
-          { model: db.supplier, as: 'supplierData', attributes: ['id', 'name'] },
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name']
+          },
           { model: db.purchase_payment, as: 'payments' }
         ],
         order: [['createdAt', 'DESC']]
@@ -83,8 +87,15 @@ const purchasePaymentController = {
   async record(req, res) {
     try {
       const { store } = req.cookies
-      const { purchaseOrder, supplier, amount, paymentDate, paymentMethod, reference, notes } =
-        req.body
+      const {
+        purchaseOrder,
+        supplier,
+        amount,
+        paymentDate,
+        paymentMethod,
+        reference,
+        notes
+      } = req.body
 
       if (!purchaseOrder || !supplier || !amount || amount <= 0) {
         return res.status(400).json({
@@ -214,7 +225,10 @@ const purchasePaymentController = {
             attributes: ['id', 'name']
           }
         ],
-        order: [['paymentDate', 'DESC'], ['createdAt', 'DESC']],
+        order: [
+          ['paymentDate', 'DESC'],
+          ['createdAt', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })

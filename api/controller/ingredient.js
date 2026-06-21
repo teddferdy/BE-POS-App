@@ -39,10 +39,18 @@ const ingredientController = {
         ingredients = ingredients.filter((ing) => ing.stock <= ing.minStock)
       }
 
+      const storeWhere = store ? { store } : {}
+      const [active, draft, inactive] = await Promise.all([
+        db.ingredient.count({ where: { ...storeWhere, status: 'active' } }),
+        db.ingredient.count({ where: { ...storeWhere, status: 'draft' } }),
+        db.ingredient.count({ where: { ...storeWhere, status: 'inactive' } })
+      ])
+
       return res.status(200).json({
         success: true,
         message: 'Success get ingredients',
-        data: ingredients
+        data: ingredients,
+        stats: { total: active + draft + inactive, active, draft, inactive }
       })
     } catch (error) {
       console.log(error)
@@ -201,7 +209,10 @@ const ingredientController = {
         minStock: minStock !== undefined ? minStock : ingredient.minStock,
         unit: unit || ingredient.unit,
         baseUnit: baseUnit !== undefined ? baseUnit : ingredient.baseUnit,
-        conversionFactor: conversionFactor != null ? conversionFactor : ingredient.conversionFactor,
+        conversionFactor:
+          conversionFactor != null
+            ? conversionFactor
+            : ingredient.conversionFactor,
         costPrice: costPrice !== undefined ? costPrice : ingredient.costPrice,
         status:
           status !== undefined
@@ -384,10 +395,16 @@ const ingredientController = {
 
       const headerRow = ws.getRow(1)
       headerRow.font = { bold: true, color: { argb: 'FFFFFF' }, size: 11 }
-      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '4472C4' } }
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '4472C4' }
+      }
       headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
       headerRow.height = 28
-      headerRow.eachCell((cell) => { cell.protection = { locked: true } })
+      headerRow.eachCell((cell) => {
+        cell.protection = { locked: true }
+      })
 
       for (let r = 2; r <= 200; r++) {
         ws.getCell(`C${r}`).dataValidation = {
@@ -406,7 +423,9 @@ const ingredientController = {
         }
         ws.getCell(`E${r}`).dataValidation = {
           type: 'list',
-          formulae: ['"pcs,buah,kg,gram,liter,ml,meter,cm,lusin,pack,box,karton"'],
+          formulae: [
+            '"pcs,buah,kg,gram,liter,ml,meter,cm,lusin,pack,box,karton"'
+          ],
           showErrorMessage: true,
           errorTitle: 'Unit tidak valid'
         }
@@ -463,7 +482,11 @@ const ingredientController = {
       ]
       const rHeader = rs.getRow(1)
       rHeader.font = { bold: true, color: { argb: 'FFFFFF' }, size: 11 }
-      rHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '4472C4' } }
+      rHeader.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '4472C4' }
+      }
       rHeader.alignment = { horizontal: 'center', vertical: 'middle' }
 
       hints.forEach((h, i) => {
@@ -479,12 +502,20 @@ const ingredientController = {
       rs.addRow(['', '', '', 'Contoh: Stok 5 kg tersimpan sebagai 5000 gram'])
 
       const buffer = await workbook.xlsx.writeBuffer()
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', 'attachment; filename=template-bahan-baku.xlsx')
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=template-bahan-baku.xlsx'
+      )
       return res.send(buffer)
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -494,8 +525,16 @@ const ingredientController = {
       const ingredients = await db.ingredient.findAll({
         where: store ? { store } : {},
         include: [
-          { model: db.supplier, as: 'supplierData', attributes: ['id', 'name'] },
-          { model: db.ingredientCategory, as: 'categoryData', attributes: ['id', 'name'] }
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name']
+          },
+          {
+            model: db.ingredientCategory,
+            as: 'categoryData',
+            attributes: ['id', 'name']
+          }
         ],
         order: [['createdAt', 'DESC']]
       })
@@ -518,7 +557,11 @@ const ingredientController = {
 
       const headerRow = ws.getRow(1)
       headerRow.font = { bold: true, color: { argb: 'FFFFFF' }, size: 11 }
-      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '4472C4' } }
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '4472C4' }
+      }
       headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
       headerRow.height = 28
 
@@ -539,40 +582,71 @@ const ingredientController = {
       })
 
       const buffer = await workbook.xlsx.writeBuffer()
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', 'attachment; filename=data-bahan-baku.xlsx')
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=data-bahan-baku.xlsx'
+      )
       return res.send(buffer)
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async importData(req, res) {
     try {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'Tidak ada file yang diupload' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Tidak ada file yang diupload' })
       }
 
       const store = req.user?.store
       if (!store) {
-        return res.status(400).json({ success: false, message: 'Store tidak ditemukan' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store tidak ditemukan' })
       }
 
       const workbook = new excelJS.Workbook()
       await workbook.xlsx.load(req.file.buffer)
       const ws = workbook.getWorksheet('Template')
       if (!ws) {
-        return res.status(400).json({ success: false, message: 'Sheet "Template" tidak ditemukan' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Sheet "Template" tidak ditemukan' })
       }
 
       // Validate headers
-      const expected = ['No', 'Nama Bahan Baku', 'Kategori', 'Supplier', 'Unit Pembelian', 'Base Unit', 'Faktor Konversi', 'Stok Awal', 'Minimal Stok', 'Harga Beli (Rp)', 'Status']
+      const expected = [
+        'No',
+        'Nama Bahan Baku',
+        'Kategori',
+        'Supplier',
+        'Unit Pembelian',
+        'Base Unit',
+        'Faktor Konversi',
+        'Stok Awal',
+        'Minimal Stok',
+        'Harga Beli (Rp)',
+        'Status'
+      ]
       const headers = []
-      ws.getRow(1).eachCell((cell) => { headers.push(cell.value ? String(cell.value).trim() : '') })
+      ws.getRow(1).eachCell((cell) => {
+        headers.push(cell.value ? String(cell.value).trim() : '')
+      })
       const headerValid = expected.every((h, i) => headers[i] === h)
       if (!headerValid) {
-        return res.status(400).json({ success: false, message: 'Header file tidak sesuai dengan template' })
+        return res.status(400).json({
+          success: false,
+          message: 'Header file tidak sesuai dengan template'
+        })
       }
 
       // Fetch lookup maps — match store OR global (store IS NULL)
@@ -580,13 +654,17 @@ const ingredientController = {
         where: store ? { [Op.or]: [{ store }, { store: null }] } : {}
       })
       const categoryMap = {}
-      allCategories.forEach((c) => { categoryMap[c.name.toLowerCase()] = c.id })
+      allCategories.forEach((c) => {
+        categoryMap[c.name.toLowerCase()] = c.id
+      })
 
       const allSuppliers = await db.supplier.findAll({
         where: store ? { [Op.or]: [{ store }, { store: null }] } : {}
       })
       const supplierMap = {}
-      allSuppliers.forEach((s) => { supplierMap[s.name.toLowerCase()] = s.id })
+      allSuppliers.forEach((s) => {
+        supplierMap[s.name.toLowerCase()] = s.id
+      })
 
       // Parse rows
       const ingredients = []
@@ -599,29 +677,48 @@ const ingredientController = {
         const ingredientName = String(name).trim()
         if (!ingredientName || ingredientName.startsWith('Contoh:')) return
 
-        const catName = row.getCell(3).value ? String(row.getCell(3).value).trim() : ''
-        const suppName = row.getCell(4).value ? String(row.getCell(4).value).trim() : ''
-        const unit = row.getCell(5).value ? String(row.getCell(5).value).trim().toLowerCase() : 'pcs'
-        const baseUnit = row.getCell(6).value ? String(row.getCell(6).value).trim().toLowerCase() : unit
+        const catName = row.getCell(3).value
+          ? String(row.getCell(3).value).trim()
+          : ''
+        const suppName = row.getCell(4).value
+          ? String(row.getCell(4).value).trim()
+          : ''
+        const unit = row.getCell(5).value
+          ? String(row.getCell(5).value).trim().toLowerCase()
+          : 'pcs'
+        const baseUnit = row.getCell(6).value
+          ? String(row.getCell(6).value).trim().toLowerCase()
+          : unit
         const conversionFactor = parseFloat(row.getCell(7).value) || 1
         const stock = parseInt(row.getCell(8).value) || 0
         const minStock = parseInt(row.getCell(9).value) || 0
-        const costPrice = parseInt(String(row.getCell(10).value).replace(/[^0-9]/g, '')) || 0
-        const statusRaw = row.getCell(11).value ? String(row.getCell(11).value).trim().toLowerCase() : 'active'
-        const status = ['active', 'inactive'].includes(statusRaw) ? statusRaw : 'active'
+        const costPrice =
+          parseInt(String(row.getCell(10).value).replace(/[^0-9]/g, '')) || 0
+        const statusRaw = row.getCell(11).value
+          ? String(row.getCell(11).value).trim().toLowerCase()
+          : 'active'
+        const status = ['active', 'inactive'].includes(statusRaw)
+          ? statusRaw
+          : 'active'
 
         // Resolve category
         let categoryId = null
         if (catName) {
           categoryId = categoryMap[catName.toLowerCase()]
-          if (!categoryId) errors.push(`Baris ${rowNumber}: Kategori "${catName}" tidak ditemukan`)
+          if (!categoryId)
+            errors.push(
+              `Baris ${rowNumber}: Kategori "${catName}" tidak ditemukan`
+            )
         }
 
         // Resolve supplier
         let supplierId = null
         if (suppName) {
           supplierId = supplierMap[suppName.toLowerCase()]
-          if (!supplierId) errors.push(`Baris ${rowNumber}: Supplier "${suppName}" tidak ditemukan`)
+          if (!supplierId)
+            errors.push(
+              `Baris ${rowNumber}: Supplier "${suppName}" tidak ditemukan`
+            )
         }
 
         ingredients.push({
@@ -644,7 +741,9 @@ const ingredientController = {
       let insertedCount = 0
       const duplicateErrors = []
       for (const ing of ingredients) {
-        const existing = await db.ingredient.findOne({ where: { name: ing.name, store: ing.store } })
+        const existing = await db.ingredient.findOne({
+          where: { name: ing.name, store: ing.store }
+        })
         if (existing) {
           duplicateErrors.push(`"${ing.name}" sudah terdaftar`)
           continue
@@ -653,7 +752,13 @@ const ingredientController = {
         insertedCount++
       }
 
-      createAudit(req, 'import', 'ingredient', null, `Imported ${insertedCount} ingredients`)
+      createAudit(
+        req,
+        'import',
+        'ingredient',
+        null,
+        `Imported ${insertedCount} ingredients`
+      )
 
       return res.status(201).json({
         success: true,
@@ -667,7 +772,9 @@ const ingredientController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

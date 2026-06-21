@@ -5,7 +5,11 @@ const { createAudit } = require('../../utils/auditLog')
 const memberTierController = {
   async getAll(req, res) {
     try {
+      const { status } = req.query
+      const where = status ? { status } : {}
+
       const tiers = await db.member_tier.findAll({
+        where,
         attributes: {
           include: [
             [
@@ -16,12 +20,10 @@ const memberTierController = {
             ]
           ]
         },
-        order: [['minPoints', 'ASC']]
+        order: [['createdAt', 'DESC']]
       })
 
-      const activeCount = tiers.filter(
-        (t) => t.status === 'active' || t.status === true
-      ).length
+      const activeCount = tiers.filter((t) => t.status === 'active').length
 
       return res.status(200).json({
         success: true,
@@ -51,6 +53,18 @@ const memberTierController = {
                 '(SELECT COUNT(*) FROM "member" WHERE "member"."tier" = "member_tier"."id")'
               ),
               'memberCount'
+            ],
+            [
+              literal(
+                '(SELECT "fullName" FROM "user" WHERE "user"."id" = "member_tier"."createdBy")'
+              ),
+              'createdByName'
+            ],
+            [
+              literal(
+                '(SELECT "fullName" FROM "user" WHERE "user"."id" = "member_tier"."modifiedBy")'
+              ),
+              'modifiedByName'
             ]
           ]
         }
@@ -86,11 +100,12 @@ const memberTierController = {
         discountPercent,
         pointMultiplier,
         benefits,
-        color
+        color,
+        status
       } = req.body
       const createdBy = req.user?.id || null
 
-      if (!name) {
+      if (!name && status !== 'draft') {
         return res.status(400).json({
           success: false,
           message: 'Name is required'
@@ -100,12 +115,12 @@ const memberTierController = {
       const tier = await db.member_tier.create({
         name,
         minPoints: minPoints || 0,
-        maxPoints: maxPoints || 999999,
+        maxPoints: maxPoints ?? 0,
         discountPercent: discountPercent || 0,
         pointMultiplier: pointMultiplier || 1.0,
         benefits: benefits || [],
         color: color || '#000000',
-        status: true,
+        status: status !== undefined ? status : true,
         createdBy
       })
       createAudit(

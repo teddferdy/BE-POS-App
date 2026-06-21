@@ -134,6 +134,7 @@ exports.getAllProductInTable = async (req, res) => {
 
     if (store) whereCondition.store = store
 
+    // Get paginated products
     const getAllProduct = await Product.findAll({
       where: whereCondition,
       limit: parseInt(pageSize),
@@ -146,9 +147,19 @@ exports.getAllProductInTable = async (req, res) => {
       nameCategory: items.categoryData ? items.categoryData.name : null
     }))
 
+    // Get total count for pagination
     const totalProducts = await Product.count({
       where: whereCondition
     })
+
+    // Calculate stats (based on store filter only, not status filter)
+    const statsWhere = store ? { store } : {}
+    const [totalCount, activeCount, inactiveCount, draftCount] = await Promise.all([
+      Product.count({ where: statsWhere }),
+      Product.count({ where: { ...statsWhere, status: 'active' } }),
+      Product.count({ where: { ...statsWhere, status: 'inactive' } }),
+      Product.count({ where: { ...statsWhere, status: 'draft' } })
+    ])
 
     return res.status(200).json({
       success: true,
@@ -159,6 +170,12 @@ exports.getAllProductInTable = async (req, res) => {
         pageSize: parseInt(pageSize),
         totalItems: totalProducts,
         totalPages: Math.ceil(totalProducts / pageSize)
+      },
+      stats: {
+        total: totalCount,
+        active: activeCount,
+        nonActive: inactiveCount,
+        draft: draftCount
       }
     })
   } catch (error) {
@@ -207,7 +224,7 @@ exports.postAddProduct = async (req, res) => {
 
   const normalizeStatus = (val) => {
     if (typeof val === 'boolean') return val ? 'active' : 'inactive'
-    if (val === 'active' || val === 'inactive') return val
+    if (val === 'active' || val === 'inactive' || val === 'draft') return val
     return 'active'
   }
   const toIntOrNull = (val) => {
@@ -241,7 +258,7 @@ exports.postAddProduct = async (req, res) => {
       })
     }
 
-    if (!nameProduct) {
+    if (!nameProduct && status !== 'draft') {
       return res.status(400).json({
         success: false,
         message: 'nameProduct is required'
@@ -265,24 +282,32 @@ exports.postAddProduct = async (req, res) => {
     }
 
     let parsedPriceTiers = []
-    const normalizedCategory = toIntOrNull(category)
-    if (normalizedCategory === null) {
+    let normalizedCategory = toIntOrNull(category)
+    if (normalizedCategory === null && status !== 'draft') {
       return res.status(400).json({
         success: false,
         message: 'category is required and must be a valid ID'
       })
     }
+    // ponytail: draft uses first active category as fallback, findById if upgrade needed
+    if (normalizedCategory === null && status === 'draft') {
+      const fallback = await Category.findOne({
+        where: { status: 'active' },
+        order: [['id', 'ASC']]
+      })
+      normalizedCategory = fallback ? fallback.id : null
+    }
     const normalizedSupplier = toIntOrNull(supplier)
     const normalizedTax = toJsonOrNull(tax)
 
     const postData = await Product.create({
-      nameProduct,
+      nameProduct: nameProduct || null,
       category: normalizedCategory,
       description,
-      price,
-      costPrice,
-      stock,
-      minStock,
+      price: price || 0,
+      costPrice: costPrice || 0,
+      stock: stock || 0,
+      minStock: minStock || 0,
       unit,
       baseUnit: baseUnit || unit || 'pcs',
       conversionFactor: conversionFactor != null ? conversionFactor : 1,
@@ -400,7 +425,7 @@ exports.editProductByLocationAndId = async (req, res) => {
 
   const normalizeStatus = (val) => {
     if (typeof val === 'boolean') return val ? 'active' : 'inactive'
-    if (val === 'active' || val === 'inactive') return val
+    if (val === 'active' || val === 'inactive' || val === 'draft') return val
     return 'active'
   }
   const toIntOrNull = (val) => {
@@ -474,8 +499,14 @@ exports.editProductByLocationAndId = async (req, res) => {
       stock,
       minStock,
       unit,
-      baseUnit: baseUnit !== undefined ? baseUnit : getAllProductByIdAndLocation.baseUnit,
-      conversionFactor: conversionFactor != null ? conversionFactor : getAllProductByIdAndLocation.conversionFactor,
+      baseUnit:
+        baseUnit !== undefined
+          ? baseUnit
+          : getAllProductByIdAndLocation.baseUnit,
+      conversionFactor:
+        conversionFactor != null
+          ? conversionFactor
+          : getAllProductByIdAndLocation.conversionFactor,
       point: point || 0,
       redeemPoints: redeemPoints || 0,
       barcode: barcode || null,
@@ -736,24 +767,34 @@ exports.downloadTemplate = async (req, res) => {
 
     const [existingProducts, suppliers, taxConfigs] = await Promise.all([
       Product.findAll({
-        include: [
-          { model: Category, as: 'categoryData', attributes: ['name'] }
-        ]
+        include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
       }),
-      Supplier.findAll({ attributes: ['id', 'name'], where: { status: 'active' } }),
-      TaxConfig.findAll({ attributes: ['id', 'name', 'rate'], where: { status: 'active' } })
+      Supplier.findAll({
+        attributes: ['id', 'name'],
+        where: { status: 'active' }
+      }),
+      TaxConfig.findAll({
+        attributes: ['id', 'name', 'rate'],
+        where: { status: 'active' }
+      })
     ])
 
     const supplierMap = {}
-    suppliers.forEach(s => { supplierMap[s.id] = s.name })
+    suppliers.forEach((s) => {
+      supplierMap[s.id] = s.name
+    })
     const taxMap = {}
-    taxConfigs.forEach(t => { taxMap[t.id] = `${t.name} (${t.rate}%)` })
+    taxConfigs.forEach((t) => {
+      taxMap[t.id] = `${t.name} (${t.rate}%)`
+    })
 
     const productsWithData = existingProducts.map((p) => {
       let taxName = ''
       if (p.tax) {
         const taxData = typeof p.tax === 'string' ? JSON.parse(p.tax) : p.tax
-        taxName = taxData?.name ? `${taxData.name} (${taxData.rate}%)` : (taxMap[p.tax] || '')
+        taxName = taxData?.name
+          ? `${taxData.name} (${taxData.rate}%)`
+          : taxMap[p.tax] || ''
       }
       return {
         nameProduct: p.nameProduct,
@@ -865,7 +906,10 @@ exports.importProduct = async (req, res) => {
         const parsed = JSON.parse(val)
         return Array.isArray(parsed) ? parsed : []
       } catch {
-        return val.split(',').map(s => s.trim()).filter(Boolean)
+        return val
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
       }
     }
 
@@ -882,20 +926,27 @@ exports.importProduct = async (req, res) => {
           ? categoryMap[product.category.toLowerCase()]
           : null
         if (!categoryId && product.category) {
-          results.errors.push({ no: product.no, message: `Kategori "${product.category}" tidak ditemukan` })
+          results.errors.push({
+            no: product.no,
+            message: `Kategori "${product.category}" tidak ditemukan`
+          })
           continue
         }
 
         const supplierId = product.supplier
-          ? (supplierMap[product.supplier.toLowerCase()] || null)
+          ? supplierMap[product.supplier.toLowerCase()] || null
           : null
         const taxData = product.tax
-          ? (taxMap[product.tax.toLowerCase()] || null)
+          ? taxMap[product.tax.toLowerCase()] || null
           : null
 
-        const statusValue = String(product.status).toLowerCase() === 'aktif' ? 'active' : 'inactive'
+        const statusValue =
+          String(product.status).toLowerCase() === 'aktif'
+            ? 'active'
+            : 'inactive'
         const isOptionValue = String(product.isOption).toLowerCase() === 'ya'
-        const isAvailableValue = String(product.isAvailable).toLowerCase() === 'ya'
+        const isAvailableValue =
+          String(product.isAvailable).toLowerCase() === 'ya'
 
         const productData = {
           nameProduct: product.nameProduct,
@@ -922,10 +973,15 @@ exports.importProduct = async (req, res) => {
           options: parseOptions(product.options)
         }
 
-        const productFileName = product.nameProduct.toLowerCase().replace(/\s+/g, '-')
+        const productFileName = product.nameProduct
+          .toLowerCase()
+          .replace(/\s+/g, '-')
         let imageUrl = null
         if (imageMap[productFileName]) {
-          imageUrl = await uploadToCloudinary(imageMap[productFileName], 'pos-app-products')
+          imageUrl = await uploadToCloudinary(
+            imageMap[productFileName],
+            'pos-app-products'
+          )
         }
 
         const newProduct = await Product.create({
@@ -943,13 +999,22 @@ exports.importProduct = async (req, res) => {
           })
         }
 
-        results.created.push({ id: newProduct.id, nameProduct: newProduct.nameProduct })
+        results.created.push({
+          id: newProduct.id,
+          nameProduct: newProduct.nameProduct
+        })
       } catch (err) {
         results.errors.push({ no: product.no, message: err.message })
       }
     }
 
-    createAudit(req, 'import', 'product', null, `Imported ${results.created.length} products`)
+    createAudit(
+      req,
+      'import',
+      'product',
+      null,
+      `Imported ${results.created.length} products`
+    )
 
     res.status(200).json({
       success: true,

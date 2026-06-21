@@ -39,6 +39,12 @@ const taxConfigController = {
         db.taxConfig.count({ where })
       ])
 
+      const [active, draft, inactive] = await Promise.all([
+        db.taxConfig.count({ where: { status: 'active' } }),
+        db.taxConfig.count({ where: { status: 'draft' } }),
+        db.taxConfig.count({ where: { status: 'inactive' } })
+      ])
+
       return res.status(200).json({
         success: true,
         message: 'Success get tax configs',
@@ -48,7 +54,8 @@ const taxConfigController = {
           limit: parseInt(limit),
           total,
           totalPages: Math.ceil(total / parseInt(limit))
-        }
+        },
+        stats: { total: active + draft + inactive, active, draft, inactive }
       })
     } catch (error) {
       console.error('getAll error:', error)

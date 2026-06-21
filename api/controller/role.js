@@ -55,6 +55,12 @@ exports.getAllRoleInTable = async (req, res) => {
       return { ...items.dataValues }
     })
 
+    const [activeCount, draftCount, inactiveCount] = await Promise.all([
+      Role.count({ where: { status: 'active' } }),
+      Role.count({ where: { status: 'draft' } }),
+      Role.count({ where: { status: 'inactive' } })
+    ])
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -64,6 +70,12 @@ exports.getAllRoleInTable = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         totalPages: Math.ceil(totalRoles / limit)
+      },
+      stats: {
+        total: activeCount + draftCount + inactiveCount,
+        active: activeCount,
+        draft: draftCount,
+        inactive: inactiveCount
       }
     })
   } catch (error) {

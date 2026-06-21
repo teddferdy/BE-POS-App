@@ -120,7 +120,8 @@ const bomController = {
         productId,
         name: name || `BOM-${Date.now()}`,
         notes,
-        createdBy: req.user?.id
+        status: req.body.status || 'active',
+        createdBy: req.body.createdBy || req.user?.id
       })
 
       const bomLines = lines.map((l) => ({
@@ -153,7 +154,7 @@ const bomController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const { name, notes, lines } = req.body
+      const { name, notes, lines, status } = req.body
 
       const bom = await db.bom_header.findByPk(id)
       if (!bom)
@@ -161,7 +162,9 @@ const bomController = {
           .status(404)
           .json({ success: false, message: 'BOM not found' })
 
-      await bom.update({ name, notes, modifiedBy: req.user?.id })
+      const updateData = { name, notes, modifiedBy: req.body.modifiedBy || req.user?.id }
+      if (status) updateData.status = status
+      await bom.update(updateData)
 
       if (lines) {
         await db.bom_line.destroy({ where: { bomHeaderId: id } })

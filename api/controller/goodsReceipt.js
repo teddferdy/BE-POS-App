@@ -223,7 +223,7 @@ const goodsReceiptController = {
             receiptNumber,
             purchaseOrderId,
             receivedDate: receivedDate || new Date(),
-            status: 'completed',
+            status: req.body.status || 'completed',
             notes,
             createdBy: req.user?.id || null
           },
@@ -459,8 +459,8 @@ const goodsReceiptController = {
 
       const ingName =
         grItem.ingredientName ||
-        (grItem.poItemData?.ingredientName) ||
-        (grItem.poItemData?.ingredientData?.name)
+        grItem.poItemData?.ingredientName ||
+        grItem.poItemData?.ingredientData?.name
       if (ingName) {
         const ingredient = await db.ingredient.findOne({
           where: { name: { [Op.iLike]: ingName.trim() } },
@@ -499,9 +499,7 @@ const goodsReceiptController = {
       if (item.purchaseOrderItem) {
         await db.purchase_order_item.update(
           {
-            receivedQuantity: db.sequelize.literal(
-              `receivedQuantity + ${qty}`
-            )
+            receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`)
           },
           {
             where: {
@@ -517,10 +515,7 @@ const goodsReceiptController = {
         const product = await db.product.findByPk(item.product, { transaction })
         if (product) {
           const qtyBefore = Number(product.stock) || 0
-          await product.update(
-            { stock: qtyBefore + qty },
-            { transaction }
-          )
+          await product.update({ stock: qtyBefore + qty }, { transaction })
           await db.stock_history.create(
             {
               product: item.product,
@@ -540,8 +535,8 @@ const goodsReceiptController = {
 
       const ingName =
         item.ingredientName ||
-        (item.poItemData?.ingredientName) ||
-        (item.poItemData?.ingredientData?.name)
+        item.poItemData?.ingredientName ||
+        item.poItemData?.ingredientData?.name
       if (ingName) {
         const ingredient = await db.ingredient.findOne({
           where: { name: { [Op.iLike]: ingName.trim() } },
@@ -549,10 +544,7 @@ const goodsReceiptController = {
         })
         if (ingredient) {
           const qtyBefore = Number(ingredient.stock) || 0
-          await ingredient.update(
-            { stock: qtyBefore + qty },
-            { transaction }
-          )
+          await ingredient.update({ stock: qtyBefore + qty }, { transaction })
           await db.stock_history.create(
             {
               ingredientName: ingredient.name,
@@ -577,7 +569,7 @@ const goodsReceiptController = {
       const { id } = req.params
       const { store } = req.cookies
       const userRole = req.user?.roleType
-      const { notes, receivedDate, items } = req.body
+      const { notes, receivedDate, items, status } = req.body
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -628,6 +620,7 @@ const goodsReceiptController = {
           {
             notes: notes !== undefined ? notes : receipt.notes,
             receivedDate: receivedDate || receipt.receivedDate,
+            status: status || receipt.status,
             modifiedBy: req.user?.id || null
           },
           { transaction }

@@ -511,7 +511,9 @@ exports.resetPassword = async (req, res, next) => {
   }
 
   try {
-    const existingUser = await User.findOne({ where: { email: body.email.toLowerCase() } })
+    const existingUser = await User.findOne({
+      where: { email: body.email.toLowerCase() }
+    })
 
     if (!existingUser) {
       return res.status(404).json({

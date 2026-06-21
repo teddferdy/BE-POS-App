@@ -10,9 +10,9 @@ module.exports = {
       { type: Sequelize.QueryTypes.SELECT }
     )
 
-    const adminRoleId = roles.find(r => r.roleType === 'admin')?.id
-    const kasirRoleId = roles.find(r => r.roleType === 'kasir')?.id
-    const userRoleId = roles.find(r => r.roleType === 'user')?.id
+    const adminRoleId = roles.find((r) => r.roleType === 'admin')?.id
+    const kasirRoleId = roles.find((r) => r.roleType === 'kasir')?.id
+    const userRoleId = roles.find((r) => r.roleType === 'user')?.id
 
     if (!adminRoleId || !userRoleId) {
       console.log('Required roles not found')
@@ -25,7 +25,7 @@ module.exports = {
       { type: Sequelize.QueryTypes.SELECT }
     )
 
-    const existingUsernames = existingUsers.map(u => u.userName)
+    const existingUsernames = existingUsers.map((u) => u.userName)
 
     const users = []
 
@@ -86,8 +86,10 @@ module.exports = {
     if (users.length > 0) {
       await queryInterface.bulkInsert('user', users)
       console.log(`Created ${users.length} user accounts`)
-      users.forEach(u => {
-        console.log(`Username: ${u.userName}, Password: ${u.roleType === 'admin' ? 'admin123' : u.userName === 'kasir_utama' ? 'kasir123' : 'staff123'}`)
+      users.forEach((u) => {
+        console.log(
+          `Username: ${u.userName}, Password: ${u.roleType === 'admin' ? 'admin123' : u.userName === 'kasir_utama' ? 'kasir123' : 'staff123'}`
+        )
       })
     } else {
       await queryInterface.sequelize.query(
@@ -104,6 +106,14 @@ module.exports = {
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.bulkDelete('user', { userName: { [Sequelize.Op.in]: ['admin', 'kasir_utama', 'staff_gudang'] } }, {})
+    await queryInterface.bulkDelete(
+      'user',
+      {
+        userName: {
+          [Sequelize.Op.in]: ['admin', 'kasir_utama', 'staff_gudang']
+        }
+      },
+      {}
+    )
   }
 }

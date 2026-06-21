@@ -13,7 +13,7 @@ const SocialMedia = db.social_media
 const TypePayment = db.type_payment
 const Shift = db.shift
 const Ingredient = db.ingredient
-const CashRegister = db.cash_register
+const CashRegister = db.cashRegister
 const DailySummary = db.daily_summary
 const StockOpname = db.stockOpname
 const StockHistory = db.stock_history
@@ -43,7 +43,16 @@ exports.getAllLocationPublic = async (req, res) => {
   try {
     const locations = await Location.findAll({
       where: { status: 'active' },
-      attributes: ['id', 'store', 'name', 'city', 'province', 'detailLocation', 'latitude', 'longitude']
+      attributes: [
+        'id',
+        'store',
+        'name',
+        'city',
+        'province',
+        'detailLocation',
+        'latitude',
+        'longitude'
+      ]
     })
     return res
       .status(200)
@@ -66,16 +75,16 @@ exports.getAllLocationInTable = async (req, res) => {
       whereClause.status = 'active'
     } else if (status === 'inactive' || status === 'false') {
       whereClause.status = 'inactive'
-    }
-    if (category !== 'all') {
-      whereClause.category = category
+    } else if (status === 'draft') {
+      whereClause.status = 'draft'
     }
 
-    const [total, activeCount, inactiveCount, citiesResult] = await Promise.all(
-      [
+    const [total, activeCount, inactiveCount, draftCount, citiesResult] =
+      await Promise.all([
         Location.count({ where: whereClause }),
         Location.count({ where: { status: 'active' } }),
         Location.count({ where: { status: 'inactive' } }),
+        Location.count({ where: { status: 'draft' } }),
         Location.findAll({
           where: whereClause,
           attributes: [
@@ -83,8 +92,7 @@ exports.getAllLocationInTable = async (req, res) => {
           ],
           raw: true
         })
-      ]
-    )
+      ])
     const citiesCount = citiesResult.filter((r) => r.city).length
 
     const categoriesResult = await Location.findAll({
@@ -97,6 +105,25 @@ exports.getAllLocationInTable = async (req, res) => {
       .map((r) => r.category)
       .filter(Boolean)
       .sort()
+
+    const allUsers = await User.findAll({ attributes: ['id', 'fullName', 'email'] })
+    const userById = {}
+    const userByFullName = {}
+    allUsers.forEach(u => {
+      const obj = { id: u.id, fullName: u.fullName, email: u.email }
+      userById[u.id] = obj
+      userById[String(u.id)] = obj
+      if (u.fullName) userByFullName[u.fullName.toLowerCase()] = obj
+    })
+
+    const resolveUser = (val) => {
+      if (!val) return null
+      const byId = userById[val]
+      if (byId) return byId
+      const byName = userByFullName[String(val).toLowerCase()]
+      if (byName) return byName
+      return { fullName: val }
+    }
 
     const { rows: locations } = await Location.findAndCountAll({
       where: whereClause,
@@ -133,8 +160,8 @@ exports.getAllLocationInTable = async (req, res) => {
       socialMedia: loc.socialMedia || [],
       createdAt: loc.createdAt,
       updatedAt: loc.updatedAt,
-      createdBy: loc.createdBy || null,
-      modifiedBy: loc.modifiedBy || null
+      createdBy: resolveUser(loc.createdBy),
+      modifiedBy: resolveUser(loc.modifiedBy)
     }))
 
     return res.status(200).json({
@@ -147,9 +174,10 @@ exports.getAllLocationInTable = async (req, res) => {
         limit: parseInt(limit)
       },
       stats: {
-        total: activeCount + inactiveCount,
+        total: activeCount + inactiveCount + draftCount,
         active: activeCount,
         inactive: inactiveCount,
+        draft: draftCount,
         cities: citiesCount
       },
       categories
@@ -228,16 +256,7 @@ exports.addNewLocation = async (req, res) => {
     createdBy
   } = bodyData
 
-  if (!name) {
-    return res.status(400).json({ success: false, message: 'Name is required' })
-  }
-
   const imageFile = req.file
-  if (!imageFile) {
-    return res
-      .status(400)
-      .json({ success: false, message: 'Image is required' })
-  }
 
   // Handle coordinates mapping
   const finalLatitude = coordinates?.lat ?? latitude ?? null
@@ -246,31 +265,40 @@ exports.addNewLocation = async (req, res) => {
   try {
     // If locationId is provided, use it; otherwise generate new ID
     let nextId
+    let idConflict = false
     if (locationId) {
       nextId = parseInt(locationId.replace('loc-', ''))
 
-      // Check if location with this ID already exists
-      const existingLocation = await Location.findOne({ where: { id: nextId } })
-      if (existingLocation) {
-        return res
-          .status(403)
-          .json({ success: false, message: 'Location ID already exists' })
-      }
-    } else {
-      // Generate new ID based on current max
-      const lastLocation = await Location.findOne({
-        order: [['createdAt', 'DESC']],
-        attributes: ['id']
+      // Check if location with this ID already exists (include soft-deleted)
+      const existingLocation = await Location.findOne({
+        where: { id: nextId },
+        paranoid: false,
+        attributes: ['id', 'deletedAt']
       })
-      nextId = (lastLocation?.id || 0) + 1
+      if (existingLocation) {
+        if (!existingLocation.deletedAt) {
+          return res
+            .status(403)
+            .json({ success: false, message: 'Location ID already exists' })
+        }
+        // Soft-deleted — can't force-delete due to FK constraints, so fall back
+        idConflict = true
+      }
+    }
+    if (!locationId || idConflict) {
+      // Generate new ID based on max id (include soft-deleted)
+      const maxId = await Location.max('id', { paranoid: false })
+      nextId = (maxId || 0) + 1
     }
 
     // Check for duplicate name
-    const existingLocationByName = await Location.findOne({ where: { name } })
-    if (existingLocationByName) {
-      return res
-        .status(403)
-        .json({ success: false, message: 'Location already exists' })
+    if (name) {
+      const existingLocationByName = await Location.findOne({ where: { name } })
+      if (existingLocationByName) {
+        return res
+          .status(403)
+          .json({ success: false, message: 'Location already exists' })
+      }
     }
 
     let imageUrl = null
@@ -307,7 +335,7 @@ exports.addNewLocation = async (req, res) => {
       postalCode,
       description,
       status:
-        isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'active',
+        isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft',
       category,
       managerName,
       latitude: finalLatitude,
@@ -315,7 +343,7 @@ exports.addNewLocation = async (req, res) => {
       mainBranch: mainBranch || false,
       openingHours: openingHours || [],
       socialMedia: socialMedia || [],
-      createdBy
+      createdBy: req.user?.fullName || 'System'
     })
 
     const newLocationId = `loc-${String(newLocation.id).padStart(3, '0')}`
@@ -430,24 +458,23 @@ exports.editLocationById = async (req, res) => {
       image: imageUrl,
       name,
       status:
-        status !== undefined
-          ? status === true
+        isActive !== undefined
+          ? isActive
             ? 'active'
-            : status === false
-              ? 'inactive'
-              : status
-          : undefined
+            : 'inactive'
+          : status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'draft'
+                : status
+            : undefined
     }
 
     // Handle coordinates mapping
     if (coordinates) {
       if (coordinates.lat) updatedData.latitude = coordinates.lat
       if (coordinates.lng) updatedData.longitude = coordinates.lng
-    }
-
-    // Map isActive to status
-    if (isActive !== undefined) {
-      updatedData.status = isActive ? 'active' : 'inactive'
     }
 
     const [affectedCount, updatedRows] = await Location.update(updatedData, {
@@ -495,13 +522,13 @@ exports.editLocationById = async (req, res) => {
 const getLocationDeleteUpdates = () => [
   // Boolean status -> set status = false
   { model: Discount, update: { store: null, status: 'inactive' } },
-  { model: InvoiceSetting, update: { store: null, status: 'inactive' } },
+  { model: InvoiceSetting, action: 'delete' },
   { model: Member, update: { store: null, status: 'inactive' } },
   { model: SocialMedia, update: { store: null, status: 'inactive' } },
   { model: TypePayment, update: { store: null, status: 'inactive' } },
   { model: Shift, update: { store: null, status: 'inactive' } },
   { model: Ingredient, update: { store: null, status: 'inactive' } },
-  { model: MemberTier, update: { store: null, status: 'inactive' } },
+  { model: MemberTier, update: { store: null, status: false } },
   { model: Supplier, update: { store: null, status: 'inactive' } },
   { model: ExpenseCategory, update: { store: null, status: 'inactive' } },
   { model: Position, update: { store: null, status: 'inactive' } },
@@ -545,12 +572,17 @@ exports.deleteLocationById = async (req, res) => {
 
     const entries = getLocationDeleteUpdates()
 
-    for (const { model, update } of entries) {
+    for (const { model, update, action } of entries) {
       try {
-        await model.update(update, { where: { store: dbId } })
+        if (!model) continue
+        if (action === 'delete') {
+          await model.destroy({ where: { store: dbId } })
+        } else {
+          await model.update(update, { where: { store: dbId } })
+        }
       } catch (modelError) {
         console.error(
-          `Error updating ${model.name || 'unknown'}:`,
+          `Error updating ${model?.name || 'unknown'}:`,
           modelError.message
         )
       }
@@ -658,8 +690,8 @@ exports.getLocationById = async (req, res) => {
       phoneNumber: location.phoneNumber,
       email: location.email,
       image: location.image,
-      isActive: location.status,
-      status: location.status === 'active' ? 'active' : 'inactive',
+      isActive: location.status === 'active',
+      status: location.status,
       city: location.city,
       province: location.province,
       district: location.district,

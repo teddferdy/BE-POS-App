@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const User = db.user
 const Location = db.location
 const Position = db.position
+const Department = db.department
 const Shift = db.shift
 const { Op } = require('sequelize')
 const {
@@ -29,21 +30,23 @@ exports.addEmployee = async (req, res) => {
   const documentFiles = req.files?.['documents'] || []
 
   try {
-    if (!body?.password || !body?.userName) {
+    if (body?.status !== 'draft' && (!body?.password || !body?.userName)) {
       return res.status(400).json({
         success: false,
         message: 'User Name dan Password wajib diisi'
       })
     }
 
-    const userName = body?.userName
-    const password = body?.password
+    const userName =
+      body?.status === 'draft' ? `draft_${Date.now()}` : body?.userName
+    const password =
+      body?.status === 'draft' ? `draft_${Date.now()}` : body?.password
 
     const existingUser = await User.findOne({
       where: {
         [Op.or]: [
           ...(body?.userName ? [{ userName: body.userName }] : []),
-          { email: body?.email }
+          ...(body?.email ? [{ email: body.email }] : [])
         ]
       }
     })
@@ -133,12 +136,17 @@ exports.addEmployee = async (req, res) => {
       fullName: body?.fullName,
       userName,
       password,
-      email: body?.email,
+      email:
+        body?.email ||
+        (body?.status === 'draft'
+          ? `draft_${Date.now()}@placeholder.com`
+          : undefined),
       address: body?.address,
       gender: body?.gender || '',
       phoneNumber: body?.phoneNumber || '',
       employeeID: employeeId,
       department: body?.department,
+      departmentId: body?.departmentId || null,
       employmentType: body?.employmentType,
       startDate: body?.startDate,
       dateOfBirth: body?.dateOfBirth,
@@ -206,28 +214,40 @@ exports.getAllEmployee = async (req, res) => {
       whereCondition.store = currentUserStore
     }
 
-    const [employees, total, activeCount, inactiveCount, locationsResult] =
-      await Promise.all([
-        User.findAll({
-          where: whereCondition,
-          attributes: { exclude: ['password'] },
-          include: [
-            { model: Location, as: 'storeData', attributes: ['id', 'name'] },
-            { model: Position, as: 'positionData', attributes: ['id', 'name'] }
-          ],
-          limit,
-          offset,
-          order: [['createdAt', 'DESC']]
-        }),
-        User.count({ where: whereCondition }),
-        User.count({ where: { ...whereCondition, statusActive: true } }),
-        User.count({ where: { ...whereCondition, statusActive: false } }),
-        User.findAll({
-          where: { ...whereCondition, store: { [Op.ne]: null } },
-          attributes: ['store'],
-          group: ['store']
-        })
-      ])
+    const [
+      employees,
+      total,
+      activeCount,
+      inactiveCount,
+      draftCount,
+      locationsResult
+    ] = await Promise.all([
+      User.findAll({
+        where: whereCondition,
+        attributes: { exclude: ['password'] },
+        include: [
+          { model: Location, as: 'storeData', attributes: ['id', 'name'] },
+          { model: Position, as: 'positionData', attributes: ['id', 'name'] },
+          {
+            model: Department,
+            as: 'departmentData',
+            attributes: ['id', 'name']
+          }
+        ],
+        limit,
+        offset,
+        order: [['createdAt', 'DESC']]
+      }),
+      User.count({ where: whereCondition }),
+      User.count({ where: { ...whereCondition, statusActive: true } }),
+      User.count({ where: { ...whereCondition, statusActive: false } }),
+      User.count({ where: { ...whereCondition, statusActive: null } }),
+      User.findAll({
+        where: { ...whereCondition, store: { [Op.ne]: null } },
+        attributes: ['store'],
+        group: ['store']
+      })
+    ])
 
     const totalPages = Math.ceil(total / limit)
 
@@ -245,6 +265,7 @@ exports.getAllEmployee = async (req, res) => {
       stats: {
         total,
         active: activeCount,
+        draft: draftCount,
         inactive: inactiveCount
       }
     })
@@ -265,7 +286,8 @@ exports.getEmployeeById = async (req, res) => {
       attributes: { exclude: ['password'] },
       include: [
         { model: Location, as: 'storeData', attributes: ['id', 'name'] },
-        { model: Position, as: 'positionData', attributes: ['id', 'name'] }
+        { model: Position, as: 'positionData', attributes: ['id', 'name'] },
+        { model: Department, as: 'departmentData', attributes: ['id', 'name'] }
       ]
     })
 
@@ -299,7 +321,8 @@ exports.getEmployeeByEmployeeID = async (req, res) => {
       attributes: { exclude: ['password'] },
       include: [
         { model: Location, as: 'storeData', attributes: ['id', 'name'] },
-        { model: Position, as: 'positionData', attributes: ['id', 'name'] }
+        { model: Position, as: 'positionData', attributes: ['id', 'name'] },
+        { model: Department, as: 'departmentData', attributes: ['id', 'name'] }
       ]
     })
 
@@ -446,6 +469,7 @@ exports.updateEmployee = async (req, res) => {
       phoneNumber: body?.phoneNumber ?? employee.phoneNumber,
       employeeID: body?.employeeID ?? employee.employeeID,
       department: body?.department ?? employee.department,
+      departmentId: body?.departmentId ?? employee.departmentId,
       employmentType: body?.employmentType ?? employee.employmentType,
       startDate: body?.startDate ?? employee.startDate,
       dateOfBirth: body?.dateOfBirth ?? employee.dateOfBirth,

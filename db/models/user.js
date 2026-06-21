@@ -69,6 +69,10 @@ module.exports = (sequelize, DataTypes) => {
       department: {
         type: DataTypes.STRING
       },
+      departmentId: {
+        type: DataTypes.INTEGER,
+        references: { model: 'department', key: 'id' }
+      },
       employmentType: {
         type: DataTypes.STRING
       },
@@ -114,6 +118,12 @@ module.exports = (sequelize, DataTypes) => {
       },
       documents: {
         type: DataTypes.TEXT
+      },
+      createdBy: {
+        type: DataTypes.INTEGER
+      },
+      modifiedBy: {
+        type: DataTypes.INTEGER
       }
     },
     {
@@ -136,6 +146,10 @@ module.exports = (sequelize, DataTypes) => {
     User.belongsTo(models.position, {
       foreignKey: 'position',
       as: 'positionData'
+    })
+    User.belongsTo(models.department, {
+      foreignKey: 'departmentId',
+      as: 'departmentData'
     })
   }
 

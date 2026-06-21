@@ -3,7 +3,12 @@ const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const getStore = (req) =>
-  req.body.storeId || req.body.store || req.query.store || req.cookies.store || req.cookies.activeStore || req.user?.store
+  req.body.storeId ||
+  req.body.store ||
+  req.query.store ||
+  req.cookies.store ||
+  req.cookies.activeStore ||
+  req.user?.store
 
 const generateExpenseNumber = () => {
   const date = new Date()
@@ -371,7 +376,9 @@ const expenseController = {
       const store = getStore(req)
       const { startDate, endDate } = req.query
 
-      const where = store ? { store, status: 'approved' } : { status: 'approved' }
+      const where = store
+        ? { store, status: 'approved' }
+        : { status: 'approved' }
 
       if (startDate || endDate) {
         where.date = {}

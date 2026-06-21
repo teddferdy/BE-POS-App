@@ -46,7 +46,8 @@ exports.getAllDepartmentInTable = async (req, res) => {
       await Department.findAndCountAll({
         where: whereCondition,
         offset: parseInt(offset),
-        limit: parseInt(limit)
+        limit: parseInt(limit),
+        order: [['createdAt', 'DESC']]
       })
 
     const totalPages = Math.ceil(totalItems / limit)
@@ -59,6 +60,10 @@ exports.getAllDepartmentInTable = async (req, res) => {
 
     const totalDepartemenNonActive = await Department.count({
       where: { status: 'inactive' }
+    })
+
+    const totalDepartemenDraft = await Department.count({
+      where: { status: 'draft' }
     })
 
     const totalTanpaDeskripsi = await Department.count({
@@ -80,6 +85,7 @@ exports.getAllDepartmentInTable = async (req, res) => {
       stats: {
         totalDepartemen,
         totalDepartemenAktif,
+        totalDepartemenDraft,
         totalDepartemenNonActive,
         totalTanpaDeskripsi
       }
@@ -109,6 +115,12 @@ exports.getDepartmentById = async (req, res) => {
       })
     }
 
+    const positions = await db.position.findAll({
+      where: { departmentId: id },
+      attributes: ['id', 'name', 'status'],
+      order: [['createdAt', 'DESC']]
+    })
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -118,6 +130,10 @@ exports.getDepartmentById = async (req, res) => {
         description: department.description,
         status: department.status,
         store: department.store,
+        positionCount: positions.length,
+        positions,
+        createdBy: department.createdBy,
+        modifiedBy: department.modifiedBy,
         createdAt: department.createdAt,
         updatedAt: department.updatedAt
       }

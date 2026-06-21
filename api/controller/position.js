@@ -16,7 +16,8 @@ exports.getAllPosition = async (req, res) => {
   try {
     const getAllPosition = await Position.findAll({
       where: { status: 'active' },
-      include: positionInclude
+      include: positionInclude,
+      order: [['createdAt', 'DESC']]
     }).then((records) =>
       records.map((items) => {
         const getData = { ...items.dataValues }
@@ -66,16 +67,19 @@ exports.getAllPositionInTable = async (req, res) => {
         where: whereCondition,
         include: positionInclude,
         offset: parseInt(offset),
-        limit: parseInt(limit)
+        limit: parseInt(limit),
+        order: [['createdAt', 'DESC']]
       })
 
     const totalPages = Math.ceil(totalItems / limit)
 
-    const [activeCount, inactiveCount, totalPositions] = await Promise.all([
-      Position.count({ where: { status: 'active' } }),
-      Position.count({ where: { status: 'inactive' } }),
-      Position.count()
-    ])
+    const [activeCount, inactiveCount, draftCount, totalPositions] =
+      await Promise.all([
+        Position.count({ where: { status: 'active' } }),
+        Position.count({ where: { status: 'inactive' } }),
+        Position.count({ where: { status: 'draft' } }),
+        Position.count()
+      ])
 
     return res.status(200).json({
       success: true,
@@ -91,6 +95,7 @@ exports.getAllPositionInTable = async (req, res) => {
       stats: {
         total: totalPositions,
         active: activeCount,
+        draft: draftCount,
         inactive: inactiveCount
       }
     })

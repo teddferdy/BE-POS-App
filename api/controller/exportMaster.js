@@ -1,9 +1,7 @@
 const db = require('../../db/models')
 const ExcelJS = require('exceljs')
 
-const EXCLUDED_ATTRS = new Set([
-  'createdAt', 'updatedAt', 'deletedAt'
-])
+const EXCLUDED_ATTRS = new Set(['createdAt', 'updatedAt', 'deletedAt'])
 
 function getSerializedValue(value) {
   if (value === null || value === undefined) return ''
@@ -18,18 +16,30 @@ const exportMasterController = {
       const { store } = req.query
 
       const entities = [
-        { model: 'category',          sheetName: 'Kategori',       filterable: true },
-        { model: 'supplier',          sheetName: 'Supplier',       filterable: true },
-        { model: 'department',        sheetName: 'Departemen',     filterable: false },
-        { model: 'position',          sheetName: 'Posisi',         filterable: true },
-        { model: 'taxConfig',         sheetName: 'Konfigurasi Pajak', filterable: true },
-        { model: 'type_payment',      sheetName: 'Metode Pembayaran', filterable: true },
-        { model: 'ingredientCategory', sheetName: 'Kategori Bahan Baku', filterable: true },
-        { model: 'ingredient',        sheetName: 'Bahan Baku',     filterable: true },
-        { model: 'discount',          sheetName: 'Diskon',         filterable: true },
-        { model: 'currency',          sheetName: 'Mata Uang',      filterable: true },
-        { model: 'location',          sheetName: 'Toko',           filterable: true },
-        { model: 'product',           sheetName: 'Produk',         filterable: false }
+        { model: 'category', sheetName: 'Kategori', filterable: true },
+        { model: 'supplier', sheetName: 'Supplier', filterable: true },
+        { model: 'department', sheetName: 'Departemen', filterable: false },
+        { model: 'position', sheetName: 'Posisi', filterable: true },
+        {
+          model: 'taxConfig',
+          sheetName: 'Konfigurasi Pajak',
+          filterable: true
+        },
+        {
+          model: 'type_payment',
+          sheetName: 'Metode Pembayaran',
+          filterable: true
+        },
+        {
+          model: 'ingredientCategory',
+          sheetName: 'Kategori Bahan Baku',
+          filterable: true
+        },
+        { model: 'ingredient', sheetName: 'Bahan Baku', filterable: true },
+        { model: 'discount', sheetName: 'Diskon', filterable: true },
+        { model: 'currency', sheetName: 'Mata Uang', filterable: true },
+        { model: 'location', sheetName: 'Toko', filterable: true },
+        { model: 'product', sheetName: 'Produk', filterable: false }
       ]
 
       const workbook = new ExcelJS.Workbook()

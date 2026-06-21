@@ -23,7 +23,8 @@ exports.getAllShift = async (req, res) => {
         ...statusCondition
       },
       limit: pageSize,
-      offset
+      offset,
+      order: [['createdAt', 'DESC']]
     })
 
     const totalShifts = await Shift.count({
@@ -31,6 +32,12 @@ exports.getAllShift = async (req, res) => {
         ...statusCondition
       }
     })
+
+    const [active, draft, inactive] = await Promise.all([
+      Shift.count({ where: { status: 'active' } }),
+      Shift.count({ where: { status: 'draft' } }),
+      Shift.count({ where: { status: 'inactive' } })
+    ])
 
     return res.status(200).json({
       success: true,
@@ -41,7 +48,8 @@ exports.getAllShift = async (req, res) => {
         pageSize: pageSize,
         totalItems: totalShifts,
         totalPages: Math.ceil(totalShifts / pageSize)
-      }
+      },
+      stats: { total: active + draft + inactive, active, draft, inactive }
     })
   } catch (error) {
     console.error('Error =>', error)

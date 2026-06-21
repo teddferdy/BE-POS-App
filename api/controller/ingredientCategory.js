@@ -22,10 +22,16 @@ const ingredientCategoryController = {
         order: [['createdAt', 'DESC']]
       })
 
+      const total = categories.length
+      const active = categories.filter((c) => c.status === 'active').length
+      const draft = categories.filter((c) => c.status === 'draft').length
+      const inactive = categories.filter((c) => c.status === 'inactive').length
+
       return res.status(200).json({
         success: true,
         message: 'Success get ingredient categories',
-        data: categories
+        data: categories,
+        stats: { total, active, draft, inactive }
       })
     } catch (error) {
       console.error(error)
@@ -68,7 +74,9 @@ const ingredientCategoryController = {
 
   async create(req, res) {
     try {
-      const store = req.body.store ? parseInt(req.body.store, 10) : (req.cookies.store || req.user?.store || null)
+      const store = req.body.store
+        ? parseInt(req.body.store, 10)
+        : req.cookies.store || req.user?.store || null
       const { name, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -92,11 +100,22 @@ const ingredientCategoryController = {
       const category = await db.ingredientCategory.create({
         store,
         name,
-        status: status === true || status === 'active' ? 'active' : status === false || status === 'inactive' ? 'inactive' : 'active',
+        status:
+          status === true || status === 'active'
+            ? 'active'
+            : status === false || status === 'inactive'
+              ? 'inactive'
+              : 'active',
         createdBy
       })
 
-      createAudit(req, 'create', 'ingredientCategory', category.id, 'Created ingredient category: ' + name)
+      createAudit(
+        req,
+        'create',
+        'ingredientCategory',
+        category.id,
+        'Created ingredient category: ' + name
+      )
 
       return res.status(201).json({
         success: true,
@@ -115,7 +134,9 @@ const ingredientCategoryController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.body.store ? parseInt(req.body.store, 10) : (req.cookies.store || req.user?.store || null)
+      const store = req.body.store
+        ? parseInt(req.body.store, 10)
+        : req.cookies.store || req.user?.store || null
       const { name, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -144,18 +165,25 @@ const ingredientCategoryController = {
 
       await category.update({
         name: name || category.name,
-        status: status !== undefined
-          ? status === true
-            ? 'active'
-            : status === false
-              ? 'inactive'
-              : status
-          : category.status,
+        status:
+          status !== undefined
+            ? status === true
+              ? 'active'
+              : status === false
+                ? 'inactive'
+                : status
+            : category.status,
         store: store || category.store,
         modifiedBy
       })
 
-      createAudit(req, 'update', 'ingredientCategory', id, 'Updated ingredient category: ' + id)
+      createAudit(
+        req,
+        'update',
+        'ingredientCategory',
+        id,
+        'Updated ingredient category: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -188,7 +216,13 @@ const ingredientCategoryController = {
       }
 
       await category.destroy()
-      createAudit(req, 'delete', 'ingredientCategory', id, 'Deleted ingredient category: ' + id)
+      createAudit(
+        req,
+        'delete',
+        'ingredientCategory',
+        id,
+        'Deleted ingredient category: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -217,10 +251,7 @@ const ingredientCategoryController = {
         fgColor: { argb: 'FFD3D3D3' }
       }
 
-      worksheet.columns = [
-        { width: 30 },
-        { width: 15 }
-      ]
+      worksheet.columns = [{ width: 30 }, { width: 15 }]
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -256,12 +287,7 @@ const ingredientCategoryController = {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Kategori Bahan Baku')
 
-      worksheet.addRow([
-        'ID',
-        'Name',
-        'Status',
-        'Created At'
-      ])
+      worksheet.addRow(['ID', 'Name', 'Status', 'Created At'])
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
         type: 'pattern',
@@ -335,7 +361,10 @@ const ingredientCategoryController = {
           toCreate.push({
             store,
             name: name.trim(),
-            status: (status || 'active').toString().toLowerCase() === 'inactive' ? 'inactive' : 'active',
+            status:
+              (status || 'active').toString().toLowerCase() === 'inactive'
+                ? 'inactive'
+                : 'active',
             createdBy: req.user?.id || null
           })
         } catch (error) {

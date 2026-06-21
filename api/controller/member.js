@@ -29,6 +29,11 @@ exports.getAllMember = async (req, res) => {
       order: [['createdAt', 'DESC']]
     })
 
+    const totalMembers = await Member.count()
+    const activeCount = await Member.count({ where: { status: 'active' } })
+    const draftCount = await Member.count({ where: { status: 'draft' } })
+    const inactiveCount = await Member.count({ where: { status: 'inactive' } })
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -38,6 +43,12 @@ exports.getAllMember = async (req, res) => {
         totalPages: Math.ceil(count / limit),
         page: parseInt(page),
         limit: parseInt(limit)
+      },
+      stats: {
+        total: totalMembers,
+        active: activeCount,
+        draft: draftCount,
+        inactive: inactiveCount
       }
     })
   } catch (error) {
@@ -82,54 +93,73 @@ exports.addNewMember = async (req, res) => {
   const body = req.body
 
   try {
-    const findOneMember = await Member?.findOne({
-      returning: true,
-      where: {
-        name: body?.nameMember,
-        phoneNumber: body?.phoneNumber
+    if (body?.nameMember) {
+      const nameExists = await Member.findOne({
+        where: { name: body.nameMember },
+        raw: true
+      })
+      if (nameExists) {
+        return res
+          .status(409)
+          .json({ success: false, message: 'Nama member sudah terdaftar' })
       }
+    }
+    if (body?.phoneNumber) {
+      const phoneExists = await Member.findOne({
+        where: { phoneNumber: body.phoneNumber },
+        raw: true
+      })
+      if (phoneExists) {
+        return res
+          .status(409)
+          .json({ success: false, message: 'Nomor telepon sudah terdaftar' })
+      }
+    }
+    if (body?.email) {
+      const emailExists = await Member.findOne({
+        where: { email: body.email },
+        raw: true
+      })
+      if (emailExists) {
+        return res
+          .status(409)
+          .json({ success: false, message: 'Email sudah terdaftar' })
+      }
+    }
+
+    const createdMember = await Member.create({
+      name: body.nameMember,
+      phoneNumber: body.phoneNumber,
+      email: body.email,
+      dateOfBirth: body.birthDate,
+      gender: body.gender,
+      address: body.address,
+      tier: body.tier === '' ? null : body.tier,
+      status:
+        body.status !== undefined
+          ? body.status === true
+            ? 'active'
+            : body.status === false
+              ? 'inactive'
+              : body.status
+          : 'active',
+      totalPoints: body.point || 0,
+      lifetimePoints: body.point || 0,
+      createdBy: body.createdBy
     })
 
-    if (!findOneMember?.getDataValue) {
-      const createdMember = await Member.create({
-        name: body.nameMember,
-        phoneNumber: body.phoneNumber,
-        email: body.email,
-        dateOfBirth: body.birthDate,
-        gender: body.gender,
-        address: body.address,
-        tier: body.tier === '' ? null : body.tier,
-        status:
-          body.status !== undefined
-            ? body.status === true
-              ? 'active'
-              : body.status === false
-                ? 'inactive'
-                : body.status
-            : 'active',
-        totalPoints: body.point || 0,
-        lifetimePoints: body.point || 0,
-        createdBy: body.createdBy
-      })
-
-      if (createdMember.getDataValue) {
-        createAudit(
-          req,
-          'create',
-          'member',
-          createdMember.id,
-          `Created member: ${createdMember.name}`
-        )
-        return res.status(201).json({
-          success: true,
-          message: 'Member Berhasil Di Buat',
-          data: createdMember
-        })
-      }
-    } else {
-      return res.status(403).json({
-        success: false,
-        message: `Member Sudah Terdaftar`
+    if (createdMember.getDataValue) {
+      createAudit(
+        req,
+        'create',
+        'member',
+        createdMember.id,
+        `Created member: ${createdMember.name}`
+      )
+      return res.status(201).json({
+        success: true,
+        message: 'Member Berhasil Di Buat',
+        data: createdMember
       })
     }
   } catch (error) {
@@ -163,6 +193,40 @@ exports.editMember = async (req, res) => {
         success: false,
         message: 'Member tidak ditemukan'
       })
+    }
+
+    if (nameMember) {
+      const nameExists = await Member.findOne({
+        where: { name: nameMember, id: { [Op.ne]: id } },
+        raw: true
+      })
+      if (nameExists) {
+        return res
+          .status(409)
+          .json({ success: false, message: 'Nama member sudah terdaftar' })
+      }
+    }
+    if (phoneNumber) {
+      const phoneExists = await Member.findOne({
+        where: { phoneNumber, id: { [Op.ne]: id } },
+        raw: true
+      })
+      if (phoneExists) {
+        return res
+          .status(409)
+          .json({ success: false, message: 'Nomor telepon sudah terdaftar' })
+      }
+    }
+    if (email) {
+      const emailExists = await Member.findOne({
+        where: { email, id: { [Op.ne]: id } },
+        raw: true
+      })
+      if (emailExists) {
+        return res
+          .status(409)
+          .json({ success: false, message: 'Email sudah terdaftar' })
+      }
     }
 
     const updateData = {}

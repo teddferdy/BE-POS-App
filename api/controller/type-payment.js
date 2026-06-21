@@ -12,12 +12,17 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
 
     const { rows: typePayment, count } = await TypePayment.findAndCountAll({
       where: {
-        ...(store ? { store } : {}),
-        status: 'active'
+        ...(store ? { store } : {})
       },
       limit: parseInt(limit),
       offset: parseInt(offset)
     })
+
+    const [active, draft, inactive] = await Promise.all([
+      TypePayment.count({ where: { ...(store ? { store } : {}), status: 'active' } }),
+      TypePayment.count({ where: { ...(store ? { store } : {}), status: 'draft' } }),
+      TypePayment.count({ where: { ...(store ? { store } : {}), status: 'inactive' } })
+    ])
 
     return res.status(200).json({
       success: true,
@@ -32,7 +37,8 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
           : [],
       total: count,
       currentPage: parseInt(page),
-      totalPages: Math.ceil(count / limit)
+      totalPages: Math.ceil(count / limit),
+      stats: { total: active + draft + inactive, active, draft, inactive }
     })
   } catch (error) {
     console.error('Error =>', error)

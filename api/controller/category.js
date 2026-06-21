@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const Category = db.category
 const Product = db.product
+const Location = db.location
 const excelJS = require('exceljs')
 const {
   uploadToCloudinaryWithDedup,
@@ -9,6 +10,25 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+
+const parseStoreField = (val) => {
+  if (!val || val === '') return null
+  try {
+    const parsed = JSON.parse(val)
+    return Array.isArray(parsed) ? parsed : [parseInt(val, 10)]
+  } catch {
+    return [parseInt(val, 10)]
+  }
+}
+
+const resolveStoreNames = async (storeIds) => {
+  if (!storeIds || !Array.isArray(storeIds) || storeIds.length === 0) return []
+  const locations = await Location.findAll({
+    where: { id: storeIds },
+    attributes: ['id', 'name']
+  })
+  return locations.map((l) => ({ id: l.id, name: l.name }))
+}
 
 // Get Category By Id
 exports.getCategoryById = async (req, res) => {
@@ -24,6 +44,10 @@ exports.getCategoryById = async (req, res) => {
       })
     }
 
+    const stores = Array.isArray(category.store)
+      ? await resolveStoreNames(category.store)
+      : []
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -34,7 +58,7 @@ exports.getCategoryById = async (req, res) => {
         value: category.value,
         image: category.image,
         status: category.status,
-        store: category.store,
+        store: stores,
         createdBy: category.createdBy,
         modifiedBy: category.modifiedBy,
         createdAt: category.createdAt,
@@ -64,28 +88,62 @@ exports.getAllCategoryInTable = async (req, res) => {
       whereClause.status = 'inactive'
     }
 
-    if (store) whereClause.store = store
+    if (store) {
+      const storeId = parseInt(store)
+      whereClause[Op.or] = [
+        { store: null },
+        { store: { [Op.contains]: [storeId] } }
+      ]
+    }
 
-    const [categories, productCounts, totalCategories, activeCount, inactiveCount] = await Promise.all([
+    const [
+      categories,
+      productCounts,
+      totalCategories,
+      activeCount,
+      inactiveCount,
+      draftCount
+    ] = await Promise.all([
       Category.findAll({
         where: whereClause,
         limit: parseInt(pageSize),
-        offset: parseInt(offset)
+        offset: parseInt(offset),
+        order: [['createdAt', 'DESC']]
       }),
       Product.findAll({
-        attributes: ['category', [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count']],
+        attributes: [
+          'category',
+          [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count']
+        ],
         group: ['category'],
         raw: true
       }),
       Category.count({}),
       Category.count({ where: { status: 'active' } }),
-      Category.count({ where: { status: 'inactive' } })
+      Category.count({ where: { status: 'inactive' } }),
+      Category.count({ where: { status: 'draft' } })
     ])
 
     const countMap = {}
     if (Array.isArray(productCounts)) {
       productCounts.forEach((row) => {
         countMap[row.category] = parseInt(row.count, 10)
+      })
+    }
+
+    const allStoreIds = [
+      ...new Set(
+        categories.flatMap((c) => (Array.isArray(c.store) ? c.store : []))
+      )
+    ]
+    const locationMap = {}
+    if (allStoreIds.length > 0) {
+      const locations = await Location.findAll({
+        where: { id: allStoreIds },
+        attributes: ['id', 'name']
+      })
+      locations.forEach((l) => {
+        locationMap[l.id] = l.name
       })
     }
 
@@ -98,9 +156,13 @@ exports.getAllCategoryInTable = async (req, res) => {
       image: item.image,
       status: item.status,
       productCount: countMap[item.id] || 0,
-      store: item.store,
+      store: Array.isArray(item.store)
+        ? item.store.map((id) => ({ id, name: locationMap[id] || null }))
+        : [],
       createdBy: item.createdBy,
+      createdByUser: item.dataValues?.createdByUser || null,
       modifiedBy: item.modifiedBy,
+      modifiedByUser: item.dataValues?.modifiedByUser || null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
     }))
@@ -113,7 +175,8 @@ exports.getAllCategoryInTable = async (req, res) => {
       stats: {
         total: totalCategories,
         active: activeCount,
-        inactive: inactiveCount
+        inactive: inactiveCount,
+        draft: draftCount
       },
       pagination: {
         total: totalCategories,
@@ -160,7 +223,10 @@ exports.addNewCategory = async (req, res) => {
         )
         imageUrl = url
       } catch (cloudErr) {
-        console.error('Cloudinary upload failed, proceeding without image:', cloudErr)
+        console.error(
+          'Cloudinary upload failed, proceeding without image:',
+          cloudErr
+        )
         imageUrl = null
       }
     } else if (body.image) {
@@ -169,9 +235,26 @@ exports.addNewCategory = async (req, res) => {
       imageUrl = body.icon
     }
 
-    const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
+    const status =
+      body.isActive !== undefined
+        ? body.isActive
+          ? 'active'
+          : 'inactive'
+        : body.status !== undefined
+          ? body.status === true
+            ? 'active'
+            : body.status === false
+              ? 'inactive'
+              : body.status
+          : 'active'
 
-    const store = body.store ? parseInt(body.store, 10) : (req.cookies.store || req.user?.store || null)
+    const store =
+      parseStoreField(body.store) ||
+      (req.cookies.store
+        ? [parseInt(req.cookies.store, 10)]
+        : req.user?.store
+          ? [parseInt(req.user.store, 10)]
+          : null)
 
     const createdCategory = await Category.create({
       name: body?.name,
@@ -184,7 +267,13 @@ exports.addNewCategory = async (req, res) => {
     })
 
     if (createdCategory.getDataValue) {
-      createAudit(req, 'create', 'category', createdCategory.id, `Created category: ${body.name}`)
+      createAudit(
+        req,
+        'create',
+        'category',
+        createdCategory.id,
+        `Created category: ${body.name}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -255,9 +344,24 @@ exports.editCategoryById = async (req, res) => {
       imageUrl = body.icon
     }
 
-    const status = body.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : (body.status !== undefined ? (body.status === true ? 'active' : body.status === false ? 'inactive' : body.status) : 'active')
+    const status =
+      body.isActive !== undefined
+        ? body.isActive
+          ? 'active'
+          : 'inactive'
+        : body.status !== undefined
+          ? body.status === true
+            ? 'active'
+            : body.status === false
+              ? 'inactive'
+              : body.status
+          : 'active'
 
-    const store = body.store ? parseInt(body.store, 10) : (category.store || null)
+    const store = body.store
+      ? parseStoreField(body.store)
+      : Array.isArray(category.store)
+        ? category.store
+        : null
 
     const [affectedCount, updatedRows] = await Category.update(
       {
@@ -282,7 +386,13 @@ exports.editCategoryById = async (req, res) => {
       })
     }
 
-    createAudit(req, 'update', 'category', req.params.id, `Updated category: ${body.name}`)
+    createAudit(
+      req,
+      'update',
+      'category',
+      req.params.id,
+      `Updated category: ${body.name}`
+    )
 
     return res.status(200).json({
       success: true,
@@ -330,7 +440,13 @@ exports.deleteCategoryById = async (req, res) => {
       }
     })
 
-    createAudit(req, 'delete', 'category', categoryId, `Deleted category: ${category?.name || 'Unknown'}`)
+    createAudit(
+      req,
+      'delete',
+      'category',
+      categoryId,
+      `Deleted category: ${category?.name || 'Unknown'}`
+    )
 
     return res.status(200).json({
       success: true,
@@ -358,7 +474,7 @@ exports.exportCategory = async (req, res) => {
       attributes: ['id', 'name'],
       order: [['name', 'ASC']]
     })
-    const storeNames = stores.map(s => s.name)
+    const storeNames = stores.map((s) => s.name)
     const storeDropdown = ['All Stores', ...storeNames].join(',')
 
     const workbook = new excelJS.Workbook()
@@ -387,7 +503,17 @@ exports.exportCategory = async (req, res) => {
     })
 
     const storeNameById = {}
-    stores.forEach(s => { storeNameById[s.id] = s.name })
+    stores.forEach((s) => {
+      storeNameById[s.id] = s.name
+    })
+
+    const formatStores = (storeVal) => {
+      if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0)
+        return 'All Stores'
+      return storeVal
+        .map((id) => storeNameById[id] || `Store #${id}`)
+        .join(', ')
+    }
 
     let rowIndex = 2
     categories.forEach((cat) => {
@@ -402,7 +528,7 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`C${rowIndex}`).value = cat.description || ''
       worksheet.getCell(`C${rowIndex}`).protection = { locked: false }
 
-      worksheet.getCell(`D${rowIndex}`).value = cat.store ? (storeNameById[cat.store] || 'All Stores') : 'All Stores'
+      worksheet.getCell(`D${rowIndex}`).value = formatStores(cat.store)
       worksheet.getCell(`D${rowIndex}`).protection = { locked: false }
       worksheet.getCell(`D${rowIndex}`).dataValidation = {
         type: 'list',
@@ -410,7 +536,8 @@ exports.exportCategory = async (req, res) => {
         formulae: [`"${storeDropdown}"`]
       }
 
-      worksheet.getCell(`E${rowIndex}`).value = cat.status === 'active' ? 'Active' : 'Non-Active'
+      worksheet.getCell(`E${rowIndex}`).value =
+        cat.status === 'active' ? 'Active' : 'Non-Active'
       worksheet.getCell(`E${rowIndex}`).protection = { locked: false }
       worksheet.getCell(`E${rowIndex}`).dataValidation = {
         type: 'list',
@@ -426,7 +553,6 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`A${row}`).value = row - 1
       worksheet.getCell(`A${row}`).protection = { locked: true }
       worksheet.getCell(`A${row}`).alignment = { horizontal: 'center' }
-
       ;['B', 'C', 'D', 'E'].forEach((col) => {
         worksheet.getCell(`${col}${row}`).protection = { locked: false }
       })
@@ -466,7 +592,10 @@ exports.exportCategory = async (req, res) => {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    res.setHeader('Content-Disposition', 'attachment; filename=category-template.xlsx')
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=category-template.xlsx'
+    )
 
     return res.send(buffer)
   } catch (err) {
@@ -522,7 +651,10 @@ exports.downloadData = async (req, res) => {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    res.setHeader('Content-Disposition', 'attachment; filename=category-data.xlsx')
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=category-data.xlsx'
+    )
 
     return res.send(buffer)
   } catch (err) {
@@ -575,7 +707,9 @@ exports.importCategory = async (req, res) => {
       attributes: ['id', 'name']
     })
     const storeByName = {}
-    stores.forEach(s => { storeByName[s.name] = s.id })
+    stores.forEach((s) => {
+      storeByName[s.name] = s.id
+    })
 
     const categories = []
     const errors = []
@@ -588,24 +722,31 @@ exports.importCategory = async (req, res) => {
         return
       }
 
-      const description = row.getCell(3).value ? String(row.getCell(3).value).trim() : null
+      const description = row.getCell(3).value
+        ? String(row.getCell(3).value).trim()
+        : null
 
       const storeCell = row.getCell(4).value
       const storeName = storeCell ? String(storeCell).trim() : 'All Stores'
-      const storeId = storeName === 'All Stores' ? null : (storeByName[storeName] || null)
+      const storeId =
+        storeName === 'All Stores' ? null : storeByName[storeName] || null
 
       const isActiveCell = row.getCell(5).value
       let isActive = true
       if (isActiveCell !== null && isActiveCell !== undefined) {
         const strVal = String(isActiveCell).toLowerCase().trim()
-        isActive = strVal === 'true' || strVal === '1' || strVal === 'yes' || strVal === 'active'
+        isActive =
+          strVal === 'true' ||
+          strVal === '1' ||
+          strVal === 'yes' ||
+          strVal === 'active'
       }
 
       const nameStr = String(name).trim()
       categories.push({
         name: nameStr,
         description,
-        store: storeId,
+        store: storeId ? [storeId] : null,
         status: isActive ? 'active' : 'inactive',
         createdBy: req.user?.userName || req.user?.id || 'system'
       })
@@ -631,10 +772,7 @@ exports.importCategory = async (req, res) => {
 
     for (const cat of categories) {
       const existing = await Category.findOne({
-        where: {
-          name: cat.name,
-          store: cat.store
-        }
+        where: { name: cat.name }
       })
 
       if (existing) {
@@ -646,7 +784,13 @@ exports.importCategory = async (req, res) => {
       insertedCount++
     }
 
-    createAudit(req, 'import', 'category', null, `Imported ${insertedCount} categories`)
+    createAudit(
+      req,
+      'import',
+      'category',
+      null,
+      `Imported ${insertedCount} categories`
+    )
 
     return res.status(201).json({
       success: true,
