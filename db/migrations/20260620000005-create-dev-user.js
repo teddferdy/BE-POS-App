@@ -25,8 +25,7 @@ module.exports = {
         roleType: 'super_admin',
         roleId: superAdminRoleId,
         userType: 'super_admin',
-        statusEmployee: true,
-        statusActive: true,
+        status: 'active',
         createdAt: new Date(),
         updatedAt: new Date()
       }

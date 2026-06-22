@@ -37,12 +37,11 @@ exports.addEmployee = async (req, res) => {
       })
     }
 
-    const userName =
-      body?.status === 'draft' ? `draft_${Date.now()}` : body?.userName
-    const password =
-      body?.status === 'draft' ? `draft_${Date.now()}` : body?.password
+    const userName = body?.userName || null
+    const password = body?.password || null
 
     const existingUser = await User.findOne({
+      paranoid: false,
       where: {
         [Op.or]: [
           ...(body?.userName ? [{ userName: body.userName }] : []),
@@ -136,11 +135,7 @@ exports.addEmployee = async (req, res) => {
       fullName: body?.fullName,
       userName,
       password,
-      email:
-        body?.email ||
-        (body?.status === 'draft'
-          ? `draft_${Date.now()}@placeholder.com`
-          : undefined),
+      email: body?.email || null,
       address: body?.address,
       gender: body?.gender || '',
       phoneNumber: body?.phoneNumber || '',
@@ -151,8 +146,7 @@ exports.addEmployee = async (req, res) => {
       startDate: body?.startDate,
       dateOfBirth: body?.dateOfBirth,
       placeOfBirth: body?.placeOfBirth,
-      statusEmployee: body?.isActive !== undefined ? body.isActive : true,
-      statusActive: body?.isActive !== undefined ? body.isActive : true,
+      status: body?.status || (body?.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : 'active'),
       store: body?.store || null,
       shift: body?.shift || null,
       position: body?.position || null,
@@ -161,7 +155,8 @@ exports.addEmployee = async (req, res) => {
       endDate: body?.endDate || null,
       monthlySalary: body?.monthlySalary || null,
       dailySalary: body?.dailySalary || null,
-      documents: documentUrls.length > 0 ? JSON.stringify(documentUrls) : null
+      documents: documentUrls.length > 0 ? JSON.stringify(documentUrls) : null,
+      createdBy: req.user?.id || null
     })
 
     createAudit(
@@ -210,6 +205,10 @@ exports.getAllEmployee = async (req, res) => {
 
     const whereCondition = { userType: 'user' }
 
+    if (req.query.status) {
+      whereCondition.status = req.query.status
+    }
+
     if (currentUserRole === 'admin') {
       whereCondition.store = currentUserStore
     }
@@ -239,9 +238,9 @@ exports.getAllEmployee = async (req, res) => {
         order: [['createdAt', 'DESC']]
       }),
       User.count({ where: whereCondition }),
-      User.count({ where: { ...whereCondition, statusActive: true } }),
-      User.count({ where: { ...whereCondition, statusActive: false } }),
-      User.count({ where: { ...whereCondition, statusActive: null } }),
+      User.count({ where: { ...whereCondition, status: 'active' } }),
+      User.count({ where: { ...whereCondition, status: 'inactive' } }),
+      User.count({ where: { ...whereCondition, status: 'draft' } }),
       User.findAll({
         where: { ...whereCondition, store: { [Op.ne]: null } },
         attributes: ['store'],
@@ -353,7 +352,7 @@ exports.updateEmployee = async (req, res) => {
   const documentFiles = req.files?.['documents'] || []
 
   try {
-    const employeeId = req.params.id
+    const employeeId = req.body.id || req.query.id || req.params.id
     const employee = await User.findByPk(employeeId)
 
     if (!employee || employee.userType !== 'user') {
@@ -474,10 +473,8 @@ exports.updateEmployee = async (req, res) => {
       startDate: body?.startDate ?? employee.startDate,
       dateOfBirth: body?.dateOfBirth ?? employee.dateOfBirth,
       placeOfBirth: body?.placeOfBirth ?? employee.placeOfBirth,
-      statusEmployee:
-        body?.isActive !== undefined ? body.isActive : employee.statusEmployee,
-      statusActive:
-        body?.isActive !== undefined ? body.isActive : employee.statusActive,
+      status:
+        body?.status || (body?.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : employee.status),
       store: body?.store ?? employee.store,
       shift: body?.shift ?? employee.shift,
       position: body?.position ?? employee.position,
@@ -492,7 +489,8 @@ exports.updateEmployee = async (req, res) => {
       documents:
         deletedDocuments.length > 0 || documentFiles.length > 0
           ? JSON.stringify(documentUrls)
-          : employee.documents
+          : employee.documents,
+      modifiedBy: req.user?.id || null
     }
 
     if (body?.password) {

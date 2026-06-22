@@ -236,16 +236,16 @@ exports.addNewCategory = async (req, res) => {
     }
 
     const status =
-      body.isActive !== undefined
-        ? body.isActive
+      body.status !== undefined
+        ? body.status === true
           ? 'active'
-          : 'inactive'
-        : body.status !== undefined
-          ? body.status === true
+          : body.status === false
+            ? 'inactive'
+            : body.status
+        : body.isActive !== undefined
+          ? body.isActive
             ? 'active'
-            : body.status === false
-              ? 'inactive'
-              : body.status
+            : 'inactive'
           : 'active'
 
     const store =
@@ -345,16 +345,16 @@ exports.editCategoryById = async (req, res) => {
     }
 
     const status =
-      body.isActive !== undefined
-        ? body.isActive
+      body.status !== undefined
+        ? body.status === true
           ? 'active'
-          : 'inactive'
-        : body.status !== undefined
-          ? body.status === true
+          : body.status === false
+            ? 'inactive'
+            : body.status
+        : body.isActive !== undefined
+          ? body.isActive
             ? 'active'
-            : body.status === false
-              ? 'inactive'
-              : body.status
+            : 'inactive'
           : 'active'
 
     const store = body.store
@@ -727,9 +727,9 @@ exports.importCategory = async (req, res) => {
         : null
 
       const storeCell = row.getCell(4).value
-      const storeName = storeCell ? String(storeCell).trim() : 'All Stores'
-      const storeId =
-        storeName === 'All Stores' ? null : storeByName[storeName] || null
+      const storeName = storeCell ? String(storeCell).trim() : ''
+      const isAllStores = ['', 'all stores', 'pilih semua', 'semua toko'].includes(storeName.toLowerCase())
+      const storeId = isAllStores ? null : storeByName[storeName] || null
 
       const isActiveCell = row.getCell(5).value
       let isActive = true

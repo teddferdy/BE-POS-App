@@ -99,7 +99,7 @@ const taxConfigController = {
   async create(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
-      const { name, rate, type, description } = req.body
+      const { name, rate, type, description, status } = req.body
       const createdBy = req.user?.id || null
 
       if (!name || rate === undefined || rate === null) {
@@ -115,6 +115,7 @@ const taxConfigController = {
         rate: parseInt(rate),
         type: type || 'percentage',
         description,
+        status: status || 'active',
         createdBy
       })
       createAudit(

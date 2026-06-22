@@ -91,12 +91,12 @@ async function seedTestData() {
       await client.query(
         `INSERT INTO "user" (
           "userName", "fullName", "password", "email", "employeeID", 
-          "roleType", "roleId", "userType", "statusEmployee", "statusActive",
-          "createdAt", "updatedAt", "deletedAt"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), null)`,
-        [
-          'super_admin', 'Super Admin', hashedPassword, 'superadmin@posapp.com', 
-          'EMP-0001', 'super_admin', roleIdResult.rows[0].id, 'super_admin', true, true
+      "roleType", "roleId", "userType", "status",
+      "createdAt", "updatedAt", "deletedAt"
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), null)`,
+    [
+      'super_admin', 'Super Admin', hashedPassword, 'superadmin@posapp.com', 
+      'EMP-0001', 'super_admin', roleIdResult.rows[0].id, 'super_admin', 'active'
         ]
       )
       
@@ -433,17 +433,16 @@ async function seedTestData() {
       const posId = positions[i - 1]?.id || 1
       const shiftId = shifts[i - 1]?.id || 1
       const tier = i % 2 === 0 ? 'admin' : 'cashier'
-      const statusActive = i % 2 === 0 ? true : false
-      const statusEmployee = i % 2 === 0 ? 'active' : 'inactive'
+      const statusVal = i % 2 === 0 ? 'active' : 'inactive'
       
       const employeeResult = await client.query(
         `INSERT INTO "user" (
           "fullName", "userName", "email", "password", "roleType", 
           "employeeID", "phoneNumber", "placeOfBirth", "address", "gender", 
           "dateOfBirth", "employmentType", "monthlySalary", "departmentId", "position", "shift", 
-          "startDate", "contractDuration", "endDate", "isActive", "statusActive", "statusEmployee", 
+          "startDate", "contractDuration", "endDate", "status", 
           "store", "createdBy"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING id`,
         [
           `Test Employee ${i}`, 
@@ -465,9 +464,7 @@ async function seedTestData() {
           new Date(2020 + i),
           '12',
           new Date(2025 + i),
-          statusActive,
-          statusActive ? 'active' : 'inactive',
-          statusEmployee,
+          statusVal,
           1,
           'super_admin'
         ]
@@ -479,17 +476,16 @@ async function seedTestData() {
       const posId = positions[i + 2]?.id || 1
       const shiftId = shifts[i + 2]?.id || 1
       const tier = 'staff'
-      const statusActive = i % 2 === 0 ? true : false
-      const statusEmployee = 'active'
+      const statusVal = 'active'
       
       const employeeResult = await client.query(
         `INSERT INTO "user" (
           "fullName", "userName", "email", "password", "roleType", 
           "employeeID", "phoneNumber", "placeOfBirth", "address", "gender", 
           "dateOfBirth", "employmentType", "monthlySalary", "departmentId", "position", "shift", 
-          "startDate", "contractDuration", "endDate", "isActive", "statusActive", "statusEmployee", 
+          "startDate", "contractDuration", "endDate", "status", 
           "store", "createdBy"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING id`,
         [
           `Test Employee Inactive ${i}`, 
@@ -511,9 +507,7 @@ async function seedTestData() {
           new Date(2019 + i),
           '24',
           new Date(2024 + i),
-          statusActive,
-          statusActive ? 'active' : 'inactive',
-          statusEmployee,
+          statusVal,
           1,
           'super_admin'
         ]
@@ -525,17 +519,16 @@ async function seedTestData() {
       const posId = positions[i + 4]?.id || 1
       const shiftId = shifts[i + 4]?.id || 1
       const tier = 'intern'
-      const statusActive = false
-      const statusEmployee = 'draft'
+      const statusVal = 'draft'
       
       const employeeResult = await client.query(
         `INSERT INTO "user" (
           "fullName", "userName", "email", "password", "roleType", 
           "employeeID", "phoneNumber", "placeOfBirth", "address", "gender", 
           "dateOfBirth", "employmentType", "monthlySalary", "departmentId", "position", "shift", 
-          "startDate", "contractDuration", "endDate", "isActive", "statusActive", "statusEmployee", 
+          "startDate", "contractDuration", "endDate", "status", 
           "store", "createdBy"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING id`,
         [
           `Test Employee Draft ${i}`, 
@@ -557,9 +550,7 @@ async function seedTestData() {
           new Date(2022 + i),
           '12',
           new Date(2023 + i),
-          statusActive,
-          statusActive ? 'active' : 'inactive',
-          statusEmployee,
+          statusVal,
           1,
           'super_admin'
         ]

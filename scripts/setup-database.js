@@ -47,12 +47,12 @@ async function main() {
       await client.query(
         `INSERT INTO "user" (
           "userName", "fullName", "password", "email", "employeeID", 
-          "roleType", "roleId", "userType", "statusEmployee", "statusActive",
+          "roleType", "roleId", "userType", "status",
           "createdAt", "updatedAt", "deletedAt"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), null)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), null)`,
         [
           'super_admin', 'Super Admin', hashedPassword, 'superadmin@posapp.com', 
-          'EMP-0001', 'super_admin', roleResult.rows[0].id, 'super_admin', true, true
+          'EMP-0001', 'super_admin', roleResult.rows[0].id, 'super_admin', 'active'
         ]
       )
       console.log('✅ Super Admin user created successfully!')

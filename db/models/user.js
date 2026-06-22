@@ -49,7 +49,7 @@ module.exports = (sequelize, DataTypes) => {
         }
       },
       email: {
-        allowNull: false,
+        allowNull: true,
         type: DataTypes.STRING,
         unique: true
       },
@@ -79,11 +79,9 @@ module.exports = (sequelize, DataTypes) => {
       startDate: {
         type: DataTypes.DATEONLY
       },
-      statusEmployee: {
-        type: DataTypes.BOOLEAN
-      },
-      statusActive: {
-        type: DataTypes.BOOLEAN
+      status: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
       },
       dateOfBirth: {
         type: DataTypes.DATEONLY
@@ -132,7 +130,7 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'user',
       hooks: {
         beforeSave: async (user) => {
-          if (user.changed('password')) {
+          if (user.changed('password') && user.password) {
             user.password = await bcrypt.hash(user.password, 10)
           }
         }

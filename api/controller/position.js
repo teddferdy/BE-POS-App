@@ -160,7 +160,6 @@ exports.addNewPosition = async (req, res) => {
                 : body.status
             : 'active',
         store: body.store || req.user?.store,
-        createdBy: body.createdBy
       })
       createAudit(
         req,
@@ -217,7 +216,6 @@ exports.editPositionById = async (req, res) => {
                   : body.status
               : 'active',
           store: body.store || req.user?.store,
-          modifiedBy: body?.modifiedBy
         },
         {
           returning: true,

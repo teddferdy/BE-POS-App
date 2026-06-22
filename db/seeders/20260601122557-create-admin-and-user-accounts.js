@@ -6,12 +6,11 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     // Get role IDs
     const roles = await queryInterface.sequelize.query(
-      `SELECT id, "roleType" FROM role WHERE "roleType" IN ('admin', 'kasir', 'user');`,
+      `SELECT id, "roleType" FROM role WHERE "roleType" IN ('admin', 'user');`,
       { type: Sequelize.QueryTypes.SELECT }
     )
 
     const adminRoleId = roles.find((r) => r.roleType === 'admin')?.id
-    const kasirRoleId = roles.find((r) => r.roleType === 'kasir')?.id
     const userRoleId = roles.find((r) => r.roleType === 'user')?.id
 
     if (!adminRoleId || !userRoleId) {
@@ -40,8 +39,7 @@ module.exports = {
         roleType: 'admin',
         roleId: adminRoleId,
         userType: 'admin',
-        statusEmployee: true,
-        statusActive: true,
+        status: 'active',
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -55,11 +53,10 @@ module.exports = {
         fullName: 'Kasir Utama',
         password: hashedPassword,
         email: 'kasir@posapp.com',
-        roleType: kasirRoleId ? 'kasir' : 'user',
-        roleId: kasirRoleId || userRoleId,
-        userType: kasirRoleId ? 'kasir' : 'user',
-        statusEmployee: true,
-        statusActive: true,
+        roleType: 'user',
+        roleId: userRoleId,
+        userType: 'user',
+        status: 'active',
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -76,8 +73,7 @@ module.exports = {
         roleType: 'user',
         roleId: userRoleId,
         userType: 'user',
-        statusEmployee: true,
-        statusActive: true,
+        status: 'active',
         createdAt: new Date(),
         updatedAt: new Date()
       })

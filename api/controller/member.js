@@ -145,7 +145,6 @@ exports.addNewMember = async (req, res) => {
           : 'active',
       totalPoints: body.point || 0,
       lifetimePoints: body.point || 0,
-      createdBy: body.createdBy
     })
 
     if (createdMember.getDataValue) {

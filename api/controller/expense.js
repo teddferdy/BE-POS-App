@@ -152,11 +152,13 @@ const expenseController = {
         date,
         paymentMethod,
         notes,
-        receipt
+        receipt,
+        status
       } = req.body
       const createdBy = req.user?.id || null
 
-      if (!category || !amount) {
+      const isDraft = status === 'draft'
+      if (!isDraft && (!category || !amount)) {
         return res.status(400).json({
           success: false,
           message: 'Category and amount are required'
@@ -168,14 +170,14 @@ const expenseController = {
       const expense = await db.expense.create({
         store,
         expenseNumber,
-        category,
+        category: category || null,
         description,
-        amount,
+        amount: amount ? amount : null,
         date: date || new Date(),
         paymentMethod: paymentMethod || 'cash',
         notes,
         receipt,
-        status: 'pending',
+        status: status || 'pending',
         createdBy
       })
 
@@ -244,7 +246,7 @@ const expenseController = {
         category: category || expense.category,
         description:
           description !== undefined ? description : expense.description,
-        amount: amount !== undefined ? amount : expense.amount,
+        amount: amount !== undefined ? (amount || amount === 0 ? amount : null) : expense.amount,
         date: date || expense.date,
         paymentMethod: paymentMethod || expense.paymentMethod,
         status: status || expense.status,
@@ -286,6 +288,13 @@ const expenseController = {
         })
       }
 
+      if (expense.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending expenses can be approved'
+        })
+      }
+
       await expense.update({ status: 'approved' })
 
       createAudit(req, 'approve', 'expense', id, `Approved expense: ${id}`)
@@ -317,6 +326,13 @@ const expenseController = {
         return res.status(404).json({
           success: false,
           message: 'Expense not found'
+        })
+      }
+
+      if (expense.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only pending expenses can be rejected'
         })
       }
 

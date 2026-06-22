@@ -171,7 +171,6 @@ exports.addNewDepartment = async (req, res) => {
                 ? 'active'
                 : 'inactive'
               : 'active',
-        createdBy: body.createdBy
       })
       createAudit(
         req,
@@ -238,7 +237,6 @@ exports.editDepartmentById = async (req, res) => {
                   ? 'active'
                   : 'inactive'
                 : 'active',
-          modifiedBy: body?.modifiedBy
         },
         {
           returning: true,

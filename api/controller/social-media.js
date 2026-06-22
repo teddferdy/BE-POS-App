@@ -49,7 +49,6 @@ exports.addNewSocialMedia = async (req, res) => {
         icon: body.icon,
         link: body.link,
         status: body.status || 'active',
-        createdBy: body.createdBy,
         store: store
       })
 

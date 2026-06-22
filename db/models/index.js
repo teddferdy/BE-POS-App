@@ -38,6 +38,7 @@ sequelize.addHook('beforeCreate', (instance) => {
 })
 
 sequelize.addHook('beforeSave', (instance) => {
+  if (instance.isNewRecord) return
   const rawAttrs = instance.constructor?.rawAttributes || {}
   const store = userContext.getStore()
   if (!store?.userId) return
@@ -107,6 +108,17 @@ Object.keys(db).forEach((modelName) => {
     } catch (e) {
       console.error(`afterFind hook error for ${model.name}:`, e.message)
     }
+  })
+})
+
+Object.keys(db).forEach((modelName) => {
+  const model = db[modelName]
+  if (typeof model !== 'function' || !model.rawAttributes) return
+  if (!model.rawAttributes.updatedAt) return
+  model.rawAttributes.updatedAt.allowNull = true
+  model.beforeSave((instance) => {
+    if (!instance.isNewRecord) return
+    instance.setDataValue('updatedAt', null)
   })
 })
 

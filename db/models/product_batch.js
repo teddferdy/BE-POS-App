@@ -28,9 +28,9 @@ module.exports = (sequelize, DataTypes) => {
       store: {
         type: DataTypes.INTEGER
       },
-      isActive: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
+      status: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
       },
       createdBy: {
         type: DataTypes.INTEGER

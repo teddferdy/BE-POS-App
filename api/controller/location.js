@@ -245,6 +245,7 @@ exports.addNewLocation = async (req, res) => {
     postalCode,
     description,
     isActive,
+    status,
     category,
     managerName,
     latitude,
@@ -334,8 +335,7 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status:
-        isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft',
+      status: isActive !== undefined ? (isActive ? 'active' : 'inactive') : status || 'draft',
       category,
       managerName,
       latitude: finalLatitude,
@@ -457,6 +457,7 @@ exports.editLocationById = async (req, res) => {
       ...rest,
       image: imageUrl,
       name,
+      modifiedBy: req.user?.id,
       status:
         isActive !== undefined
           ? isActive
@@ -551,7 +552,7 @@ const getLocationDeleteUpdates = () => [
   { model: BestSelling, update: { store: null } },
 
   // Special: User -> also deactivate account
-  { model: User, update: { store: null, statusActive: false } }
+  { model: User, update: { store: null, status: 'inactive' } }
 ]
 
 exports.deleteLocationById = async (req, res) => {

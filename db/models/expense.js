@@ -17,14 +17,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       category: {
-        allowNull: false,
         type: DataTypes.INTEGER
       },
       description: {
         type: DataTypes.TEXT
       },
       amount: {
-        allowNull: false,
         type: DataTypes.INTEGER
       },
       date: {
@@ -36,8 +34,8 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'cash'
       },
       status: {
-        type: DataTypes.ENUM('pending', 'approved', 'rejected'),
-        defaultValue: 'approved'
+        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'draft'),
+        defaultValue: 'pending'
       },
       notes: {
         type: DataTypes.TEXT

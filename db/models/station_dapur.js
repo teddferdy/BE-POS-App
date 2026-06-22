@@ -6,7 +6,7 @@ module.exports = (sequelize, DataTypes) => {
       id:       { allowNull: false, autoIncrement: true, primaryKey: true, type: DataTypes.INTEGER },
       store:    { type: DataTypes.INTEGER, allowNull: false },
       name:     { type: DataTypes.STRING, allowNull: false },
-      isActive: { type: DataTypes.BOOLEAN, defaultValue: true }
+      status: { type: DataTypes.STRING(20), defaultValue: 'active' }
     },
     { paranoid: true, freezeTableName: true, tableName: 'station_dapur' }
   )

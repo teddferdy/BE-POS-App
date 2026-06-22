@@ -383,7 +383,6 @@ exports.postNewDiscount = async (req, res) => {
     startDate,
     endDate,
     status,
-    createdBy,
     code,
     conditions
   } = req.body
@@ -413,12 +412,11 @@ exports.postNewDiscount = async (req, res) => {
         status:
           status !== undefined
             ? status === true || status === 'active'
-              ? true
+              ? 'active'
               : status === false || status === 'inactive'
-                ? false
+                ? 'inactive'
                 : status
-            : true,
-        createdBy
+            : 'active',
       })
       createAudit(
         req,
@@ -538,8 +536,6 @@ exports.editDiscountById = async (req, res) => {
                   ? 'inactive'
                   : body.status
               : 'active',
-          createdBy: body.createdBy,
-          modifiedBy: body?.modifiedBy
         },
         {
           returning: true,

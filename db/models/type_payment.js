@@ -32,10 +32,10 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: false
       },
       createdBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
       },
       modifiedBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
       }
     },
     {

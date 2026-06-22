@@ -121,7 +121,6 @@ const bomController = {
         name: name || `BOM-${Date.now()}`,
         notes,
         status: req.body.status || 'active',
-        createdBy: req.body.createdBy || req.user?.id
       })
 
       const bomLines = lines.map((l) => ({
@@ -162,7 +161,7 @@ const bomController = {
           .status(404)
           .json({ success: false, message: 'BOM not found' })
 
-      const updateData = { name, notes, modifiedBy: req.body.modifiedBy || req.user?.id }
+      const updateData = { name, notes }
       if (status) updateData.status = status
       await bom.update(updateData)
 

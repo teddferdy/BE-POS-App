@@ -140,9 +140,7 @@ const ingredientCategoryController = {
       const { name, status } = req.body
       const modifiedBy = req.user?.id || null
 
-      const category = await db.ingredientCategory.findOne({
-        where: { id, ...(store ? { store } : {}) }
-      })
+      const category = await db.ingredientCategory.findByPk(id)
 
       if (!category) {
         return res.status(404).json({

@@ -559,7 +559,6 @@ exports.editProductByLocationAndId = async (req, res) => {
           stockDiff > 0
             ? 'Stock adjustment: added'
             : 'Stock adjustment: reduced',
-        createdBy: req.body.createdBy
       })
     }
 

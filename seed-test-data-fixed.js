@@ -59,8 +59,7 @@ async function seedTestData() {
           roleType: 'super_admin',
           roleId: role.id,
           userType: 'super_admin',
-          statusEmployee: true,
-          statusActive: true,
+          status: 'active',
           createdAt: new Date(),
           updatedAt: new Date()
         })

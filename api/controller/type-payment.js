@@ -127,7 +127,7 @@ exports.getTypePaymentById = async (req, res) => {
 }
 
 exports.postNewTypePayment = async (req, res) => {
-  const { name, status, createdBy } = req.body
+  const { name, status } = req.body
   const store = req.body.store || req.user?.store
   try {
     const findOneTypePayment = await TypePayment?.findOne({
@@ -149,7 +149,6 @@ exports.postNewTypePayment = async (req, res) => {
                 ? 'inactive'
                 : status
             : 'active',
-        createdBy: createdBy
       })
       createAudit(
         req,
@@ -208,7 +207,6 @@ exports.editTypePaymentById = async (req, res) => {
                   ? 'inactive'
                   : body.status
               : 'active',
-          modifiedBy: body?.modifiedBy
         },
         {
           returning: true,

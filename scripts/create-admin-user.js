@@ -56,12 +56,12 @@ async function setupDatabase() {
         await client.query(
           `INSERT INTO "user" (
             "userName", "fullName", "password", "email", "employeeID", 
-            "roleType", "roleId", "userType", "statusEmployee", "statusActive",
+            "roleType", "roleId", "userType", "status",
             "createdAt", "updatedAt"
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
           [
             'super_admin', 'Super Admin', hashedPassword, 'superadmin@posapp.com', 
-            'EMP-0001', 'super_admin', roleIdResult.rows[0].id, 'super_admin', true, true
+            'EMP-0001', 'super_admin', roleIdResult.rows[0].id, 'super_admin', 'active'
           ]
         )
         

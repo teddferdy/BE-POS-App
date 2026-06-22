@@ -116,7 +116,7 @@ exports.getTableAvailability = async (req, res) => {
 
 exports.createTable = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { name, capacity, createdBy } = req.body
+  const { name, capacity } = req.body
 
   try {
     const existingTable = await Table.findOne({
@@ -133,8 +133,7 @@ exports.createTable = async (req, res) => {
       store,
       name,
       capacity: capacity || 4,
-      status: 'available',
-      createdBy
+      status: 'available'
     })
 
     createAudit(req, 'create', 'table', table.id, `Created table: ${table.id}`)
@@ -154,7 +153,7 @@ exports.createTable = async (req, res) => {
 exports.updateTable = async (req, res) => {
   const store = req.body.store || req.user?.store
   const id = req.params.id || req.body.id
-  const { name, capacity, status, modifiedBy } = req.body
+  const { name, capacity, status } = req.body
 
   try {
     const table = await Table.findOne({
@@ -170,8 +169,7 @@ exports.updateTable = async (req, res) => {
     await table.update({
       name,
       capacity,
-      status,
-      modifiedBy
+      status
     })
 
     createAudit(req, 'update', 'table', id, `Updated table: ${id}`)
@@ -235,7 +233,7 @@ exports.deleteTable = async (req, res) => {
 exports.updateTableStatus = async (req, res) => {
   const store = req.body.store || req.user?.store
   const id = req.params.id || req.body.id
-  const { status, modifiedBy } = req.body
+  const { status } = req.body
 
   try {
     const table = await Table.findOne({
@@ -248,7 +246,7 @@ exports.updateTableStatus = async (req, res) => {
       })
     }
 
-    await table.update({ status, modifiedBy })
+    await table.update({ status })
 
     createAudit(req, 'update', 'table', id, `Updated table status: ${id}`)
 

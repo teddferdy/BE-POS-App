@@ -101,7 +101,7 @@ exports.getShiftDropdown = async (req, res) => {
 
 exports.postNewShift = async (req, res) => {
   try {
-    const { name, description, startTime, endTime, createdBy } = req.body
+    const { name, description, startTime, endTime } = req.body
     const findOneShift = await Shift?.findOne({
       where: { name: name }
     })
@@ -111,8 +111,7 @@ exports.postNewShift = async (req, res) => {
         description: description,
         startTime: startTime,
         endTime: endTime,
-        store: req.body.store || req.user?.store,
-        createdBy: createdBy
+        store: req.body.store || req.user?.store
       })
 
       createAudit(
@@ -144,7 +143,7 @@ exports.postNewShift = async (req, res) => {
 }
 
 exports.editShiftById = async (req, res) => {
-  const { id, name, description, startTime, endTime, createdBy, modifiedBy } =
+  const { id, name, description, startTime, endTime, createdBy } =
     req.body
   try {
     const getDuplicate = await Shift.findOne({
@@ -163,8 +162,7 @@ exports.editShiftById = async (req, res) => {
           description: description,
           startTime: startTime,
           endTime: endTime,
-          createdBy: createdBy,
-          modifiedBy: modifiedBy
+          createdBy: createdBy
         },
         {
           returning: true,
@@ -198,15 +196,14 @@ exports.editShiftById = async (req, res) => {
 }
 
 exports.deleteShiftById = async (req, res) => {
-  const { id, name } = req.body
+  const { id } = req.body
   try {
     // Clean up user.shift references for affected users
     await User.update({ shift: null }, { where: { shift: id } })
 
     const getId = await Shift.destroy({
       where: {
-        id: id,
-        name: name
+        id: id
       }
     })
     if (getId) {

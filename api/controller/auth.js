@@ -242,7 +242,7 @@ exports.login = async (req, res) => {
 
     // Update status active
     await User.update(
-      { statusActive: true },
+      { status: 'active' },
       {
         where: { id: findUser.id }
       }
@@ -369,8 +369,7 @@ exports.registerNewUser = async (req, res, next) => {
         shift: shift, // Assign default value if undefined
         position: position, // Assign default value if undefined
         accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : null,
-        statusEmployee: true,
-        statusActive: true,
+        status: 'active',
         modifiedAt: moment().format('YYYY-MM-DD HH:mm:ss')
       })
       createAudit(
@@ -564,7 +563,7 @@ exports.logout = async (req, res, next) => {
       })
     }
 
-    await User.update({ statusActive: false }, { where: { id: user.id } })
+    await User.update({ status: 'inactive' }, { where: { id: user.id } })
 
     res.clearCookie('token')
 

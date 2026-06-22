@@ -1275,7 +1275,7 @@ const posController = {
             expiryDate,
             qty,
             store,
-            isActive: true,
+            status: 'active',
             createdBy: req.user?.id || null
           },
           { transaction: t }

@@ -50,7 +50,7 @@ const expenseCategoryController = {
   async create(req, res) {
     try {
       const store = req.cookies.store || req.user?.store
-      const { name, description, icon } = req.body
+      const { name, description, icon, status } = req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -65,6 +65,7 @@ const expenseCategoryController = {
         name,
         description,
         icon,
+        status,
         createdBy
       })
 
