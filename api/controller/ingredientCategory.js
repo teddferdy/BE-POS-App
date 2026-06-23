@@ -359,10 +359,10 @@ const ingredientCategoryController = {
           toCreate.push({
             store,
             name: name.trim(),
-            status:
-              (status || 'active').toString().toLowerCase() === 'inactive'
-                ? 'inactive'
-                : 'active',
+            status: (() => {
+              const s = (status || 'active').toString().toLowerCase()
+              return s === 'draft' ? 'draft' : s === 'inactive' ? 'inactive' : 'active'
+            })(),
             createdBy: req.user?.id || null
           })
         } catch (error) {

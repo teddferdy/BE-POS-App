@@ -81,7 +81,7 @@ const downloadProductTemplate = async ({
       J: `"${baseUnitDropdown}"`,
       L: supplierDropdown && `"${supplierDropdown}"`,
       M: taxDropdown && `"${taxDropdown}"`,
-      T: '"Aktif,Nonaktif"',
+      T: '"Aktif,Nonaktif,Draft"',
       U: '"Ya,Tidak"',
       V: '"Ya,Tidak"'
     }
@@ -122,7 +122,7 @@ const downloadProductTemplate = async ({
     worksheet.getCell(`Q${r}`).value = prod.minStock || 0
     worksheet.getCell(`R${r}`).value = prod.point || 0
     worksheet.getCell(`S${r}`).value = prod.redeemPoints || 0
-    worksheet.getCell(`T${r}`).value = prod.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`T${r}`).value = prod.status === 'draft' ? 'Draft' : prod.status === 'active' ? 'Aktif' : 'Nonaktif'
     worksheet.getCell(`U${r}`).value = prod.isAvailable !== false ? 'Ya' : 'Tidak'
     worksheet.getCell(`V${r}`).value = prod.isOption ? 'Ya' : 'Tidak'
     worksheet.getCell(`W${r}`).value = prod.options
@@ -249,7 +249,7 @@ const downloadLocationTemplate = async (existingLocations = []) => {
     worksheet.getCell(`H${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formula1: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif,Draft"'],
       showDropDown: true
     }
   }
@@ -262,7 +262,7 @@ const downloadLocationTemplate = async (existingLocations = []) => {
     worksheet.getCell(`E${rowNum}`).value = loc.address || ''
     worksheet.getCell(`F${rowNum}`).value = loc.detailLocation || ''
     worksheet.getCell(`G${rowNum}`).value = loc.phoneNumber || ''
-    worksheet.getCell(`H${rowNum}`).value = loc.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`H${rowNum}`).value = loc.status === 'draft' ? 'Draft' : loc.status === 'active' ? 'Aktif' : 'Nonaktif'
   })
 
   return workbook.xlsx.writeBuffer()
@@ -371,7 +371,7 @@ const downloadInvoiceLogoTemplate = async (existingLogos = []) => {
     worksheet.getCell(`F${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formula1: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif,Draft"'],
       showDropDown: true
     }
   }
@@ -382,7 +382,7 @@ const downloadInvoiceLogoTemplate = async (existingLogos = []) => {
     worksheet.getCell(`C${rowNum}`).value = logo.store
     worksheet.getCell(`D${rowNum}`).value = logo.image || ''
     worksheet.getCell(`E${rowNum}`).value = logo.isActive ? 'Ya' : 'Tidak'
-    worksheet.getCell(`F${rowNum}`).value = logo.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`F${rowNum}`).value = logo.status === 'draft' ? 'Draft' : logo.status === 'active' ? 'Aktif' : 'Nonaktif'
     worksheet.getCell(`G${rowNum}`).value = logo.createdBy || ''
   })
 

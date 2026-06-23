@@ -308,6 +308,7 @@ exports.importData = async (req, res) => {
           isActiveStr?.toLowerCase() === 'true' ||
           isActiveStr === '1' ||
           !!isActiveStr
+        const isDraft = isActiveStr?.toLowerCase() === 'draft'
 
         // Check for duplicate name
         const existingDiscount = await Discount.findOne({
@@ -332,7 +333,7 @@ exports.importData = async (req, res) => {
           endDate: endDate,
           minimumOrder: minimumOrder,
           description: description?.trim() || null,
-          status: isActive ? 'active' : 'inactive',
+          status: isDraft ? 'draft' : isActive ? 'active' : 'inactive',
           store: req.user?.store,
           createdBy: req.user?.id
         })

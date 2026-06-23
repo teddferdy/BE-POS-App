@@ -358,7 +358,7 @@ const buildPositionTemplateWorksheet = (
     worksheet.getCell(`E${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formula1: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif,Draft"'],
       showDropDown: true
     }
   }
@@ -623,7 +623,9 @@ exports.uploadExcel = async (req, res) => {
         let status = null
         if (statusInput) {
           const lowerStatus = statusInput.toLowerCase().trim()
-          if (
+          if (lowerStatus === 'draft') {
+            status = 'draft'
+          } else if (
             lowerStatus === 'aktif' ||
             lowerStatus === 'active' ||
             lowerStatus === 'true'
@@ -638,7 +640,7 @@ exports.uploadExcel = async (req, res) => {
             status = 'inactive'
           } else {
             errors.push(
-              `Baris ${rowNumber}: Status "${statusInput}" tidak valid. Gunakan Aktif/Nonaktif`
+              `Baris ${rowNumber}: Status "${statusInput}" tidak valid. Gunakan Aktif/Nonaktif/Draft`
             )
             return
           }

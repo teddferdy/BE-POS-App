@@ -253,7 +253,7 @@ const taxConfigController = {
         worksheet.getCell(`E${row}`).dataValidation = {
           type: 'list',
           allowBlank: true,
-          formulae: ['"Active,Inactive"']
+          formulae: ['"Active,Inactive,Draft"']
         }
       }
 
@@ -376,9 +376,11 @@ const taxConfigController = {
           }
 
           const statusValue = status
-            ? String(status).toLowerCase() === 'active'
-              ? 'active'
-              : 'inactive'
+            ? String(status).toLowerCase() === 'draft'
+              ? 'draft'
+              : String(status).toLowerCase() === 'active'
+                ? 'active'
+                : 'inactive'
             : 'active'
 
           taxesToCreate.push({

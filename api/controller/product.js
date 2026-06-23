@@ -940,9 +940,11 @@ exports.importProduct = async (req, res) => {
           : null
 
         const statusValue =
-          String(product.status).toLowerCase() === 'aktif'
-            ? 'active'
-            : 'inactive'
+          String(product.status).toLowerCase() === 'draft'
+            ? 'draft'
+            : String(product.status).toLowerCase() === 'aktif'
+              ? 'active'
+              : 'inactive'
         const isOptionValue = String(product.isOption).toLowerCase() === 'ya'
         const isAvailableValue =
           String(product.isAvailable).toLowerCase() === 'ya'
@@ -969,7 +971,8 @@ exports.importProduct = async (req, res) => {
           status: statusValue,
           isAvailable: isAvailableValue,
           isOption: isOptionValue,
-          options: parseOptions(product.options)
+          options: parseOptions(product.options),
+          createdBy: req.user?.id || null
         }
 
         const productFileName = product.nameProduct

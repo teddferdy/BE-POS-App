@@ -542,7 +542,7 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`E${rowIndex}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: ['"Active,Non-Active"']
+        formulae: ['"Active,Non-Active,Draft"']
       }
 
       rowIndex++
@@ -566,7 +566,7 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`E${row}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: ['"Active,Non-Active"']
+        formulae: ['"Active,Non-Active,Draft"']
       }
     }
 
@@ -732,14 +732,21 @@ exports.importCategory = async (req, res) => {
       const storeId = isAllStores ? null : storeByName[storeName] || null
 
       const isActiveCell = row.getCell(5).value
-      let isActive = true
+      let status = 'active'
       if (isActiveCell !== null && isActiveCell !== undefined) {
         const strVal = String(isActiveCell).toLowerCase().trim()
-        isActive =
+        if (strVal === 'draft') {
+          status = 'draft'
+        } else if (
           strVal === 'true' ||
           strVal === '1' ||
           strVal === 'yes' ||
           strVal === 'active'
+        ) {
+          status = 'active'
+        } else {
+          status = 'inactive'
+        }
       }
 
       const nameStr = String(name).trim()
@@ -747,7 +754,7 @@ exports.importCategory = async (req, res) => {
         name: nameStr,
         description,
         store: storeId ? [storeId] : null,
-        status: isActive ? 'active' : 'inactive',
+        status,
         createdBy: req.user?.userName || req.user?.id || 'system'
       })
     })

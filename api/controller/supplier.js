@@ -534,9 +534,11 @@ const supplierController = {
           }
 
           const statusValue = status
-            ? String(status).toLowerCase() === 'active'
-              ? 'active'
-              : 'inactive'
+            ? String(status).toLowerCase() === 'draft'
+              ? 'draft'
+              : String(status).toLowerCase() === 'active'
+                ? 'active'
+                : 'inactive'
             : 'active'
 
           suppliersToCreate.push({

@@ -276,7 +276,7 @@ exports.downloadTemplate = async (req, res) => {
       worksheet.getCell(`D${row}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: ['"Active,Inactive"']
+        formulae: ['"Active,Inactive,Draft"']
       }
     }
 
@@ -402,9 +402,11 @@ exports.importData = async (req, res) => {
         const finalType = typeMap[typeKey] || 'cash'
 
         const statusValue = status
-          ? String(status).toLowerCase() === 'active'
-            ? 'active'
-            : 'inactive'
+          ? String(status).toLowerCase() === 'draft'
+            ? 'draft'
+            : String(status).toLowerCase() === 'active'
+              ? 'active'
+              : 'inactive'
           : 'active'
 
         toCreate.push({

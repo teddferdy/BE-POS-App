@@ -437,10 +437,10 @@ const ingredientController = {
         }
         ws.getCell(`K${r}`).dataValidation = {
           type: 'list',
-          formulae: ['"Active,Inactive"'],
+          formulae: ['"Active,Inactive,Draft"'],
           showErrorMessage: true,
           errorTitle: 'Status tidak valid',
-          error: 'Pilih Active atau Inactive'
+          error: 'Pilih Active, Inactive, atau Draft'
         }
       }
 
@@ -697,7 +697,7 @@ const ingredientController = {
         const statusRaw = row.getCell(11).value
           ? String(row.getCell(11).value).trim().toLowerCase()
           : 'active'
-        const status = ['active', 'inactive'].includes(statusRaw)
+        const status = ['active', 'inactive', 'draft'].includes(statusRaw)
           ? statusRaw
           : 'active'
 

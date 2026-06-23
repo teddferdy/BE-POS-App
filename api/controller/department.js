@@ -368,7 +368,7 @@ const buildDepartmentTemplateWorksheet = (workbook, sheetName, data) => {
     worksheet.getCell(`D${row}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formula1: ['"Aktif,Nonaktif"'],
+      formula1: ['"Aktif,Nonaktif,Draft"'],
       showDropDown: true
     }
   }
@@ -583,7 +583,9 @@ exports.uploadExcel = async (req, res) => {
         let status = 'active'
         if (statusInput) {
           const lower = statusInput.toLowerCase().trim()
-          if (
+          if (lower === 'draft') {
+            status = 'draft'
+          } else if (
             lower === 'nonaktif' ||
             lower === 'non-active' ||
             lower === 'nonactive' ||
