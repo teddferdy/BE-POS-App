@@ -10,7 +10,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       store: {
-        type: DataTypes.INTEGER
+        type: DataTypes.JSON
       },
       name: {
         allowNull: false,
