@@ -8,7 +8,7 @@ const parseStoreField = (val) => {
   if (!val || val === '') return null
   try {
     const parsed = JSON.parse(val)
-    return Array.isArray(parsed) ? parsed : [parseInt(val, 10)]
+    return Array.isArray(parsed) ? (parsed.length > 0 ? parsed : null) : [parseInt(val, 10)]
   } catch {
     return [parseInt(val, 10)]
   }
@@ -185,12 +185,9 @@ const ingredientCategoryController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = parseStoreField(req.body.store) ||
-        (req.cookies.store
-          ? [parseInt(req.cookies.store, 10)]
-          : req.user?.store
-            ? [parseInt(req.user.store, 10)]
-            : null)
+      const store = req.body.store !== undefined
+        ? parseStoreField(req.body.store)
+        : undefined
       const { name, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -213,7 +210,7 @@ const ingredientCategoryController = {
                 ? 'inactive'
                 : status
             : category.status,
-        store: store || category.store,
+        ...(store !== undefined ? { store } : {}),
         modifiedBy
       })
 
@@ -286,19 +283,118 @@ const ingredientCategoryController = {
 
   async downloadTemplate(req, res) {
     try {
+      const categories = await db.ingredientCategory.findAll({
+        order: [['createdAt', 'DESC']]
+      })
+
+      const Location = db.location
+      const stores = await Location.findAll({
+        where: { status: 'active' },
+        attributes: ['id', 'name'],
+        order: [['name', 'ASC']]
+      })
+      const storeNames = stores.map((s) => s.name)
+      const storeDropdown = ['All Stores', ...storeNames].join(',')
+
+      const storeNameById = {}
+      stores.forEach((s) => { storeNameById[s.id] = s.name })
+
+      const formatStores = (storeVal) => {
+        if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0) return 'All Stores'
+        return storeVal.map((id) => storeNameById[id] || `Store #${id}`).join(', ')
+      }
+
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Kategori Bahan Baku')
 
-      worksheet.addRow(['Name', 'Status'])
+      worksheet.columns = [
+        { header: 'No', key: 'no', width: 8 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Status', key: 'status', width: 15 },
+        { header: 'Store', key: 'store', width: 20 }
+      ]
 
-      worksheet.getRow(1).font = { bold: true }
-      worksheet.getRow(1).fill = {
+      const headerRow = worksheet.getRow(1)
+      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+      headerRow.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFD3D3D3' }
+        fgColor: { argb: '4472C4' }
+      }
+      headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
+      headerRow.height = 25
+
+      headerRow.eachCell((cell) => {
+        cell.protection = { locked: true }
+      })
+
+      let rowIndex = 2
+      categories.forEach((cat) => {
+        const no = rowIndex - 1
+        worksheet.getCell(`A${rowIndex}`).value = no
+        worksheet.getCell(`A${rowIndex}`).protection = { locked: true }
+        worksheet.getCell(`A${rowIndex}`).alignment = { horizontal: 'center' }
+
+        worksheet.getCell(`B${rowIndex}`).value = cat.name
+        worksheet.getCell(`B${rowIndex}`).protection = { locked: false }
+
+        worksheet.getCell(`C${rowIndex}`).value =
+          cat.status === 'active' ? 'Active' : cat.status === 'draft' ? 'Draft' : 'Non-Active'
+        worksheet.getCell(`C${rowIndex}`).protection = { locked: false }
+        worksheet.getCell(`C${rowIndex}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Active,Non-Active,Draft"']
+        }
+
+        worksheet.getCell(`D${rowIndex}`).value = formatStores(cat.store)
+        worksheet.getCell(`D${rowIndex}`).protection = { locked: false }
+        worksheet.getCell(`D${rowIndex}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`"${storeDropdown}"`]
+        }
+
+        rowIndex++
+      })
+
+      const maxRows = Math.max(rowIndex + 50, 100)
+      for (let row = rowIndex; row <= maxRows; row++) {
+        worksheet.getCell(`A${row}`).value = row - 1
+        worksheet.getCell(`A${row}`).protection = { locked: true }
+        worksheet.getCell(`A${row}`).alignment = { horizontal: 'center' }
+        ;['B', 'C', 'D'].forEach((col) => {
+          worksheet.getCell(`${col}${row}`).protection = { locked: false }
+        })
+
+        worksheet.getCell(`C${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Active,Non-Active,Draft"']
+        }
+
+        worksheet.getCell(`D${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`"${storeDropdown}"`]
+        }
       }
 
-      worksheet.columns = [{ width: 30 }, { width: 15 }]
+      worksheet.protect('', {
+        selectLockedCells: true,
+        selectUnlockedCells: true,
+        formatCells: false,
+        formatColumns: false,
+        formatRows: false,
+        insertColumns: false,
+        insertRows: false,
+        insertHyperlinks: false,
+        deleteColumns: false,
+        deleteRows: false,
+        sort: false,
+        autoFilter: false,
+        pivotTables: false
+      })
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -337,32 +433,50 @@ const ingredientCategoryController = {
         order: [['createdAt', 'DESC']]
       })
 
+      const Location = db.location
+      const allStoreIds = [...new Set(categories.flatMap((c) => (Array.isArray(c.store) ? c.store : [])))]
+      const locationMap = {}
+      if (allStoreIds.length > 0) {
+        const locations = await Location.findAll({
+          where: { id: allStoreIds },
+          attributes: ['id', 'name']
+        })
+        locations.forEach((l) => { locationMap[l.id] = l.name })
+      }
+
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Kategori Bahan Baku')
 
-      worksheet.addRow(['ID', 'Name', 'Status', 'Created At'])
-      worksheet.getRow(1).font = { bold: true }
-      worksheet.getRow(1).fill = {
+      worksheet.columns = [
+        { header: 'ID', key: 'id', width: 8 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Status', key: 'status', width: 15 },
+        { header: 'Store', key: 'store', width: 20 },
+        { header: 'Created At', key: 'createdAt', width: 20 }
+      ]
+
+      const headerRow = worksheet.getRow(1)
+      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+      headerRow.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFD3D3D3' }
+        fgColor: { argb: '4472C4' }
       }
+      headerRow.alignment = { horizontal: 'center', vertical: 'middle' }
+      headerRow.height = 25
 
-      categories.forEach((c) =>
-        worksheet.addRow([
-          c.id,
-          c.name,
-          c.status === 'active' ? 'Active' : 'Inactive',
-          c.createdAt ? c.createdAt.toISOString() : ''
-        ])
-      )
-
-      worksheet.columns = [
-        { width: 10 },
-        { width: 30 },
-        { width: 15 },
-        { width: 20 }
-      ]
+      categories.forEach((c) => {
+        const storeVal = Array.isArray(c.store) && c.store.length > 0
+          ? c.store.map((id) => locationMap[id] || `Store #${id}`).join(', ')
+          : 'All Stores'
+        worksheet.addRow({
+          id: c.id,
+          name: c.name,
+          status: c.status === 'active' ? 'Active' : c.status === 'draft' ? 'Draft' : 'Non-Active',
+          store: storeVal,
+          createdAt: c.createdAt ? c.createdAt.toISOString() : ''
+        })
+      })
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -398,6 +512,14 @@ const ingredientCategoryController = {
       const store = req.cookies.store || req.user?.store
       const storeId = store ? [parseInt(store, 10)] : null
 
+      const Location = db.location
+      const allLocations = await Location.findAll({
+        where: { status: 'active' },
+        attributes: ['id', 'name']
+      })
+      const locationByName = {}
+      allLocations.forEach((l) => { locationByName[l.name.toLowerCase().trim()] = l.id })
+
       const toCreate = []
       const errors = []
 
@@ -405,19 +527,31 @@ const ingredientCategoryController = {
         if (rowNumber === 1) return
 
         try {
-          const [name, status] = row.values
+          const values = row.values
+          const name = values[2]
 
-          if (!name) {
-            errors.push(`Row ${rowNumber}: Name is required`)
-            return
+          if (!name) return
+
+          const statusRaw = values[3] || 'Active'
+          const storeRaw = values[4] ? values[4].toString().trim() : ''
+
+          let storeIds = storeId
+          if (storeRaw && storeRaw.toLowerCase() !== 'all stores') {
+            const names = storeRaw.split(',').map((s) => s.trim().toLowerCase())
+            const ids = names
+              .map((n) => locationByName[n])
+              .filter((id) => id != null)
+            if (ids.length > 0) storeIds = ids
+          } else if (storeRaw.toLowerCase() === 'all stores') {
+            storeIds = null
           }
 
           toCreate.push({
-            store: storeId,
+            store: storeIds,
             name: name.trim(),
             status: (() => {
-              const s = (status || 'active').toString().toLowerCase()
-              return s === 'draft' ? 'draft' : s === 'inactive' ? 'inactive' : 'active'
+              const s = statusRaw.toString().toLowerCase()
+              return s === 'draft' ? 'draft' : s === 'inactive' || s === 'non-active' ? 'inactive' : 'active'
             })(),
             createdBy: req.user?.id || null
           })
