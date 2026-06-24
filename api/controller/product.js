@@ -29,7 +29,7 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
           [Op.or]: [
             { store: { [Op.contains]: [storeId] } },
             { store: null },
-            db.sequelize.literal("store = '[]'::jsonb")
+            db.sequelize.literal("\"product\".\"store\" = '[]'::jsonb")
           ]
         }
       ]
@@ -331,8 +331,8 @@ exports.postAddProduct = async (req, res) => {
     const normalizedSupplier = toIntOrNull(supplier)
     // Resolve tax ID to full JSON object (tax column is JSONB)
     let normalizedTax = null
-    const taxId = parseInt(tax)
-    if (tax && !isNaN(taxId)) {
+    const taxId = toIntOrNull(tax)
+    if (taxId !== null) {
       const taxConfig = await db.taxConfig.findByPk(taxId)
       if (taxConfig) {
         normalizedTax = JSON.stringify({ id: taxConfig.id, name: taxConfig.name, rate: taxConfig.rate })
@@ -533,8 +533,8 @@ exports.editProductByLocationAndId = async (req, res) => {
 
     // Resolve tax ID to full JSON object (tax column is JSONB)
     let normalizedTax = null
-    const taxId = parseInt(tax)
-    if (tax && !isNaN(taxId)) {
+    const taxId = toIntOrNull(tax)
+    if (taxId !== null) {
       const taxConfig = await db.taxConfig.findByPk(taxId)
       if (taxConfig) {
         normalizedTax = JSON.stringify({ id: taxConfig.id, name: taxConfig.name, rate: taxConfig.rate })

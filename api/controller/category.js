@@ -92,7 +92,8 @@ exports.getAllCategoryInTable = async (req, res) => {
       const storeId = parseInt(store)
       whereClause[Op.or] = [
         { store: null },
-        { store: { [Op.contains]: [storeId] } }
+        { store: { [Op.contains]: [storeId] } },
+        db.sequelize.literal("\"category\".\"store\" = '[]'::jsonb")
       ]
     }
 

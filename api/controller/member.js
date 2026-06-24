@@ -130,7 +130,7 @@ exports.addNewMember = async (req, res) => {
     const createdMember = await Member.create({
       name: body.nameMember,
       phoneNumber: body.phoneNumber,
-      email: body.email,
+      email: body.email || null,
       dateOfBirth: body.birthDate,
       gender: body.gender,
       address: body.address,
@@ -231,7 +231,7 @@ exports.editMember = async (req, res) => {
     const updateData = {}
     if (nameMember) updateData.name = nameMember
     if (phoneNumber) updateData.phoneNumber = phoneNumber
-    if (email !== undefined) updateData.email = email
+    if (email !== undefined) updateData.email = email || null
     if (birthDate !== undefined) updateData.dateOfBirth = birthDate
     if (gender !== undefined) updateData.gender = gender
     if (address !== undefined) updateData.address = address
