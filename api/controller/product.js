@@ -300,22 +300,40 @@ exports.postAddProduct = async (req, res) => {
     }
 
     let parsedPriceTiers = []
-    let normalizedCategory = toIntOrNull(category)
-    if (normalizedCategory === null && status !== 'draft') {
+    let normalizedCategory = null
+    const categoryId = toIntOrNull(category)
+    if (categoryId === null && status !== 'draft') {
       return res.status(400).json({
         success: false,
         message: 'category is required and must be a valid ID'
       })
     }
-    // ponytail: draft uses first active category as fallback, findById if upgrade needed
-    if (normalizedCategory === null && status === 'draft') {
+    if (categoryId !== null) {
+      const cat = await Category.findByPk(categoryId)
+      if (cat) {
+        normalizedCategory = JSON.stringify({ id: cat.id, name: cat.name, description: cat.description })
+      }
+    } else if (status === 'draft') {
+      // ponytail: draft uses first active category as fallback
       const fallback = await Category.findOne({
         where: { status: 'active' },
         order: [['id', 'ASC']]
       })
-      normalizedCategory = fallback ? fallback.id : null
+      if (fallback) {
+        normalizedCategory = JSON.stringify({ id: fallback.id, name: fallback.name, description: fallback.description })
+      }
     }
-    const normalizedSupplier = toIntOrNull(supplier)
+
+    // Resolve supplier ID to full JSON object
+    let normalizedSupplier = null
+    const supplierId = toIntOrNull(supplier)
+    if (supplierId !== null) {
+      const sup = await db.supplier.findByPk(supplierId)
+      if (sup) {
+        normalizedSupplier = JSON.stringify({ id: sup.id, name: sup.name })
+      }
+    }
+
     // Resolve tax ID to full JSON object
     let normalizedTax = null
     const taxId = parseInt(tax)
@@ -518,6 +536,28 @@ exports.editProductByLocationAndId = async (req, res) => {
       }
     }
 
+    // Resolve category ID to full JSON object
+    let normalizedCategory = undefined
+    if (category !== undefined) {
+      const catId = toIntOrNull(category)
+      if (catId !== null) {
+        const cat = await Category.findByPk(catId)
+        if (cat) {
+          normalizedCategory = JSON.stringify({ id: cat.id, name: cat.name, description: cat.description })
+        }
+      }
+    }
+
+    // Resolve supplier ID to full JSON object
+    let normalizedSupplier = undefined
+    const supId = toIntOrNull(supplier)
+    if (supId !== null) {
+      const sup = await db.supplier.findByPk(supId)
+      if (sup) {
+        normalizedSupplier = JSON.stringify({ id: sup.id, name: sup.name })
+      }
+    }
+
     // Resolve tax ID to full JSON object
     let normalizedTax = null
     const taxId = parseInt(tax)
@@ -531,7 +571,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     const reqBody = {
       nameProduct,
       image: imageUrl,
-      category: category !== undefined ? toIntOrNull(category) : undefined,
+      category: normalizedCategory,
       description,
       price,
       costPrice,
@@ -565,7 +605,7 @@ exports.editProductByLocationAndId = async (req, res) => {
       isAvailable,
       status: status !== undefined ? normalizeStatus(status) : undefined,
       store: parsedStores,
-      supplier: toIntOrNull(supplier),
+      supplier: normalizedSupplier,
       tax: normalizedTax,
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
