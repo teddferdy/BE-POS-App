@@ -22,7 +22,17 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
   try {
     const whereCondition = { status: 'active' }
     if (store) {
-      whereCondition.store = { [Op.contains]: [Number(store)] }
+      const storeId = Number(store)
+      whereCondition[Op.and] = [
+        { status: 'active' },
+        {
+          [Op.or]: [
+            { store: { [Op.contains]: [storeId] } },
+            { store: null },
+            db.sequelize.literal("store = '[]'::jsonb")
+          ]
+        }
+      ]
     }
 
     const getAllProduct = await Product.findAll({
