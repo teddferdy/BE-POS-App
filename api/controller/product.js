@@ -142,9 +142,27 @@ exports.getAllProductInTable = async (req, res) => {
       include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
     })
 
+    // Resolve store IDs to names
+    const allStoreIds = [
+      ...new Set(
+        getAllProduct.flatMap((p) => (Array.isArray(p.store) ? p.store : []))
+      )
+    ]
+    const locationMap = {}
+    if (allStoreIds.length > 0) {
+      const locations = await db.location.findAll({
+        where: { id: allStoreIds },
+        attributes: ['id', 'name']
+      })
+      locations.forEach((l) => { locationMap[l.id] = l.name })
+    }
+
     const resolvedCategories = getAllProduct.map((items) => ({
       ...items.dataValues,
-      nameCategory: items.categoryData ? items.categoryData.name : null
+      nameCategory: items.categoryData ? items.categoryData.name : null,
+      storeList: Array.isArray(items.store)
+        ? items.store.map((id) => ({ id, name: locationMap[id] || null }))
+        : []
     }))
 
     // Get total count for pagination
@@ -478,6 +496,8 @@ exports.editProductByLocationAndId = async (req, res) => {
         parsedStores = []
       }
     }
+    // Treat empty array as null (All Stores), consistent with import
+    if (Array.isArray(parsedStores) && parsedStores.length === 0) parsedStores = null
 
     let parsedPriceTiers = []
     if (priceTiers) {
@@ -763,8 +783,9 @@ exports.downloadTemplate = async (req, res) => {
 
     const Supplier = db.supplier
     const TaxConfig = db.taxConfig
+    const Location = db.location
 
-    const [existingProducts, suppliers, taxConfigs] = await Promise.all([
+    const [existingProducts, suppliers, taxConfigs, stores] = await Promise.all([
       Product.findAll({
         include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
       }),
@@ -775,6 +796,11 @@ exports.downloadTemplate = async (req, res) => {
       TaxConfig.findAll({
         attributes: ['id', 'name', 'rate'],
         where: { status: 'active' }
+      }),
+      Location.findAll({
+        where: { status: 'active' },
+        attributes: ['id', 'name'],
+        order: [['name', 'ASC']]
       })
     ])
 
@@ -803,6 +829,7 @@ exports.downloadTemplate = async (req, res) => {
         description: p.description || '',
         categoryName: p.categoryData?.name || '',
         tipeProduk: p.tipeProduk || 'menu',
+        store: p.store,
         unit: p.unit || 'pcs',
         baseUnit: p.baseUnit || 'pcs',
         conversionFactor: p.conversionFactor || 1,
@@ -825,7 +852,8 @@ exports.downloadTemplate = async (req, res) => {
       categories,
       existingProducts: productsWithData,
       suppliers,
-      taxConfigs
+      taxConfigs,
+      stores
     })
 
     res.setHeader(
@@ -878,11 +906,13 @@ exports.importProduct = async (req, res) => {
 
     const Supplier = db.supplier
     const TaxConfig = db.taxConfig
+    const Location = db.location
 
-    const [categories, suppliers, taxConfigs] = await Promise.all([
+    const [categories, suppliers, taxConfigs, stores] = await Promise.all([
       Category.findAll({ attributes: ['id', 'name'] }),
       Supplier.findAll({ attributes: ['id', 'name'] }),
-      TaxConfig.findAll({ attributes: ['id', 'name', 'rate'] })
+      TaxConfig.findAll({ attributes: ['id', 'name', 'rate'] }),
+      Location.findAll({ attributes: ['id', 'name'] })
     ])
 
     const categoryMap = categories.reduce((acc, cat) => {
@@ -899,6 +929,10 @@ exports.importProduct = async (req, res) => {
       return acc
     }, {})
 
+    // ponytail: case-insensitive store name lookup for manual entry tolerance
+    const storeByName = {}
+    stores.forEach((s) => { storeByName[s.name.toLowerCase().trim()] = s.id })
+
     const parseOptions = (val) => {
       if (!val) return []
       try {
@@ -912,117 +946,219 @@ exports.importProduct = async (req, res) => {
       }
     }
 
-    const results = { created: [], updated: [], errors: [] }
+    // Phase 1: Validate all products before touching DB
+    const validationErrors = []
+    // Fetch existing SKUs (including soft-deleted) for uniqueness check
+    const existingSkus = await Product.findAll({
+      attributes: ['id', 'sku', 'deletedAt'],
+      paranoid: false,
+      where: { sku: { [Op.ne]: null } }
+    })
+    const skuMap = new Map(existingSkus.map(p => [p.sku, { id: p.id, deleted: !!p.deletedAt }]))
 
     for (const product of products) {
-      try {
-        if (!product.nameProduct) {
-          results.errors.push({ no: product.no, message: 'Nama produk kosong' })
+      if (!product.nameProduct) {
+        validationErrors.push({ no: product.no, message: 'Nama produk kosong' })
+        continue
+      }
+      const catId = product.category
+        ? categoryMap[product.category.toLowerCase()]
+        : null
+      if (!catId && product.category) {
+        validationErrors.push({ no: product.no, message: `Kategori "${product.category}" tidak ditemukan` })
+        continue
+      }
+      if (!catId) {
+        validationErrors.push({ no: product.no, message: 'Kategori harus diisi' })
+        continue
+      }
+      // Check SKU uniqueness: skip if same product (by No) OR soft-deleted (will restore)
+      if (product.sku && skuMap.has(product.sku)) {
+        const owner = skuMap.get(product.sku)
+        const no = parseInt(product.no)
+        if (owner.id !== no && !owner.deleted) {
+          validationErrors.push({ no: product.no, message: `SKU "${product.sku}" sudah terdaftar` })
           continue
         }
-
-        const categoryId = product.category
-          ? categoryMap[product.category.toLowerCase()]
-          : null
-        if (!categoryId && product.category) {
-          results.errors.push({
-            no: product.no,
-            message: `Kategori "${product.category}" tidak ditemukan`
-          })
-          continue
-        }
-
-        const supplierId = product.supplier
-          ? supplierMap[product.supplier.toLowerCase()] || null
-          : null
-        const taxData = product.tax
-          ? taxMap[product.tax.toLowerCase()] || null
-          : null
-
-        const statusValue =
-          String(product.status).toLowerCase() === 'draft'
-            ? 'draft'
-            : String(product.status).toLowerCase() === 'aktif'
-              ? 'active'
-              : 'inactive'
-        const isOptionValue = String(product.isOption).toLowerCase() === 'ya'
-        const isAvailableValue =
-          String(product.isAvailable).toLowerCase() === 'ya'
-
-        const productData = {
-          nameProduct: product.nameProduct,
-          sku: product.sku || null,
-          barcode: product.barcode || null,
-          brand: product.brand || null,
-          description: product.description || null,
-          category: categoryId,
-          tipeProduk: product.tipeProduk || 'menu',
-          unit: product.unit || 'pcs',
-          baseUnit: product.baseUnit || 'pcs',
-          conversionFactor: product.conversionFactor || 1,
-          supplier: supplierId,
-          tax: taxData ? JSON.stringify(taxData) : null,
-          price: product.price || 0,
-          costPrice: product.costPrice || 0,
-          stock: product.stock || 0,
-          minStock: product.minStock || 0,
-          point: product.point || 0,
-          redeemPoints: product.redeemPoints || 0,
-          status: statusValue,
-          isAvailable: isAvailableValue,
-          isOption: isOptionValue,
-          options: parseOptions(product.options),
-          createdBy: req.user?.id || null
-        }
-
-        const productFileName = product.nameProduct
-          .toLowerCase()
-          .replace(/\s+/g, '-')
-        let imageUrl = null
-        if (imageMap[productFileName]) {
-          imageUrl = await uploadToCloudinary(
-            imageMap[productFileName],
-            'pos-app-products'
-          )
-        }
-
-        const newProduct = await Product.create({
-          ...productData,
-          image: imageUrl || null
-        })
-
-        if (productData.stock > 0) {
-          await StockHistory.create({
-            product: newProduct.id,
-            type: 'in',
-            quantity: productData.stock,
-            note: 'Initial stock from import',
-            createdBy: req.user?.id || null
-          })
-        }
-
-        results.created.push({
-          id: newProduct.id,
-          nameProduct: newProduct.nameProduct
-        })
-      } catch (err) {
-        results.errors.push({ no: product.no, message: err.message })
       }
     }
 
-    createAudit(
-      req,
-      'import',
-      'product',
-      null,
-      `Imported ${results.created.length} products`
-    )
+    if (validationErrors.length) {
+      const msgDetail = validationErrors
+        .map(e => `Baris ${e.no}: ${e.message}`)
+        .join(', ')
+      return res.status(400).json({
+        success: false,
+        message: `Gagal validasi (${validationErrors.length}): ${msgDetail}`,
+        data: { created: [], updated: [], errors: validationErrors }
+      })
+    }
 
-    res.status(200).json({
-      success: true,
-      message: `Berhasil import ${results.created.length} produk`,
-      data: results
-    })
+    // Phase 2: Upsert within transaction (No = ID)
+    const sequelize = db.sequelize
+    const t = await sequelize.transaction()
+    const results = { created: [], updated: [], errors: [] }
+
+    try {
+      for (const product of products) {
+        try {
+          const categoryId = categoryMap[product.category.toLowerCase()]
+          const supplierId = product.supplier
+            ? supplierMap[product.supplier.toLowerCase()] || null
+            : null
+          const taxData = product.tax
+            ? taxMap[product.tax.toLowerCase()] || null
+            : null
+
+          const statusValue =
+            String(product.status).toLowerCase() === 'draft'
+              ? 'draft'
+              : String(product.status).toLowerCase() === 'aktif'
+                ? 'active'
+                : 'inactive'
+          const isOptionValue = String(product.isOption).toLowerCase() === 'ya'
+          const isAvailableValue =
+            String(product.isAvailable).toLowerCase() === 'ya'
+
+          const storeCell = product.store
+          const storeName = storeCell ? String(storeCell).trim() : ''
+          const storeNameLower = storeName.toLowerCase()
+          const isAllStores = ['', 'all stores', 'pilih semua', 'semua toko'].includes(storeNameLower)
+          const storeId = isAllStores ? null : storeByName[storeNameLower] || null
+
+          const productData = {
+            nameProduct: product.nameProduct,
+            sku: product.sku || null,
+            barcode: product.barcode || null,
+            brand: product.brand || null,
+            description: product.description || null,
+            category: categoryId,
+            tipeProduk: product.tipeProduk || 'menu',
+            store: storeId ? [storeId] : null,
+            unit: product.unit || 'pcs',
+            baseUnit: product.baseUnit || 'pcs',
+            conversionFactor: product.conversionFactor || 1,
+            supplier: supplierId,
+            tax: taxData ? JSON.stringify(taxData) : null,
+            price: product.price || 0,
+            costPrice: product.costPrice || 0,
+            stock: product.stock || 0,
+            minStock: product.minStock || 0,
+            point: product.point || 0,
+            redeemPoints: product.redeemPoints || 0,
+            status: statusValue,
+            isAvailable: isAvailableValue,
+            isOption: isOptionValue,
+            options: parseOptions(product.options)
+          }
+
+          const productFileName = product.nameProduct
+            .toLowerCase()
+            .replace(/\s+/g, '-')
+          let imageUrl = null
+          if (imageMap[productFileName]) {
+            imageUrl = await uploadToCloudinary(
+              imageMap[productFileName],
+              'pos-app-products'
+            )
+          }
+
+          const no = parseInt(product.no)
+          let existingProduct = no
+            ? await Product.findByPk(no, { transaction: t, paranoid: false })
+            : null
+          // Fallback: find by SKU if No didn't match (handles old templates)
+          if (!existingProduct && product.sku) {
+            existingProduct = await Product.findOne({
+              where: { sku: product.sku },
+              paranoid: false,
+              transaction: t
+            })
+          }
+
+          if (existingProduct) {
+            if (existingProduct.deletedAt) {
+              await existingProduct.restore({ transaction: t })
+            }
+            await existingProduct.update({
+              ...productData,
+              image: imageUrl || existingProduct.image,
+              modifiedBy: req.user?.id || null
+            }, { transaction: t })
+
+            results.updated.push({
+              id: existingProduct.id,
+              nameProduct: existingProduct.nameProduct
+            })
+          } else {
+            const newProduct = await Product.create({
+              ...productData,
+              image: imageUrl || null,
+              createdBy: req.user?.id || null
+            }, { transaction: t })
+
+            if (productData.stock > 0) {
+              await StockHistory.create({
+                product: newProduct.id,
+                type: 'in',
+                quantity: productData.stock,
+                note: 'Initial stock from import',
+                createdBy: req.user?.id || null
+              }, { transaction: t })
+            }
+
+            results.created.push({
+              id: newProduct.id,
+              nameProduct: newProduct.nameProduct
+            })
+          }
+        } catch (err) {
+          const detail = err.errors?.[0]?.message || err.message
+          results.errors.push({ no: product.no, message: detail })
+          break
+        }
+      }
+
+      if (results.errors.length > 0) {
+        await t.rollback()
+        const msgDetail = results.errors.map(e => `Baris ${e.no}: ${e.message}`).join(', ')
+        return res.status(400).json({
+          success: false,
+          message: `Gagal import: ${msgDetail}`,
+          data: results
+        })
+      }
+
+      await t.commit()
+
+      const totalOk = results.created.length + results.updated.length
+      const msgDetail = results.errors.length
+        ? `. ${results.errors.length} error: ${results.errors.map(e => `Baris ${e.no}: ${e.message}`).join(', ')}`
+        : ''
+      createAudit(
+        req,
+        'import',
+        'product',
+        null,
+        `Imported ${totalOk} products (${results.created.length} new, ${results.updated.length} updated)${msgDetail}`
+      )
+
+      res.status(200).json({
+        success: true,
+        message: `Berhasil import ${totalOk} produk${msgDetail}`,
+        data: results
+      })
+    } catch (err) {
+      await t.rollback()
+      console.error('Error importing products:', err)
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Gagal mengimport produk',
+          error: err.message
+        })
+      }
+    }
   } catch (err) {
     console.error('Error importing products:', err)
     res.status(500).json({
