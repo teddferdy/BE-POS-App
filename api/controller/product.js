@@ -318,8 +318,9 @@ exports.postAddProduct = async (req, res) => {
     const normalizedSupplier = toIntOrNull(supplier)
     // Resolve tax ID to full JSON object
     let normalizedTax = null
-    if (tax) {
-      const taxConfig = await db.taxConfig.findByPk(parseInt(tax))
+    const taxId = parseInt(tax)
+    if (tax && !isNaN(taxId)) {
+      const taxConfig = await db.taxConfig.findByPk(taxId)
       if (taxConfig) {
         normalizedTax = JSON.stringify({ id: taxConfig.id, name: taxConfig.name, rate: taxConfig.rate })
       }
@@ -519,8 +520,9 @@ exports.editProductByLocationAndId = async (req, res) => {
 
     // Resolve tax ID to full JSON object
     let normalizedTax = null
-    if (tax) {
-      const taxConfig = await db.taxConfig.findByPk(parseInt(tax))
+    const taxId = parseInt(tax)
+    if (tax && !isNaN(taxId)) {
+      const taxConfig = await db.taxConfig.findByPk(taxId)
       if (taxConfig) {
         normalizedTax = JSON.stringify({ id: taxConfig.id, name: taxConfig.name, rate: taxConfig.rate })
       }
