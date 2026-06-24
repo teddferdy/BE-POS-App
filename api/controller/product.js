@@ -316,7 +316,14 @@ exports.postAddProduct = async (req, res) => {
       normalizedCategory = fallback ? fallback.id : null
     }
     const normalizedSupplier = toIntOrNull(supplier)
-    const normalizedTax = toJsonOrNull(tax)
+    // Resolve tax ID to full JSON object
+    let normalizedTax = null
+    if (tax) {
+      const taxConfig = await db.taxConfig.findByPk(parseInt(tax))
+      if (taxConfig) {
+        normalizedTax = JSON.stringify({ id: taxConfig.id, name: taxConfig.name, rate: taxConfig.rate })
+      }
+    }
 
     const postData = await Product.create({
       nameProduct: nameProduct || null,
@@ -510,6 +517,15 @@ exports.editProductByLocationAndId = async (req, res) => {
       }
     }
 
+    // Resolve tax ID to full JSON object
+    let normalizedTax = null
+    if (tax) {
+      const taxConfig = await db.taxConfig.findByPk(parseInt(tax))
+      if (taxConfig) {
+        normalizedTax = JSON.stringify({ id: taxConfig.id, name: taxConfig.name, rate: taxConfig.rate })
+      }
+    }
+
     const reqBody = {
       nameProduct,
       image: imageUrl,
@@ -548,7 +564,7 @@ exports.editProductByLocationAndId = async (req, res) => {
       status: status !== undefined ? normalizeStatus(status) : undefined,
       store: parsedStores,
       supplier: toIntOrNull(supplier),
-      tax: toJsonOrNull(tax),
+      tax: normalizedTax,
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
       currencyCode: currencyCode || null,
