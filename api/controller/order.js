@@ -38,11 +38,17 @@ const getServiceChargeRate = async (store) => {
   return 5
 }
 
-const applyAdvancedPromo = (items, discount) => {
+const applyAdvancedPromo = async (items, discount) => {
   if (!discount || !discount.conditions || !discount.conditions.promoType)
     return 0
   const { promoType } = discount.conditions
   let totalDiscount = 0
+
+  // ponytail: normalise field names from different payload formats
+  items.forEach((item) => {
+    item.productId = item.productId || item.product
+    item.unitPrice = item.unitPrice ?? item.price ?? item.basePrice ?? 0
+  })
 
   switch (promoType) {
     case 'bogo': {
@@ -90,13 +96,20 @@ const applyAdvancedPromo = (items, discount) => {
     case 'category': {
       const { discountPercent, categoryIds } = discount.conditions
       const catSet = new Set((categoryIds || []).map(Number))
-      items.forEach((item) => {
-        if (catSet.has(Number(item.categoryId))) {
+      for (const item of items) {
+        let catId = Number(item.categoryId)
+        if (!catId) {
+          const prod = await Product.findByPk(item.productId, {
+            attributes: ['category']
+          })
+          if (prod) catId = Number(prod.category)
+        }
+        if (catSet.has(catId)) {
           const disc = Math.round(item.subtotal * (discountPercent / 100))
           item.subtotal -= disc
           totalDiscount += disc
         }
-      })
+      }
       break
     }
   }
@@ -265,6 +278,9 @@ exports.createOrder = async (req, res) => {
       }
     }
 
+    // ponytail: snapshot original subtotals for per-item discountAmount tracking
+    items.forEach((item) => { item._origSubtotal = item.subtotal })
+
     const taxRate = await getActiveTaxRate(store)
     const serviceChargeRate = await getServiceChargeRate(store)
 
@@ -277,7 +293,7 @@ exports.createOrder = async (req, res) => {
       appliedDiscountMeta.conditions &&
       appliedDiscountMeta.conditions.promoType
     ) {
-      promoDiscountAmount = applyAdvancedPromo(items, appliedDiscountMeta)
+      promoDiscountAmount = await applyAdvancedPromo(items, appliedDiscountMeta)
       totals = calculateOrderTotals(
         items,
         0,
@@ -349,6 +365,8 @@ exports.createOrder = async (req, res) => {
       discountType,
       discountValue,
       discountAmount: totals.discountAmount,
+      discountId: appliedDiscountId,
+      promoCode: promoCode || null,
       taxRate,
       taxAmount: totals.taxAmount,
       serviceChargeRate,
@@ -365,16 +383,20 @@ exports.createOrder = async (req, res) => {
       const costPrice = product
         ? Number(product.costPrice || product.price || 0)
         : 0
+      const itemDiscountAmount = Math.max(0, (item._origSubtotal || 0) - (item.subtotal || 0))
       await OrderItem.create({
         order: order.id,
         product: item.product || item.productId,
         productName: item.productName,
         quantity: item.quantity,
         price: item.basePrice || item.price,
+        discountType,
+        discountValue,
+        discountAmount: itemDiscountAmount,
+        totalPrice: item.subtotal || item.totalPrice,
         options: item.options || [],
         modifiers: item.modifiers || [],
         notes: item.notes,
-        totalPrice: item.subtotal || item.totalPrice,
         hppSnapshot: costPrice,
         status: 'pending'
       })

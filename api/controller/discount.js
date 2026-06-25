@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const Discount = db.discount
+const Order = db.order
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 
@@ -52,15 +53,23 @@ exports.getAllDiscount = async (req, res) => {
   try {
     const whereCondition = {}
     if (store) whereCondition.store = store
-    if (status !== undefined && status !== 'all')
+    if (status && status !== 'all')
       whereCondition.status =
         status === 'true' || status === 'active' ? 'active' : 'inactive'
 
     const { count, rows } = await Discount.findAndCountAll({
       where: whereCondition,
       limit,
-      offset
+      offset,
+      order: [['createdAt', 'DESC']]
     })
+
+    const storeFilter = store ? { store } : {}
+    const [activeCount, draftCount, inactiveCount] = await Promise.all([
+      Discount.count({ where: { ...storeFilter, status: 'active' } }),
+      Discount.count({ where: { ...storeFilter, status: 'draft' } }),
+      Discount.count({ where: { ...storeFilter, status: 'inactive' } }),
+    ])
 
     return res.status(200).json({
       success: true,
@@ -68,7 +77,8 @@ exports.getAllDiscount = async (req, res) => {
       totalItems: count,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
-      data: rows.map((items) => items.dataValues)
+      data: rows.map((items) => items.dataValues),
+      stats: { total: activeCount + draftCount + inactiveCount, active: activeCount, draft: draftCount, inactive: inactiveCount }
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -410,6 +420,7 @@ exports.postNewDiscount = async (req, res) => {
         store,
         code: code || null,
         conditions: conditions || null,
+        createdBy: req.user?.id,
         status:
           status !== undefined
             ? status === true || status === 'active'
@@ -529,6 +540,7 @@ exports.editDiscountById = async (req, res) => {
           endDate: body.endDate,
           code: body.code || null,
           conditions: body.conditions || null,
+          modifiedBy: req.user?.id,
           status:
             body.status !== undefined
               ? body.status === true
@@ -609,5 +621,27 @@ exports.deleteDiscountById = async (req, res) => {
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
     })
+  }
+}
+
+exports.getDiscountById = async (req, res) => {
+  const store = req.query.store || req.user?.store
+  try {
+    const discount = await Discount.findOne({
+      where: {
+        id: req.params.id,
+        ...(store ? { store } : {})
+      }
+    })
+    if (!discount) {
+      return res.status(404).json({ success: false, message: 'Discount not found' })
+    }
+    const usageCount = await Order.count({ where: { discountId: req.params.id } })
+    return res
+      .status(200)
+      .json({ success: true, message: 'Success', data: { ...discount.toJSON(), usageCount } })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }

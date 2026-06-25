@@ -87,7 +87,11 @@ exports.getAllProduct = async (req, res) => {
       filters.category = Number(category)
     }
 
-    filters.status = 'active'
+    if (req.query.status && req.query.status !== 'all') {
+      filters.status = req.query.status
+    } else if (!req.query.status) {
+      filters.status = 'active'
+    }
 
     const getAllProduct = await Product.findAll({
       where: filters,

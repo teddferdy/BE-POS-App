@@ -29,6 +29,15 @@ module.exports = (sequelize, DataTypes) => {
       customerPhone: {
         type: DataTypes.STRING
       },
+      discountId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'discount', key: 'id' }
+      },
+      promoCode: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
       cashierId: {
         allowNull: false,
         type: DataTypes.INTEGER

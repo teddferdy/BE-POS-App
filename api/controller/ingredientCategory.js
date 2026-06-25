@@ -151,12 +151,7 @@ const ingredientCategoryController = {
       const category = await db.ingredientCategory.create({
         store,
         name,
-        status:
-          status === true || status === 'active'
-            ? 'active'
-            : status === false || status === 'inactive'
-              ? 'inactive'
-              : 'active',
+        status: ['active', 'inactive', 'draft'].includes(status) ? status : 'active',
         createdBy
       })
 

@@ -60,6 +60,9 @@ router.post(
   discountController.importData
 )
 
+// Get Discount By ID
+router.get('/get-discount/:id', authorization, validateStoreAccess, discountController.getDiscountById)
+
 // Lookup promo by code - no auth required (POS checkout)
 router.get('/lookup-by-code/:code', discountController.lookupByCode)
 

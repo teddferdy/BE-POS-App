@@ -48,16 +48,20 @@ exports.getCategoryById = async (req, res) => {
       ? await resolveStoreNames(category.store)
       : []
 
+    const productCount = await Product.count({ where: { category: id } })
+
     return res.status(200).json({
       success: true,
       message: 'Success',
       data: {
         id: category.id,
+        code: `#CAT-${String(category.id).padStart(3, '0')}`,
         name: category.name,
         description: category.description,
         value: category.value,
         image: category.image,
         status: category.status,
+        productCount,
         store: stores,
         createdBy: category.createdBy,
         modifiedBy: category.modifiedBy,
