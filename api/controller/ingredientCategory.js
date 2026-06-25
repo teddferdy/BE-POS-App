@@ -2,41 +2,13 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const ExcelJS = require('exceljs')
-const Location = db.location
-
-const parseStoreField = (val) => {
-  if (!val || val === '') return null
-  try {
-    const parsed = JSON.parse(val)
-    return Array.isArray(parsed) ? (parsed.length > 0 ? parsed : null) : [parseInt(val, 10)]
-  } catch {
-    return [parseInt(val, 10)]
-  }
-}
-
-const resolveStoreNames = async (storeIds) => {
-  if (!storeIds || !Array.isArray(storeIds) || storeIds.length === 0) return []
-  const locations = await Location.findAll({
-    where: { id: storeIds },
-    attributes: ['id', 'name']
-  })
-  return locations.map((l) => ({ id: l.id, name: l.name }))
-}
 
 const ingredientCategoryController = {
   async getAll(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
-      const { search, status } = req.query
-      const storeId = store ? parseInt(store, 10) : null
+      const { search, status, page = 1, limit = 10 } = req.query
 
       const where = {}
-      if (storeId) {
-        where[Op.or] = [
-          { store: null },
-          { store: { [Op.contains]: [storeId] } }
-        ]
-      }
       if (search) {
         where.name = { [Op.iLike]: `%${search}%` }
       }
@@ -44,39 +16,29 @@ const ingredientCategoryController = {
         where.status = status
       }
 
-      const categories = await db.ingredientCategory.findAll({
-        where,
-        order: [['createdAt', 'DESC']]
-      })
+      const offset = (page - 1) * limit
 
-      const allStoreIds = [
-        ...new Set(categories.flatMap((c) => (Array.isArray(c.store) ? c.store : [])))
-      ]
-      const locationMap = {}
-      if (allStoreIds.length > 0) {
-        const locations = await Location.findAll({
-          where: { id: allStoreIds },
-          attributes: ['id', 'name']
-        })
-        locations.forEach((l) => {
-          locationMap[l.id] = l.name
-        })
-      }
+      const [categories, total] = await Promise.all([
+        db.ingredientCategory.findAll({
+          where,
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+          order: [['createdAt', 'DESC']]
+        }),
+        db.ingredientCategory.count({ where })
+      ])
 
-      const data = categories.map((c) => ({
-        ...c.toJSON(),
-        store: Array.isArray(c.store) ? c.store.map((id) => ({ id, name: locationMap[id] || null })) : c.store
-      }))
+      const totalPages = Math.ceil(total / limit)
 
-      const total = categories.length
-      const active = categories.filter((c) => c.status === 'active').length
-      const draft = categories.filter((c) => c.status === 'draft').length
-      const inactive = categories.filter((c) => c.status === 'inactive').length
+      const active = await db.ingredientCategory.count({ where: { ...where, status: 'active' } })
+      const draft = await db.ingredientCategory.count({ where: { ...where, status: 'draft' } })
+      const inactive = await db.ingredientCategory.count({ where: { ...where, status: 'inactive' } })
 
       return res.status(200).json({
         success: true,
         message: 'Success get ingredient categories',
-        data,
+        data: categories,
+        pagination: { page: parseInt(page), limit: parseInt(limit), total, totalPages },
         stats: { total, active, draft, inactive }
       })
     } catch (error) {
@@ -91,18 +53,8 @@ const ingredientCategoryController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
-      const storeId = store ? parseInt(store, 10) : null
 
-      const where = { id }
-      if (storeId) {
-        where[Op.or] = [
-          { store: null },
-          { store: { [Op.contains]: [storeId] } }
-        ]
-      }
-
-      const category = await db.ingredientCategory.findOne({ where })
+      const category = await db.ingredientCategory.findByPk(id)
 
       if (!category) {
         return res.status(404).json({
@@ -111,15 +63,10 @@ const ingredientCategoryController = {
         })
       }
 
-      const resolved = category.toJSON()
-      if (Array.isArray(resolved.store)) {
-        resolved.store = await resolveStoreNames(resolved.store)
-      }
-
       return res.status(200).json({
         success: true,
         message: 'Success get ingredient category',
-        data: resolved
+        data: category
       })
     } catch (error) {
       console.error(error)
@@ -132,12 +79,6 @@ const ingredientCategoryController = {
 
   async create(req, res) {
     try {
-      const store = parseStoreField(req.body.store) ||
-        (req.cookies.store
-          ? [parseInt(req.cookies.store, 10)]
-          : req.user?.store
-            ? [parseInt(req.user.store, 10)]
-            : null)
       const { name, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -148,9 +89,18 @@ const ingredientCategoryController = {
         })
       }
 
+      const existing = await db.ingredientCategory.findOne({
+        where: { name: { [Op.iLike]: name.trim() } }
+      })
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: 'Kategori dengan nama tersebut sudah ada'
+        })
+      }
+
       const category = await db.ingredientCategory.create({
-        store,
-        name,
+        name: name.trim(),
         status: ['active', 'inactive', 'draft'].includes(status) ? status : 'active',
         createdBy
       })
@@ -180,9 +130,6 @@ const ingredientCategoryController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.body.store !== undefined
-        ? parseStoreField(req.body.store)
-        : undefined
       const { name, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -195,8 +142,20 @@ const ingredientCategoryController = {
         })
       }
 
+      if (name && name.trim().toLowerCase() !== category.name.toLowerCase()) {
+        const existing = await db.ingredientCategory.findOne({
+          where: { name: { [Op.iLike]: name.trim() }, id: { [Op.ne]: id } }
+        })
+        if (existing) {
+          return res.status(400).json({
+            success: false,
+            message: 'Kategori dengan nama tersebut sudah ada'
+          })
+        }
+      }
+
       await category.update({
-        name: name || category.name,
+        name: name ? name.trim() : category.name,
         status:
           status !== undefined
             ? status === true
@@ -205,7 +164,6 @@ const ingredientCategoryController = {
                 ? 'inactive'
                 : status
             : category.status,
-        ...(store !== undefined ? { store } : {}),
         modifiedBy
       })
 
@@ -234,18 +192,8 @@ const ingredientCategoryController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
-      const storeId = store ? parseInt(store, 10) : null
 
-      const where = { id }
-      if (storeId) {
-        where[Op.or] = [
-          { store: null },
-          { store: { [Op.contains]: [storeId] } }
-        ]
-      }
-
-      const category = await db.ingredientCategory.findOne({ where })
+      const category = await db.ingredientCategory.findByPk(id)
 
       if (!category) {
         return res.status(404).json({
@@ -282,31 +230,13 @@ const ingredientCategoryController = {
         order: [['createdAt', 'DESC']]
       })
 
-      const Location = db.location
-      const stores = await Location.findAll({
-        where: { status: 'active' },
-        attributes: ['id', 'name'],
-        order: [['name', 'ASC']]
-      })
-      const storeNames = stores.map((s) => s.name)
-      const storeDropdown = ['All Stores', ...storeNames].join(',')
-
-      const storeNameById = {}
-      stores.forEach((s) => { storeNameById[s.id] = s.name })
-
-      const formatStores = (storeVal) => {
-        if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0) return 'All Stores'
-        return storeVal.map((id) => storeNameById[id] || `Store #${id}`).join(', ')
-      }
-
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Kategori Bahan Baku')
 
       worksheet.columns = [
         { header: 'No', key: 'no', width: 8 },
         { header: 'Name', key: 'name', width: 25 },
-        { header: 'Status', key: 'status', width: 15 },
-        { header: 'Store', key: 'store', width: 20 }
+        { header: 'Status', key: 'status', width: 15 }
       ]
 
       const headerRow = worksheet.getRow(1)
@@ -342,14 +272,6 @@ const ingredientCategoryController = {
           formulae: ['"Active,Non-Active,Draft"']
         }
 
-        worksheet.getCell(`D${rowIndex}`).value = formatStores(cat.store)
-        worksheet.getCell(`D${rowIndex}`).protection = { locked: false }
-        worksheet.getCell(`D${rowIndex}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [`"${storeDropdown}"`]
-        }
-
         rowIndex++
       })
 
@@ -358,7 +280,7 @@ const ingredientCategoryController = {
         worksheet.getCell(`A${row}`).value = row - 1
         worksheet.getCell(`A${row}`).protection = { locked: true }
         worksheet.getCell(`A${row}`).alignment = { horizontal: 'center' }
-        ;['B', 'C', 'D'].forEach((col) => {
+        ;['B', 'C'].forEach((col) => {
           worksheet.getCell(`${col}${row}`).protection = { locked: false }
         })
 
@@ -366,12 +288,6 @@ const ingredientCategoryController = {
           type: 'list',
           allowBlank: true,
           formulae: ['"Active,Non-Active,Draft"']
-        }
-
-        worksheet.getCell(`D${row}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [`"${storeDropdown}"`]
         }
       }
 
@@ -413,31 +329,9 @@ const ingredientCategoryController = {
 
   async downloadData(req, res) {
     try {
-      const store = req.query.store || req.cookies.store || req.user?.store
-      const storeId = store ? parseInt(store, 10) : null
-      const where = {}
-      if (storeId) {
-        where[Op.or] = [
-          { store: null },
-          { store: { [Op.contains]: [storeId] } }
-        ]
-      }
-
       const categories = await db.ingredientCategory.findAll({
-        where,
         order: [['createdAt', 'DESC']]
       })
-
-      const Location = db.location
-      const allStoreIds = [...new Set(categories.flatMap((c) => (Array.isArray(c.store) ? c.store : [])))]
-      const locationMap = {}
-      if (allStoreIds.length > 0) {
-        const locations = await Location.findAll({
-          where: { id: allStoreIds },
-          attributes: ['id', 'name']
-        })
-        locations.forEach((l) => { locationMap[l.id] = l.name })
-      }
 
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Kategori Bahan Baku')
@@ -446,7 +340,6 @@ const ingredientCategoryController = {
         { header: 'ID', key: 'id', width: 8 },
         { header: 'Name', key: 'name', width: 25 },
         { header: 'Status', key: 'status', width: 15 },
-        { header: 'Store', key: 'store', width: 20 },
         { header: 'Created At', key: 'createdAt', width: 20 }
       ]
 
@@ -461,14 +354,10 @@ const ingredientCategoryController = {
       headerRow.height = 25
 
       categories.forEach((c) => {
-        const storeVal = Array.isArray(c.store) && c.store.length > 0
-          ? c.store.map((id) => locationMap[id] || `Store #${id}`).join(', ')
-          : 'All Stores'
         worksheet.addRow({
           id: c.id,
           name: c.name,
           status: c.status === 'active' ? 'Active' : c.status === 'draft' ? 'Draft' : 'Non-Active',
-          store: storeVal,
           createdAt: c.createdAt ? c.createdAt.toISOString() : ''
         })
       })
@@ -504,16 +393,6 @@ const ingredientCategoryController = {
       const workbook = new ExcelJS.Workbook()
       await workbook.xlsx.load(req.file.buffer)
       const worksheet = workbook.getWorksheet(1)
-      const store = req.cookies.store || req.user?.store
-      const storeId = store ? [parseInt(store, 10)] : null
-
-      const Location = db.location
-      const allLocations = await Location.findAll({
-        where: { status: 'active' },
-        attributes: ['id', 'name']
-      })
-      const locationByName = {}
-      allLocations.forEach((l) => { locationByName[l.name.toLowerCase().trim()] = l.id })
 
       const toCreate = []
       const errors = []
@@ -528,21 +407,8 @@ const ingredientCategoryController = {
           if (!name) return
 
           const statusRaw = values[3] || 'Active'
-          const storeRaw = values[4] ? values[4].toString().trim() : ''
-
-          let storeIds = storeId
-          if (storeRaw && storeRaw.toLowerCase() !== 'all stores') {
-            const names = storeRaw.split(',').map((s) => s.trim().toLowerCase())
-            const ids = names
-              .map((n) => locationByName[n])
-              .filter((id) => id != null)
-            if (ids.length > 0) storeIds = ids
-          } else if (storeRaw.toLowerCase() === 'all stores') {
-            storeIds = null
-          }
 
           toCreate.push({
-            store: storeIds,
             name: name.trim(),
             status: (() => {
               const s = statusRaw.toString().toLowerCase()

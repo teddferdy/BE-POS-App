@@ -157,12 +157,32 @@ const supplierController = {
         })
       }
 
+      const trimmedPhone = phone?.trim()
+      if (!trimmedPhone && status !== 'draft') {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone is required'
+        })
+      }
+
+      if (trimmedPhone) {
+        const phoneExists = await db.supplier.findOne({
+          where: { phone: trimmedPhone },
+          paranoid: false
+        })
+        if (phoneExists) {
+          return res.status(409).json({
+            success: false,
+            message: 'Nomor supplier sudah terdaftar'
+          })
+        }
+      }
+
       const existing = await db.supplier.findOne({
         where: {
           [Op.or]: [
             { name: { [Op.iLike]: trimmedName } },
-            ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : []),
-            ...(phone?.trim() ? [{ phone }] : [])
+            ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : [])
           ]
         },
         paranoid: false
@@ -172,9 +192,7 @@ const supplierController = {
         const field =
           existing.name.toLowerCase() === trimmedName.toLowerCase()
             ? 'Name'
-            : existing.email?.toLowerCase() === email?.trim()?.toLowerCase()
-              ? 'Email'
-              : 'Phone'
+            : 'Email'
         return res.status(409).json({
           success: false,
           message: `${field} already exists`
@@ -260,6 +278,23 @@ const supplierController = {
         })
       }
 
+      const trimmedPhone = phone?.trim()
+      if (trimmedPhone) {
+        const phoneExists = await db.supplier.findOne({
+          where: {
+            id: { [Op.ne]: id },
+            phone: trimmedPhone
+          },
+          paranoid: false
+        })
+        if (phoneExists) {
+          return res.status(409).json({
+            success: false,
+            message: 'Nomor supplier sudah terdaftar'
+          })
+        }
+      }
+
       const trimmedName = name?.trim()
       if (name && trimmedName) {
         const existing = await db.supplier.findOne({
@@ -267,8 +302,7 @@ const supplierController = {
             id: { [Op.ne]: id },
             [Op.or]: [
               { name: { [Op.iLike]: trimmedName } },
-              ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : []),
-              ...(phone?.trim() ? [{ phone }] : [])
+              ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : [])
             ]
           },
           paranoid: false
@@ -278,9 +312,7 @@ const supplierController = {
           const field =
             existing.name.toLowerCase() === trimmedName.toLowerCase()
               ? 'Name'
-              : existing.email?.toLowerCase() === email?.trim()?.toLowerCase()
-                ? 'Email'
-                : 'Phone'
+              : 'Email'
           return res.status(409).json({
             success: false,
             message: `${field} already exists`

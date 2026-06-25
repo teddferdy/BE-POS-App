@@ -105,7 +105,7 @@ const ingredientController = {
 
   async create(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.body.store || req.cookies.store || req.user?.store
       const {
         name,
         category,
@@ -213,6 +213,7 @@ const ingredientController = {
           conversionFactor != null
             ? conversionFactor
             : ingredient.conversionFactor,
+        store: store !== undefined ? store : ingredient.store,
         costPrice: costPrice !== undefined ? costPrice : ingredient.costPrice,
         status:
           status !== undefined

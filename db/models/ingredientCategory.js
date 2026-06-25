@@ -9,9 +9,6 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         type: DataTypes.INTEGER
       },
-      store: {
-        type: DataTypes.JSON
-      },
       name: {
         allowNull: false,
         type: DataTypes.STRING
