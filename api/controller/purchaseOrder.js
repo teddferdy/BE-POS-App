@@ -46,6 +46,23 @@ const purchaseOrderController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
+      const statsWhere = store ? { store } : {}
+      const [draftCount, pendingCount, orderedCount, receivedCount, cancelledCount] =
+        await Promise.all([
+          db.purchase_order.count({ where: { ...statsWhere, status: 'draft' } }),
+          db.purchase_order.count({ where: { ...statsWhere, status: 'pending' } }),
+          db.purchase_order.count({ where: { ...statsWhere, status: 'ordered' } }),
+          db.purchase_order.count({ where: { ...statsWhere, status: 'received' } }),
+          db.purchase_order.count({ where: { ...statsWhere, status: 'cancelled' } })
+        ])
+      const stats = {
+        draft: draftCount,
+        pending: pendingCount,
+        ordered: orderedCount,
+        received: receivedCount,
+        cancelled: cancelledCount
+      }
+
       const { count, rows } = await db.purchase_order.findAndCountAll({
         where,
         attributes: {
@@ -93,7 +110,8 @@ const purchaseOrderController = {
           page: parseInt(page),
           limit: parseInt(limit),
           totalPages: Math.ceil(count / parseInt(limit))
-        }
+        },
+        stats
       })
     } catch (error) {
       console.log(error)
@@ -168,10 +186,44 @@ const purchaseOrderController = {
         })
       }
 
+      const returnAgg = await db.purchase_return_item.findAll({
+        include: [{
+          model: db.purchase_return,
+          as: 'return',
+          where: { purchaseOrder: id },
+          attributes: []
+        }],
+        attributes: [
+          'ingredient',
+          'product',
+          [db.Sequelize.fn('COALESCE', db.Sequelize.fn('SUM', db.Sequelize.col('qty')), 0), 'returnedQty']
+        ],
+        group: ['ingredient', 'product'],
+        raw: true
+      })
+
+      const returnMap = {}
+      returnAgg.forEach((r) => {
+        const key = r.ingredient ? `ing-${r.ingredient}` : `prod-${r.product}`
+        returnMap[key] = parseFloat(r.returnedQty) || 0
+      })
+
+      const data = purchaseOrder.toJSON()
+      if (data.items) {
+        data.items = data.items.map((item) => ({
+          ...item,
+          returnedQty: item.ingredient
+            ? returnMap[`ing-${item.ingredient}`] || 0
+            : item.product
+              ? returnMap[`prod-${item.product}`] || 0
+              : 0
+        }))
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Success get purchase order',
-        data: purchaseOrder
+        data
       })
     } catch (error) {
       console.log(error)
@@ -197,32 +249,36 @@ const purchaseOrderController = {
       } = req.body
       const createdBy = req.user?.id || null
 
-      if (!supplier || !items || items.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Supplier and items are required'
-        })
-      }
+      const isDraft = status === 'draft'
 
-      if (!dueDate) {
-        return res.status(400).json({
-          success: false,
-          message: 'Tanggal jatuh tempo wajib diisi'
-        })
+      if (!isDraft) {
+        if (!supplier || !items || items.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Supplier and items are required'
+          })
+        }
+
+        if (!dueDate) {
+          return res.status(400).json({
+            success: false,
+            message: 'Tanggal jatuh tempo wajib diisi'
+          })
+        }
       }
 
       const orderNumber = generateOrderNumber('PO')
 
-      const totalAmount = items.reduce((sum, item) => {
-        return sum + item.quantity * item.price
-      }, 0)
+      const totalAmount = items?.length > 0
+        ? items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+        : 0
 
       const finalAmount = totalAmount - discount
 
       const purchaseOrder = await db.purchase_order.create({
         store: store || null,
         orderNumber,
-        supplier,
+        supplier: supplier || null,
         totalAmount,
         discount,
         finalAmount,
@@ -230,23 +286,25 @@ const purchaseOrderController = {
         orderDate: orderDate || new Date(),
         notes,
         createdBy,
-        pic,
+        pic: pic || null,
         dueDate
       })
 
-      const orderItems = items.map((item) => ({
-        purchaseOrder: purchaseOrder.id,
-        product: item.product || null,
-        ingredient: item.ingredient || null,
-        ingredientName: item.ingredientName || null,
-        quantity: item.quantity,
-        unit: item.unit || 'pcs',
-        price: item.price,
-        total: item.quantity * item.price,
-        receivedQuantity: 0
-      }))
+      if (items?.length > 0) {
+        const orderItems = items.map((item) => ({
+          purchaseOrder: purchaseOrder.id,
+          product: item.product || null,
+          ingredient: item.ingredient || null,
+          ingredientName: item.ingredientName || null,
+          quantity: item.quantity,
+          unit: item.unit || 'pcs',
+          price: item.price,
+          total: item.quantity * item.price,
+          receivedQuantity: 0
+        }))
 
-      await db.purchase_order_item.bulkCreate(orderItems)
+        await db.purchase_order_item.bulkCreate(orderItems)
+      }
 
       const createdOrder = await db.purchase_order.findOne({
         where: { id: purchaseOrder.id },

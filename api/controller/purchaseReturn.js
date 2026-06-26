@@ -2,6 +2,31 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
+async function attachPriceInfo(json, poId) {
+  if (!json.items || json.items.length === 0) return json
+  const poItems = await db.purchase_order_item.findAll({
+    where: { purchaseOrder: poId },
+    attributes: ['ingredient', 'product', 'price']
+  })
+  const priceMap = {}
+  poItems.forEach((pi) => {
+    if (pi.ingredient) priceMap[`ing-${pi.ingredient}`] = parseFloat(pi.price) || 0
+    if (pi.product) priceMap[`prod-${pi.product}`] = parseFloat(pi.price) || 0
+  })
+  json.items = json.items.map((item) => {
+    const key = item.ingredient?.id
+      ? `ing-${item.ingredient.id}`
+      : item.product?.id
+        ? `prod-${item.product.id}`
+        : null
+    item.price = key ? priceMap[key] || 0 : 0
+    item.subtotal = item.price * (parseFloat(item.qty) || 0)
+    return item
+  })
+  json.totalAmount = json.items.reduce((s, i) => s + i.subtotal, 0)
+  return json
+}
+
 const purchaseReturnController = {
   async getAll(req, res) {
     try {
@@ -20,6 +45,14 @@ const purchaseReturnController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
+      const statsWhere = store ? { store } : {}
+      const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
+        db.purchase_return.count({ where: { ...statsWhere, status: 'pending' } }),
+        db.purchase_return.count({ where: { ...statsWhere, status: 'approved' } }),
+        db.purchase_return.count({ where: { ...statsWhere, status: 'rejected' } })
+      ])
+      const stats = { pending: pendingCount, approved: approvedCount, rejected: rejectedCount }
+
       const { count, rows } = await db.purchase_return.findAndCountAll({
         where,
         include: [
@@ -31,6 +64,11 @@ const purchaseReturnController = {
                 model: db.product,
                 as: 'productData',
                 attributes: ['id', 'nameProduct']
+              },
+              {
+                model: db.ingredient,
+                as: 'ingredientData',
+                attributes: ['id', 'name']
               }
             ]
           },
@@ -46,10 +84,34 @@ const purchaseReturnController = {
         offset
       })
 
+      const transformed = rows.map((r) => {
+        const json = r.toJSON()
+        if (json.returnedByData) {
+          json.returnedBy = { id: json.returnedByData.id, name: json.returnedByData.fullName }
+        }
+        delete json.returnedByData
+        if (json.items) {
+          json.items = json.items.map((item) => {
+            if (item.productData) {
+              item.product = { id: item.productData.id, name: item.productData.nameProduct }
+            }
+            delete item.productData
+            if (item.ingredientData) {
+              item.ingredient = { id: item.ingredientData.id, name: item.ingredientData.name }
+            }
+            delete item.ingredientData
+            item.purchaseReturn = { id: item.purchaseReturn, name: json.returnNumber }
+            return item
+          })
+        }
+        return json
+      })
+
       return res.status(200).json({
         success: true,
         message: 'Success',
-        data: rows,
+        data: transformed,
+        stats,
         pagination: {
           total: count,
           page: parseInt(page),
@@ -85,6 +147,11 @@ const purchaseReturnController = {
                 model: db.product,
                 as: 'productData',
                 attributes: ['id', 'nameProduct']
+              },
+              {
+                model: db.ingredient,
+                as: 'ingredientData',
+                attributes: ['id', 'name']
               }
             ]
           },
@@ -103,9 +170,34 @@ const purchaseReturnController = {
           .json({ success: false, message: 'Purchase return not found' })
       }
 
+      const result = ret.toJSON()
+      if (result.returnedByData) {
+        result.returnedBy = {
+          id: result.returnedByData.id,
+          name: result.returnedByData.fullName
+        }
+      }
+      delete result.returnedByData
+      if (result.items) {
+        result.items = result.items.map((item) => {
+          if (item.productData) {
+            item.product = { id: item.productData.id, name: item.productData.nameProduct }
+          }
+          delete item.productData
+          if (item.ingredientData) {
+            item.ingredient = { id: item.ingredientData.id, name: item.ingredientData.name }
+          }
+          delete item.ingredientData
+          item.purchaseReturn = { id: item.purchaseReturn, name: result.returnNumber }
+          return item
+        })
+      }
+
+      const enriched = await attachPriceInfo(result, result.purchaseOrder)
+
       return res
         .status(200)
-        .json({ success: true, message: 'Success', data: ret })
+        .json({ success: true, message: 'Success', data: enriched })
     } catch (error) {
       console.error(error)
       return res
@@ -266,6 +358,66 @@ const purchaseReturnController = {
       return res
         .status(500)
         .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async getByPO(req, res) {
+    try {
+      const { poId } = req.params
+      const { store } = req.cookies
+      const userRole = req.user?.roleType
+
+      const where = { purchaseOrder: poId }
+      if (store && userRole !== 'super_admin') where.store = store
+
+      const returns = await db.purchase_return.findAll({
+        where,
+        include: [
+          {
+            model: db.purchase_return_item,
+            as: 'items',
+            include: [
+              { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
+              { model: db.ingredient, as: 'ingredientData', attributes: ['id', 'name'] }
+            ]
+          },
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
+          { model: db.user, as: 'returnedByData', attributes: ['id', 'fullName'] }
+        ],
+        order: [['createdAt', 'DESC']]
+      })
+
+      const transformed = returns.map((r) => {
+        const json = r.toJSON()
+        if (json.returnedByData) {
+          json.returnedBy = { id: json.returnedByData.id, name: json.returnedByData.fullName }
+        }
+        delete json.returnedByData
+        if (json.items) {
+          json.items = json.items.map((item) => {
+            if (item.productData) {
+              item.product = { id: item.productData.id, name: item.productData.nameProduct }
+            }
+            delete item.productData
+            if (item.ingredientData) {
+              item.ingredient = { id: item.ingredientData.id, name: item.ingredientData.name }
+            }
+            delete item.ingredientData
+            item.purchaseReturn = { id: item.purchaseReturn, name: json.returnNumber }
+            return item
+          })
+        }
+        return json
+      })
+
+      const enriched = await Promise.all(
+        transformed.map((r) => attachPriceInfo(r, parseInt(poId)))
+      )
+
+      return res.status(200).json({ success: true, data: enriched })
+    } catch (error) {
+      console.error(error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
     }
   }
 }

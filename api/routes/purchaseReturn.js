@@ -7,6 +7,7 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 
 router.get('/get-all', authorization, validateStoreAccess, purchaseReturnController.getAll)
 router.get('/get-by-id/:id', authorization, validateStoreAccess, purchaseReturnController.getById)
+router.get('/by-po/:poId', authorization, validateStoreAccess, purchaseReturnController.getByPO)
 
 router.patch(
   '/approve/:id',

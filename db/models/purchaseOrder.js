@@ -17,7 +17,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       supplier: {
-        allowNull: false,
         type: DataTypes.INTEGER
       },
       totalAmount: {
@@ -33,7 +32,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       status: {
-        type: DataTypes.ENUM('pending', 'ordered', 'received', 'cancelled'),
+        type: DataTypes.ENUM('draft', 'pending', 'ordered', 'received', 'cancelled'),
         defaultValue: 'pending'
       },
       orderDate: {

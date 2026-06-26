@@ -3,6 +3,38 @@ const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const purchasePaymentController = {
+  async getById(req, res) {
+    try {
+      const { id } = req.params
+      const payment = await db.purchase_payment.findByPk(id, {
+        include: [
+          {
+            model: db.purchase_order,
+            as: 'purchaseOrderData',
+            attributes: ['id', 'orderNumber', 'finalAmount', 'status']
+          },
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name', 'phone']
+          },
+          {
+            model: db.user,
+            as: 'createdByUser',
+            attributes: ['id', 'userName', 'fullName']
+          }
+        ]
+      })
+      if (!payment) {
+        return res.status(404).json({ success: false, message: 'Payment not found' })
+      }
+      return res.status(200).json({ success: true, data: payment })
+    } catch (error) {
+      console.error(error)
+      return res.status(500).json({ success: false, message: 'Internal server error' })
+    }
+  },
+
   async getByPO(req, res) {
     try {
       const { poId } = req.params

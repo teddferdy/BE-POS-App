@@ -42,6 +42,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'supplier',
       as: 'supplierData'
     })
+    purchasePayment.belongsTo(models.user, {
+      foreignKey: 'createdBy',
+      as: 'createdByUser'
+    })
   }
 
   return purchasePayment

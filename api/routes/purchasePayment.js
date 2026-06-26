@@ -5,6 +5,7 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
+router.get('/detail/:id', authorization, validateStoreAccess, purchasePaymentController.getById)
 router.get('/by-po/:poId', authorization, validateStoreAccess, purchasePaymentController.getByPO)
 router.get('/by-supplier/:supplierId', authorization, validateStoreAccess, purchasePaymentController.getBySupplier)
 router.get('/list', authorization, validateStoreAccess, purchasePaymentController.list)
