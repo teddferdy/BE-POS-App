@@ -35,16 +35,25 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
       ]
     }
 
+    const includes = [
+      { model: Category, as: 'categoryData', where: { status: 'active' }, attributes: ['value', 'name', 'status'] }
+    ]
+    if (store) {
+      includes.push(
+        { model: db.product_store_stock, as: 'storeStocks', where: { store: Number(store) }, required: false, attributes: ['store', 'stock'] }
+      )
+    }
     const getAllProduct = await Product.findAll({
       where: whereCondition,
-      include: [
-        { model: Category, as: 'categoryData', where: { status: 'active' }, attributes: ['value', 'name', 'status'] }
-      ]
+      include: includes
     }).then((res) =>
       res.map((items) => {
         const getData = {
-          ...items.dataValues
+          ...items.dataValues,
+          // ponytail: use per-store stock if available, fall back to global stock
+          stock: items.storeStocks?.[0]?.stock ?? items.stock
         }
+        delete getData.storeStocks
         return getData
       })
     )
@@ -93,28 +102,25 @@ exports.getAllProduct = async (req, res) => {
       filters.status = 'active'
     }
 
+    const includeOpts = [
+      { model: Category, as: 'categoryData', attributes: ['value', 'name'] }
+    ]
+    if (store) {
+      includeOpts.push(
+        { model: db.product_store_stock, as: 'storeStocks', where: { store: Number(store) }, required: false, attributes: ['store', 'stock'] }
+      )
+    }
     const getAllProduct = await Product.findAll({
       where: filters,
-      include: [
-        { model: Category, as: 'categoryData', attributes: ['value', 'name'] }
-      ]
+      include: includeOpts
     })
 
     const resolvedCategories = getAllProduct.map((items) => ({
-      id: items.id,
-      productId: items.id,
-      nameProduct: items.nameProduct,
-      barcode: items.barcode,
-      unit: items.unit,
-      stock: items.stock,
-      minStock: items.minStock,
-      price: items.price,
-      costPrice: items.costPrice,
-      category: items.category,
+      ...items.dataValues,
+      stock: items.storeStocks?.[0]?.stock ?? items.stock,
       nameCategory: items.categoryData
         ? items.categoryData.value || items.categoryData.name
-        : null,
-      ...items.dataValues
+        : null
     }))
 
     return res.status(200).json({
@@ -152,11 +158,19 @@ exports.getAllProductInTable = async (req, res) => {
     if (store) whereCondition.store = store
 
     // Get paginated products
+    const includeOpts = [
+      { model: Category, as: 'categoryData', attributes: ['name'] }
+    ]
+    if (store) {
+      includeOpts.push(
+        { model: db.product_store_stock, as: 'storeStocks', where: { store: Number(store) }, required: false, attributes: ['store', 'stock'] }
+      )
+    }
     const getAllProduct = await Product.findAll({
       where: whereCondition,
       limit: parseInt(pageSize),
       offset: parseInt(offset),
-      include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
+      include: includeOpts
     })
 
     // Resolve store IDs to names
@@ -176,6 +190,7 @@ exports.getAllProductInTable = async (req, res) => {
 
     const resolvedCategories = getAllProduct.map((items) => ({
       ...items.dataValues,
+      stock: items.storeStocks?.[0]?.stock ?? items.stock,
       nameCategory: items.categoryData ? items.categoryData.name : null,
       storeList: Array.isArray(items.store)
         ? items.store.map((id) => ({ id, name: locationMap[id] || null }))
@@ -389,6 +404,18 @@ exports.postAddProduct = async (req, res) => {
     postData.sku = sku
 
     const initialStock = Number(stock) || 0
+    if (parsedStores.length > 0) {
+      const perStore = Math.floor(initialStock / parsedStores.length)
+      const remainder = initialStock - perStore * parsedStores.length
+      for (let i = 0; i < parsedStores.length; i++) {
+        const s = i === 0 ? perStore + remainder : perStore
+        await db.product_store_stock.create({
+          product: postData.id,
+          store: parsedStores[i],
+          stock: s
+        })
+      }
+    }
     if (initialStock > 0) {
       await StockHistory.create({
         product: postData.id,
@@ -602,6 +629,17 @@ exports.editProductByLocationAndId = async (req, res) => {
       }
     })
     const editLocation = editRows[0]
+
+    // Update per-store stock for the current store
+    const storeId = req.cookies?.store || req.body?.storeId
+    if (storeId && stockDiff !== 0) {
+      const [pss] = await db.product_store_stock.findOrCreate({
+        where: { product: id, store: storeId },
+        defaults: { stock: 0 }
+      })
+      const newPssStock = Math.max(0, Number(pss.stock) + stockDiff)
+      await pss.update({ stock: newPssStock })
+    }
 
     if (stockDiff !== 0) {
       await StockHistory.create({

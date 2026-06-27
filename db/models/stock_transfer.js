@@ -23,8 +23,8 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       status: {
-        type: DataTypes.ENUM('pending', 'approved', 'rejected'),
-        defaultValue: 'pending'
+        type: DataTypes.ENUM('sent', 'received', 'cancelled', 'pending', 'approved', 'rejected'),
+        defaultValue: 'sent'
       },
       notes: {
         type: DataTypes.TEXT

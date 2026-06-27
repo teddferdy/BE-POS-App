@@ -192,12 +192,27 @@ exports.getSalesSummary = async (req, res) => {
     const { startDate, endDate, filter } = req.query
 
     let dateRange = {}
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     if (filter === 'today') {
-      const now = new Date()
-      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       dateRange = {
-        [Op.gte]: s,
-        [Op.lte]: new Date(s.getTime() + 86400000 - 1)
+        [Op.gte]: todayStart,
+        [Op.lte]: new Date(todayStart.getTime() + 86400000 - 1)
+      }
+    } else if (filter === 'weekly') {
+      const daysSinceMonday = (now.getDay() + 6) % 7
+      const monday = new Date(todayStart)
+      monday.setDate(todayStart.getDate() - daysSinceMonday)
+      dateRange = {
+        [Op.gte]: monday,
+        [Op.lte]: new Date(monday.getTime() + 7 * 86400000 - 1)
+      }
+    } else if (filter === 'monthly') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      dateRange = {
+        [Op.gte]: monthStart,
+        [Op.lte]: monthEnd
       }
     } else if (startDate && endDate) {
       dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
@@ -232,7 +247,7 @@ exports.getSalesSummary = async (req, res) => {
       chartReplacements.endDate = dateRange[Op.lte]
     }
 
-    const salesChart = await db.sequelize.query(
+    let salesChart = await db.sequelize.query(
       `SELECT DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
        FROM "order" ${chartWhere}
        GROUP BY DATE("createdAt")
@@ -306,6 +321,32 @@ exports.getSalesSummary = async (req, res) => {
       }))
     }))
 
+    // Fill in missing dates with 0 so chart shows continuous time axis
+    const padChartData = (data, start, end) => {
+      if (!data.length) return data
+      const s = new Date(start)
+      const e = new Date(end)
+      const map = {}
+      for (const d of data) map[d.date] = d
+      const result = []
+      const cur = new Date(s)
+      while (cur <= e) {
+        const y = cur.getFullYear()
+        const m = String(cur.getMonth() + 1).padStart(2, '0')
+        const d = String(cur.getDate()).padStart(2, '0')
+        const key = `${y}-${m}-${d}`
+        result.push(map[key] || { date: key, sales: 0, orders: 0 })
+        cur.setDate(cur.getDate() + 1)
+      }
+      return result
+    }
+    if (dateRange[Op.gte] && dateRange[Op.lte]) {
+      salesChart = padChartData(salesChart, dateRange[Op.gte], dateRange[Op.lte])
+      for (const s of storeSalesChart) {
+        s.data = padChartData(s.data, dateRange[Op.gte], dateRange[Op.lte])
+      }
+    }
+
     return res.status(200).json({
       success: true,
       data: {
@@ -332,7 +373,7 @@ exports.getBestSellerReport = async (req, res) => {
 
     const where = store ? { store } : {}
 
-    const [bestSelling, productCount] = await Promise.all([
+    const [bestSelling, productCount, productRevenues] = await Promise.all([
       db.best_selling.findAll({
         where,
         order: [['totalSelling', 'DESC']],
@@ -341,11 +382,29 @@ exports.getBestSellerReport = async (req, res) => {
       }),
       db.product.count({
         where: { status: 'active', ...(store ? { store } : {}) }
-      })
+      }),
+      db.sequelize.query(
+        `SELECT oi.product, COALESCE(SUM(oi."totalPrice"), 0) as revenue
+         FROM order_item oi
+         JOIN "order" o ON o.id = oi."order"
+         WHERE o."paymentStatus" = 'paid'${store ? ' AND o.store = :store' : ''}
+         GROUP BY oi.product`,
+        {
+          replacements: store ? { store } : {},
+          type: db.sequelize.QueryTypes.SELECT
+        }
+      )
     ])
+
+    const revenueMap = {}
+    for (const r of productRevenues) revenueMap[Number(r.product)] = Number(r.revenue || 0)
 
     const totalUnitsSold = bestSelling.reduce(
       (s, p) => s + Number(p.totalSelling || 0),
+      0
+    )
+    const totalRevenue = bestSelling.reduce(
+      (s, p) => s + (revenueMap[Number(p.productId)] || 0),
       0
     )
     return res.status(200).json({
@@ -356,11 +415,11 @@ exports.getBestSellerReport = async (req, res) => {
           name: p.nameProduct,
           image: p.image,
           sold: Number(p.totalSelling || 0),
-          revenue: 0
+          revenue: revenueMap[Number(p.productId)] || 0
         })),
         summary: {
           totalUnitsSold,
-          totalRevenue: 0,
+          totalRevenue,
           activeProducts: Number(productCount || 0)
         }
       }

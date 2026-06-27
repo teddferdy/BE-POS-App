@@ -8,13 +8,12 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 // Barcode lookup untuk POS scan
 router.get('/lookup-barcode', authorization, validateStoreAccess, posController.lookupBarcode)
 
-// Stock transfer antar toko
+// Stock transfer antar toko — sent → received / cancelled
 router.post('/transfer', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.transfer)
 router.get('/transfer-history', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getTransferHistory)
 router.get('/transfer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.getTransferById)
-router.delete('/transfer/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.deleteTransfer)
-router.put('/transfer/:id/approve', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.approveTransfer)
-router.put('/transfer/:id/reject', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.rejectTransfer)
+router.put('/transfer/:id/receive', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.receiveTransfer)
+router.put('/transfer/:id/cancel', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.cancelTransfer)
 
 // Stock adjustment
 router.post('/adjust', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), posController.adjust)

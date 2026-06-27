@@ -61,10 +61,9 @@ const posController = {
     }
   },
 
-  // Stock transfer antar toko
+  // Stock transfer antar toko — 3-phase: sent → received / cancelled
   async transfer(req, res) {
     try {
-      const { store } = req.cookies
       const { fromStore, toStore, items, notes, transferredBy } = req.body
 
       if (!fromStore || !toStore || !items || items.length === 0) {
@@ -88,7 +87,7 @@ const posController = {
             fromStore,
             toStore,
             notes,
-            status: 'pending',
+            status: 'sent',
             transferredBy,
             createdBy: req.user?.id || null
           },
@@ -107,6 +106,56 @@ const posController = {
           transaction: t
         })
 
+        for (const item of items) {
+          const product = await db.product.findByPk(item.productId, {
+            transaction: t
+          })
+          if (!product) continue
+
+          let pss = await db.product_store_stock.findOne({
+            where: { product: item.productId, store: fromStore },
+            transaction: t
+          })
+          if (!pss) {
+            const [rawPss] = await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
+              { bind: [item.productId, fromStore], type: db.sequelize.QueryTypes.SELECT, transaction: t }
+            )
+            pss = await db.product_store_stock.findByPk(rawPss.id, { transaction: t })
+          }
+
+          const oldPssStock = Number(pss.stock) || 0
+          const newPssStock = oldPssStock - Number(item.qty)
+
+          if (newPssStock < 0) {
+            throw new Error(
+              `Insufficient stock at source store for product "${product.nameProduct}" (SKU: ${product.sku || '-'})`
+            )
+          }
+
+          await pss.update({ stock: newPssStock }, { transaction: t })
+
+          const oldStock = Number(product.stock) || 0
+          const newStock = oldStock - Number(item.qty)
+          await product.update({ stock: newStock }, { transaction: t })
+
+          await db.stock_history.create(
+            {
+              product: item.productId,
+              store: fromStore,
+              referenceType: 'transfer',
+              referenceId: transfer.id,
+              quantityBefore: oldPssStock,
+              quantityChange: -Number(item.qty),
+              quantityAfter: newPssStock,
+              unit: item.unit || 'pcs',
+              notes: `Transfer sent to store ${toStore}`,
+              createdBy: req.user?.id || null
+            },
+            { transaction: t }
+          )
+        }
+
         return transfer
       })
 
@@ -117,9 +166,209 @@ const posController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({
+      return res.status(400).json({
         success: false,
-        message: 'Internal server error'
+        message: error.message || 'Internal server error'
+      })
+    }
+  },
+
+  // Receive stock transfer — confirm arrival at destination
+  async receiveTransfer(req, res) {
+    try {
+      const { id } = req.params
+
+      const transfer = await db.stock_transfer.findOne({
+        where: { id },
+        include: [{ model: db.stock_transfer_item, as: 'items' }]
+      })
+
+      if (!transfer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Stock transfer not found'
+        })
+      }
+
+      if (transfer.status !== 'sent') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only sent transfers can be received'
+        })
+      }
+
+      const { toStore } = transfer
+
+      await db.sequelize.transaction(async (t) => {
+        for (const item of transfer.items) {
+          const product = await db.product.findByPk(item.product, {
+            transaction: t
+          })
+          if (!product) continue
+
+          let pss = await db.product_store_stock.findOne({
+            where: { product: item.product, store: toStore },
+            transaction: t
+          })
+          if (!pss) {
+            const [rawPss] = await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
+              { bind: [item.product, toStore], type: db.sequelize.QueryTypes.SELECT, transaction: t }
+            )
+            pss = await db.product_store_stock.findByPk(rawPss.id, { transaction: t })
+          }
+
+          const oldPssStock = Number(pss.stock) || 0
+          const newPssStock = oldPssStock + Number(item.qty)
+          await pss.update({ stock: newPssStock }, { transaction: t })
+
+          const oldStock = Number(product.stock) || 0
+          const newStock = oldStock + Number(item.qty)
+          await product.update({ stock: newStock }, { transaction: t })
+
+          await db.stock_history.create(
+            {
+              product: item.product,
+              store: toStore,
+              referenceType: 'transfer',
+              referenceId: transfer.id,
+              quantityBefore: oldPssStock,
+              quantityChange: Number(item.qty),
+              quantityAfter: newPssStock,
+              unit: item.unit || 'pcs',
+              notes: `Transfer received from store ${transfer.fromStore}`,
+              createdBy: req.user?.id || null
+            },
+            { transaction: t }
+          )
+
+          // Add destination store to product's store list if product is store-specific
+          const prodStore = product.store
+          if (prodStore && Array.isArray(prodStore) && prodStore.length > 0) {
+            const toStoreNum = Number(toStore)
+            if (!prodStore.includes(toStoreNum)) {
+              prodStore.push(toStoreNum)
+              await product.update({ store: prodStore }, { transaction: t })
+            }
+          }
+
+          // Add destination store to category's store list if category is store-specific
+          if (product.category) {
+            const category = await db.category.findByPk(product.category, { transaction: t })
+            if (category) {
+              const catStore = category.store
+              if (catStore && Array.isArray(catStore) && catStore.length > 0) {
+                if (!catStore.some((s) => Number(s.id) === Number(toStore))) {
+                  const location = await db.location.findByPk(toStore, {
+                    attributes: ['id', 'name'],
+                    transaction: t
+                  })
+                  catStore.push({ id: Number(toStore), name: location?.name || '' })
+                  await category.update({ store: catStore }, { transaction: t })
+                }
+              }
+            }
+          }
+        }
+
+        await transfer.update({ status: 'received' }, { transaction: t })
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Stock transfer received',
+        data: transfer
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Internal server error'
+      })
+    }
+  },
+
+  // Cancel stock transfer — return stock to source store
+  async cancelTransfer(req, res) {
+    try {
+      const { id } = req.params
+
+      const transfer = await db.stock_transfer.findOne({
+        where: { id },
+        include: [{ model: db.stock_transfer_item, as: 'items' }]
+      })
+
+      if (!transfer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Stock transfer not found'
+        })
+      }
+
+      if (transfer.status !== 'sent') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only sent transfers can be cancelled'
+        })
+      }
+
+      await db.sequelize.transaction(async (t) => {
+        for (const item of transfer.items) {
+          const product = await db.product.findByPk(item.product, {
+            transaction: t
+          })
+          if (!product) continue
+
+          let pss = await db.product_store_stock.findOne({
+            where: { product: item.product, store: transfer.fromStore },
+            transaction: t
+          })
+          if (!pss) {
+            const [rawPss] = await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
+              { bind: [item.product, transfer.fromStore], type: db.sequelize.QueryTypes.SELECT, transaction: t }
+            )
+            pss = await db.product_store_stock.findByPk(rawPss.id, { transaction: t })
+          }
+
+          const oldPssStock = Number(pss.stock) || 0
+          const newPssStock = oldPssStock + Number(item.qty)
+          await pss.update({ stock: newPssStock }, { transaction: t })
+
+          const oldStock = Number(product.stock) || 0
+          const newStock = oldStock + Number(item.qty)
+          await product.update({ stock: newStock }, { transaction: t })
+
+          await db.stock_history.create(
+            {
+              product: item.product,
+              store: transfer.fromStore,
+              referenceType: 'transfer',
+              referenceId: transfer.id,
+              quantityBefore: oldPssStock,
+              quantityChange: Number(item.qty),
+              quantityAfter: newPssStock,
+              unit: item.unit || 'pcs',
+              notes: `Transfer cancelled, returned to store ${transfer.fromStore}`,
+              createdBy: req.user?.id || null
+            },
+            { transaction: t }
+          )
+        }
+
+        await transfer.update({ status: 'cancelled' }, { transaction: t })
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Stock transfer cancelled',
+        data: transfer
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Internal server error'
       })
     }
   },
@@ -199,20 +448,20 @@ const posController = {
           {
             model: db.stock_transfer_item,
             as: 'items',
-            include: [
-              { model: db.product, attributes: ['id', 'nameProduct', 'sku'] }
-            ]
+              include: [
+                { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku', 'image', 'barcode', 'stock', 'price'] }
+              ]
           },
           {
             model: db.location,
             as: 'fromStoreData',
-            attributes: ['id', 'name']
+            attributes: ['id', 'name', 'city', 'province', 'detailLocation']
           },
-          { model: db.location, as: 'toStoreData', attributes: ['id', 'name'] },
+          { model: db.location, as: 'toStoreData', attributes: ['id', 'name', 'city', 'province', 'detailLocation'] },
           {
             model: db.user,
             as: 'transferredByData',
-            attributes: ['id', 'fullName']
+            attributes: ['id', 'userName', 'fullName']
           }
         ]
       })
@@ -226,185 +475,6 @@ const posController = {
       return res
         .status(200)
         .json({ success: true, message: 'Success', data: transfer })
-    } catch (error) {
-      console.error('Error =>', error)
-      return res
-        .status(500)
-        .json({ success: false, message: 'Internal server error' })
-    }
-  },
-
-  // Delete stock transfer
-  async deleteTransfer(req, res) {
-    try {
-      const { id } = req.params
-      const { store } = req.query
-
-      const transfer = await db.stock_transfer.findOne({
-        where: {
-          id,
-          ...(store && { [Op.or]: [{ fromStore: store }, { toStore: store }] })
-        }
-      })
-
-      if (!transfer) {
-        return res.status(404).json({
-          success: false,
-          message: 'Stock transfer not found'
-        })
-      }
-
-      if (transfer.status !== 'pending') {
-        return res.status(400).json({
-          success: false,
-          message: 'Only pending transfers can be deleted'
-        })
-      }
-
-      await db.stock_transfer_item.destroy({
-        where: { stockTransfer: id }
-      })
-
-      await transfer.destroy()
-
-      return res.status(200).json({
-        success: true,
-        message: 'Stock transfer deleted successfully'
-      })
-    } catch (error) {
-      console.error('Error =>', error)
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      })
-    }
-  },
-
-  // Approve stock transfer — auto-adjust stock
-  async approveTransfer(req, res) {
-    try {
-      const { id } = req.params
-
-      const transfer = await db.stock_transfer.findOne({
-        where: { id },
-        include: [{ model: db.stock_transfer_item, as: 'items' }]
-      })
-
-      if (!transfer) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'Stock transfer not found' })
-      }
-
-      if (transfer.status !== 'pending') {
-        return res.status(400).json({
-          success: false,
-          message: 'Transfer is not in pending status'
-        })
-      }
-
-      const result = await db.sequelize.transaction(async (t) => {
-        for (const item of transfer.items) {
-          const product = await db.product.findByPk(item.product, {
-            transaction: t
-          })
-          if (!product) continue
-
-          const oldStock = Number(product.stock) || 0
-          const newStock = oldStock - Number(item.qty)
-
-          if (newStock < 0) {
-            throw new Error(
-              `Insufficient stock for product "${product.nameProduct}" (SKU: ${product.sku})`
-            )
-          }
-
-          await product.update({ stock: newStock }, { transaction: t })
-
-          // Record outflow from source store
-          await db.stock_history.create(
-            {
-              product: item.product,
-              store: transfer.fromStore,
-              referenceType: 'transfer',
-              referenceId: transfer.id,
-              quantityBefore: oldStock,
-              quantityChange: -Number(item.qty),
-              quantityAfter: newStock,
-              unit: item.unit || 'pcs',
-              notes: `Transfer out to store ${transfer.toStore}`,
-              createdBy: req.user?.id || null
-            },
-            { transaction: t }
-          )
-
-          // Increment stock at destination (net zero global change)
-          const destOldStock = Number(product.stock) || 0
-          const destNewStock = destOldStock + Number(item.qty)
-          await product.update({ stock: destNewStock }, { transaction: t })
-
-          // Record inflow to destination store
-          await db.stock_history.create(
-            {
-              product: item.product,
-              store: transfer.toStore,
-              referenceType: 'transfer',
-              referenceId: transfer.id,
-              quantityBefore: oldStock,
-              quantityChange: Number(item.qty),
-              quantityAfter: oldStock + Number(item.qty),
-              unit: item.unit || 'pcs',
-              notes: `Transfer in from store ${transfer.fromStore}`,
-              createdBy: req.user?.id || null
-            },
-            { transaction: t }
-          )
-        }
-
-        await transfer.update({ status: 'approved' }, { transaction: t })
-        return transfer
-      })
-
-      return res.status(200).json({
-        success: true,
-        message: 'Stock transfer approved',
-        data: result
-      })
-    } catch (error) {
-      console.error('Error =>', error)
-      return res.status(400).json({
-        success: false,
-        message: error.message || 'Internal server error'
-      })
-    }
-  },
-
-  // Reject stock transfer
-  async rejectTransfer(req, res) {
-    try {
-      const { id } = req.params
-
-      const transfer = await db.stock_transfer.findOne({ where: { id } })
-      if (!transfer) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'Stock transfer not found' })
-      }
-
-      if (transfer.status !== 'pending') {
-        return res.status(400).json({
-          success: false,
-          message: 'Transfer is not in pending status'
-        })
-      }
-
-      await transfer.update({ status: 'rejected' })
-
-      return res.status(200).json({
-        success: true,
-        message: 'Stock transfer rejected',
-        data: transfer
-      })
     } catch (error) {
       console.error('Error =>', error)
       return res
@@ -452,6 +522,19 @@ const posController = {
 
       const result = await db.sequelize.transaction(async (t) => {
         await product.update({ stock: newStock }, { transaction: t })
+
+        // Update per-store stock
+        const adjStore = storeId || store
+        if (adjStore) {
+          const [pss] = await db.product_store_stock.findOrCreate({
+            where: { product: productId, store: adjStore },
+            defaults: { stock: 0 },
+            transaction: t
+          })
+          const oldPssStock = Number(pss.stock) || 0
+          const newPssStock = oldPssStock + Number(qty)
+          await pss.update({ stock: newPssStock >= 0 ? newPssStock : 0 }, { transaction: t })
+        }
 
         await db.stock_history.create(
           {

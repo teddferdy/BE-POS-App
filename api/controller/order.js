@@ -173,7 +173,8 @@ exports.createOrder = async (req, res) => {
     paymentMethod,
     currencyId,
     currencyCode,
-    exchangeRate
+    exchangeRate,
+    redeemedPoints
   } = req.body
 
   try {
@@ -278,6 +279,22 @@ exports.createOrder = async (req, res) => {
       }
     }
 
+    // Priority 4: Redeem points
+    const POINT_VALUE = 100 // ponytail: 1 point = Rp 100; make configurable per tier if needed
+    let redeemedPointsUsed = 0
+    let pointDiscountAmount = 0
+    if (redeemedPoints > 0 && customerId) {
+      try {
+        const member = await db.member.findByPk(customerId)
+        if (member && (member.totalPoints || 0) >= redeemedPoints) {
+          pointDiscountAmount = redeemedPoints * POINT_VALUE
+          redeemedPointsUsed = redeemedPoints
+        }
+      } catch (e) {
+        console.error('Point redemption error:', e.message)
+      }
+    }
+
     // ponytail: snapshot original subtotals for per-item discountAmount tracking
     items.forEach((item) => { item._origSubtotal = item.subtotal })
 
@@ -329,6 +346,15 @@ exports.createOrder = async (req, res) => {
         totals.totalPrice =
           afterDiscount + totals.taxAmount + totals.serviceChargeAmount
       }
+    }
+
+    // Apply point redemption discount on top
+    if (pointDiscountAmount > 0) {
+      totals.discountAmount += pointDiscountAmount
+      const afterDiscount = totals.subTotal - totals.discountAmount
+      totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
+      totals.serviceChargeAmount = Math.round(afterDiscount * (serviceChargeRate / 100))
+      totals.totalPrice = Math.max(0, afterDiscount + totals.taxAmount + totals.serviceChargeAmount)
     }
 
     // Stock validation
@@ -462,6 +488,28 @@ exports.createOrder = async (req, res) => {
       createdBy: cashierId,
       notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
     })
+
+    // Deduct redeemed points from member
+    if (redeemedPointsUsed > 0 && customerId) {
+      try {
+        const member = await db.member.findByPk(customerId)
+        if (member) {
+          const oldPoints = Number(member.totalPoints) || 0
+          const newPoints = oldPoints - redeemedPointsUsed
+          await member.update({ totalPoints: Math.max(0, newPoints) })
+          await db.member_point_history.create({
+            member: customerId,
+            pointsChange: -redeemedPointsUsed,
+            pointsBefore: oldPoints,
+            pointsAfter: Math.max(0, newPoints),
+            transactionId: order.id,
+            notes: `Redeemed ${redeemedPointsUsed} points for order ${orderNumber}`
+          })
+        }
+      } catch (e) {
+        console.error('Point deduction error:', e.message)
+      }
+    }
 
     const fullOrder = await Order.findOne({
       where: { id: order.id },
