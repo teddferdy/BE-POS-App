@@ -9,7 +9,7 @@ const Transaction = db.transaction
 const BestSelling = db.best_selling
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
-const { emitItemStatusUpdate } = require('../service/socket')
+const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
 
 const generateOrderNumber = () => {
   const date = new Date()
@@ -535,6 +535,8 @@ exports.createOrder = async (req, res) => {
       `Created order: ${orderNumber}`
     )
 
+    emitNewOrder(store, fullOrder)
+
     return res.status(201).json({
       message: 'Order created successfully',
       data: fullOrder
@@ -781,27 +783,12 @@ exports.updateOrderItemStatus = async (req, res) => {
 }
 
 exports.getKitchenOrders = async (req, res) => {
-  const { store, status } = req.query
+  const { store } = req.query
 
   try {
-    const where = {
-      store,
-      status: {
-        [require('sequelize').Op.in]: [
-          'pending',
-          'confirmed',
-          'preparing',
-          'ready'
-        ]
-      }
-    }
-
-    if (status) {
-      where.status = status
-    }
-
+    // ponytail: order-level status is 'paid' at POS — kitchen cares about item status only
     const orders = await Order.findAll({
-      where,
+      where: { store },
       include: [
         {
           model: OrderItem,
