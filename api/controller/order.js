@@ -280,7 +280,7 @@ exports.createOrder = async (req, res) => {
     }
 
     // Priority 4: Redeem points
-    const POINT_VALUE = 100 // ponytail: 1 point = Rp 100; make configurable per tier if needed
+    const POINT_VALUE = 1 // ponytail: 1 point = Rp 1; make configurable per tier if needed
     let redeemedPointsUsed = 0
     let pointDiscountAmount = 0
     if (redeemedPoints > 0 && customerId) {
