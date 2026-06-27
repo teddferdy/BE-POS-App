@@ -46,8 +46,8 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
 
 exports.getAllDiscount = async (req, res) => {
   const store = req.query.store || req.user?.store
-  const { page = 1, size = 10, status } = req.query
-  const limit = parseInt(size)
+  const { page = 1, size = 10, limit: queryLimit, status } = req.query
+  const limit = parseInt(queryLimit || size)
   const offset = (parseInt(page) - 1) * limit
 
   try {
