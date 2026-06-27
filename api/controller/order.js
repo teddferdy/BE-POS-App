@@ -527,10 +527,30 @@ exports.createOrder = async (req, res) => {
           if (member) {
             const oldTotal = Number(member.totalPoints) || 0
             const oldLifetime = Number(member.lifetimePoints) || 0
+            const newTotal = oldTotal + pointsEarned
             await member.update({
-              totalPoints: oldTotal + pointsEarned,
+              totalPoints: newTotal,
               lifetimePoints: oldLifetime + pointsEarned
             })
+
+            // ponytail: auto-upgrade to highest qualifying tier, never downgrade
+            const highestTier = await db.member_tier.findOne({
+              where: {
+                status: 'active',
+                minPoints: { [require('sequelize').Op.lte]: newTotal }
+              },
+              order: [['minPoints', 'DESC']]
+            })
+            if (highestTier) {
+              const currentTierRow = member.tier
+                ? await db.member_tier.findByPk(member.tier)
+                : null
+              const currentMin = Number(currentTierRow?.minPoints || -1)
+              if (Number(highestTier.minPoints) > currentMin) {
+                await member.update({ tier: highestTier.id })
+              }
+            }
+
             await db.member_point_history.create({
               member: customerId,
               pointsChange: pointsEarned,
