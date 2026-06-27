@@ -298,10 +298,40 @@ const cashRegisterController = {
         offset
       })
 
+      // ponytail: compute live totals for open registers since DB stores 0 until close
+      const enriched = await Promise.all(rows.map(async (row) => {
+        if (row.status !== 'open') return row
+        const data = row.get({ plain: true })
+        const [orders, expenses] = await Promise.all([
+          db.order.findAll({
+            where: {
+              store: data.store,
+              createdBy: data.user,
+              createdAt: { [Op.gte]: data.openedAt },
+              paymentStatus: 'paid'
+            },
+            attributes: ['totalPrice']
+          }),
+          db.expense.findAll({
+            where: {
+              store: data.store,
+              createdBy: data.user,
+              date: { [Op.gte]: data.openedAt },
+              status: 'approved'
+            },
+            attributes: ['amount']
+          })
+        ])
+        data.totalSales = orders.reduce((s, o) => s + Number(o.totalPrice || 0), 0)
+        data.totalExpenses = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+        // ponytail: expectedCash is not stored in history but computed on detail page anyway
+        return data
+      }))
+
       return res.status(200).json({
         success: true,
         message: 'Success get register history',
-        data: rows,
+        data: enriched,
         pagination: {
           total: count,
           page: parseInt(page),
