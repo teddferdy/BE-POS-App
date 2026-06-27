@@ -511,6 +511,42 @@ exports.createOrder = async (req, res) => {
       }
     }
 
+    // Award points earned from product point values
+    if (customerId) {
+      try {
+        const productIds = [...new Set(items.map(i => i.product || i.productId))]
+        const products = await Product.findAll({ where: { id: productIds }, attributes: ['id', 'point'] })
+        const pointMap = Object.fromEntries(products.map(p => [p.id, Number(p.point) || 0]))
+        const pointsEarned = items.reduce((sum, item) => {
+          const pid = item.product || item.productId
+          return sum + (pointMap[pid] || 0) * Number(item.quantity)
+        }, 0)
+
+        if (pointsEarned > 0) {
+          const member = await db.member.findByPk(customerId)
+          if (member) {
+            const oldTotal = Number(member.totalPoints) || 0
+            const oldLifetime = Number(member.lifetimePoints) || 0
+            await member.update({
+              totalPoints: oldTotal + pointsEarned,
+              lifetimePoints: oldLifetime + pointsEarned
+            })
+            await db.member_point_history.create({
+              member: customerId,
+              pointsChange: pointsEarned,
+              pointsBefore: oldTotal,
+              pointsAfter: oldTotal + pointsEarned,
+              transactionId: order.id,
+              notes: `Earned ${pointsEarned} points from order ${orderNumber}`,
+              createdBy: req.user?.id
+            })
+          }
+        }
+      } catch (e) {
+        console.error('Point earning error:', e.message)
+      }
+    }
+
     const fullOrder = await Order.findOne({
       where: { id: order.id },
       include: [
