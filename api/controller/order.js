@@ -401,7 +401,7 @@ exports.createOrder = async (req, res) => {
       currencyId: currencyId || null,
       currencyCode: currencyCode || null,
       exchangeRate: exchangeRate || null,
-      createdBy: cashierId
+      createdBy: req.user?.id
     })
 
     for (const item of items) {
@@ -446,7 +446,7 @@ exports.createOrder = async (req, res) => {
           quantityAfter: newStock >= 0 ? newStock : 0,
           unit: product.unit || 'pcs',
           notes: `Penjualan: ${orderNumber}`,
-          createdBy: cashierId
+          createdBy: req.user?.id
         })
 
         // Update best_selling
@@ -478,14 +478,14 @@ exports.createOrder = async (req, res) => {
         order: order.id,
         typePayment: paymentMethod,
         amount: totals.totalPrice,
-        createdBy: cashierId
+        createdBy: req.user?.id
       })
     }
 
     await OrderStatus.create({
       order: order.id,
       status: 'paid',
-      createdBy: cashierId,
+      createdBy: req.user?.id,
       notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
     })
 
