@@ -25,13 +25,20 @@ exports.getAll = async (req, res) => {
       ]
     })
 
+    const statsWhere = store ? { store } : {};
+    const stats = {};
+    for (const status of ['pending', 'confirmed', 'cancelled', 'completed', 'no_show']) {
+      stats[status] = await Reservation.count({ where: { ...statsWhere, status } });
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Success',
       totalItems: count,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
-      data: rows.map((r) => r.dataValues)
+      data: rows.map((r) => r.dataValues),
+      stats: { total: count, ...stats }
     })
   } catch (error) {
     console.error('Error:', error)

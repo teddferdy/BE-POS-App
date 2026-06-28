@@ -842,7 +842,9 @@ const posController = {
   async getDashboardSummary(req, res) {
     try {
       const { store } = req.cookies
-      let { startDate, endDate, filter } = req.query
+      let { startDate, endDate, filter, page, pageSize } = req.query
+      page = Math.max(parseInt(page) || 1, 1)
+      pageSize = Math.min(Math.max(parseInt(pageSize) || 5, 1), 50)
 
       // Auto-compute date range based on filter preset
       if (filter && !startDate && !endDate) {
@@ -946,7 +948,7 @@ const posController = {
           ${store ? 'AND "store" = :store' : ''}
           GROUP BY "productId", "nameProduct", "image"
           ORDER BY quantity DESC
-          LIMIT 10
+          LIMIT 5
         `,
           {
             replacements: store ? { store } : {},
@@ -954,7 +956,7 @@ const posController = {
           }
         ),
         db.order
-          .findAll({
+          .findAndCountAll({
             where: {
               ...(store ? { store } : {}),
               ...(startDate || endDate
@@ -962,7 +964,9 @@ const posController = {
                 : {})
             },
             order: [['createdAt', 'DESC']],
-            limit: 10,
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+            distinct: true,
             include: [
               {
                 model: db.order_item,
@@ -972,8 +976,11 @@ const posController = {
               { model: db.table, as: 'table', attributes: ['name'] }
             ]
           })
-          .then((orders) =>
-            orders.map((o) => {
+          .then(({ count, rows }) => ({
+            total: count,
+            page,
+            pageSize,
+            rows: rows.map((o) => {
               const json = o.toJSON()
               return {
                 ...json,
@@ -981,7 +988,7 @@ const posController = {
                 table: json.table?.name || null
               }
             })
-          )
+          }))
       ])
 
       const [lowStockProductCount] = await db.sequelize.query(

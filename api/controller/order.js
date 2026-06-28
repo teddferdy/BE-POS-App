@@ -883,9 +883,16 @@ exports.getCustomerMenu = async (req, res) => {
       return res.status(400).json({ message: 'store is required' })
     }
 
+    const Op = require('sequelize').Op
+    const storeId = Number(store)
+
     const products = await db.product.findAll({
       where: {
-        store: { [require('sequelize').Op.contains]: [Number(store)] },
+        [Op.or]: [
+          { store: { [Op.contains]: [storeId] } },
+          { store: null },
+          db.sequelize.literal("\"product\".\"store\" = '[]'::jsonb")
+        ],
         status: 'active'
       },
       include: [
@@ -898,7 +905,14 @@ exports.getCustomerMenu = async (req, res) => {
     })
 
     const categories = await db.category.findAll({
-      where: { store: Number(store), status: 'active' },
+      where: {
+        [Op.or]: [
+          { store: { [Op.contains]: [storeId] } },
+          { store: null },
+          db.sequelize.literal("\"category\".\"store\" = '[]'::jsonb")
+        ],
+        status: 'active'
+      },
       order: [['name', 'ASC']]
     })
 
@@ -959,10 +973,11 @@ exports.createCustomerOrder = async (req, res) => {
       orderNumber,
       store,
       tableId: tableId || null,
+      cashierId: null,
       cashierName: customerName || 'Customer',
       customerName: customerName || null,
       notes,
-      source: 'customer',
+      source: 'qr',
       status: 'pending',
       subTotal,
       totalQuantity,

@@ -39,7 +39,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true
       },
       cashierId: {
-        allowNull: false,
+        allowNull: true,
         type: DataTypes.INTEGER
       },
       cashierName: {
