@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const Reservation = db.reservation
 const Table = db.table
+const Location = db.location
 const { createAudit } = require('../../utils/auditLog')
 
 exports.getAll = async (req, res) => {
@@ -61,7 +62,18 @@ exports.getById = async (req, res) => {
         .status(404)
         .json({ success: false, message: 'Reservation not found' })
     }
-    return res.status(200).json({ success: true, data: reservation })
+
+    const result = reservation.toJSON()
+    if (result.store) {
+      const loc = await Location.findByPk(result.store, { attributes: ['id', 'name'] })
+      if (loc) result.storeInfo = loc.toJSON()
+    }
+    if (result.tableId) {
+      const tbl = await Table.findByPk(result.tableId, { attributes: ['id', 'name'] })
+      if (tbl) result.tableInfo = tbl.toJSON()
+    }
+
+    return res.status(200).json({ success: true, data: result })
   } catch (error) {
     console.error('Error:', error)
     return res
@@ -186,6 +198,13 @@ exports.update = async (req, res) => {
       modifiedBy: req.user?.id
     })
 
+    const resolvedStatus = status || reservation.status
+    const resolvedTableId = tableId !== undefined ? tableId : reservation.tableId
+    if (resolvedTableId) {
+      const tableStatus = resolvedStatus === 'confirmed' ? 'reserved' : 'available'
+      await Table.update({ status: tableStatus }, { where: { id: resolvedTableId } })
+    }
+
     createAudit(
       req,
       'update',
@@ -221,6 +240,9 @@ exports.remove = async (req, res) => {
         .json({ success: false, message: 'Reservation not found' })
     }
 
+    if (reservation.tableId) {
+      await Table.update({ status: 'available' }, { where: { id: reservation.tableId } })
+    }
     await reservation.destroy()
     createAudit(req, 'delete', 'reservation', id, `Deleted reservation #${id}`)
 
@@ -247,7 +269,7 @@ exports.getAvailableTables = async (req, res) => {
     }
 
     const allTables = await Table.findAll({
-      where: { store, status: { [db.Sequelize.Op.ne]: 'maintenance' } }
+      where: { store, status: 'available' }
     })
 
     const conflictingReservations = await Reservation.findAll({

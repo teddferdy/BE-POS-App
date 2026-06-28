@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const Table = db.table
 const Order = db.order
+const Reservation = db.reservation
 const { createAudit } = require('../../utils/auditLog')
 
 exports.getTablesByStore = async (req, res) => {
@@ -19,6 +20,22 @@ exports.getTablesByStore = async (req, res) => {
       offset
     })
 
+    const activeReservations = await Reservation.findAll({
+      where: { store, status: ['pending', 'confirmed'] },
+      attributes: ['id', 'tableId', 'customerName', 'customerPhone', 'startTime', 'endTime', 'reservationDate', 'status']
+    })
+    const reservationByTable = {}
+    for (const r of activeReservations) {
+      if (r.tableId) reservationByTable[r.tableId] = r
+    }
+    const data = rows.map((t) => {
+      const tJson = t.toJSON()
+      if (reservationByTable[t.id]) {
+        tJson.activeReservation = reservationByTable[t.id]
+      }
+      return tJson
+    })
+
     const [availableCount, occupiedCount, reservedCount] = await Promise.all([
       Table.count({ where: { ...whereClause, status: 'available' } }),
       Table.count({ where: { ...whereClause, status: 'occupied' } }),
@@ -34,7 +51,7 @@ exports.getTablesByStore = async (req, res) => {
 
     return res.status(200).json({
       message: 'Success',
-      data: rows,
+      data,
       stats,
       pagination: {
         total: count,
@@ -247,6 +264,15 @@ exports.updateTableStatus = async (req, res) => {
     }
 
     await table.update({ status })
+
+    if (status === 'available') {
+      const activeReservations = await Reservation.findAll({
+        where: { tableId: id, status: ['pending', 'confirmed'] }
+      })
+      for (const r of activeReservations) {
+        await r.update({ status: 'completed', modifiedBy: req.user?.id })
+      }
+    }
 
     createAudit(req, 'update', 'table', id, `Updated table status: ${id}`)
 
