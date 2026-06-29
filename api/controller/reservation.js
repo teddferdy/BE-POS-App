@@ -21,8 +21,7 @@ exports.getAll = async (req, res) => {
       limit,
       offset,
       order: [
-        ['reservationDate', 'DESC'],
-        ['startTime', 'ASC']
+        ['createdAt', 'DESC']
       ]
     })
 

@@ -487,13 +487,27 @@ const posController = {
   async adjust(req, res) {
     try {
       const { store } = req.cookies
-      const {
+      let {
         productId,
         qty,
+        sign,
+        value,
         reason,
         referenceType = 'adjustment',
         storeId
       } = req.body
+
+      if (qty === undefined && value === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'productId and qty (or sign+value) are required'
+        })
+      }
+
+      // ponytail: support both signed qty and explicit sign+value
+      if (qty === undefined) {
+        qty = sign === '-' ? -Math.abs(Number(value)) : Math.abs(Number(value))
+      }
 
       if (!productId || !qty) {
         return res.status(400).json({
@@ -749,6 +763,18 @@ const posController = {
             const oldStock = Number(product.stock) || 0
             await product.update(
               { stock: oldStock + item.qty },
+              { transaction: t }
+            )
+
+            // ponytail: per-store stock sync for sales return
+            const [pss] = await db.product_store_stock.findOrCreate({
+              where: { product: item.productId, store },
+              defaults: { stock: 0 },
+              transaction: t
+            })
+            const oldPssStock = Number(pss.stock) || 0
+            await pss.update(
+              { stock: oldPssStock + item.qty },
               { transaction: t }
             )
 

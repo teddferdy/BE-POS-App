@@ -436,6 +436,15 @@ exports.createOrder = async (req, res) => {
         const newStock = oldStock - Number(item.quantity)
         await product.update({ stock: newStock >= 0 ? newStock : 0 })
 
+        // ponytail: per-store stock sync, needed for stock transfers/opname
+        const [pss] = await db.product_store_stock.findOrCreate({
+          where: { product: product.id, store },
+          defaults: { stock: 0 }
+        })
+        const oldPssStock = Number(pss.stock) || 0
+        const newPssStock = oldPssStock - Number(item.quantity)
+        await pss.update({ stock: newPssStock >= 0 ? newPssStock : 0 })
+
         await db.stock_history.create({
           product: product.id,
           store,
