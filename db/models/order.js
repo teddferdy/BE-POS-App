@@ -153,6 +153,7 @@ module.exports = (sequelize, DataTypes) => {
     order.hasMany(models.order_status, { foreignKey: 'order', as: 'statusHistory' })
     order.belongsTo(models.table, { foreignKey: 'tableId', as: 'table' })
     order.hasMany(models.transaction, { foreignKey: 'order', as: 'transactions' })
+    order.belongsTo(models.location, { foreignKey: 'store', as: 'storeData' })
   }
 
   return order

@@ -23,25 +23,32 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
     const whereCondition = { status: 'active' }
     if (store) {
       const storeId = Number(store)
-      whereCondition[Op.and] = [
-        { status: 'active' },
-        {
-          [Op.or]: [
-            { store: { [Op.contains]: [storeId] } },
-            { store: null },
-            db.sequelize.literal("\"product\".\"store\" = '[]'::jsonb")
-          ]
-        }
-      ]
+      // ponytail: NaN storeId silently returns all active products
+      if (!isNaN(storeId)) {
+        whereCondition[Op.and] = [
+          { status: 'active' },
+          {
+            [Op.or]: [
+              { store: { [Op.contains]: [storeId] } },
+              { store: null },
+              db.sequelize.literal("\"product\".\"store\" = '[]'::jsonb")
+            ]
+          }
+        ]
+      }
     }
 
     const includes = [
       { model: Category, as: 'categoryData', where: { status: 'active' }, attributes: ['value', 'name', 'status'] }
     ]
     if (store) {
-      includes.push(
-        { model: db.product_store_stock, as: 'storeStocks', where: { store: Number(store) }, required: false, attributes: ['store', 'stock'] }
-      )
+      const storeId = Number(store)
+      // ponytail: same NaN guard — skip per-store stock join if invalid
+      if (!isNaN(storeId)) {
+        includes.push(
+          { model: db.product_store_stock, as: 'storeStocks', where: { store: storeId }, required: false, attributes: ['store', 'stock'] }
+        )
+      }
     }
     const getAllProduct = await Product.findAll({
       where: whereCondition,
@@ -58,6 +65,7 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
       })
     )
 
+    res.setHeader('Cache-Control', 'no-store')
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -77,7 +85,7 @@ exports.getAllProduct = async (req, res) => {
   const { nameProduct, category } = req.query
 
   try {
-    const { store } = req.cookies
+    const store = req.cookies.store || req.query.store
     const userRole = req.user?.roleType
     const filters = {}
 

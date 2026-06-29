@@ -64,6 +64,7 @@ exports.getAllMember = async (req, res) => {
 exports.getMemberById = async (req, res) => {
   try {
     const { id } = req.params
+    const { page = 1, limit = 5 } = req.query
 
     const member = await Member.findByPk(id)
 
@@ -74,10 +75,48 @@ exports.getMemberById = async (req, res) => {
       })
     }
 
+    const offset = (parseInt(page) - 1) * parseInt(limit)
+    const { count, rows: orders } = await db.order.findAndCountAll({
+      where: { customerId: id },
+      include: [{ model: db.location, as: 'storeData', attributes: ['id', 'name'] }],
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'orderNumber', 'totalPrice', 'status', 'createdAt', 'store'],
+      limit: parseInt(limit),
+      offset
+    })
+
+    const allOrders = await db.order.findAll({
+      where: { customerId: id },
+      attributes: ['totalPrice']
+    })
+    const totalSpent = allOrders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0)
+
+    const transactions = orders.map((o) => ({
+      id: o.id,
+      code: o.orderNumber,
+      invoice: o.orderNumber,
+      date: o.createdAt,
+      store: o.storeData?.name || `Store #${o.store}`,
+      storeName: o.storeData?.name || `Store #${o.store}`,
+      amount: Number(o.totalPrice) || 0,
+      total: Number(o.totalPrice) || 0,
+      status: o.status === 'paid' ? 'completed' : o.status
+    }))
+
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: member
+      data: {
+        ...member.toJSON(),
+        transactions,
+        totalSpent,
+        transactionPagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
+      }
     })
   } catch (error) {
     console.error('Error =>', error)

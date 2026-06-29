@@ -198,6 +198,18 @@ const salesReturnController = {
               { transaction }
             )
 
+            // ponytail: per-store stock sync for return reversal
+            const [pss] = await db.product_store_stock.findOrCreate({
+              where: { product: item.product, store: ret.store },
+              defaults: { stock: 0 },
+              transaction
+            })
+            const oldPssStock = Number(pss.stock) || 0
+            await pss.update(
+              { stock: Math.max(0, oldPssStock - item.qty) },
+              { transaction }
+            )
+
             await db.stock_history.create(
               {
                 product: item.product,
