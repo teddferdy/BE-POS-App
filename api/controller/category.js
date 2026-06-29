@@ -97,7 +97,7 @@ exports.getAllCategoryInTable = async (req, res) => {
       whereClause[Op.or] = [
         { store: null },
         { store: { [Op.contains]: [storeId] } },
-        db.sequelize.literal("\"category\".\"store\" = '[]'::jsonb")
+        db.sequelize.literal('"category"."store" = \'[]\'::jsonb')
       ]
     }
 
@@ -733,7 +733,12 @@ exports.importCategory = async (req, res) => {
 
       const storeCell = row.getCell(4).value
       const storeName = storeCell ? String(storeCell).trim() : ''
-      const isAllStores = ['', 'all stores', 'pilih semua', 'semua toko'].includes(storeName.toLowerCase())
+      const isAllStores = [
+        '',
+        'all stores',
+        'pilih semua',
+        'semua toko'
+      ].includes(storeName.toLowerCase())
       const storeId = isAllStores ? null : storeByName[storeName] || null
 
       const isActiveCell = row.getCell(5).value

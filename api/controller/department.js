@@ -170,7 +170,7 @@ exports.addNewDepartment = async (req, res) => {
               ? body.isActive
                 ? 'active'
                 : 'inactive'
-              : 'active',
+              : 'active'
       })
       createAudit(
         req,
@@ -236,7 +236,7 @@ exports.editDepartmentById = async (req, res) => {
                 ? body.isActive
                   ? 'active'
                   : 'inactive'
-                : 'active',
+                : 'active'
         },
         {
           returning: true,

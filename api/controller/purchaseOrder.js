@@ -47,14 +47,27 @@ const purchaseOrderController = {
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const statsWhere = store ? { store } : {}
-      const [draftCount, pendingCount, orderedCount, receivedCount, cancelledCount] =
-        await Promise.all([
-          db.purchase_order.count({ where: { ...statsWhere, status: 'draft' } }),
-          db.purchase_order.count({ where: { ...statsWhere, status: 'pending' } }),
-          db.purchase_order.count({ where: { ...statsWhere, status: 'ordered' } }),
-          db.purchase_order.count({ where: { ...statsWhere, status: 'received' } }),
-          db.purchase_order.count({ where: { ...statsWhere, status: 'cancelled' } })
-        ])
+      const [
+        draftCount,
+        pendingCount,
+        orderedCount,
+        receivedCount,
+        cancelledCount
+      ] = await Promise.all([
+        db.purchase_order.count({ where: { ...statsWhere, status: 'draft' } }),
+        db.purchase_order.count({
+          where: { ...statsWhere, status: 'pending' }
+        }),
+        db.purchase_order.count({
+          where: { ...statsWhere, status: 'ordered' }
+        }),
+        db.purchase_order.count({
+          where: { ...statsWhere, status: 'received' }
+        }),
+        db.purchase_order.count({
+          where: { ...statsWhere, status: 'cancelled' }
+        })
+      ])
       const stats = {
         draft: draftCount,
         pending: pendingCount,
@@ -187,16 +200,25 @@ const purchaseOrderController = {
       }
 
       const returnAgg = await db.purchase_return_item.findAll({
-        include: [{
-          model: db.purchase_return,
-          as: 'return',
-          where: { purchaseOrder: id },
-          attributes: []
-        }],
+        include: [
+          {
+            model: db.purchase_return,
+            as: 'return',
+            where: { purchaseOrder: id },
+            attributes: []
+          }
+        ],
         attributes: [
           'ingredient',
           'product',
-          [db.Sequelize.fn('COALESCE', db.Sequelize.fn('SUM', db.Sequelize.col('qty')), 0), 'returnedQty']
+          [
+            db.Sequelize.fn(
+              'COALESCE',
+              db.Sequelize.fn('SUM', db.Sequelize.col('qty')),
+              0
+            ),
+            'returnedQty'
+          ]
         ],
         group: ['ingredient', 'product'],
         raw: true
@@ -269,9 +291,10 @@ const purchaseOrderController = {
 
       const orderNumber = generateOrderNumber('PO')
 
-      const totalAmount = items?.length > 0
-        ? items.reduce((sum, item) => sum + item.quantity * item.price, 0)
-        : 0
+      const totalAmount =
+        items?.length > 0
+          ? items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+          : 0
 
       const finalAmount = totalAmount - discount
 

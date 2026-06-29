@@ -106,10 +106,12 @@ exports.getAllLocationInTable = async (req, res) => {
       .filter(Boolean)
       .sort()
 
-    const allUsers = await User.findAll({ attributes: ['id', 'fullName', 'email'] })
+    const allUsers = await User.findAll({
+      attributes: ['id', 'fullName', 'email']
+    })
     const userById = {}
     const userByFullName = {}
-    allUsers.forEach(u => {
+    allUsers.forEach((u) => {
       const obj = { id: u.id, fullName: u.fullName, email: u.email }
       userById[u.id] = obj
       userById[String(u.id)] = obj
@@ -335,7 +337,12 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status: isActive !== undefined ? (isActive ? 'active' : 'inactive') : status || 'draft',
+      status:
+        isActive !== undefined
+          ? isActive
+            ? 'active'
+            : 'inactive'
+          : status || 'draft',
       category,
       managerName,
       latitude: finalLatitude,

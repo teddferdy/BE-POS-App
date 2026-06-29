@@ -3,7 +3,8 @@ const QRCode = require('qrcode')
 const fs = require('fs')
 const path = require('path')
 
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const CHROME_PATH =
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 let client = null
 let isReady = false
@@ -39,20 +40,21 @@ const initClient = () => {
           '--disable-gpu',
           '--no-first-run',
           '--no-zygote',
-          '--single-process',
-        ],
+          '--single-process'
+        ]
       }
       if (chromePath) puppeteerOpts.executablePath = chromePath
 
       client = new Client({
         authStrategy: new LocalAuth({
-          dataPath: path.join(__dirname, '..', '.wwebjs_auth'),
+          dataPath: path.join(__dirname, '..', '.wwebjs_auth')
         }),
         puppeteer: puppeteerOpts,
         webVersionCache: {
           type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/wppconnect-teams/wa-version/main/html/2.2412.54.html',
-        },
+          remotePath:
+            'https://raw.githubusercontent.com/wppconnect-teams/wa-version/main/html/2.2412.54.html'
+        }
       })
 
       client.on('qr', async (qr) => {
@@ -63,7 +65,9 @@ const initClient = () => {
         }
         isReady = false
         console.log('\n=== WHATSAPP QR CODE ===')
-        console.log('Scan the QR code with WhatsApp mobile app to enable invoice sending.')
+        console.log(
+          'Scan the QR code with WhatsApp mobile app to enable invoice sending.'
+        )
         console.log('QR updated. Open GET /pos/whatsapp/status to view.\n')
       })
 
@@ -77,7 +81,10 @@ const initClient = () => {
         isReady = true
         qrCodeBase64 = null
         clearReadyCheck()
-        console.log('WhatsApp client is ready! Connected as:', client.info?.pushname || client.info?.wid?.user)
+        console.log(
+          'WhatsApp client is ready! Connected as:',
+          client.info?.pushname || client.info?.wid?.user
+        )
         resolve(true)
       })
 
@@ -108,7 +115,9 @@ const initClient = () => {
       // events never fire, mark as ready after a short delay
       readyCheckInterval = setInterval(() => {
         if (client?.info?.wid?.user) {
-          console.log('WhatsApp client info available (session restored), marking ready.')
+          console.log(
+            'WhatsApp client info available (session restored), marking ready.'
+          )
           isReady = true
           qrCodeBase64 = null
           clearReadyCheck()
@@ -131,7 +140,6 @@ const initClient = () => {
           resolve(false)
         }
       }, 60000)
-
     } catch (err) {
       initError = err.message
       console.error('WhatsApp client creation error:', err.message)
@@ -148,7 +156,7 @@ const getConnectionStatus = () => ({
   qrBase64: qrCodeBase64,
   error: initError,
   phoneNumber: client?.info?.wid?.user || null,
-  pushName: client?.info?.pushname || null,
+  pushName: client?.info?.pushname || null
 })
 
 const sendDocument = async (phoneNumber, filePath, caption) => {
@@ -160,13 +168,15 @@ const sendDocument = async (phoneNumber, filePath, caption) => {
   }
 
   const cleanPhone = phoneNumber.replace(/[^0-9]/g, '')
-  const waNumber = cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : cleanPhone
+  const waNumber = cleanPhone.startsWith('0')
+    ? '62' + cleanPhone.slice(1)
+    : cleanPhone
   const chatId = `${waNumber}@c.us`
 
   const media = MessageMedia.fromFilePath(filePath)
   await client.sendMessage(chatId, media, {
     caption: caption,
-    sendMediaAsDocument: true,
+    sendMediaAsDocument: true
   })
 }
 
@@ -211,5 +221,5 @@ module.exports = {
   getConnectionStatus,
   sendDocument,
   logout,
-  restartClient,
+  restartClient
 }

@@ -14,9 +14,11 @@ const upload = multer({
       'application/vnd.ms-excel',
       'application/octet-stream'
     ]
-    if (allowedMimes.includes(file.mimetype) ||
-        file.originalname.endsWith('.xlsx') ||
-        file.originalname.endsWith('.xls')) {
+    if (
+      allowedMimes.includes(file.mimetype) ||
+      file.originalname.endsWith('.xlsx') ||
+      file.originalname.endsWith('.xls')
+    ) {
       cb(null, true)
     } else {
       cb(new Error('File harus berupa Excel (.xlsx atau .xls)'), false)
@@ -25,48 +27,76 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 })
 
-router.get('/get-all', authorization, validateStoreAccess, stockOpnameController.getAll)
-router.get('/get-by-id/:id', authorization, validateStoreAccess, stockOpnameController.getById)
+router.get(
+  '/get-all',
+  authorization,
+  validateStoreAccess,
+  stockOpnameController.getAll
+)
+router.get(
+  '/get-by-id/:id',
+  authorization,
+  validateStoreAccess,
+  stockOpnameController.getById
+)
 router.get('/check-exists', authorization, stockOpnameController.checkExists)
-router.get('/composition-items', authorization, stockOpnameController.getCompositionItems)
+router.get(
+  '/composition-items',
+  authorization,
+  stockOpnameController.getCompositionItems
+)
 
 router.post(
   '/create',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   stockOpnameController.create
 )
 router.put(
   '/update/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   stockOpnameController.update
 )
 router.delete(
   '/delete/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   stockOpnameController.delete
 )
 
 router.patch(
   '/status/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   stockOpnameController.changeStatus
 )
 
 router.get(
   '/download-excel',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   stockOpnameController.downloadExcel
 )
 
 router.post(
   '/export-selected',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   stockOpnameController.exportSelected
 )
 
 router.post(
   '/upload-excel',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   upload.single('file'),
   stockOpnameController.uploadExcel
 )

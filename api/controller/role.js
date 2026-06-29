@@ -109,7 +109,7 @@ exports.addNewRole = async (req, res) => {
                 ? 'inactive'
                 : body.status
             : 'active',
-        accessMenu: body.accessMenu || [],
+        accessMenu: body.accessMenu || []
       })
 
       createAudit(
@@ -175,7 +175,7 @@ exports.editRoleById = async (req, res) => {
                   : body.status
               : 'active',
           accessMenu: body.accessMenu || [],
-          createdBy: body?.createdBy,
+          createdBy: body?.createdBy
         },
         {
           returning: true,

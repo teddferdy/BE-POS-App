@@ -10,7 +10,13 @@ const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Add New Checkout
-router.post('/checkout-item', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), checkoutController.checkout)
+router.post(
+  '/checkout-item',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  checkoutController.checkout
+)
 
 // Edit Checkout
 router.put(

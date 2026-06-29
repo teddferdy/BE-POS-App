@@ -32,35 +32,48 @@ const upload = multer({
 
 router.post(
   '/add-employee',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   upload,
   employeeController.addEmployee
 )
 
-router.get('/get-employee', authorization, validateStoreAccess, employeeController.getAllEmployee)
+router.get(
+  '/get-employee',
+  authorization,
+  validateStoreAccess,
+  employeeController.getAllEmployee
+)
 
 router.get(
   '/get-employee/:id',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   employeeController.getEmployeeById
 )
 
 router.get(
   '/get-employee-detail/:employeeID',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   employeeController.getEmployeeByEmployeeID
 )
 
 router.put(
   '/edit-employee',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   upload,
   employeeController.updateEmployee
 )
 
 router.delete(
   '/delete-employee/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   employeeController.deleteEmployee
 )
 

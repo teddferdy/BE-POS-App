@@ -120,7 +120,7 @@ const bomController = {
         productId,
         name: name || `BOM-${Date.now()}`,
         notes,
-        status: req.body.status || 'active',
+        status: req.body.status || 'active'
       })
 
       const bomLines = lines.map((l) => ({

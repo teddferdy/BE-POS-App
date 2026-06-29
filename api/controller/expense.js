@@ -246,7 +246,12 @@ const expenseController = {
         category: category || expense.category,
         description:
           description !== undefined ? description : expense.description,
-        amount: amount !== undefined ? (amount || amount === 0 ? amount : null) : expense.amount,
+        amount:
+          amount !== undefined
+            ? amount || amount === 0
+              ? amount
+              : null
+            : expense.amount,
         date: date || expense.date,
         paymentMethod: paymentMethod || expense.paymentMethod,
         status: status || expense.status,

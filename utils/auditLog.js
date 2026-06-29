@@ -32,7 +32,15 @@ const auditLog = async ({
   }
 }
 
-const createAudit = (req, action, entity, entityId, description, oldValues, newValues) => {
+const createAudit = (
+  req,
+  action,
+  entity,
+  entityId,
+  description,
+  oldValues,
+  newValues
+) => {
   return auditLog({
     store: req.cookies?.store || req.user?.store,
     userId: req.user?.id,

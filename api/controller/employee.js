@@ -146,7 +146,13 @@ exports.addEmployee = async (req, res) => {
       startDate: body?.startDate,
       dateOfBirth: body?.dateOfBirth,
       placeOfBirth: body?.placeOfBirth,
-      status: body?.status || (body?.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : 'active'),
+      status:
+        body?.status ||
+        (body?.isActive !== undefined
+          ? body.isActive
+            ? 'active'
+            : 'inactive'
+          : 'active'),
       store: body?.store || null,
       shift: body?.shift || null,
       position: body?.position || null,
@@ -474,7 +480,12 @@ exports.updateEmployee = async (req, res) => {
       dateOfBirth: body?.dateOfBirth ?? employee.dateOfBirth,
       placeOfBirth: body?.placeOfBirth ?? employee.placeOfBirth,
       status:
-        body?.status || (body?.isActive !== undefined ? (body.isActive ? 'active' : 'inactive') : employee.status),
+        body?.status ||
+        (body?.isActive !== undefined
+          ? body.isActive
+            ? 'active'
+            : 'inactive'
+          : employee.status),
       store: body?.store ?? employee.store,
       shift: body?.shift ?? employee.shift,
       position: body?.position ?? employee.position,

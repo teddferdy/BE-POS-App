@@ -33,28 +33,35 @@ router.get('/get-location-public', locationController.getAllLocationPublic)
 // Get all locations in table - Super Admin only
 router.get(
   '/get-location-all',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   locationController.getAllLocationInTable
 )
 
 // Get location detail - all authenticated users
 router.get(
   '/get-location-detail/:locationId',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   locationController.getLocationById
 )
 
 // Generate location ID - Super Admin only
 router.get(
   '/generate-id',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   locationController.generateLocationId
 )
 
 // Add new location - Super Admin only
 router.post(
   '/add-new-location',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   upload,
   locationController.addNewLocation
 )
@@ -62,7 +69,9 @@ router.post(
 // Edit location - Super Admin only
 router.put(
   '/edit-location',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   upload,
   locationController.editLocationById
 )
@@ -70,7 +79,9 @@ router.put(
 // Delete location - Super Admin only
 router.delete(
   '/delete-location',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   locationController.deleteLocationById
 )
 

@@ -36,30 +36,34 @@ async function getTables() {
     WHERE table_schema = 'public'
     ORDER BY table_name
   `)
-  return results.map(r => r.table_name)
+  return results.map((r) => r.table_name)
 }
 
 async function syncTable(table) {
   console.log(`📥 Syncing table: ${table}...`)
-  
+
   const [rows] = await sequelizeDev.query(`SELECT * FROM "${table}"`)
-  
+
   if (rows.length === 0) {
     console.log(`   ⏭️  No data, skipping...`)
     return
   }
 
-  await sequelizeProd.query(`TRUNCATE TABLE "${table}" RESTART IDENTITY CASCADE`)
+  await sequelizeProd.query(
+    `TRUNCATE TABLE "${table}" RESTART IDENTITY CASCADE`
+  )
 
   const batchSize = 100
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize)
     const columns = Object.keys(batch[0])
-    
-    const colList = columns.map(c => `"${c}"`).join(', ')
-    const placeholders = batch.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ')
-    const values = batch.flatMap(row => columns.map(col => row[col]))
-    
+
+    const colList = columns.map((c) => `"${c}"`).join(', ')
+    const placeholders = batch
+      .map(() => `(${columns.map(() => '?').join(', ')})`)
+      .join(', ')
+    const values = batch.flatMap((row) => columns.map((col) => row[col]))
+
     try {
       await sequelizeProd.query(
         `INSERT INTO "${table}" (${colList}) VALUES ${placeholders}`,
@@ -69,7 +73,7 @@ async function syncTable(table) {
       console.log(`   ⚠️  Error: ${err.message}`)
       for (let j = 0; j < batch.length; j++) {
         const row = batch[j]
-        const rowValues = columns.map(c => row[c])
+        const rowValues = columns.map((c) => row[c])
         try {
           await sequelizeProd.query(
             `INSERT INTO "${table}" (${colList}) VALUES (${columns.map(() => '?').join(', ')})`,
@@ -81,7 +85,7 @@ async function syncTable(table) {
       }
     }
   }
-  
+
   console.log(`   ✅ Synced ${rows.length} rows`)
 }
 

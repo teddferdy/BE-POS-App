@@ -1,11 +1,28 @@
 const excelJS = require('exceljs')
 
 const UNIT_OPTIONS = [
-  'pcs','item','unit','buah','pasang','set','lusin','pack','box','karton',
-  'kg','gram','liter','ml','meter','cm','cup','gelas','porsi'
+  'pcs',
+  'item',
+  'unit',
+  'buah',
+  'pasang',
+  'set',
+  'lusin',
+  'pack',
+  'box',
+  'karton',
+  'kg',
+  'gram',
+  'liter',
+  'ml',
+  'meter',
+  'cm',
+  'cup',
+  'gelas',
+  'porsi'
 ]
 
-const BASE_UNIT_OPTIONS = ['pcs','gram','ml','cm','buah','lembar']
+const BASE_UNIT_OPTIONS = ['pcs', 'gram', 'ml', 'cm', 'buah', 'lembar']
 
 const TEMPLATE_HEADERS = [
   { key: 'no', header: 'No.', width: 8 },
@@ -34,9 +51,7 @@ const TEMPLATE_HEADERS = [
   { key: 'options', header: 'Daftar Opsi', width: 25 }
 ]
 
-const REQUIRED_HEADERS = [
-  'No.', 'Nama Produk', 'Kategori', 'Harga'
-]
+const REQUIRED_HEADERS = ['No.', 'Nama Produk', 'Kategori', 'Harga']
 
 const validateTemplateHeaders = (headers) => {
   const headerNames = headers.map((h) => h.toString().trim())
@@ -108,16 +123,19 @@ const downloadProductTemplate = async ({
   }
 
   const storeNameById = {}
-  stores.forEach((s) => { storeNameById[s.id] = s.name })
+  stores.forEach((s) => {
+    storeNameById[s.id] = s.name
+  })
 
   const formatStores = (storeVal) => {
-    if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0) return 'All Stores'
+    if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0)
+      return 'All Stores'
     return storeVal.map((id) => storeNameById[id] || `Store #${id}`).join(', ')
   }
 
   existingProducts.forEach((prod, index) => {
     const r = index + 2
-    worksheet.getCell(`A${r}`).value = prod.id || (r - 1)
+    worksheet.getCell(`A${r}`).value = prod.id || r - 1
     worksheet.getCell(`B${r}`).value = prod.nameProduct
     worksheet.getCell(`C${r}`).value = prod.sku || ''
     worksheet.getCell(`D${r}`).value = prod.barcode || ''
@@ -137,11 +155,19 @@ const downloadProductTemplate = async ({
     worksheet.getCell(`R${r}`).value = prod.minStock || 0
     worksheet.getCell(`S${r}`).value = prod.point || 0
     worksheet.getCell(`T${r}`).value = prod.redeemPoints || 0
-    worksheet.getCell(`U${r}`).value = prod.status === 'draft' ? 'Draft' : prod.status === 'active' ? 'Aktif' : 'Nonaktif'
-    worksheet.getCell(`V${r}`).value = prod.isAvailable !== false ? 'Ya' : 'Tidak'
+    worksheet.getCell(`U${r}`).value =
+      prod.status === 'draft'
+        ? 'Draft'
+        : prod.status === 'active'
+          ? 'Aktif'
+          : 'Nonaktif'
+    worksheet.getCell(`V${r}`).value =
+      prod.isAvailable !== false ? 'Ya' : 'Tidak'
     worksheet.getCell(`W${r}`).value = prod.isOption ? 'Ya' : 'Tidak'
     worksheet.getCell(`X${r}`).value = prod.options
-      ? (Array.isArray(prod.options) ? JSON.stringify(prod.options) : prod.options)
+      ? Array.isArray(prod.options)
+        ? JSON.stringify(prod.options)
+        : prod.options
       : ''
   })
 
@@ -174,11 +200,28 @@ const parseProductTemplate = async (buffer) => {
   // Column index map (1-indexed rowData positions, no-Store template base)
   // ponytail: assumes Store at column I (index 9); shifts cols 9+ right if Store exists
   const COL = {
-    NAME: 2, SKU: 3, BARCODE: 4, BRAND: 5, CATEGORY: 6,
-    TIPE: 7, DESC: 8, UNIT: 9, BASE_UNIT: 10, CONV_FACTOR: 11,
-    SUPPLIER: 12, TAX: 13, PRICE: 14, COST_PRICE: 15,
-    STOCK: 16, MIN_STOCK: 17, POINT: 18, REDEEM: 19,
-    STATUS: 20, AVAILABLE: 21, OPTION: 22, OPTIONS: 23
+    NAME: 2,
+    SKU: 3,
+    BARCODE: 4,
+    BRAND: 5,
+    CATEGORY: 6,
+    TIPE: 7,
+    DESC: 8,
+    UNIT: 9,
+    BASE_UNIT: 10,
+    CONV_FACTOR: 11,
+    SUPPLIER: 12,
+    TAX: 13,
+    PRICE: 14,
+    COST_PRICE: 15,
+    STOCK: 16,
+    MIN_STOCK: 17,
+    POINT: 18,
+    REDEEM: 19,
+    STATUS: 20,
+    AVAILABLE: 21,
+    OPTION: 22,
+    OPTIONS: 23
   }
 
   const idx = (base) => (storeColIdx >= 0 && base >= 9 ? base + 1 : base)
@@ -190,34 +233,73 @@ const parseProductTemplate = async (buffer) => {
     if (rowNumber >= startRow) {
       const rowData = row.values
       if (rowData[1] || rowData[2]) {
-        const storeVal = storeColIdx >= 0 && rowData[storeColIdx + 1]
-          ? String(rowData[storeColIdx + 1]).trim()
-          : ''
+        const storeVal =
+          storeColIdx >= 0 && rowData[storeColIdx + 1]
+            ? String(rowData[storeColIdx + 1]).trim()
+            : ''
 
         products.push({
           no: rowData[1],
-          nameProduct: rowData[COL.NAME] ? String(rowData[COL.NAME]).trim() : '',
+          nameProduct: rowData[COL.NAME]
+            ? String(rowData[COL.NAME]).trim()
+            : '',
           sku: rowData[COL.SKU] ? String(rowData[COL.SKU]).trim() : '',
-          barcode: rowData[COL.BARCODE] ? String(rowData[COL.BARCODE]).trim() : '',
+          barcode: rowData[COL.BARCODE]
+            ? String(rowData[COL.BARCODE]).trim()
+            : '',
           brand: rowData[COL.BRAND] ? String(rowData[COL.BRAND]).trim() : '',
-          category: rowData[COL.CATEGORY] ? String(rowData[COL.CATEGORY]).trim() : '',
-          tipeProduk: rowData[COL.TIPE] ? String(rowData[COL.TIPE]).trim() : 'menu',
-          description: rowData[COL.DESC] ? String(rowData[COL.DESC]).trim() : '',
+          category: rowData[COL.CATEGORY]
+            ? String(rowData[COL.CATEGORY]).trim()
+            : '',
+          tipeProduk: rowData[COL.TIPE]
+            ? String(rowData[COL.TIPE]).trim()
+            : 'menu',
+          description: rowData[COL.DESC]
+            ? String(rowData[COL.DESC]).trim()
+            : '',
           store: storeVal,
-          unit: rowData[idx(COL.UNIT)] ? String(rowData[idx(COL.UNIT)]).trim() : 'pcs',
-          baseUnit: rowData[idx(COL.BASE_UNIT)] ? String(rowData[idx(COL.BASE_UNIT)]).trim() : 'pcs',
-          conversionFactor: rowData[idx(COL.CONV_FACTOR)] ? parseFloat(rowData[idx(COL.CONV_FACTOR)]) : 1,
-          supplier: rowData[idx(COL.SUPPLIER)] ? String(rowData[idx(COL.SUPPLIER)]).trim() : '',
-          tax: rowData[idx(COL.TAX)] ? String(rowData[idx(COL.TAX)]).trim() : '',
-          price: rowData[idx(COL.PRICE)] ? parseFloat(rowData[idx(COL.PRICE)]) : 0,
-          costPrice: rowData[idx(COL.COST_PRICE)] ? parseFloat(rowData[idx(COL.COST_PRICE)]) : 0,
-          stock: rowData[idx(COL.STOCK)] ? parseFloat(rowData[idx(COL.STOCK)]) : 0,
-          minStock: rowData[idx(COL.MIN_STOCK)] ? parseFloat(rowData[idx(COL.MIN_STOCK)]) : 0,
-          point: rowData[idx(COL.POINT)] ? parseFloat(rowData[idx(COL.POINT)]) : 0,
-          redeemPoints: rowData[idx(COL.REDEEM)] ? parseFloat(rowData[idx(COL.REDEEM)]) : 0,
-          status: rowData[idx(COL.STATUS)] ? String(rowData[idx(COL.STATUS)]).trim() : 'Aktif',
-          isAvailable: rowData[idx(COL.AVAILABLE)] ? String(rowData[idx(COL.AVAILABLE)]).trim() : 'Ya',
-          isOption: rowData[idx(COL.OPTION)] ? String(rowData[idx(COL.OPTION)]).trim() : 'Tidak',
+          unit: rowData[idx(COL.UNIT)]
+            ? String(rowData[idx(COL.UNIT)]).trim()
+            : 'pcs',
+          baseUnit: rowData[idx(COL.BASE_UNIT)]
+            ? String(rowData[idx(COL.BASE_UNIT)]).trim()
+            : 'pcs',
+          conversionFactor: rowData[idx(COL.CONV_FACTOR)]
+            ? parseFloat(rowData[idx(COL.CONV_FACTOR)])
+            : 1,
+          supplier: rowData[idx(COL.SUPPLIER)]
+            ? String(rowData[idx(COL.SUPPLIER)]).trim()
+            : '',
+          tax: rowData[idx(COL.TAX)]
+            ? String(rowData[idx(COL.TAX)]).trim()
+            : '',
+          price: rowData[idx(COL.PRICE)]
+            ? parseFloat(rowData[idx(COL.PRICE)])
+            : 0,
+          costPrice: rowData[idx(COL.COST_PRICE)]
+            ? parseFloat(rowData[idx(COL.COST_PRICE)])
+            : 0,
+          stock: rowData[idx(COL.STOCK)]
+            ? parseFloat(rowData[idx(COL.STOCK)])
+            : 0,
+          minStock: rowData[idx(COL.MIN_STOCK)]
+            ? parseFloat(rowData[idx(COL.MIN_STOCK)])
+            : 0,
+          point: rowData[idx(COL.POINT)]
+            ? parseFloat(rowData[idx(COL.POINT)])
+            : 0,
+          redeemPoints: rowData[idx(COL.REDEEM)]
+            ? parseFloat(rowData[idx(COL.REDEEM)])
+            : 0,
+          status: rowData[idx(COL.STATUS)]
+            ? String(rowData[idx(COL.STATUS)]).trim()
+            : 'Aktif',
+          isAvailable: rowData[idx(COL.AVAILABLE)]
+            ? String(rowData[idx(COL.AVAILABLE)]).trim()
+            : 'Ya',
+          isOption: rowData[idx(COL.OPTION)]
+            ? String(rowData[idx(COL.OPTION)]).trim()
+            : 'Tidak',
           options: rowData[idx(COL.OPTIONS)]
             ? String(rowData[idx(COL.OPTIONS)]).trim()
             : ''
@@ -297,7 +379,12 @@ const downloadLocationTemplate = async (existingLocations = []) => {
     worksheet.getCell(`E${rowNum}`).value = loc.address || ''
     worksheet.getCell(`F${rowNum}`).value = loc.detailLocation || ''
     worksheet.getCell(`G${rowNum}`).value = loc.phoneNumber || ''
-    worksheet.getCell(`H${rowNum}`).value = loc.status === 'draft' ? 'Draft' : loc.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`H${rowNum}`).value =
+      loc.status === 'draft'
+        ? 'Draft'
+        : loc.status === 'active'
+          ? 'Aktif'
+          : 'Nonaktif'
   })
 
   return workbook.xlsx.writeBuffer()
@@ -417,7 +504,12 @@ const downloadInvoiceLogoTemplate = async (existingLogos = []) => {
     worksheet.getCell(`C${rowNum}`).value = logo.store
     worksheet.getCell(`D${rowNum}`).value = logo.image || ''
     worksheet.getCell(`E${rowNum}`).value = logo.isActive ? 'Ya' : 'Tidak'
-    worksheet.getCell(`F${rowNum}`).value = logo.status === 'draft' ? 'Draft' : logo.status === 'active' ? 'Aktif' : 'Nonaktif'
+    worksheet.getCell(`F${rowNum}`).value =
+      logo.status === 'draft'
+        ? 'Draft'
+        : logo.status === 'active'
+          ? 'Aktif'
+          : 'Nonaktif'
     worksheet.getCell(`G${rowNum}`).value = logo.createdBy || ''
   })
 

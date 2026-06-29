@@ -105,7 +105,7 @@ exports.checkout = async (req, res) => {
         store: body.store,
         cashierName: body.cashierName,
         totalQuantity: body.totalQuantity,
-        typePayment: body.typePayment,
+        typePayment: body.typePayment
       })
 
       if (body.customerPhoneNumber) {
@@ -187,7 +187,7 @@ exports.editCheckout = async (req, res) => {
         invoice: body.invoice,
         totalPrice: body.totalPrice,
         totalQuantity: body.totalQuantity,
-        typePayment: body.typePayment,
+        typePayment: body.typePayment
       },
       {
         returning: true,

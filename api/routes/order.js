@@ -6,14 +6,40 @@ const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Order CRUD - All authenticated users (POS operations)
-router.post('/create', authorization, validateStoreAccess, orderController.createOrder)
-router.get('/get-orders', authorization, validateStoreAccess, orderController.getOrdersByStore)
-router.get('/get-order/:id', authorization, validateStoreAccess, orderController.getOrderById)
-router.get('/kitchen', authorization, validateStoreAccess, orderController.getKitchenOrders)
-router.put('/update-status', authorization, validateStoreAccess, orderController.updateOrderStatus)
+router.post(
+  '/create',
+  authorization,
+  validateStoreAccess,
+  orderController.createOrder
+)
+router.get(
+  '/get-orders',
+  authorization,
+  validateStoreAccess,
+  orderController.getOrdersByStore
+)
+router.get(
+  '/get-order/:id',
+  authorization,
+  validateStoreAccess,
+  orderController.getOrderById
+)
+router.get(
+  '/kitchen',
+  authorization,
+  validateStoreAccess,
+  orderController.getKitchenOrders
+)
+router.put(
+  '/update-status',
+  authorization,
+  validateStoreAccess,
+  orderController.updateOrderStatus
+)
 router.put(
   '/update-item-status',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   orderController.updateOrderItemStatus
 )
 // Customer-facing (no auth)

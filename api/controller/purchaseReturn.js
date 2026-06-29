@@ -10,7 +10,8 @@ async function attachPriceInfo(json, poId) {
   })
   const priceMap = {}
   poItems.forEach((pi) => {
-    if (pi.ingredient) priceMap[`ing-${pi.ingredient}`] = parseFloat(pi.price) || 0
+    if (pi.ingredient)
+      priceMap[`ing-${pi.ingredient}`] = parseFloat(pi.price) || 0
     if (pi.product) priceMap[`prod-${pi.product}`] = parseFloat(pi.price) || 0
   })
   json.items = json.items.map((item) => {
@@ -47,11 +48,21 @@ const purchaseReturnController = {
 
       const statsWhere = store ? { store } : {}
       const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
-        db.purchase_return.count({ where: { ...statsWhere, status: 'pending' } }),
-        db.purchase_return.count({ where: { ...statsWhere, status: 'approved' } }),
-        db.purchase_return.count({ where: { ...statsWhere, status: 'rejected' } })
+        db.purchase_return.count({
+          where: { ...statsWhere, status: 'pending' }
+        }),
+        db.purchase_return.count({
+          where: { ...statsWhere, status: 'approved' }
+        }),
+        db.purchase_return.count({
+          where: { ...statsWhere, status: 'rejected' }
+        })
       ])
-      const stats = { pending: pendingCount, approved: approvedCount, rejected: rejectedCount }
+      const stats = {
+        pending: pendingCount,
+        approved: approvedCount,
+        rejected: rejectedCount
+      }
 
       const { count, rows } = await db.purchase_return.findAndCountAll({
         where,
@@ -87,20 +98,32 @@ const purchaseReturnController = {
       const transformed = rows.map((r) => {
         const json = r.toJSON()
         if (json.returnedByData) {
-          json.returnedBy = { id: json.returnedByData.id, name: json.returnedByData.fullName }
+          json.returnedBy = {
+            id: json.returnedByData.id,
+            name: json.returnedByData.fullName
+          }
         }
         delete json.returnedByData
         if (json.items) {
           json.items = json.items.map((item) => {
             if (item.productData) {
-              item.product = { id: item.productData.id, name: item.productData.nameProduct }
+              item.product = {
+                id: item.productData.id,
+                name: item.productData.nameProduct
+              }
             }
             delete item.productData
             if (item.ingredientData) {
-              item.ingredient = { id: item.ingredientData.id, name: item.ingredientData.name }
+              item.ingredient = {
+                id: item.ingredientData.id,
+                name: item.ingredientData.name
+              }
             }
             delete item.ingredientData
-            item.purchaseReturn = { id: item.purchaseReturn, name: json.returnNumber }
+            item.purchaseReturn = {
+              id: item.purchaseReturn,
+              name: json.returnNumber
+            }
             return item
           })
         }
@@ -181,14 +204,23 @@ const purchaseReturnController = {
       if (result.items) {
         result.items = result.items.map((item) => {
           if (item.productData) {
-            item.product = { id: item.productData.id, name: item.productData.nameProduct }
+            item.product = {
+              id: item.productData.id,
+              name: item.productData.nameProduct
+            }
           }
           delete item.productData
           if (item.ingredientData) {
-            item.ingredient = { id: item.ingredientData.id, name: item.ingredientData.name }
+            item.ingredient = {
+              id: item.ingredientData.id,
+              name: item.ingredientData.name
+            }
           }
           delete item.ingredientData
-          item.purchaseReturn = { id: item.purchaseReturn, name: result.returnNumber }
+          item.purchaseReturn = {
+            id: item.purchaseReturn,
+            name: result.returnNumber
+          }
           return item
         })
       }
@@ -377,12 +409,24 @@ const purchaseReturnController = {
             model: db.purchase_return_item,
             as: 'items',
             include: [
-              { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
-              { model: db.ingredient, as: 'ingredientData', attributes: ['id', 'name'] }
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct']
+              },
+              {
+                model: db.ingredient,
+                as: 'ingredientData',
+                attributes: ['id', 'name']
+              }
             ]
           },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.user, as: 'returnedByData', attributes: ['id', 'fullName'] }
+          {
+            model: db.user,
+            as: 'returnedByData',
+            attributes: ['id', 'fullName']
+          }
         ],
         order: [['createdAt', 'DESC']]
       })
@@ -390,20 +434,32 @@ const purchaseReturnController = {
       const transformed = returns.map((r) => {
         const json = r.toJSON()
         if (json.returnedByData) {
-          json.returnedBy = { id: json.returnedByData.id, name: json.returnedByData.fullName }
+          json.returnedBy = {
+            id: json.returnedByData.id,
+            name: json.returnedByData.fullName
+          }
         }
         delete json.returnedByData
         if (json.items) {
           json.items = json.items.map((item) => {
             if (item.productData) {
-              item.product = { id: item.productData.id, name: item.productData.nameProduct }
+              item.product = {
+                id: item.productData.id,
+                name: item.productData.nameProduct
+              }
             }
             delete item.productData
             if (item.ingredientData) {
-              item.ingredient = { id: item.ingredientData.id, name: item.ingredientData.name }
+              item.ingredient = {
+                id: item.ingredientData.id,
+                name: item.ingredientData.name
+              }
             }
             delete item.ingredientData
-            item.purchaseReturn = { id: item.purchaseReturn, name: json.returnNumber }
+            item.purchaseReturn = {
+              id: item.purchaseReturn,
+              name: json.returnNumber
+            }
             return item
           })
         }
@@ -417,7 +473,9 @@ const purchaseReturnController = {
       return res.status(200).json({ success: true, data: enriched })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

@@ -78,9 +78,18 @@ exports.getMemberById = async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit)
     const { count, rows: orders } = await db.order.findAndCountAll({
       where: { customerId: id },
-      include: [{ model: db.location, as: 'storeData', attributes: ['id', 'name'] }],
+      include: [
+        { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
+      ],
       order: [['createdAt', 'DESC']],
-      attributes: ['id', 'orderNumber', 'totalPrice', 'status', 'createdAt', 'store'],
+      attributes: [
+        'id',
+        'orderNumber',
+        'totalPrice',
+        'status',
+        'createdAt',
+        'store'
+      ],
       limit: parseInt(limit),
       offset
     })
@@ -89,7 +98,10 @@ exports.getMemberById = async (req, res) => {
       where: { customerId: id },
       attributes: ['totalPrice']
     })
-    const totalSpent = allOrders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0)
+    const totalSpent = allOrders.reduce(
+      (sum, o) => sum + (Number(o.totalPrice) || 0),
+      0
+    )
 
     const transactions = orders.map((o) => ({
       id: o.id,
@@ -183,7 +195,7 @@ exports.addNewMember = async (req, res) => {
               : body.status
           : 'active',
       totalPoints: body.point || 0,
-      lifetimePoints: body.point || 0,
+      lifetimePoints: body.point || 0
     })
 
     if (createdMember.getDataValue) {

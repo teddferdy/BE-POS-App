@@ -1,12 +1,32 @@
 'use strict'
 
 const tables = [
-  'category', 'discount', 'shift', 'expense_category', 'supplier',
-  'ingredient', 'member_tier', 'social_media', 'type_payment',
-  'table', 'expense', 'order', 'product', 'purchase_order',
-  'stock_history', 'stock_opname', 'checkout', 'member', 'daily_summary',
-  'invoice_footer', 'invoice_logo', 'invoice_social_media', 'cash_register',
-  'location', 'best_selling', 'position'
+  'category',
+  'discount',
+  'shift',
+  'expense_category',
+  'supplier',
+  'ingredient',
+  'member_tier',
+  'social_media',
+  'type_payment',
+  'table',
+  'expense',
+  'order',
+  'product',
+  'purchase_order',
+  'stock_history',
+  'stock_opname',
+  'checkout',
+  'member',
+  'daily_summary',
+  'invoice_footer',
+  'invoice_logo',
+  'invoice_social_media',
+  'cash_register',
+  'location',
+  'best_selling',
+  'position'
 ]
 
 module.exports = {

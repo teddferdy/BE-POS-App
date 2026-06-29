@@ -296,7 +296,9 @@ exports.createOrder = async (req, res) => {
     }
 
     // ponytail: snapshot original subtotals for per-item discountAmount tracking
-    items.forEach((item) => { item._origSubtotal = item.subtotal })
+    items.forEach((item) => {
+      item._origSubtotal = item.subtotal
+    })
 
     const taxRate = await getActiveTaxRate(store)
     const serviceChargeRate = await getServiceChargeRate(store)
@@ -353,8 +355,13 @@ exports.createOrder = async (req, res) => {
       totals.discountAmount += pointDiscountAmount
       const afterDiscount = totals.subTotal - totals.discountAmount
       totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
-      totals.serviceChargeAmount = Math.round(afterDiscount * (serviceChargeRate / 100))
-      totals.totalPrice = Math.max(0, afterDiscount + totals.taxAmount + totals.serviceChargeAmount)
+      totals.serviceChargeAmount = Math.round(
+        afterDiscount * (serviceChargeRate / 100)
+      )
+      totals.totalPrice = Math.max(
+        0,
+        afterDiscount + totals.taxAmount + totals.serviceChargeAmount
+      )
     }
 
     // Stock validation
@@ -409,7 +416,10 @@ exports.createOrder = async (req, res) => {
       const costPrice = product
         ? Number(product.costPrice || product.price || 0)
         : 0
-      const itemDiscountAmount = Math.max(0, (item._origSubtotal || 0) - (item.subtotal || 0))
+      const itemDiscountAmount = Math.max(
+        0,
+        (item._origSubtotal || 0) - (item.subtotal || 0)
+      )
       await OrderItem.create({
         order: order.id,
         product: item.product || item.productId,
@@ -523,9 +533,16 @@ exports.createOrder = async (req, res) => {
     // Award points earned from product point values
     if (customerId) {
       try {
-        const productIds = [...new Set(items.map(i => i.product || i.productId))]
-        const products = await Product.findAll({ where: { id: productIds }, attributes: ['id', 'point'] })
-        const pointMap = Object.fromEntries(products.map(p => [p.id, Number(p.point) || 0]))
+        const productIds = [
+          ...new Set(items.map((i) => i.product || i.productId))
+        ]
+        const products = await Product.findAll({
+          where: { id: productIds },
+          attributes: ['id', 'point']
+        })
+        const pointMap = Object.fromEntries(
+          products.map((p) => [p.id, Number(p.point) || 0])
+        )
         const pointsEarned = items.reduce((sum, item) => {
           const pid = item.product || item.productId
           return sum + (pointMap[pid] || 0) * Number(item.quantity)
@@ -545,7 +562,11 @@ exports.createOrder = async (req, res) => {
             // ponytail: prefer exact min≤total≤max match; fall back to highest minPoints (gap scenario)
             const Op = require('sequelize').Op
             let targetTier = await db.member_tier.findOne({
-              where: { status: 'active', minPoints: { [Op.lte]: newTotal }, maxPoints: { [Op.gte]: newTotal } },
+              where: {
+                status: 'active',
+                minPoints: { [Op.lte]: newTotal },
+                maxPoints: { [Op.gte]: newTotal }
+              },
               order: [['minPoints', 'DESC']]
             })
             if (!targetTier) {
@@ -900,7 +921,7 @@ exports.getCustomerMenu = async (req, res) => {
         [Op.or]: [
           { store: { [Op.contains]: [storeId] } },
           { store: null },
-          db.sequelize.literal("\"product\".\"store\" = '[]'::jsonb")
+          db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
         ],
         status: 'active'
       },
@@ -918,7 +939,7 @@ exports.getCustomerMenu = async (req, res) => {
         [Op.or]: [
           { store: { [Op.contains]: [storeId] } },
           { store: null },
-          db.sequelize.literal("\"category\".\"store\" = '[]'::jsonb")
+          db.sequelize.literal('"category"."store" = \'[]\'::jsonb')
         ],
         status: 'active'
       },
@@ -974,6 +995,8 @@ exports.createCustomerOrder = async (req, res) => {
         totalPrice: subtotal,
         hppSnapshot: costPrice,
         notes: item.notes || null,
+        options: item.options || [],
+        modifiers: item.modifiers || [],
         status: 'pending'
       })
     }
@@ -1005,9 +1028,28 @@ exports.createCustomerOrder = async (req, res) => {
       await table.update({ status: 'occupied' })
     }
 
+    const fullOrder = await db.order.findOne({
+      where: { id: order.id },
+      include: [
+        { model: db.order_item, as: 'items' },
+        { model: db.table, as: 'table' }
+      ]
+    })
+
+    createNotification({
+      type: 'order_created',
+      store,
+      referenceId: order.id,
+      referenceType: 'order',
+      params: [orderNumber],
+      createdBy: customerName || 'Customer'
+    }).catch(console.error)
+
+    emitNewOrder(store, fullOrder)
+
     return res.status(201).json({
       message: 'Order created',
-      data: order
+      data: fullOrder
     })
   } catch (error) {
     console.error('Error:', error)

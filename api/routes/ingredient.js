@@ -14,7 +14,11 @@ const upload = multer({
       'application/vnd.ms-excel',
       'application/octet-stream'
     ]
-    if (allowedMimes.includes(file.mimetype) || file.originalname.endsWith('.xlsx') || file.originalname.endsWith('.xls')) {
+    if (
+      allowedMimes.includes(file.mimetype) ||
+      file.originalname.endsWith('.xlsx') ||
+      file.originalname.endsWith('.xls')
+    ) {
       cb(null, true)
     } else {
       cb(new Error('File harus berupa Excel (.xlsx atau .xls)'), false)
@@ -23,15 +27,68 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 })
 
-router.get('/get-all', authorization, validateStoreAccess, ingredientController.getAll)
-router.get('/get-by-id/:id', authorization, validateStoreAccess, ingredientController.getById)
-router.post('/add', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), ingredientController.create)
-router.put('/edit/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), ingredientController.update)
-router.put('/adjust-stock/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), ingredientController.adjustStock)
-router.delete('/delete/:id', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), ingredientController.delete)
+router.get(
+  '/get-all',
+  authorization,
+  validateStoreAccess,
+  ingredientController.getAll
+)
+router.get(
+  '/get-by-id/:id',
+  authorization,
+  validateStoreAccess,
+  ingredientController.getById
+)
+router.post(
+  '/add',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  ingredientController.create
+)
+router.put(
+  '/edit/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  ingredientController.update
+)
+router.put(
+  '/adjust-stock/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  ingredientController.adjustStock
+)
+router.delete(
+  '/delete/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  ingredientController.delete
+)
 
-router.get('/download-template', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), ingredientController.downloadTemplate)
-router.get('/download', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), ingredientController.downloadData)
-router.post('/import', authorization, validateStoreAccess, requireRole('super_admin', 'admin'), upload.single('file'), ingredientController.importData)
+router.get(
+  '/download-template',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  ingredientController.downloadTemplate
+)
+router.get(
+  '/download',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  ingredientController.downloadData
+)
+router.post(
+  '/import',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  upload.single('file'),
+  ingredientController.importData
+)
 
 module.exports = router

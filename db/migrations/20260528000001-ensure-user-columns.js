@@ -43,7 +43,13 @@ module.exports = {
   down: async (queryInterface, Sequelize) => {
     const tableInfo = await queryInterface.describeTable('user')
 
-    const columns = ['contractDuration', 'endDate', 'monthlySalary', 'dailySalary', 'documents']
+    const columns = [
+      'contractDuration',
+      'endDate',
+      'monthlySalary',
+      'dailySalary',
+      'documents'
+    ]
     for (const col of columns) {
       if (tableInfo[col]) {
         await queryInterface.removeColumn('user', col)

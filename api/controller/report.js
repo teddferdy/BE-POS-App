@@ -193,7 +193,11 @@ exports.getSalesSummary = async (req, res) => {
 
     let dateRange = {}
     const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate()
+    )
     if (filter === 'today') {
       dateRange = {
         [Op.gte]: todayStart,
@@ -209,7 +213,15 @@ exports.getSalesSummary = async (req, res) => {
       }
     } else if (filter === 'monthly') {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      const monthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999
+      )
       dateRange = {
         [Op.gte]: monthStart,
         [Op.lte]: monthEnd
@@ -341,7 +353,11 @@ exports.getSalesSummary = async (req, res) => {
       return result
     }
     if (dateRange[Op.gte] && dateRange[Op.lte]) {
-      salesChart = padChartData(salesChart, dateRange[Op.gte], dateRange[Op.lte])
+      salesChart = padChartData(
+        salesChart,
+        dateRange[Op.gte],
+        dateRange[Op.lte]
+      )
       for (const s of storeSalesChart) {
         s.data = padChartData(s.data, dateRange[Op.gte], dateRange[Op.lte])
       }
@@ -397,7 +413,8 @@ exports.getBestSellerReport = async (req, res) => {
     ])
 
     const revenueMap = {}
-    for (const r of productRevenues) revenueMap[Number(r.product)] = Number(r.revenue || 0)
+    for (const r of productRevenues)
+      revenueMap[Number(r.product)] = Number(r.revenue || 0)
 
     const totalUnitsSold = bestSelling.reduce(
       (s, p) => s + Number(p.totalSelling || 0),

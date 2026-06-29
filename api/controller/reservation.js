@@ -20,15 +20,21 @@ exports.getAll = async (req, res) => {
       where,
       limit,
       offset,
-      order: [
-        ['createdAt', 'DESC']
-      ]
+      order: [['createdAt', 'DESC']]
     })
 
-    const statsWhere = store ? { store } : {};
-    const stats = {};
-    for (const status of ['pending', 'confirmed', 'cancelled', 'completed', 'no_show']) {
-      stats[status] = await Reservation.count({ where: { ...statsWhere, status } });
+    const statsWhere = store ? { store } : {}
+    const stats = {}
+    for (const status of [
+      'pending',
+      'confirmed',
+      'cancelled',
+      'completed',
+      'no_show'
+    ]) {
+      stats[status] = await Reservation.count({
+        where: { ...statsWhere, status }
+      })
     }
 
     return res.status(200).json({
@@ -64,11 +70,15 @@ exports.getById = async (req, res) => {
 
     const result = reservation.toJSON()
     if (result.store) {
-      const loc = await Location.findByPk(result.store, { attributes: ['id', 'name'] })
+      const loc = await Location.findByPk(result.store, {
+        attributes: ['id', 'name']
+      })
       if (loc) result.storeInfo = loc.toJSON()
     }
     if (result.tableId) {
-      const tbl = await Table.findByPk(result.tableId, { attributes: ['id', 'name'] })
+      const tbl = await Table.findByPk(result.tableId, {
+        attributes: ['id', 'name']
+      })
       if (tbl) result.tableInfo = tbl.toJSON()
     }
 
@@ -198,10 +208,15 @@ exports.update = async (req, res) => {
     })
 
     const resolvedStatus = status || reservation.status
-    const resolvedTableId = tableId !== undefined ? tableId : reservation.tableId
+    const resolvedTableId =
+      tableId !== undefined ? tableId : reservation.tableId
     if (resolvedTableId) {
-      const tableStatus = resolvedStatus === 'confirmed' ? 'reserved' : 'available'
-      await Table.update({ status: tableStatus }, { where: { id: resolvedTableId } })
+      const tableStatus =
+        resolvedStatus === 'confirmed' ? 'reserved' : 'available'
+      await Table.update(
+        { status: tableStatus },
+        { where: { id: resolvedTableId } }
+      )
     }
 
     createAudit(
@@ -240,7 +255,10 @@ exports.remove = async (req, res) => {
     }
 
     if (reservation.tableId) {
-      await Table.update({ status: 'available' }, { where: { id: reservation.tableId } })
+      await Table.update(
+        { status: 'available' },
+        { where: { id: reservation.tableId } }
+      )
     }
     await reservation.destroy()
     createAudit(req, 'delete', 'reservation', id, `Deleted reservation #${id}`)

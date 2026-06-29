@@ -65,13 +65,26 @@ async function main() {
 
     // 5. Show sample status values from each table
     console.log('\n=== SAMPLE STATUS VALUES ===')
-    const tables = ['category', 'department', 'discount', 'ingredient', 'location', 'product', 'role', 'shift', 'supplier']
+    const tables = [
+      'category',
+      'department',
+      'discount',
+      'ingredient',
+      'location',
+      'product',
+      'role',
+      'shift',
+      'supplier'
+    ]
     for (const t of tables) {
       try {
         const [rows] = await sequelize.query(
           `SELECT status, COUNT(*) as count FROM "${t}" GROUP BY status`
         )
-        console.log(`  ${t}:`, rows.map(r => `${r.status}(${r.count})`).join(', '))
+        console.log(
+          `  ${t}:`,
+          rows.map((r) => `${r.status}(${r.count})`).join(', ')
+        )
       } catch (e) {
         console.log(`  ${t}: ${e.message}`)
       }

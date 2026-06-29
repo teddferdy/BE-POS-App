@@ -62,9 +62,17 @@ const app = express()
 const server = http.createServer(app)
 
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://bisa-nota-demo.vercel.app', 'http://localhost:3000'],
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',')
+    : ['https://bisa-nota-demo.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin'
+  ],
   credentials: true,
   preflightContinue: false,
   optionsSuccessStatus: 204
@@ -124,24 +132,24 @@ const routes = [
   { path: '/split-bill', route: splitBillRoutes },
   { path: '/member-tier', route: memberTierRoutes },
   { path: '/employee', route: employeeRoutes },
-    { path: '/department', route: departmentRoutes },
-    { path: '/tax-config', route: taxConfigRoutes },
-    { path: '/pos', route: posRoutes },
-    { path: '/notification', route: notificationRoutes },
-    { path: '/currency', route: currencyRoutes },
-    { path: '/audit-log', route: auditLogRoutes },
-    { path: '/receipt', route: receiptRoutes },
-    { path: '/production-order', route: productionOrderRoutes },
-    { path: '/goods-receipt', route: goodsReceiptRoutes },
-    { path: '/sales-return', route: salesReturnRoutes },
-    { path: '/purchase-return', route: purchaseReturnRoutes },
-    { path: '/bom', route: bomRoutes },
-    { path: '/reservation', route: reservationRoutes },
-    { path: '/ingredient-category', route: ingredientCategoryRoutes },
-    { path: '/purchase-payment', route: purchasePaymentRoutes },
-    { path: '/accounts-receivable', route: accountsReceivableRoutes },
-    { path: '/export', route: exportMasterRoutes }
-  ]
+  { path: '/department', route: departmentRoutes },
+  { path: '/tax-config', route: taxConfigRoutes },
+  { path: '/pos', route: posRoutes },
+  { path: '/notification', route: notificationRoutes },
+  { path: '/currency', route: currencyRoutes },
+  { path: '/audit-log', route: auditLogRoutes },
+  { path: '/receipt', route: receiptRoutes },
+  { path: '/production-order', route: productionOrderRoutes },
+  { path: '/goods-receipt', route: goodsReceiptRoutes },
+  { path: '/sales-return', route: salesReturnRoutes },
+  { path: '/purchase-return', route: purchaseReturnRoutes },
+  { path: '/bom', route: bomRoutes },
+  { path: '/reservation', route: reservationRoutes },
+  { path: '/ingredient-category', route: ingredientCategoryRoutes },
+  { path: '/purchase-payment', route: purchasePaymentRoutes },
+  { path: '/accounts-receivable', route: accountsReceivableRoutes },
+  { path: '/export', route: exportMasterRoutes }
+]
 
 routes.forEach(({ path, route }) => app.use(path, route))
 

@@ -18,7 +18,11 @@ async function enrichAuditFields(db, records) {
     attributes: ['id', 'userName', 'fullName']
   })
   users.forEach((u) => {
-    userCache[String(u.id)] = { id: u.id, userName: u.userName, fullName: u.fullName }
+    userCache[String(u.id)] = {
+      id: u.id,
+      userName: u.userName,
+      fullName: u.fullName
+    }
   })
 
   records.forEach((r) => {

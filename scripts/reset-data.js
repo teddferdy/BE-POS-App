@@ -16,13 +16,18 @@ async function resetData() {
     const [results] = await db.sequelize.query(
       `SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename`
     )
-    const allTables = results.map(r => r.tablename)
-    const tablesToTruncate = allTables.filter(t => !TABLES_TO_KEEP.includes(t) && t !== 'user' && t !== 'SequelizeMeta')
+    const allTables = results.map((r) => r.tablename)
+    const tablesToTruncate = allTables.filter(
+      (t) =>
+        !TABLES_TO_KEEP.includes(t) && t !== 'user' && t !== 'SequelizeMeta'
+    )
 
     await db.sequelize.transaction(async (t) => {
       console.log('🗑️  Truncating transactional tables...')
       for (const table of tablesToTruncate) {
-        await db.sequelize.query(`TRUNCATE TABLE "${table}" CASCADE`, { transaction: t })
+        await db.sequelize.query(`TRUNCATE TABLE "${table}" CASCADE`, {
+          transaction: t
+        })
         console.log(`   ✅ ${table}`)
       }
 

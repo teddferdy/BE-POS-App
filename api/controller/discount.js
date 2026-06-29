@@ -68,7 +68,7 @@ exports.getAllDiscount = async (req, res) => {
     const [activeCount, draftCount, inactiveCount] = await Promise.all([
       Discount.count({ where: { ...storeFilter, status: 'active' } }),
       Discount.count({ where: { ...storeFilter, status: 'draft' } }),
-      Discount.count({ where: { ...storeFilter, status: 'inactive' } }),
+      Discount.count({ where: { ...storeFilter, status: 'inactive' } })
     ])
 
     return res.status(200).json({
@@ -78,7 +78,12 @@ exports.getAllDiscount = async (req, res) => {
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
       data: rows.map((items) => items.dataValues),
-      stats: { total: activeCount + draftCount + inactiveCount, active: activeCount, draft: draftCount, inactive: inactiveCount }
+      stats: {
+        total: activeCount + draftCount + inactiveCount,
+        active: activeCount,
+        draft: draftCount,
+        inactive: inactiveCount
+      }
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -428,7 +433,7 @@ exports.postNewDiscount = async (req, res) => {
               : status === false || status === 'inactive'
                 ? 'inactive'
                 : status
-            : 'active',
+            : 'active'
       })
       createAudit(
         req,
@@ -548,7 +553,7 @@ exports.editDiscountById = async (req, res) => {
                 : body.status === false
                   ? 'inactive'
                   : body.status
-              : 'active',
+              : 'active'
         },
         {
           returning: true,
@@ -634,14 +639,22 @@ exports.getDiscountById = async (req, res) => {
       }
     })
     if (!discount) {
-      return res.status(404).json({ success: false, message: 'Discount not found' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Discount not found' })
     }
-    const usageCount = await Order.count({ where: { discountId: req.params.id } })
-    return res
-      .status(200)
-      .json({ success: true, message: 'Success', data: { ...discount.toJSON(), usageCount } })
+    const usageCount = await Order.count({
+      where: { discountId: req.params.id }
+    })
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: { ...discount.toJSON(), usageCount }
+    })
   } catch (error) {
     console.error('Error =>', error)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
   }
 }

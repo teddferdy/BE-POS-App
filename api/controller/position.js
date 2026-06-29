@@ -159,7 +159,7 @@ exports.addNewPosition = async (req, res) => {
                 ? 'inactive'
                 : body.status
             : 'active',
-        store: body.store || req.user?.store,
+        store: body.store || req.user?.store
       })
       createAudit(
         req,
@@ -215,7 +215,7 @@ exports.editPositionById = async (req, res) => {
                   ? 'inactive'
                   : body.status
               : 'active',
-          store: body.store || req.user?.store,
+          store: body.store || req.user?.store
         },
         {
           returning: true,

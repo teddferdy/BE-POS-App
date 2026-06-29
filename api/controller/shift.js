@@ -143,8 +143,7 @@ exports.postNewShift = async (req, res) => {
 }
 
 exports.editShiftById = async (req, res) => {
-  const { id, name, description, startTime, endTime, createdBy } =
-    req.body
+  const { id, name, description, startTime, endTime, createdBy } = req.body
   try {
     const getDuplicate = await Shift.findOne({
       where: {

@@ -160,7 +160,8 @@ const productionOrderController = {
   async create(req, res) {
     try {
       const { store } = req.cookies
-      const { productItemId, plannedQty, scheduledDate, notes, status } = req.body
+      const { productItemId, plannedQty, scheduledDate, notes, status } =
+        req.body
 
       if (!productItemId || !plannedQty || plannedQty < 1) {
         return res.status(400).json({
@@ -216,7 +217,8 @@ const productionOrderController = {
       const { id } = req.params
       const { store } = req.cookies
       const userRole = req.user?.roleType
-      const { productItemId, plannedQty, scheduledDate, notes, status } = req.body
+      const { productItemId, plannedQty, scheduledDate, notes, status } =
+        req.body
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store

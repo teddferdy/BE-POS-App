@@ -64,21 +64,27 @@ router.delete(
 // Download Template
 router.get(
   '/template',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   typePaymentController.downloadTemplate
 )
 
 // Download Data
 router.get(
   '/download',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   typePaymentController.downloadData
 )
 
 // Import Data
 router.post(
   '/import',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   uploadExcel.single('file'),
   typePaymentController.importData
 )

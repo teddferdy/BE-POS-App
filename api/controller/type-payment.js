@@ -19,9 +19,15 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
     })
 
     const [active, draft, inactive] = await Promise.all([
-      TypePayment.count({ where: { ...(store ? { store } : {}), status: 'active' } }),
-      TypePayment.count({ where: { ...(store ? { store } : {}), status: 'draft' } }),
-      TypePayment.count({ where: { ...(store ? { store } : {}), status: 'inactive' } })
+      TypePayment.count({
+        where: { ...(store ? { store } : {}), status: 'active' }
+      }),
+      TypePayment.count({
+        where: { ...(store ? { store } : {}), status: 'draft' }
+      }),
+      TypePayment.count({
+        where: { ...(store ? { store } : {}), status: 'inactive' }
+      })
     ])
 
     return res.status(200).json({
@@ -148,7 +154,7 @@ exports.postNewTypePayment = async (req, res) => {
               : status === false
                 ? 'inactive'
                 : status
-            : 'active',
+            : 'active'
       })
       createAudit(
         req,
@@ -206,7 +212,7 @@ exports.editTypePaymentById = async (req, res) => {
                 : body.status === false
                   ? 'inactive'
                   : body.status
-              : 'active',
+              : 'active'
         },
         {
           returning: true,
@@ -377,14 +383,14 @@ exports.importData = async (req, res) => {
     const errors = []
 
     const typeMap = {
-      'tunai': 'cash',
+      tunai: 'cash',
       'non-tunai': 'other',
-      'transfer': 'other',
-      'cash': 'cash',
-      'debit': 'debit',
-      'credit': 'credit',
+      transfer: 'other',
+      cash: 'cash',
+      debit: 'debit',
+      credit: 'credit',
       'e-wallet': 'e-wallet',
-      'other': 'other'
+      other: 'other'
     }
 
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {

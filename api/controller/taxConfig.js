@@ -453,11 +453,29 @@ const taxConfigController = {
   }
 }
 
-async function seedDefaultTaxes () {
+async function seedDefaultTaxes() {
   const defaults = [
-    { name: 'PPN 11%', rate: 11, type: 'percentage', description: 'Pajak Pertambahan Nilai standar barang/jasa', status: 'active' },
-    { name: 'PPh 23 2%', rate: 2, type: 'percentage', description: 'Pajak Penghasilan Pasal 23 atas jasa', status: 'active' },
-    { name: 'Non-Pajak', rate: 0, type: 'percentage', description: 'Transaksi tidak dikenakan pajak', status: 'active' }
+    {
+      name: 'PPN 11%',
+      rate: 11,
+      type: 'percentage',
+      description: 'Pajak Pertambahan Nilai standar barang/jasa',
+      status: 'active'
+    },
+    {
+      name: 'PPh 23 2%',
+      rate: 2,
+      type: 'percentage',
+      description: 'Pajak Penghasilan Pasal 23 atas jasa',
+      status: 'active'
+    },
+    {
+      name: 'Non-Pajak',
+      rate: 0,
+      type: 'percentage',
+      description: 'Transaksi tidak dikenakan pajak',
+      status: 'active'
+    }
   ]
   await db.taxConfig.bulkCreate(defaults, { individualHooks: false })
 }

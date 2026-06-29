@@ -119,9 +119,15 @@ const posController = {
           if (!pss) {
             const [rawPss] = await db.sequelize.query(
               `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
-              { bind: [item.productId, fromStore], type: db.sequelize.QueryTypes.SELECT, transaction: t }
+              {
+                bind: [item.productId, fromStore],
+                type: db.sequelize.QueryTypes.SELECT,
+                transaction: t
+              }
             )
-            pss = await db.product_store_stock.findByPk(rawPss.id, { transaction: t })
+            pss = await db.product_store_stock.findByPk(rawPss.id, {
+              transaction: t
+            })
           }
 
           const oldPssStock = Number(pss.stock) || 0
@@ -213,9 +219,15 @@ const posController = {
           if (!pss) {
             const [rawPss] = await db.sequelize.query(
               `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
-              { bind: [item.product, toStore], type: db.sequelize.QueryTypes.SELECT, transaction: t }
+              {
+                bind: [item.product, toStore],
+                type: db.sequelize.QueryTypes.SELECT,
+                transaction: t
+              }
             )
-            pss = await db.product_store_stock.findByPk(rawPss.id, { transaction: t })
+            pss = await db.product_store_stock.findByPk(rawPss.id, {
+              transaction: t
+            })
           }
 
           const oldPssStock = Number(pss.stock) || 0
@@ -254,7 +266,9 @@ const posController = {
 
           // Add destination store to category's store list if category is store-specific
           if (product.category) {
-            const category = await db.category.findByPk(product.category, { transaction: t })
+            const category = await db.category.findByPk(product.category, {
+              transaction: t
+            })
             if (category) {
               const catStore = category.store
               if (catStore && Array.isArray(catStore) && catStore.length > 0) {
@@ -263,7 +277,10 @@ const posController = {
                     attributes: ['id', 'name'],
                     transaction: t
                   })
-                  catStore.push({ id: Number(toStore), name: location?.name || '' })
+                  catStore.push({
+                    id: Number(toStore),
+                    name: location?.name || ''
+                  })
                   await category.update({ store: catStore }, { transaction: t })
                 }
               }
@@ -326,9 +343,15 @@ const posController = {
           if (!pss) {
             const [rawPss] = await db.sequelize.query(
               `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
-              { bind: [item.product, transfer.fromStore], type: db.sequelize.QueryTypes.SELECT, transaction: t }
+              {
+                bind: [item.product, transfer.fromStore],
+                type: db.sequelize.QueryTypes.SELECT,
+                transaction: t
+              }
             )
-            pss = await db.product_store_stock.findByPk(rawPss.id, { transaction: t })
+            pss = await db.product_store_stock.findByPk(rawPss.id, {
+              transaction: t
+            })
           }
 
           const oldPssStock = Number(pss.stock) || 0
@@ -448,16 +471,32 @@ const posController = {
           {
             model: db.stock_transfer_item,
             as: 'items',
-              include: [
-                { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku', 'image', 'barcode', 'stock', 'price'] }
-              ]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: [
+                  'id',
+                  'nameProduct',
+                  'sku',
+                  'image',
+                  'barcode',
+                  'stock',
+                  'price'
+                ]
+              }
+            ]
           },
           {
             model: db.location,
             as: 'fromStoreData',
             attributes: ['id', 'name', 'city', 'province', 'detailLocation']
           },
-          { model: db.location, as: 'toStoreData', attributes: ['id', 'name', 'city', 'province', 'detailLocation'] },
+          {
+            model: db.location,
+            as: 'toStoreData',
+            attributes: ['id', 'name', 'city', 'province', 'detailLocation']
+          },
           {
             model: db.user,
             as: 'transferredByData',
@@ -547,7 +586,10 @@ const posController = {
           })
           const oldPssStock = Number(pss.stock) || 0
           const newPssStock = oldPssStock + Number(qty)
-          await pss.update({ stock: newPssStock >= 0 ? newPssStock : 0 }, { transaction: t })
+          await pss.update(
+            { stock: newPssStock >= 0 ? newPssStock : 0 },
+            { transaction: t }
+          )
         }
 
         await db.stock_history.create(

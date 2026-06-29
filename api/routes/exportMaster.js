@@ -7,7 +7,9 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 
 router.get(
   '/master-data',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   exportMasterController.exportAll
 )
 

@@ -3,7 +3,10 @@
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     try {
-      const hasSkuColumn = await queryInterface.describeTable('product').then(table => 'sku' in table).catch(() => false)
+      const hasSkuColumn = await queryInterface
+        .describeTable('product')
+        .then((table) => 'sku' in table)
+        .catch(() => false)
       if (!hasSkuColumn) {
         await queryInterface.addColumn('product', 'sku', {
           type: Sequelize.STRING,
@@ -13,20 +16,29 @@ module.exports = {
     } catch (err) {
       console.log('Column sku already exists or error checking:', err.message)
     }
-    
+
     try {
-      const hasBarcodeColumn = await queryInterface.describeTable('product').then(table => 'barcode' in table).catch(() => false)
+      const hasBarcodeColumn = await queryInterface
+        .describeTable('product')
+        .then((table) => 'barcode' in table)
+        .catch(() => false)
       if (!hasBarcodeColumn) {
         await queryInterface.addColumn('product', 'barcode', {
           type: Sequelize.STRING
         })
       }
     } catch (err) {
-      console.log('Column barcode already exists or error checking:', err.message)
+      console.log(
+        'Column barcode already exists or error checking:',
+        err.message
+      )
     }
-    
+
     try {
-      const hasBrandColumn = await queryInterface.describeTable('product').then(table => 'brand' in table).catch(() => false)
+      const hasBrandColumn = await queryInterface
+        .describeTable('product')
+        .then((table) => 'brand' in table)
+        .catch(() => false)
       if (!hasBrandColumn) {
         await queryInterface.addColumn('product', 'brand', {
           type: Sequelize.STRING
@@ -35,9 +47,12 @@ module.exports = {
     } catch (err) {
       console.log('Column brand already exists or error checking:', err.message)
     }
-    
+
     try {
-      const hasPointColumn = await queryInterface.describeTable('product').then(table => 'point' in table).catch(() => false)
+      const hasPointColumn = await queryInterface
+        .describeTable('product')
+        .then((table) => 'point' in table)
+        .catch(() => false)
       if (!hasPointColumn) {
         await queryInterface.addColumn('product', 'point', {
           type: Sequelize.INTEGER,

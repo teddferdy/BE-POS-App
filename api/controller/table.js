@@ -22,7 +22,16 @@ exports.getTablesByStore = async (req, res) => {
 
     const activeReservations = await Reservation.findAll({
       where: { store, status: ['pending', 'confirmed'] },
-      attributes: ['id', 'tableId', 'customerName', 'customerPhone', 'startTime', 'endTime', 'reservationDate', 'status']
+      attributes: [
+        'id',
+        'tableId',
+        'customerName',
+        'customerPhone',
+        'startTime',
+        'endTime',
+        'reservationDate',
+        'status'
+      ]
     })
     const reservationByTable = {}
     for (const r of activeReservations) {

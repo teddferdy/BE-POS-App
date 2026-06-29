@@ -62,7 +62,8 @@ router.get(
 // Add New Category - Admin & Super Admin only
 router.post(
   '/add-new-category',
-  authorization, requireRole('super_admin', 'admin'),
+  authorization,
+  requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
   categoryController.addNewCategory
 )
@@ -70,7 +71,8 @@ router.post(
 // Edit Category - Admin & Super Admin only
 router.put(
   '/edit-category/:id',
-  authorization, requireRole('super_admin', 'admin'),
+  authorization,
+  requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
   categoryController.editCategoryById
 )
@@ -78,28 +80,32 @@ router.put(
 // Delete Category - Admin & Super Admin only
 router.delete(
   '/delete-category/:id',
-  authorization, requireRole('super_admin', 'admin'),
+  authorization,
+  requireRole('super_admin', 'admin'),
   categoryController.deleteCategoryById
 )
 
 // Download Excel Template - Admin & Super Admin only
 router.get(
   '/download-template',
-  authorization, requireRole('super_admin', 'admin'),
+  authorization,
+  requireRole('super_admin', 'admin'),
   categoryController.exportCategory
 )
 
 // Download Excel Data - Admin & Super Admin only
 router.get(
   '/download',
-  authorization, requireRole('super_admin', 'admin'),
+  authorization,
+  requireRole('super_admin', 'admin'),
   categoryController.downloadData
 )
 
 // Upload Excel - Admin & Super Admin only
 router.post(
   '/upload-excel',
-  authorization, requireRole('super_admin', 'admin'),
+  authorization,
+  requireRole('super_admin', 'admin'),
   upload.single('file'),
   categoryController.importCategory
 )

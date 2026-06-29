@@ -27,9 +27,15 @@ const expenseCategoryController = {
 
       const storeWhere = store ? { store } : {}
       const [active, draft, inactive] = await Promise.all([
-        db.expense_category.count({ where: { ...storeWhere, status: 'active' } }),
-        db.expense_category.count({ where: { ...storeWhere, status: 'draft' } }),
-        db.expense_category.count({ where: { ...storeWhere, status: 'inactive' } })
+        db.expense_category.count({
+          where: { ...storeWhere, status: 'active' }
+        }),
+        db.expense_category.count({
+          where: { ...storeWhere, status: 'draft' }
+        }),
+        db.expense_category.count({
+          where: { ...storeWhere, status: 'inactive' }
+        })
       ])
 
       return res.status(200).json({

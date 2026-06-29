@@ -49,11 +49,15 @@ const generateInvoicePdf = (order, storeData, items) => {
     } else if (style === 'light') {
       const pairW = dashW + spaceW
       const pairs = Math.floor(PW / pairW)
-      line = Array.from({ length: pairs }, () => '- ').join('').trimEnd()
+      line = Array.from({ length: pairs }, () => '- ')
+        .join('')
+        .trimEnd()
     } else {
       const pairW = dashW + spaceW
       const pairs = Math.floor(PW / pairW)
-      line = Array.from({ length: pairs }, () => '- ').join('').trimEnd()
+      line = Array.from({ length: pairs }, () => '- ')
+        .join('')
+        .trimEnd()
     }
 
     const color = style === 'light' ? '#F3F4F6' : '#D1D5DB'
@@ -63,12 +67,22 @@ const generateInvoicePdf = (order, storeData, items) => {
 
   // ── Header ──
   doc.font('Courier-Bold').fontSize(10).fillColor('#1F2937')
-  center((storeData?.name || 'TOKO').toUpperCase(), { size: 10, font: 'Courier-Bold', color: '#1F2937' })
+  center((storeData?.name || 'TOKO').toUpperCase(), {
+    size: 10,
+    font: 'Courier-Bold',
+    color: '#1F2937'
+  })
   doc.moveDown(0.15)
 
   doc.font('Courier').fontSize(6.5).fillColor('#6B7280')
-  if (storeData?.address) center(storeData.address, { size: 6.5, font: 'Courier', color: '#6B7280' })
-  if (storeData?.phoneNumber) center('Telp: ' + storeData.phoneNumber, { size: 6.5, font: 'Courier', color: '#6B7280' })
+  if (storeData?.address)
+    center(storeData.address, { size: 6.5, font: 'Courier', color: '#6B7280' })
+  if (storeData?.phoneNumber)
+    center('Telp: ' + storeData.phoneNumber, {
+      size: 6.5,
+      font: 'Courier',
+      color: '#6B7280'
+    })
   doc.moveDown(0.2)
 
   hr('solid')
@@ -76,13 +90,25 @@ const generateInvoicePdf = (order, storeData, items) => {
 
   // ── Date & Invoice ──
   const d = new Date(order.createdAt)
-  const dateStr = d.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-  const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  const dateStr = d.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
+  const timeStr = d.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
   const invNum = order.orderNumber || order.id || '-'
   const cashier = order.cashierName || '-'
 
   writeRow(dateStr, timeStr, { size: 6.5, color: '#6B7280', lh: 9 })
-  writeRow('Invoice: ' + invNum, 'Kasir: ' + cashier, { size: 6.5, color: '#6B7280', lh: 9 })
+  writeRow('Invoice: ' + invNum, 'Kasir: ' + cashier, {
+    size: 6.5,
+    color: '#6B7280',
+    lh: 9
+  })
   doc.moveDown(0.1)
 
   hr('dashed')
@@ -91,9 +117,24 @@ const generateInvoicePdf = (order, storeData, items) => {
   // ── Member Info ──
   if (order.customerName) {
     doc.font('Courier-Bold').fontSize(6.5).fillColor('#374151')
-    writeRow(order.customerName, '', { size: 6.5, color: '#374151', bold: true, lh: 10 })
-    if (order.customerTier) writeRow('  Tier: ' + order.customerTier, '', { size: 6, color: '#6B7280', lh: 8 })
-    if (order.customerPoints) writeRow('  Poin: ' + Number(order.customerPoints).toLocaleString('id-ID'), '', { size: 6, color: '#6B7280', lh: 8 })
+    writeRow(order.customerName, '', {
+      size: 6.5,
+      color: '#374151',
+      bold: true,
+      lh: 10
+    })
+    if (order.customerTier)
+      writeRow('  Tier: ' + order.customerTier, '', {
+        size: 6,
+        color: '#6B7280',
+        lh: 8
+      })
+    if (order.customerPoints)
+      writeRow(
+        '  Poin: ' + Number(order.customerPoints).toLocaleString('id-ID'),
+        '',
+        { size: 6, color: '#6B7280', lh: 8 }
+      )
     doc.moveDown(0.1)
     hr('dashed')
     doc.moveDown(0.1)
@@ -141,7 +182,12 @@ const generateInvoicePdf = (order, storeData, items) => {
   doc.moveDown(0.1)
 
   // ── Totals ──
-  const subtotal = order.subTotal || items.reduce((s, i) => s + Number(i.totalPrice || i.price * i.quantity || 0), 0)
+  const subtotal =
+    order.subTotal ||
+    items.reduce(
+      (s, i) => s + Number(i.totalPrice || i.price * i.quantity || 0),
+      0
+    )
   const tax = order.taxAmount || Math.round(subtotal * 0.1)
   const discount = order.discountAmount || 0
   const serviceCharge = order.serviceChargeAmount || 0
@@ -150,8 +196,18 @@ const generateInvoicePdf = (order, storeData, items) => {
   doc.moveDown(0.1)
 
   writeRow('Subtotal', fmt(subtotal), { size: 7, color: '#374151', lh: 11 })
-  if (discount > 0) writeRow('Diskon', '-' + fmt(discount), { size: 7, color: '#374151', lh: 11 })
-  if (serviceCharge > 0) writeRow('Biaya Layanan', fmt(serviceCharge), { size: 7, color: '#374151', lh: 11 })
+  if (discount > 0)
+    writeRow('Diskon', '-' + fmt(discount), {
+      size: 7,
+      color: '#374151',
+      lh: 11
+    })
+  if (serviceCharge > 0)
+    writeRow('Biaya Layanan', fmt(serviceCharge), {
+      size: 7,
+      color: '#374151',
+      lh: 11
+    })
   writeRow('Pajak (10%)', fmt(tax), { size: 7, color: '#374151', lh: 11 })
 
   doc.moveDown(0.1)
@@ -162,19 +218,34 @@ const generateInvoicePdf = (order, storeData, items) => {
   doc.moveDown(0.1)
 
   doc.font('Courier-Bold').fontSize(9).fillColor('#111827')
-  writeRow('TOTAL', fmt(order.totalPrice || 0), { size: 9, color: '#111827', bold: true, lh: 14 })
+  writeRow('TOTAL', fmt(order.totalPrice || 0), {
+    size: 9,
+    color: '#111827',
+    bold: true,
+    lh: 14
+  })
 
   doc.moveDown(0.2)
 
   // ── Payment ──
   doc.font('Courier').fontSize(6.5).fillColor('#6B7280')
-  writeRow('Pembayaran: ' + (order.paymentMethod || '-'), '', { size: 6.5, color: '#6B7280', lh: 9 })
+  writeRow('Pembayaran: ' + (order.paymentMethod || '-'), '', {
+    size: 6.5,
+    color: '#6B7280',
+    lh: 9
+  })
 
   if (order.paymentMethod === 'Tunai') {
     const cashAmount = order.cashAmount || 0
     const changeAmount = order.changeAmount || 0
-    if (cashAmount > 0) writeRow('Tunai', fmt(cashAmount), { size: 6.5, color: '#6B7280', lh: 9 })
-    if (changeAmount > 0) writeRow('Kembali', fmt(changeAmount), { size: 6.5, color: '#6B7280', lh: 9 })
+    if (cashAmount > 0)
+      writeRow('Tunai', fmt(cashAmount), { size: 6.5, color: '#6B7280', lh: 9 })
+    if (changeAmount > 0)
+      writeRow('Kembali', fmt(changeAmount), {
+        size: 6.5,
+        color: '#6B7280',
+        lh: 9
+      })
   }
 
   if (order.paymentStatus === 'paid') {
@@ -187,7 +258,11 @@ const generateInvoicePdf = (order, storeData, items) => {
 
   // ── Footer ──
   doc.font('Courier-Oblique').fontSize(6.5).fillColor('#9CA3AF')
-  center('Terima kasih atas kunjungan Anda', { size: 6.5, font: 'Courier-Oblique', color: '#9CA3AF' })
+  center('Terima kasih atas kunjungan Anda', {
+    size: 6.5,
+    font: 'Courier-Oblique',
+    color: '#9CA3AF'
+  })
 
   doc.end()
 

@@ -9,7 +9,13 @@ async function backfill() {
 
   for (const p of products) {
     let stores = p.store
-    if (typeof stores === 'string') { try { stores = JSON.parse(stores) } catch { stores = null } }
+    if (typeof stores === 'string') {
+      try {
+        stores = JSON.parse(stores)
+      } catch {
+        stores = null
+      }
+    }
     if (!Array.isArray(stores) || stores.length === 0) continue
 
     const perStore = Math.floor((Number(p.stock) || 0) / stores.length)
@@ -31,4 +37,7 @@ async function backfill() {
   process.exit(0)
 }
 
-backfill().catch((err) => { console.error(err); process.exit(1) })
+backfill().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

@@ -30,15 +30,26 @@ const ingredientCategoryController = {
 
       const totalPages = Math.ceil(total / limit)
 
-      const active = await db.ingredientCategory.count({ where: { ...where, status: 'active' } })
-      const draft = await db.ingredientCategory.count({ where: { ...where, status: 'draft' } })
-      const inactive = await db.ingredientCategory.count({ where: { ...where, status: 'inactive' } })
+      const active = await db.ingredientCategory.count({
+        where: { ...where, status: 'active' }
+      })
+      const draft = await db.ingredientCategory.count({
+        where: { ...where, status: 'draft' }
+      })
+      const inactive = await db.ingredientCategory.count({
+        where: { ...where, status: 'inactive' }
+      })
 
       return res.status(200).json({
         success: true,
         message: 'Success get ingredient categories',
         data: categories,
-        pagination: { page: parseInt(page), limit: parseInt(limit), total, totalPages },
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          totalPages
+        },
         stats: { total, active, draft, inactive }
       })
     } catch (error) {
@@ -101,7 +112,9 @@ const ingredientCategoryController = {
 
       const category = await db.ingredientCategory.create({
         name: name.trim(),
-        status: ['active', 'inactive', 'draft'].includes(status) ? status : 'active',
+        status: ['active', 'inactive', 'draft'].includes(status)
+          ? status
+          : 'active',
         createdBy
       })
 
@@ -264,7 +277,11 @@ const ingredientCategoryController = {
         worksheet.getCell(`B${rowIndex}`).protection = { locked: false }
 
         worksheet.getCell(`C${rowIndex}`).value =
-          cat.status === 'active' ? 'Active' : cat.status === 'draft' ? 'Draft' : 'Non-Active'
+          cat.status === 'active'
+            ? 'Active'
+            : cat.status === 'draft'
+              ? 'Draft'
+              : 'Non-Active'
         worksheet.getCell(`C${rowIndex}`).protection = { locked: false }
         worksheet.getCell(`C${rowIndex}`).dataValidation = {
           type: 'list',
@@ -357,7 +374,12 @@ const ingredientCategoryController = {
         worksheet.addRow({
           id: c.id,
           name: c.name,
-          status: c.status === 'active' ? 'Active' : c.status === 'draft' ? 'Draft' : 'Non-Active',
+          status:
+            c.status === 'active'
+              ? 'Active'
+              : c.status === 'draft'
+                ? 'Draft'
+                : 'Non-Active',
           createdAt: c.createdAt ? c.createdAt.toISOString() : ''
         })
       })
@@ -412,7 +434,11 @@ const ingredientCategoryController = {
             name: name.trim(),
             status: (() => {
               const s = statusRaw.toString().toLowerCase()
-              return s === 'draft' ? 'draft' : s === 'inactive' || s === 'non-active' ? 'inactive' : 'active'
+              return s === 'draft'
+                ? 'draft'
+                : s === 'inactive' || s === 'non-active'
+                  ? 'inactive'
+                  : 'active'
             })(),
             createdBy: req.user?.id || null
           })

@@ -7,25 +7,41 @@ const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 // Get All Shift - All authenticated users
-router.get('/get-shift', authorization, validateStoreAccess, shiftController.getAllShift)
+router.get(
+  '/get-shift',
+  authorization,
+  validateStoreAccess,
+  shiftController.getAllShift
+)
 
 // Get Shift Dropdown
-router.get('/dropdown', authorization, validateStoreAccess, shiftController.getShiftDropdown)
+router.get(
+  '/dropdown',
+  authorization,
+  validateStoreAccess,
+  shiftController.getShiftDropdown
+)
 
 // Add/Edit/Delete Shift - Admin & Super Admin only
 router.post(
   '/add-new-shift',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   shiftController.postNewShift
 )
 router.put(
   '/edit-shift/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   shiftController.editShiftById
 )
 router.delete(
   '/delete-shift/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   shiftController.deleteShiftById
 )
 

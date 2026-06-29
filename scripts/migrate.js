@@ -15,10 +15,11 @@ async function sync() {
     await db.sequelize.sync({ force: true })
     console.log('✅ Schema sync completed!\n')
 
-    const [tables] = await db.sequelize.query(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)
+    const [tables] = await db.sequelize.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+    )
     console.log(`📋 Total tables: ${tables.length}`)
-    console.log('Tables:', tables.map(t => t.table_name).join(', '))
-
+    console.log('Tables:', tables.map((t) => t.table_name).join(', '))
   } catch (error) {
     console.error('❌ Sync failed:', error.message)
     process.exit(1)

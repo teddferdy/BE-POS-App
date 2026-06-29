@@ -65,57 +65,77 @@ const uploadImport = multer({
 // Product Template - Admin & Super Admin only
 router.get(
   '/template',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   productController.downloadTemplate
 )
 router.get(
   '/download',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   productController.downloadData
 )
 router.post(
   '/import',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   uploadImport,
   productController.importProduct
 )
 
 // Product CRUD
 // Read products - All authenticated users
-router.get('/get-product', authorization, validateStoreAccess, productController.getAllProduct)
+router.get(
+  '/get-product',
+  authorization,
+  validateStoreAccess,
+  productController.getAllProduct
+)
 router.get(
   '/get-product-by-super-admin',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   productController.getProductByLocationSuperAdmin
 )
 router.get(
   '/get-product-all',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   productController.getAllProductInTable
 )
 
 // Create/Update/Delete - Admin & Super Admin only
 router.post(
   '/add-product',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   upload,
   productController.postAddProduct
 )
 router.put(
   '/edit-product',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   upload,
   productController.editProductByLocationAndId
 )
 router.delete(
   '/delete-product/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   productController.deleteProductByIdAndLocation
 )
 
 router.get(
   '/get-by-id/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   productController.getProductById
 )
 

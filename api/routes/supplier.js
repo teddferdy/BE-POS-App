@@ -10,40 +10,62 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 
 // Get suppliers - All authenticated users
 router.get('/', authorization, validateStoreAccess, supplierController.getAll)
-router.get('/detail/:id', authorization, validateStoreAccess, supplierController.getDetail)
-router.get('/:id', authorization, validateStoreAccess, supplierController.getById)
+router.get(
+  '/detail/:id',
+  authorization,
+  validateStoreAccess,
+  supplierController.getDetail
+)
+router.get(
+  '/:id',
+  authorization,
+  validateStoreAccess,
+  supplierController.getById
+)
 
 // Create/Edit/Delete - Admin & Super Admin only
 router.post(
   '/',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   supplierController.create
 )
 router.put(
   '/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   supplierController.update
 )
 router.delete(
   '/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   supplierController.delete
 )
 
 // Download/Upload - Super Admin only
 router.get(
   '/template',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   supplierController.downloadTemplate
 )
 router.get(
   '/download',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   supplierController.downloadData
 )
 router.post(
   '/import',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   uploadExcel.single('file'),
   supplierController.importData
 )

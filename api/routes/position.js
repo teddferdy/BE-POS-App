@@ -17,9 +17,11 @@ const upload = multer({
       'application/vnd.ms-excel',
       'application/octet-stream'
     ]
-    if (allowedMimes.includes(file.mimetype) ||
-        file.originalname.endsWith('.xlsx') ||
-        file.originalname.endsWith('.xls')) {
+    if (
+      allowedMimes.includes(file.mimetype) ||
+      file.originalname.endsWith('.xlsx') ||
+      file.originalname.endsWith('.xls')
+    ) {
       cb(null, true)
     } else {
       cb(new Error('File harus berupa Excel (.xlsx atau .xls)'), false)
@@ -31,26 +33,34 @@ const upload = multer({
 })
 
 // Get All position
-router.get('/get-position', authorization, validateStoreAccess, positionController.getAllPosition)
+router.get(
+  '/get-position',
+  authorization,
+  validateStoreAccess,
+  positionController.getAllPosition
+)
 
 // Get position by ID
 router.get(
   '/get-position/:id',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   positionController.getPositionById
 )
 
 // Get All List To Table
 router.get(
   '/get-position-all',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   positionController.getAllPositionInTable
 )
 
 // Add position
 router.post(
   '/add-new-position',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   positionController.addNewPosition
 )
@@ -58,7 +68,8 @@ router.post(
 // Edit position
 router.put(
   '/edit-position/:id',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   positionController.editPositionById
 )
@@ -66,7 +77,8 @@ router.put(
 // Delete position
 router.delete(
   '/delete-position/:id',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   positionController.deletePositionById
 )
@@ -74,19 +86,22 @@ router.delete(
 // Excel upload/download routes
 router.get(
   '/download-template',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   positionController.downloadTemplate
 )
 
 router.get(
   '/download',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   positionController.downloadData
 )
 
 router.post(
   '/upload',
-  authorization, validateStoreAccess,
+  authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   upload.single('file'),
   positionController.uploadExcel

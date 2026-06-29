@@ -10,44 +10,66 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 
 // Get tax configs - All authenticated users
 router.get('/', authorization, validateStoreAccess, taxConfigController.getAll)
-router.get('/get-tax-config/:id', authorization, validateStoreAccess, taxConfigController.getById)
+router.get(
+  '/get-tax-config/:id',
+  authorization,
+  validateStoreAccess,
+  taxConfigController.getById
+)
 
 // Create/Edit/Delete - Admin & Super Admin only
 router.post(
   '/add-new-tax-config',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   taxConfigController.create
 )
 router.put(
   '/edit-tax-config/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   taxConfigController.update
 )
 router.delete(
   '/delete-tax-config/:id',
-  authorization, validateStoreAccess, requireRole('super_admin', 'admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   taxConfigController.delete
 )
 
 // Download/Upload - Super Admin only
 router.get(
   '/template',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   taxConfigController.downloadTemplate
 )
 router.get(
   '/download',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   taxConfigController.downloadData
 )
 router.post(
   '/import',
-  authorization, validateStoreAccess, requireRole('super_admin'),
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
   uploadExcel.single('file'),
   taxConfigController.importData
 )
 
 // Seed default PPh 2026 data
-router.post('/seed', authorization, validateStoreAccess, taxConfigController.seed)
+router.post(
+  '/seed',
+  authorization,
+  validateStoreAccess,
+  taxConfigController.seed
+)
 
 module.exports = router

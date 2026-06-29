@@ -76,18 +76,19 @@ const supplierController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [suppliers, total, activeCount, inactiveCount, draftCount] = await Promise.all([
-        db.supplier.findAll({
-          where,
-          order: [['createdAt', 'DESC']],
-          limit: parseInt(limit),
-          offset
-        }),
-        db.supplier.count({ where }),
-        db.supplier.count({ where: { ...where, status: 'active' } }),
-        db.supplier.count({ where: { ...where, status: 'inactive' } }),
-        db.supplier.count({ where: { ...where, status: 'draft' } })
-      ])
+      const [suppliers, total, activeCount, inactiveCount, draftCount] =
+        await Promise.all([
+          db.supplier.findAll({
+            where,
+            order: [['createdAt', 'DESC']],
+            limit: parseInt(limit),
+            offset
+          }),
+          db.supplier.count({ where }),
+          db.supplier.count({ where: { ...where, status: 'active' } }),
+          db.supplier.count({ where: { ...where, status: 'inactive' } }),
+          db.supplier.count({ where: { ...where, status: 'draft' } })
+        ])
 
       return res.status(200).json({
         success: true,
@@ -144,8 +145,16 @@ const supplierController = {
   async create(req, res) {
     try {
       const store = req.user?.store
-      const { name, contactPerson, phone, email, address, description, isActive, status } =
-        req.body
+      const {
+        name,
+        contactPerson,
+        phone,
+        email,
+        address,
+        description,
+        isActive,
+        status
+      } = req.body
       const createdBy = req.user?.id || null
 
       const trimmedName = name?.trim()
@@ -302,7 +311,9 @@ const supplierController = {
             id: { [Op.ne]: id },
             [Op.or]: [
               { name: { [Op.iLike]: trimmedName } },
-              ...(email?.trim() ? [{ email: { [Op.iLike]: email.trim() } }] : [])
+              ...(email?.trim()
+                ? [{ email: { [Op.iLike]: email.trim() } }]
+                : [])
             ]
           },
           paranoid: false
@@ -323,12 +334,17 @@ const supplierController = {
       await supplier.update({
         name: trimmedName ?? supplier.name,
         contactPerson:
-          contactPerson !== undefined ? contactPerson?.trim() || null : supplier.contactPerson,
+          contactPerson !== undefined
+            ? contactPerson?.trim() || null
+            : supplier.contactPerson,
         phone: phone !== undefined ? phone?.trim() || null : supplier.phone,
         email: email !== undefined ? email?.trim() || null : supplier.email,
-        address: address !== undefined ? address?.trim() || null : supplier.address,
+        address:
+          address !== undefined ? address?.trim() || null : supplier.address,
         description:
-          description !== undefined ? description?.trim() || null : supplier.description,
+          description !== undefined
+            ? description?.trim() || null
+            : supplier.description,
         status:
           status !== undefined
             ? status === true
@@ -416,7 +432,14 @@ const supplierController = {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Supplier Template')
 
-      const headers = ['Name', 'Contact Person', 'Phone', 'Email', 'Address', 'Status']
+      const headers = [
+        'Name',
+        'Contact Person',
+        'Phone',
+        'Email',
+        'Address',
+        'Status'
+      ]
       worksheet.addRow(headers)
 
       worksheet.getRow(1).font = { bold: true }
@@ -435,13 +458,13 @@ const supplierController = {
         { width: 12 }
       ]
 
-       for (let row = 2; row <= 12; row++) {
-         worksheet.getCell(`F${row}`).dataValidation = {
-           type: 'list',
-           allowBlank: true,
-           formulae: ['"Active,Non-Active,Draft"']
-         }
-       }
+      for (let row = 2; row <= 12; row++) {
+        worksheet.getCell(`F${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Active,Non-Active,Draft"']
+        }
+      }
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -495,18 +518,22 @@ const supplierController = {
         fgColor: { argb: 'FFD3D3D3' }
       }
 
-       suppliers.forEach((s) =>
-         worksheet.addRow([
-           s.id,
-           s.name,
-           s.contactPerson || '',
-           s.phone,
-           s.email,
-           s.address,
-           s.status === 'active' ? 'Active' : s.status === 'draft' ? 'Draft' : 'Inactive',
-           s.createdAt ? s.createdAt.toISOString() : ''
-         ])
-       )
+      suppliers.forEach((s) =>
+        worksheet.addRow([
+          s.id,
+          s.name,
+          s.contactPerson || '',
+          s.phone,
+          s.email,
+          s.address,
+          s.status === 'active'
+            ? 'Active'
+            : s.status === 'draft'
+              ? 'Draft'
+              : 'Inactive',
+          s.createdAt ? s.createdAt.toISOString() : ''
+        ])
+      )
 
       worksheet.columns = [
         { width: 10 },
@@ -558,7 +585,8 @@ const supplierController = {
         if (rowNumber === 1) return
 
         try {
-          const [name, contactPerson, phone, email, address, status] = row.values
+          const [name, contactPerson, phone, email, address, status] =
+            row.values
 
           if (!name) {
             errors.push(`Row ${rowNumber}: Name is required`)
