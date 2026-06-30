@@ -1,0 +1,235 @@
+[
+  {
+    "q": "Cara reset password?",
+    "a": "Buka menu Profil > Ubah Password. Kalo lupa password lama, hubungi super admin untuk reset dari menu Pengaturan > Karyawan.",
+    "keywords": ["password", "lupa", "reset", "login", "masuk", "akun"]
+  },
+  {
+    "q": "Bagaimana cara cetak ulang nota?",
+    "a": "Buka Riwayat Transaksi, cari transaksi yang mau dicetak ulang, klik tombol Cetak Ulang / Print.",
+    "keywords": ["nota", "cetak", "print", "struk", "ulang", "receipt"]
+  },
+  {
+    "q": "Stok barang tidak sesuai?",
+    "a": "Lakukan stok opname manual: Inventory > Stok Opname > Buat Baru. Masukkan stok fisik, sistem akan hitung selisih otomatis.",
+    "keywords": [
+      "stok",
+      "barang",
+      "tidak sesuai",
+      "selisih",
+      "inventaris",
+      "opname",
+      "fisik"
+    ]
+  },
+  {
+    "q": "Cara refund pesanan?",
+    "a": "Super admin bisa refund lewat Transaksi > Riwayat > pilih transaksi > Refund. Diperlukan password super admin.",
+    "keywords": ["refund", "return", "batal", "kembali", "uang", "cancel"]
+  },
+  {
+    "q": "Lihat laporan penjualan harian?",
+    "a": "Buka menu Reports > Penjualan Harian. Filter tanggal, export ke Excel/PDF. Bisa lihat per shift juga.",
+    "keywords": [
+      "laporan",
+      "penjualan",
+      "harian",
+      "report",
+      "hari ini",
+      "pendapatan"
+    ]
+  },
+  {
+    "q": "Tambah produk baru?",
+    "a": "Product > Tambah Produk. Isi nama, harga, kategori, stok awal. Kalo pake varian (ukuran/toping), aktifkan opsi varian.",
+    "keywords": ["produk", "tambah", "baru", "item", "menu", "barang"]
+  },
+  {
+    "q": "Cara edit produk?",
+    "a": "Product > cari produk > klik edit. Ubah harga, nama, kategori, atau stok. Kalo harga berubah, stok harga lama ttp berlaku.",
+    "keywords": ["produk", "edit", "ubah", "harga", "nama"]
+  },
+  {
+    "q": "Hapus produk?",
+    "a": "Product > cari produk > klik ikon hapus. Produk yang sudah pernah dipakai di transaksi tidak bisa dihapus, hanya di-nonaktifkan.",
+    "keywords": ["produk", "hapus", "delete", "nonaktif", "arsip"]
+  },
+  {
+    "q": "Cara daftarkan member baru?",
+    "a": "Member > Tambah Member. Isi nama, no telepon, email (opsional). Bisa juga pas checkout dengan centang 'Daftarkan sebagai member'.",
+    "keywords": [
+      "member",
+      "daftar",
+      "tambah",
+      "pelanggan",
+      "customer",
+      "register"
+    ]
+  },
+  {
+    "q": "Diskon bagaimana caranya?",
+    "a": "Buat diskon lewat Discount > Tambah Diskon. Tentukan nominal/persen, periode berlaku, dan produk yang termasuk. Bisa diskon global atau per produk.",
+    "keywords": ["diskon", "discount", "potongan", "promo", "ongkir"]
+  },
+  {
+    "q": "Ganti shift kasir?",
+    "a": "Shift > Buka Shift Baru. Shift sebelumnya harus ditutup dulu dengan setor saldo akhir. History shift bisa dilihat di laporan shift.",
+    "keywords": ["shift", "kasir", "ganti", "tutup", "buka", "setor"]
+  },
+  {
+    "q": "Cara split bill / bayar terpisah?",
+    "a": "Pas checkout, klik Split Bill. Masukkan jumlah per pembayaran (misal 3 orang @50rb). Sistem akan bagi otomatis atau manual.",
+    "keywords": ["split", "bill", "bayar", "terpisah", "pisah", "patungan"]
+  },
+  {
+    "q": "Atur meja / table management?",
+    "a": "Table > Kelola Meja. Bisa tambah, hapus, gabung meja. Status meja: tersedia, terisi, reserved. Geser meja buat atur layout.",
+    "keywords": ["meja", "table", "kursi", "layout", "restoran", "dine in"]
+  },
+  {
+    "q": "Reservasi meja?",
+    "a": "Reservation > Buat Reservasi. Pilih meja, nama customer, jam. Meja otomatis ke-reserve pas waktunya. Notifikasi muncul ke kasir.",
+    "keywords": ["reservasi", "booking", "meja", "pesan", "datang"]
+  },
+  {
+    "q": "Tambah supplier / pemasok?",
+    "a": "Supplier > Tambah Supplier. Isi nama, kontak, alamat, dan produk yang biasa disuplai.",
+    "keywords": ["supplier", "vendor", "pemasok", "tambah"]
+  },
+  {
+    "q": "Buat purchase order (PO)?",
+    "a": "Purchase Order > Buat PO. Pilih supplier, masukkan barang & jumlah. Status: draft → dikirim → diterima → lunas.",
+    "keywords": ["po", "purchase", "order", "beli", "pesan", "supplier"]
+  },
+  {
+    "q": "Terima barang dari PO?",
+    "a": "Goods Receipt > Buat Penerimaan. Pilih PO yang sudah dikirim, cek barang sesuai, konfirmasi. Stok otomatis bertambah.",
+    "keywords": [
+      "terima",
+      "barang",
+      "goods",
+      "receipt",
+      "po",
+      "datang",
+      "masuk"
+    ]
+  },
+  {
+    "q": "Cara lihat riwayat stok?",
+    "a": "Stock History > filter tanggal / produk. Lihat mutasi: barang masuk, keluar, opname, adjustment. Bisa export ke Excel.",
+    "keywords": ["riwayat", "stok", "history", "mutasi", "keluar", "masuk"]
+  },
+  {
+    "q": "Atur pajak (PPN)?",
+    "a": "Tax Config > Tambah Pajak. Set persentase, beri nama (misal PPN 11%). Pajak bisa diterapkan per produk atau global.",
+    "keywords": ["pajak", "ppn", "tax", "pemerintah"]
+  },
+  {
+    "q": "Export data ke Excel?",
+    "a": "Hampir semua laporan punya tombol Export / Download Excel. Bisa juga export master data dari menu Export Master.",
+    "keywords": ["export", "excel", "download", "xlsx", "csv"]
+  },
+  {
+    "q": "Tambah karyawan baru?",
+    "a": "Employee > Tambah. Isi nama, role (kasir/admin/super admin), dan posisi. Karyawan baru bisa langsung login.",
+    "keywords": ["karyawan", "employee", "staff", "pegawai", "tambah"]
+  },
+  {
+    "q": "Atur role dan akses?",
+    "a": "Role > Kelola Role. Tentukan akses: kasir cuma transaksi, admin bisa laporan + produk, super admin full.",
+    "keywords": ["role", "hak", "akses", "otorisasi", "ijin"]
+  },
+  {
+    "q": "Laporan laba rugi?",
+    "a": "Reports > Laba Rugi. Lihat pendapatan - modal - biaya operasional = laba bersih. Filter bulan/tahun.",
+    "keywords": ["laba", "rugi", "profit", "loss", "bersih", "pendapatan"]
+  },
+  {
+    "q": "Cara setor awal kasir?",
+    "a": "Cash Register > Setor Awal. Masukkan nominal uang awal di laci kasir. Wajib pas buka shift.",
+    "keywords": ["setor", "kas", "cash", "register", "laci", "uang awal"]
+  },
+  {
+    "q": "Nota hilang / gagal cetak?",
+    "a": "Cek Riwayat Transaksi > pilih transaksi > Cetak Ulang. Kalo printer error, cek koneksi USB/Bluetooth printer.",
+    "keywords": ["nota", "hilang", "gagal", "cetak", "print", "error"]
+  },
+  {
+    "q": "Split bill untuk berapa orang?",
+    "a": "Split Bill support 2-20 orang. Bisa manual (input nominal per orang) atau rata (sama rata).",
+    "keywords": ["split", "bill", "berapa", "orang", "maksimal"]
+  },
+  {
+    "q": "Ganti currency / mata uang?",
+    "a": "Currency > Kelola Mata Uang. Bisa tambah IDR, USD, dll. Ubah default di Pengaturan Toko.",
+    "keywords": ["currency", "mata", "uang", "rp", "dollar", "idr"]
+  },
+  {
+    "q": "Bahan baku / ingredient?",
+    "a": "Ingredient > Kelola Bahan. Bisa kaitkan ke produk sebagai resep (BOM). Cocok buat resto/manufaktur.",
+    "keywords": ["bahan", "ingredient", "resep", "bom", "produksi"]
+  },
+  {
+    "q": "Cek audit log?",
+    "a": "Audit Log > lihat semua aktivitas: siapa login, edit produk, hapus transaksi, dll. Tidak bisa diedit.",
+    "keywords": ["audit", "log", "aktivitas", "riwayat", "siapa"]
+  },
+  {
+    "q": "Piutang / accounts receivable?",
+    "a": "Accounts Receivable > lihat daftar pelanggan yang masih punya tagihan. Bisa catat pembayaran cicilan.",
+    "keywords": ["piutang", "receivable", "tagihan", "hutang", "cicil"]
+  },
+  {
+    "q": "Cara topup saldo member?",
+    "a": "Member > cari member > Topup Saldo. Minimal topup bisa diatur di pengaturan member tier.",
+    "keywords": ["topup", "saldo", "member", "deposit", "isi"]
+  },
+  {
+    "q": "Kategori biaya operasional?",
+    "a": "Expense Category > buat kategori (listrik, air, sewa, gaji). Lalu Expense > catat pengeluaran per kategori.",
+    "keywords": ["biaya", "expense", "operasional", "pengeluaran", "kategori"]
+  },
+  {
+    "q": "Laporan produk terlaris?",
+    "a": "Reports > Best Selling. Lihat ranking produk berdasarkan qty terjual. Filter periode dan kategori.",
+    "keywords": ["terlaris", "best", "selling", "ranking", "populer", "favorit"]
+  },
+  {
+    "q": "Printer tidak terdeteksi?",
+    "a": "Cek: 1) Kabel/USB terpasang 2) Driver printer terinstall 3) Pilih printer default di Pengaturan. Untuk thermal printer, gunakan driver ESC/POS.",
+    "keywords": [
+      "printer",
+      "tidak",
+      "terdeteksi",
+      "error",
+      "usb",
+      "thermal",
+      "escpos"
+    ]
+  },
+  {
+    "q": "Cek versi / update sistem?",
+    "a": "Informasi versi ada di menu About / Tentang. Update otomatis via Vercel, tidak perlu install ulang.",
+    "keywords": ["versi", "update", "about", "tentang", "info"]
+  },
+  {
+    "q": "Internet mati, apa bisa transaksi?",
+    "a": "Mode offline tidak tersedia. Sistem membutuhkan koneksi internet untuk transaksi. Pastikan WiFi / LAN stabil.",
+    "keywords": ["internet", "mati", "offline", "koneksi", "jaringan", "error"]
+  },
+  {
+    "q": "Cara kirim struk via WhatsApp?",
+    "a": "Pas checkout, centang 'Kirim via WA'. Masukkan nomor telepon. Struk akan dikirim otomatis. Pengaturan WA di menu Integrasi.",
+    "keywords": ["wa", "whatsapp", "struk", "kirim", "nota", "chat"]
+  },
+  {
+    "q": "Retur pembelian (dari supplier)?",
+    "a": "Purchase Return > Buat Retur. Pilih PO yang sudah diterima, tentukan barang dan alasan retur. Stok otomatis berkurang.",
+    "keywords": ["retur", "purchase", "return", "supplier", "kembali"]
+  },
+  {
+    "q": "Retur penjualan (dari customer)?",
+    "a": "Sales Return > Buat Retur. Pilih transaksi, tentukan barang diretur. Uang kembali ke member / tunai sesuai metode bayar awal.",
+    "keywords": ["retur", "sales", "return", "customer", "pelanggan"]
+  }
+]

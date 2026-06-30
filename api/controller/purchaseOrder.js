@@ -500,6 +500,13 @@ const purchaseOrderController = {
         })
       }
 
+      if (purchaseOrder.status === 'received') {
+        return res.status(400).json({
+          success: false,
+          message: 'Purchase order already fully received'
+        })
+      }
+
       const transaction = await db.sequelize.transaction()
 
       try {
@@ -507,8 +514,7 @@ const purchaseOrderController = {
           for (const item of items) {
             await db.purchase_order_item.update(
               { receivedQuantity: item.receivedQuantity },
-              { where: { id: item.id, purchaseOrder: id } },
-              { transaction }
+              { where: { id: item.id, purchaseOrder: id }, transaction }
             )
 
             if (item.product) {
@@ -632,7 +638,7 @@ const purchaseOrderController = {
       if (purchaseOrder.status === 'received') {
         return res.status(400).json({
           success: false,
-          message: 'Cannot delete received order'
+          message: 'Cannot delete received order, use cancel instead'
         })
       }
 
@@ -653,6 +659,131 @@ const purchaseOrderController = {
       return res.status(200).json({
         success: true,
         message: 'Success delete purchase order'
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async cancel(req, res) {
+    try {
+      const { id } = req.params
+      const { store } = req.cookies
+
+      const where = { id }
+      if (store) where.store = store
+
+      const purchaseOrder = await db.purchase_order.findOne({
+        where,
+        include: [{ model: db.purchase_order_item, as: 'items' }]
+      })
+
+      if (!purchaseOrder) {
+        return res.status(404).json({
+          success: false,
+          message: 'Purchase order not found'
+        })
+      }
+
+      if (purchaseOrder.status === 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: 'Purchase order is already cancelled'
+        })
+      }
+
+      if (purchaseOrder.status === 'received') {
+        const grs = await db.goodsReceipt.findAll({
+          where: { purchaseOrderId: id, status: 'completed' },
+          include: [{ model: db.goodsReceiptItem, as: 'items' }]
+        })
+
+        const t = await db.sequelize.transaction()
+        try {
+          for (const gr of grs) {
+            for (const grItem of gr.items) {
+              const qty = parseInt(grItem.qtyReceived) || 0
+              if (qty <= 0) continue
+
+              if (grItem.purchaseOrderItem) {
+                await db.purchase_order_item.update(
+                  {
+                    receivedQuantity: db.sequelize.literal(
+                      `GREATEST(receivedQuantity - ${qty}, 0)`
+                    )
+                  },
+                  {
+                    where: { id: grItem.purchaseOrderItem, purchaseOrder: id },
+                    transaction: t
+                  }
+                )
+              }
+
+              if (grItem.product) {
+                const product = await db.product.findByPk(grItem.product, {
+                  transaction: t
+                })
+                if (product) {
+                  const qtyBefore = Number(product.stock) || 0
+                  await product.update(
+                    { stock: Math.max(qtyBefore - qty, 0) },
+                    { transaction: t }
+                  )
+                  await db.stock_history.create(
+                    {
+                      product: grItem.product,
+                      store: purchaseOrder.store,
+                      referenceType: 'adjustment',
+                      quantityBefore: qtyBefore,
+                      quantityChange: -qty,
+                      quantityAfter: Math.max(qtyBefore - qty, 0),
+                      unit: grItem.unit || 'pcs',
+                      notes: `PO cancel: ${purchaseOrder.orderNumber}`,
+                      createdBy: req.user?.id || null
+                    },
+                    { transaction: t }
+                  )
+                }
+              }
+            }
+
+            await gr.update(
+              { status: 'cancelled', modifiedBy: req.user?.id || null },
+              { transaction: t }
+            )
+          }
+
+          await purchaseOrder.update(
+            { status: 'cancelled', modifiedBy: req.user?.id || null },
+            { transaction: t }
+          )
+          await t.commit()
+        } catch (err) {
+          await t.rollback()
+          throw err
+        }
+      } else {
+        await purchaseOrder.update({
+          status: 'cancelled',
+          modifiedBy: req.user?.id || null
+        })
+      }
+
+      await createAudit(
+        req,
+        'update',
+        'purchase_order',
+        id,
+        'Cancelled purchase_order: ' + id
+      )
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success cancel purchase order'
       })
     } catch (error) {
       console.log(error)
@@ -846,9 +977,34 @@ const purchaseOrderController = {
           .json({ success: false, message: 'Validation errors', errors })
       }
 
-      const createdOrders = await db.purchase_order.bulkCreate(ordersToCreate, {
-        returning: true
-      })
+      const createdOrders = []
+      for (const data of ordersToCreate) {
+        const order = await db.purchase_order.create({
+          store: data.store,
+          orderNumber: generateOrderNumber('PO'),
+          supplier: data.supplier,
+          totalAmount: data.items.reduce((s, i) => s + i.quantity * i.price, 0),
+          discount: 0,
+          finalAmount: data.items.reduce((s, i) => s + i.quantity * i.price, 0),
+          status: 'draft',
+          orderDate: new Date(),
+          notes: data.notes,
+          createdBy: req.user?.id || null
+        })
+        const orderItems = data.items.map((item) => ({
+          purchaseOrder: order.id,
+          product: item.product || null,
+          ingredient: item.ingredient || null,
+          ingredientName: item.ingredientName || null,
+          quantity: item.quantity,
+          unit: item.unit || 'pcs',
+          price: item.price,
+          total: item.quantity * item.price,
+          receivedQuantity: 0
+        }))
+        await db.purchase_order_item.bulkCreate(orderItems)
+        createdOrders.push(order)
+      }
 
       await createAudit(
         req,

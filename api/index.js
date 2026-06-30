@@ -57,6 +57,7 @@ const ingredientCategoryRoutes = require('./routes/ingredientCategory')
 const purchasePaymentRoutes = require('./routes/purchasePayment')
 const accountsReceivableRoutes = require('./routes/accountsReceivable')
 const exportMasterRoutes = require('./routes/exportMaster')
+const faq = require('./routes/faq')
 
 const app = express()
 const server = http.createServer(app)
@@ -148,7 +149,8 @@ const routes = [
   { path: '/ingredient-category', route: ingredientCategoryRoutes },
   { path: '/purchase-payment', route: purchasePaymentRoutes },
   { path: '/accounts-receivable', route: accountsReceivableRoutes },
-  { path: '/export', route: exportMasterRoutes }
+  { path: '/export', route: exportMasterRoutes },
+  { path: '/faq', route: faq }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))

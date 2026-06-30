@@ -256,9 +256,9 @@ const goodsReceiptController = {
                 where: {
                   id: item.purchaseOrderItem,
                   purchaseOrder: purchaseOrderId
-                }
-              },
-              { transaction }
+                },
+                transaction
+              }
             )
           }
 
@@ -505,9 +505,9 @@ const goodsReceiptController = {
             where: {
               id: item.purchaseOrderItem,
               purchaseOrder: receipt.purchaseOrderId
-            }
-          },
-          { transaction }
+            },
+            transaction
+          }
         )
       }
 

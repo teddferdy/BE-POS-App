@@ -59,11 +59,13 @@ const accountsReceivableController = {
         const data = ar.toJSON()
         const due = new Date(data.dueDate)
         const diffDays = Math.floor((now - due) / (1000 * 60 * 60 * 24))
-        let agingBucket = '0-30'
-        if (diffDays > 90) agingBucket = '90+'
+        let agingBucket
+        if (diffDays <= 0) agingBucket = 'current'
+        else if (diffDays > 90) agingBucket = '90+'
         else if (diffDays > 60) agingBucket = '61-90'
         else if (diffDays > 30) agingBucket = '31-60'
-        data.agingBucket = diffDays > 0 ? agingBucket : '0-30'
+        else agingBucket = '0-30'
+        data.agingBucket = agingBucket
         data.overdueDays = diffDays > 0 ? diffDays : 0
         return data
       })
@@ -223,37 +225,51 @@ const accountsReceivableController = {
         })
       }
 
-      const payment = await db.ar_payment.create({
-        arId: ar.id,
-        amount: parseInt(amount),
-        paymentDate: paymentDate || new Date(),
-        paymentMethod: paymentMethod || 'cash',
-        reference: reference || null,
-        notes: notes || null,
-        createdBy: req.user?.id || null
-      })
+      const t = await db.sequelize.transaction()
+      try {
+        const payment = await db.ar_payment.create(
+          {
+            arId: ar.id,
+            amount: Number(amount),
+            paymentDate: paymentDate || new Date(),
+            paymentMethod: paymentMethod || 'cash',
+            reference: reference || null,
+            notes: notes || null,
+            createdBy: req.user?.id || null
+          },
+          { transaction: t }
+        )
 
-      const newPaidAmount = Number(ar.paidAmount) + Number(amount)
-      const newOutstanding = Number(ar.totalAmount) - newPaidAmount
-      const newStatus = newOutstanding <= 0 ? 'PAID' : 'PARTIAL'
+        const newPaidAmount = Number(ar.paidAmount) + Number(amount)
+        const newOutstanding = Number(ar.totalAmount) - newPaidAmount
+        const newStatus = newOutstanding <= 0 ? 'PAID' : 'PARTIAL'
 
-      await ar.update({
-        paidAmount: newPaidAmount,
-        outstandingAmount: newOutstanding,
-        status: newStatus
-      })
+        await ar.update(
+          {
+            paidAmount: newPaidAmount,
+            outstandingAmount: newOutstanding,
+            status: newStatus
+          },
+          { transaction: t }
+        )
 
-      await createAudit(
-        req,
-        'create',
-        'ar_payment',
-        payment.id,
-        `Recorded payment ${payment.id} for AR: ${ar.id}`
-      )
+        await t.commit()
 
-      return res
-        .status(201)
-        .json({ success: true, message: 'Payment recorded', data: payment })
+        await createAudit(
+          req,
+          'create',
+          'ar_payment',
+          payment.id,
+          `Recorded payment ${payment.id} for AR: ${ar.id}`
+        )
+
+        return res
+          .status(201)
+          .json({ success: true, message: 'Payment recorded', data: payment })
+      } catch (err) {
+        await t.rollback()
+        throw err
+      }
     } catch (error) {
       console.error('AR payment error:', error)
       return res
@@ -300,12 +316,16 @@ const accountsReceivableController = {
         const due = new Date(data.dueDate)
         const diffDays = Math.floor((now - due) / (1000 * 60 * 60 * 24))
 
-        let bucket = '0-30'
-        if (diffDays > 90) bucket = '90+'
+        let bucket
+        if (diffDays <= 0) bucket = 'current'
+        else if (diffDays > 90) bucket = '90+'
         else if (diffDays > 60) bucket = '61-90'
         else if (diffDays > 30) bucket = '31-60'
+        else bucket = '0-30'
 
         data.overdueDays = diffDays > 0 ? diffDays : 0
+        if (!buckets[bucket])
+          buckets[bucket] = { label: bucket, data: [], total: 0 }
         buckets[bucket].data.push(data)
         buckets[bucket].total += Number(data.outstandingAmount || 0)
       }

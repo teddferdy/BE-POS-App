@@ -17,8 +17,9 @@ exports.addNewTransaction = async (id, order) => {
     })
   }
 
-  for (let index = 0; index < order.length; index++) {
-    try {
+  const t = await db.sequelize.transaction()
+  try {
+    for (let index = 0; index < order.length; index++) {
       const findBestSelling = await BestSelling?.findOne({
         where: {
           productId: order[index].idProduct,
@@ -51,16 +52,24 @@ exports.addNewTransaction = async (id, order) => {
         })
       }
 
-      // Reduce product stock
-      const prod = await db.product.findByPk(order[index].idProduct)
+      const prod = await db.product.findByPk(order[index].idProduct, {
+        transaction: t
+      })
       if (prod) {
         const oldStock = Number(prod.stock) || 0
         const newStock = oldStock - Number(order[index].count)
-        await prod.update({ stock: newStock >= 0 ? newStock : 0 })
+        if (newStock < 0) {
+          throw new Error(
+            `Stok tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldStock}, dibutuhkan ${order[index].count}`
+          )
+        }
+        await prod.update({ stock: newStock }, { transaction: t })
       }
-    } catch (error) {
-      console.error(error)
     }
+    await t.commit()
+  } catch (error) {
+    await t.rollback()
+    throw error
   }
 }
 

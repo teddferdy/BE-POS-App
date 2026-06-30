@@ -54,6 +54,15 @@ router.put(
   purchaseOrderController.receive
 )
 
+// Cancel - Admin & Super Admin only
+router.put(
+  '/cancel/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  purchaseOrderController.cancel
+)
+
 // Download/Upload - Super Admin only
 router.get(
   '/template',

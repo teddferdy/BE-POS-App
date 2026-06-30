@@ -269,209 +269,226 @@ const stockOpnameController = {
         return sum + (item.selisihJumlah || 0)
       }, 0)
 
-      const opname = await db.stockOpname.create({
-        store: effectiveStore,
-        opnameNumber,
-        date: date || new Date(),
-        auditDate: auditDate || null,
-        auditor: auditor || null,
-        totalAdjustment,
-        status: reqStatus === 'completed' ? 'completed' : 'draft',
-        notes,
-        createdBy: req.user?.id || null
-      })
-
-      const opnameItems = items.map((item) => ({
-        stockOpname: opname.id,
-        kodeBarang: item.kodeBarang || null,
-        namaBarang: item.namaBarang || null,
-        satuan: item.satuan || null,
-        lokasiId: item.lokasiId || null,
-        lokasi:
-          item.lokasi !== null && item.lokasi !== undefined
-            ? String(item.lokasi)
-            : null,
-        product: item.product || item.productId || null, // Accept both product and productId for FE compatibility
-        ingredientName: item.ingredientName || null,
-        systemStock:
-          item.systemStock !== undefined
-            ? item.systemStock
-            : item.stokAkhirJumlah || 0,
-        actualStock:
-          item.actualStock !== undefined
-            ? item.actualStock
-            : item.stokFisikJumlah || 0,
-        adjustment:
-          item.adjustment !== undefined
-            ? item.adjustment
-            : item.selisihJumlah || 0,
-        unit: item.unit || item.satuan || 'pcs',
-        notes: null,
-        stokAwalJumlah: item.stokAwalJumlah || 0,
-        barangMasukJumlah: item.barangMasukJumlah || 0,
-        barangKeluarJumlah: item.barangKeluarJumlah || 0,
-        stokAkhirJumlah: item.stokAkhirJumlah || 0,
-        stokFisikJumlah: item.stokFisikJumlah || 0,
-        selisihJumlah: item.selisihJumlah || 0,
-        keterangan: item.keterangan || null
-      }))
-
-      await db.stockOpnameItem.bulkCreate(opnameItems)
-
-      const created = await db.stockOpname.findByPk(opname.id, {
-        include: [{ model: db.stockOpnameItem, as: 'items' }]
-      })
-
-      // Update stock & create history for each item
-      for (const item of created.items) {
-        let product = null
-        let ingredient = null
-
-        if (item.product) {
-          product = await db.product.findByPk(item.product)
-        }
-
-        if (!product && item.namaBarang) {
-          product = await db.product.findOne({
-            where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } }
-          })
-        }
-
-        if (product && !item.product) {
-          await item.update({ product: product.id })
-        }
-
-        if (item.ingredientName) {
-          ingredient = await db.ingredient.findOne({
-            where: { name: { [Op.iLike]: item.ingredientName.trim() } }
-          })
-        }
-
-        if (!ingredient && !product && item.namaBarang) {
-          ingredient = await db.ingredient.findOne({
-            where: { name: { [Op.iLike]: item.namaBarang.trim() } }
-          })
-        }
-
-        if (ingredient && !item.ingredientName) {
-          await item.update({ ingredientName: ingredient.name })
-        }
-
-        if (
-          product &&
-          item.stokFisikJumlah !== null &&
-          item.stokFisikJumlah !== undefined
-        ) {
-          const oldStock = Number(product.stock) || 0
-          const newStock = Number(item.stokFisikJumlah) || 0
-          const diff = newStock - oldStock
-
-          await product.update({ stock: newStock })
-
-          await db.stock_history.create({
-            product: product.id,
-            store: opname.store,
-            referenceType: 'opname',
-            quantityBefore: oldStock,
-            quantityChange: diff,
-            quantityAfter: newStock,
-            unit: item.unit || item.satuan || 'pcs',
-            notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+      const t = await db.sequelize.transaction()
+      try {
+        const opname = await db.stockOpname.create(
+          {
+            store: effectiveStore,
+            opnameNumber,
+            date: date || new Date(),
+            auditDate: auditDate || null,
+            auditor: auditor || null,
+            totalAdjustment,
+            status: reqStatus === 'completed' ? 'completed' : 'draft',
+            notes,
             createdBy: req.user?.id || null
-          })
+          },
+          { transaction: t }
+        )
+
+        const opnameItems = items.map((item) => ({
+          stockOpname: opname.id,
+          kodeBarang: item.kodeBarang || null,
+          namaBarang: item.namaBarang || null,
+          satuan: item.satuan || null,
+          lokasiId: item.lokasiId || null,
+          lokasi:
+            item.lokasi !== null && item.lokasi !== undefined
+              ? String(item.lokasi)
+              : null,
+          product: item.product || item.productId || null,
+          ingredientName: item.ingredientName || null,
+          systemStock:
+            item.systemStock !== undefined
+              ? item.systemStock
+              : item.stokAkhirJumlah || 0,
+          actualStock:
+            item.actualStock !== undefined
+              ? item.actualStock
+              : item.stokFisikJumlah || 0,
+          adjustment:
+            item.adjustment !== undefined
+              ? item.adjustment
+              : item.selisihJumlah || 0,
+          unit: item.unit || item.satuan || 'pcs',
+          notes: null,
+          stokAwalJumlah: item.stokAwalJumlah || 0,
+          barangMasukJumlah: item.barangMasukJumlah || 0,
+          barangKeluarJumlah: item.barangKeluarJumlah || 0,
+          stokAkhirJumlah: item.stokAkhirJumlah || 0,
+          stokFisikJumlah: item.stokFisikJumlah || 0,
+          selisihJumlah: item.selisihJumlah || 0,
+          keterangan: item.keterangan || null
+        }))
+
+        await db.stockOpnameItem.bulkCreate(opnameItems, { transaction: t })
+
+        const created = await db.stockOpname.findByPk(opname.id, {
+          include: [{ model: db.stockOpnameItem, as: 'items' }],
+          transaction: t
+        })
+
+        for (const item of created.items) {
+          let product = null
+          let ingredient = null
+
+          if (item.product) {
+            product = await db.product.findByPk(item.product, {
+              transaction: t
+            })
+          }
+
+          if (!product && item.namaBarang) {
+            product = await db.product.findOne({
+              where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } },
+              transaction: t
+            })
+          }
+
+          if (product && !item.product) {
+            await item.update({ product: product.id }, { transaction: t })
+          }
+
+          if (item.ingredientName) {
+            ingredient = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+              transaction: t
+            })
+          }
+
+          if (!ingredient && !product && item.namaBarang) {
+            ingredient = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+              transaction: t
+            })
+          }
+
+          if (ingredient && !item.ingredientName) {
+            await item.update(
+              { ingredientName: ingredient.name },
+              { transaction: t }
+            )
+          }
+
+          if (
+            product &&
+            item.stokFisikJumlah !== null &&
+            item.stokFisikJumlah !== undefined
+          ) {
+            const oldStock = Number(product.stock) || 0
+            const newStock = Number(item.stokFisikJumlah) || 0
+            const diff = newStock - oldStock
+            await product.update({ stock: newStock }, { transaction: t })
+            await db.stock_history.create(
+              {
+                product: product.id,
+                store: opname.store,
+                referenceType: 'opname',
+                quantityBefore: oldStock,
+                quantityChange: diff,
+                quantityAfter: newStock,
+                unit: item.unit || item.satuan || 'pcs',
+                notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+                createdBy: req.user?.id || null
+              },
+              { transaction: t }
+            )
+          }
+
+          if (
+            ingredient &&
+            item.stokFisikJumlah !== null &&
+            item.stokFisikJumlah !== undefined
+          ) {
+            const oldStock = Number(ingredient.stock) || 0
+            const newStock = Number(item.stokFisikJumlah) || 0
+            const diff = newStock - oldStock
+            await ingredient.update({ stock: newStock }, { transaction: t })
+            await db.stock_history.create(
+              {
+                ingredientName: ingredient.name,
+                store: opname.store,
+                referenceType: 'opname',
+                quantityBefore: oldStock,
+                quantityChange: diff,
+                quantityAfter: newStock,
+                unit: item.unit || item.satuan || ingredient.unit || 'pcs',
+                notes: `Stock opname: ${ingredient.name} (${item.keterangan || ''})`,
+                createdBy: req.user?.id || null
+              },
+              { transaction: t }
+            )
+          }
         }
 
-        if (
-          ingredient &&
-          item.stokFisikJumlah !== null &&
-          item.stokFisikJumlah !== undefined
-        ) {
-          const oldStock = Number(ingredient.stock) || 0
-          const newStock = Number(item.stokFisikJumlah) || 0
-          const diff = newStock - oldStock
-
-          await ingredient.update({ stock: newStock })
-
-          await db.stock_history.create({
-            ingredientName: ingredient.name,
-            store: opname.store,
-            referenceType: 'opname',
-            quantityBefore: oldStock,
-            quantityChange: diff,
-            quantityAfter: newStock,
-            unit: item.unit || item.satuan || ingredient.unit || 'pcs',
-            notes: `Stock opname: ${ingredient.name} (${item.keterangan || ''})`,
-            createdBy: req.user?.id || null
-          })
+        for (const item of created.items) {
+          let minStock = Infinity
+          if (item.product) {
+            const p = await db.product.findByPk(item.product, {
+              transaction: t
+            })
+            if (p) minStock = Number(p.minStock) || Infinity
+          }
+          if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+            const p = await db.product.findOne({
+              where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } },
+              transaction: t
+            })
+            if (p) minStock = Number(p.minStock) || Infinity
+          }
+          if (
+            (minStock === Infinity || minStock === 0) &&
+            item.ingredientName
+          ) {
+            const ing = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+              transaction: t
+            })
+            if (ing) minStock = Number(ing.minStock) || Infinity
+          }
+          if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+            const ing = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+              transaction: t
+            })
+            if (ing) minStock = Number(ing.minStock) || Infinity
+          }
+          const selisih = Number(item.selisihJumlah) || 0
+          let note
+          if (selisih !== 0) note = 'kurang'
+          else if (
+            minStock !== Infinity &&
+            Number(item.stokFisikJumlah) <= minStock
+          )
+            note = 'menipis'
+          else note = 'sesuai'
+          await item.update({ notes: note }, { transaction: t })
         }
+
+        const finalOpname = await db.stockOpname.findByPk(opname.id, {
+          include: [{ model: db.stockOpnameItem, as: 'items' }],
+          transaction: t
+        })
+
+        await t.commit()
+
+        await createAudit(
+          req,
+          'create',
+          'stock_opname',
+          opname.id,
+          'Created stock_opname: ' + opname.id
+        )
+
+        return res.status(201).json({
+          success: true,
+          message: 'Success create stock opname',
+          data: finalOpname
+        })
+      } catch (err) {
+        await t.rollback()
+        throw err
       }
-
-      // Compute item notes (sesuai/menipis/kurang) - search product/ingredient for minStock
-      for (const item of created.items) {
-        let minStock = Infinity
-
-        // 1. Try by product ID (after possible update in stock loop)
-        if (item.product) {
-          const p = await db.product.findByPk(item.product)
-          if (p) minStock = Number(p.minStock) || Infinity
-        }
-
-        // 2. Try by product name
-        if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
-          const p = await db.product.findOne({
-            where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } }
-          })
-          if (p) minStock = Number(p.minStock) || Infinity
-        }
-
-        // 3. Try by ingredientName
-        if ((minStock === Infinity || minStock === 0) && item.ingredientName) {
-          const ing = await db.ingredient.findOne({
-            where: { name: { [Op.iLike]: item.ingredientName.trim() } }
-          })
-          if (ing) minStock = Number(ing.minStock) || Infinity
-        }
-
-        // 4. Try ingredient by namaBarang
-        if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
-          const ing = await db.ingredient.findOne({
-            where: { name: { [Op.iLike]: item.namaBarang.trim() } }
-          })
-          if (ing) minStock = Number(ing.minStock) || Infinity
-        }
-
-        const selisih = Number(item.selisihJumlah) || 0
-        let note
-        if (selisih !== 0) {
-          note = 'kurang'
-        } else if (
-          minStock !== Infinity &&
-          Number(item.stokFisikJumlah) <= minStock
-        ) {
-          note = 'menipis'
-        } else {
-          note = 'sesuai'
-        }
-        await item.update({ notes: note })
-      }
-
-      const finalOpname = await db.stockOpname.findByPk(opname.id, {
-        include: [{ model: db.stockOpnameItem, as: 'items' }]
-      })
-
-      await createAudit(
-        req,
-        'create',
-        'stock_opname',
-        created.id,
-        'Created stock_opname: ' + created.id
-      )
-
-      return res.status(201).json({
-        success: true,
-        message: 'Success create stock opname',
-        data: finalOpname
-      })
     } catch (error) {
       console.error(error)
       return res.status(500).json({
@@ -690,6 +707,184 @@ const stockOpnameController = {
         })
       }
 
+      if (status === 'completed') {
+        const t = await db.sequelize.transaction()
+        try {
+          const updated = await db.stockOpname.findByPk(id, {
+            include: [{ model: db.stockOpnameItem, as: 'items' }],
+            transaction: t
+          })
+
+          for (const item of updated.items) {
+            let product = null
+            let ingredient = null
+
+            if (item.product) {
+              product = await db.product.findByPk(item.product, {
+                transaction: t
+              })
+            }
+
+            if (!product && item.namaBarang) {
+              product = await db.product.findOne({
+                where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } },
+                transaction: t
+              })
+            }
+
+            if (product && !item.product) {
+              await item.update({ product: product.id }, { transaction: t })
+            }
+
+            if (item.ingredientName) {
+              ingredient = await db.ingredient.findOne({
+                where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+                transaction: t
+              })
+            }
+
+            if (!ingredient && !product && item.namaBarang) {
+              ingredient = await db.ingredient.findOne({
+                where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+                transaction: t
+              })
+            }
+
+            if (ingredient && !item.ingredientName) {
+              await item.update(
+                { ingredientName: ingredient.name },
+                { transaction: t }
+              )
+            }
+
+            if (
+              product &&
+              item.stokFisikJumlah !== null &&
+              item.stokFisikJumlah !== undefined
+            ) {
+              const oldStock = Number(product.stock) || 0
+              const newStock = Number(item.stokFisikJumlah) || 0
+              const diff = newStock - oldStock
+              await product.update({ stock: newStock }, { transaction: t })
+              await db.stock_history.create(
+                {
+                  product: product.id,
+                  store: opname.store,
+                  referenceType: 'opname',
+                  quantityBefore: oldStock,
+                  quantityChange: diff,
+                  quantityAfter: newStock,
+                  unit: item.unit || item.satuan || 'pcs',
+                  notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction: t }
+              )
+            }
+
+            if (
+              ingredient &&
+              item.stokFisikJumlah !== null &&
+              item.stokFisikJumlah !== undefined
+            ) {
+              const oldStock = Number(ingredient.stock) || 0
+              const newStock = Number(item.stokFisikJumlah) || 0
+              const diff = newStock - oldStock
+              await ingredient.update({ stock: newStock }, { transaction: t })
+              await db.stock_history.create(
+                {
+                  ingredientName: ingredient.name,
+                  store: opname.store,
+                  referenceType: 'opname',
+                  quantityBefore: oldStock,
+                  quantityChange: diff,
+                  quantityAfter: newStock,
+                  unit: item.unit || item.satuan || ingredient.unit || 'pcs',
+                  notes: `Stock opname: ${ingredient.name} (${item.keterangan || ''})`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction: t }
+              )
+            }
+          }
+
+          for (const item of updated.items) {
+            let minStock = Infinity
+            if (item.product) {
+              const p = await db.product.findByPk(item.product, {
+                transaction: t
+              })
+              if (p) minStock = Number(p.minStock) || Infinity
+            }
+            if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+              const p = await db.product.findOne({
+                where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } },
+                transaction: t
+              })
+              if (p) minStock = Number(p.minStock) || Infinity
+            }
+            if (
+              (minStock === Infinity || minStock === 0) &&
+              item.ingredientName
+            ) {
+              const ing = await db.ingredient.findOne({
+                where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+                transaction: t
+              })
+              if (ing) minStock = Number(ing.minStock) || Infinity
+            }
+            if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
+              const ing = await db.ingredient.findOne({
+                where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+                transaction: t
+              })
+              if (ing) minStock = Number(ing.minStock) || Infinity
+            }
+            const selisih = Number(item.selisihJumlah) || 0
+            let note
+            if (selisih !== 0) note = 'kurang'
+            else if (
+              minStock !== Infinity &&
+              Number(item.stokFisikJumlah) <= minStock
+            )
+              note = 'menipis'
+            else note = 'sesuai'
+            await item.update({ notes: note }, { transaction: t })
+          }
+
+          await opname.update(
+            {
+              status,
+              modifiedBy: req.user?.id || null
+            },
+            { transaction: t }
+          )
+
+          await t.commit()
+
+          await createAudit(
+            req,
+            'update',
+            'stock_opname',
+            id,
+            'Updated stock_opname status to ' + status + ': ' + id
+          )
+
+          const updatedWithItems = await db.stockOpname.findByPk(id, {
+            include: [{ model: db.stockOpnameItem, as: 'items' }]
+          })
+
+          return res.status(200).json({
+            success: true,
+            message: `Status changed to "${status}"`,
+            data: updatedWithItems
+          })
+        } catch (err) {
+          await t.rollback()
+          throw err
+        }
+      }
+
       await opname.update({
         status,
         modifiedBy: req.user?.id || null
@@ -702,163 +897,6 @@ const stockOpnameController = {
         id,
         'Updated stock_opname status to ' + status + ': ' + id
       )
-
-      if (status === 'completed') {
-        const updated = await db.stockOpname.findByPk(id, {
-          include: [{ model: db.stockOpnameItem, as: 'items' }]
-        })
-
-        for (const item of updated.items) {
-          let product = null
-          let ingredient = null
-
-          if (item.product) {
-            product = await db.product.findByPk(item.product)
-          }
-
-          if (!product && item.namaBarang) {
-            product = await db.product.findOne({
-              where: {
-                nameProduct: { [Op.iLike]: item.namaBarang.trim() }
-              }
-            })
-          }
-
-          if (product && !item.product) {
-            await item.update({ product: product.id })
-          }
-
-          if (item.ingredientName) {
-            ingredient = await db.ingredient.findOne({
-              where: {
-                name: { [Op.iLike]: item.ingredientName.trim() }
-              }
-            })
-          }
-
-          if (!ingredient && !product && item.namaBarang) {
-            ingredient = await db.ingredient.findOne({
-              where: {
-                name: { [Op.iLike]: item.namaBarang.trim() }
-              }
-            })
-          }
-
-          if (ingredient && !item.ingredientName) {
-            await item.update({ ingredientName: ingredient.name })
-          }
-
-          if (
-            product &&
-            item.stokFisikJumlah !== null &&
-            item.stokFisikJumlah !== undefined
-          ) {
-            const oldStock = Number(product.stock) || 0
-            const newStock = Number(item.stokFisikJumlah) || 0
-            const diff = newStock - oldStock
-
-            await product.update({ stock: newStock })
-
-            await db.stock_history.create({
-              product: product.id,
-              store: opname.store,
-              referenceType: 'opname',
-              quantityBefore: oldStock,
-              quantityChange: diff,
-              quantityAfter: newStock,
-              unit: item.unit || item.satuan || 'pcs',
-              notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
-              createdBy: req.user?.id || null
-            })
-          }
-
-          if (
-            ingredient &&
-            item.stokFisikJumlah !== null &&
-            item.stokFisikJumlah !== undefined
-          ) {
-            const oldStock = Number(ingredient.stock) || 0
-            const newStock = Number(item.stokFisikJumlah) || 0
-            const diff = newStock - oldStock
-
-            await ingredient.update({ stock: newStock })
-
-            await db.stock_history.create({
-              ingredientName: ingredient.name,
-              store: opname.store,
-              referenceType: 'opname',
-              quantityBefore: oldStock,
-              quantityChange: diff,
-              quantityAfter: newStock,
-              unit: item.unit || item.satuan || ingredient.unit || 'pcs',
-              notes: `Stock opname: ${ingredient.name} (${item.keterangan || ''})`,
-              createdBy: req.user?.id || null
-            })
-          }
-        }
-
-        // Compute item notes (sesuai/menipis/kurang) - search product/ingredient for minStock
-        for (const item of updated.items) {
-          let minStock = Infinity
-
-          // 1. Try by product ID (after possible update in stock loop)
-          if (item.product) {
-            const p = await db.product.findByPk(item.product)
-            if (p) minStock = Number(p.minStock) || Infinity
-          }
-
-          // 2. Try by product name
-          if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
-            const p = await db.product.findOne({
-              where: { nameProduct: { [Op.iLike]: item.namaBarang.trim() } }
-            })
-            if (p) minStock = Number(p.minStock) || Infinity
-          }
-
-          // 3. Try by ingredientName
-          if (
-            (minStock === Infinity || minStock === 0) &&
-            item.ingredientName
-          ) {
-            const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() } }
-            })
-            if (ing) minStock = Number(ing.minStock) || Infinity
-          }
-
-          // 4. Try ingredient by namaBarang
-          if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
-            const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.namaBarang.trim() } }
-            })
-            if (ing) minStock = Number(ing.minStock) || Infinity
-          }
-
-          const selisih = Number(item.selisihJumlah) || 0
-          let note
-          if (selisih !== 0) {
-            note = 'kurang'
-          } else if (
-            minStock !== Infinity &&
-            Number(item.stokFisikJumlah) <= minStock
-          ) {
-            note = 'menipis'
-          } else {
-            note = 'sesuai'
-          }
-          await item.update({ notes: note })
-        }
-
-        const updatedWithItems = await db.stockOpname.findByPk(id, {
-          include: [{ model: db.stockOpnameItem, as: 'items' }]
-        })
-
-        return res.status(200).json({
-          success: true,
-          message: `Status changed to "${status}"`,
-          data: updatedWithItems
-        })
-      }
 
       const updated = await db.stockOpname.findByPk(id)
       return res.status(200).json({

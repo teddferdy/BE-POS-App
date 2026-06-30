@@ -395,14 +395,6 @@ const productionOrderController = {
         })
       }
 
-      if (order.status === 'draft') {
-        return res.status(400).json({
-          success: false,
-          message:
-            'Order must be in "planned" status before starting production'
-        })
-      }
-
       // Get BOM components from BOM table first, fallback to product.composition
       const prodData = order.productData
       let bomComponents = []
@@ -464,8 +456,13 @@ const productionOrderController = {
 
           if (ingredient) {
             const qtyBefore = Number(ingredient.stock) || 0
+            if (qtyBefore < qtyNeeded) {
+              throw new Error(
+                `Bahan baku tidak cukup: ${ingredient.name} — tersedia ${qtyBefore}, dibutuhkan ${qtyNeeded}`
+              )
+            }
             await ingredient.update(
-              { stock: Math.max(0, qtyBefore - qtyNeeded) },
+              { stock: qtyBefore - qtyNeeded },
               { transaction }
             )
             await db.stock_history.create(
@@ -475,7 +472,7 @@ const productionOrderController = {
                 referenceType: 'production',
                 quantityBefore: qtyBefore,
                 quantityChange: -qtyNeeded,
-                quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
+                quantityAfter: qtyBefore - qtyNeeded,
                 unit: ingredient.unit || comp.unit || 'pcs',
                 notes: `Production: ${prodData.nameProduct} (${order.productionNo})`,
                 createdBy: req.user?.id || null
@@ -486,8 +483,13 @@ const productionOrderController = {
 
           if (productComp) {
             const qtyBefore = Number(productComp.stock) || 0
+            if (qtyBefore < qtyNeeded) {
+              throw new Error(
+                `Stok produk tidak cukup: ${productComp.nameProduct} — tersedia ${qtyBefore}, dibutuhkan ${qtyNeeded}`
+              )
+            }
             await productComp.update(
-              { stock: Math.max(0, qtyBefore - qtyNeeded) },
+              { stock: qtyBefore - qtyNeeded },
               { transaction }
             )
             await db.stock_history.create(
@@ -497,7 +499,7 @@ const productionOrderController = {
                 referenceType: 'production',
                 quantityBefore: qtyBefore,
                 quantityChange: -qtyNeeded,
-                quantityAfter: Math.max(0, qtyBefore - qtyNeeded),
+                quantityAfter: qtyBefore - qtyNeeded,
                 unit: productComp.unit || comp.unit || 'pcs',
                 notes: `Production: ${prodData.nameProduct} (${order.productionNo})`,
                 createdBy: req.user?.id || null
