@@ -24,6 +24,12 @@ router.get(
   purchasePaymentController.getBySupplier
 )
 router.get(
+  '/ap-dashboard',
+  authorization,
+  validateStoreAccess,
+  purchasePaymentController.apDashboard
+)
+router.get(
   '/list',
   authorization,
   validateStoreAccess,

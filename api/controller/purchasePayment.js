@@ -230,6 +230,115 @@ const purchasePaymentController = {
     }
   },
 
+  async apDashboard(req, res) {
+    try {
+      const { store } = req.cookies
+      const userRole = req.user?.roleType
+
+      const poWhere = { status: { [Op.not]: 'cancelled' } }
+      if (store && userRole !== 'super_admin') poWhere.store = store
+
+      const purchaseOrders = await db.purchase_order.findAll({
+        where: poWhere,
+        include: [
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name', 'phone']
+          },
+          {
+            model: db.purchase_payment,
+            as: 'payments',
+            attributes: ['id', 'amount', 'paymentDate']
+          }
+        ],
+        order: [
+          ['dueDate', 'ASC'],
+          ['createdAt', 'DESC']
+        ]
+      })
+
+      let totalOrdered = 0
+      let totalPaid = 0
+      const supplierMap = {}
+      const outstandingPOs = []
+
+      for (const po of purchaseOrders) {
+        const amount = Number(po.finalAmount || 0)
+        const paid = (po.payments || []).reduce(
+          (s, p) => s + Number(p.amount || 0),
+          0
+        )
+        const outstanding = amount - paid
+
+        totalOrdered += amount
+        totalPaid += paid
+
+        const supId = po.supplier
+        if (!supplierMap[supId]) {
+          supplierMap[supId] = {
+            supplierId: supId,
+            supplierName: po.supplierData?.name || 'Unknown',
+            totalPO: 0,
+            totalPaid: 0,
+            outstanding: 0,
+            poCount: 0
+          }
+        }
+        supplierMap[supId].totalPO += amount
+        supplierMap[supId].totalPaid += paid
+        supplierMap[supId].outstanding += outstanding
+        supplierMap[supId].poCount += 1
+
+        if (outstanding > 0) {
+          outstandingPOs.push({
+            id: po.id,
+            orderNumber: po.orderNumber,
+            supplierId: supId,
+            supplierName: po.supplierData?.name || 'Unknown',
+            finalAmount: amount,
+            totalPaid: paid,
+            outstanding,
+            orderDate: po.orderDate,
+            dueDate: po.dueDate,
+            status: po.status,
+            daysOverdue: po.dueDate
+              ? Math.max(
+                  0,
+                  Math.floor(
+                    (new Date() - new Date(po.dueDate)) /
+                      (1000 * 60 * 60 * 24)
+                  )
+                )
+              : 0
+          })
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          summary: {
+            totalOrdered,
+            totalPaid,
+            totalOutstanding: totalOrdered - totalPaid,
+            outstandingPOCount: outstandingPOs.length,
+            supplierCount: Object.keys(supplierMap).length
+          },
+          suppliers: Object.values(supplierMap).sort(
+            (a, b) => b.outstanding - a.outstanding
+          ),
+          outstandingPOs
+        }
+      })
+    } catch (error) {
+      console.error(error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
   async list(req, res) {
     try {
       const { store } = req.cookies
