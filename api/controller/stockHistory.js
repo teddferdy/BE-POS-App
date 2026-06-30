@@ -254,11 +254,21 @@ const stockHistoryController = {
       const offset = (pageNum - 1) * limitNum
       const items = filtered.slice(offset, offset + limitNum)
 
+      const stats = {
+        totalLowStock: filtered.length,
+        totalProducts: filtered.filter((i) => i.type === 'product').length,
+        totalIngredients: filtered.filter((i) => i.type === 'ingredient')
+          .length,
+        totalStores: new Set(filtered.map((i) => i.storeId)).size,
+        totalOutOfStock: filtered.filter((i) => i.stock <= 0).length
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Success get low stock items all stores',
         data: {
           items,
+          stats,
           total,
           pagination: {
             page: pageNum,
