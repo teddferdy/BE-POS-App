@@ -180,12 +180,6 @@ const purchasePaymentController = {
         'Recorded payment: ' + payment.id + ' for PO: ' + purchaseOrder
       )
 
-      // Auto-update PO status to 'received' if fully paid
-      const newTotalPaid = totalPaid + Number(amount)
-      if (newTotalPaid >= Number(po.finalAmount) && po.status !== 'received') {
-        await po.update({ status: 'received' })
-      }
-
       return res.status(201).json({
         success: true,
         message: 'Payment recorded successfully',

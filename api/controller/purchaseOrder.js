@@ -18,6 +18,7 @@ const purchaseOrderController = {
   async getAll(req, res) {
     try {
       const store = req.cookies.store || req.query.store
+      const userRole = req.user?.roleType
       const {
         status,
         supplier,
@@ -29,7 +30,7 @@ const purchaseOrderController = {
       } = req.query
 
       const where = {}
-      if (store) where.store = store
+      if (store && userRole !== 'super_admin') where.store = store
       if (status) where.status = status
       if (supplier) where.supplier = supplier
       if (startDate || endDate) {
@@ -46,7 +47,7 @@ const purchaseOrderController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const statsWhere = store ? { store } : {}
+      const statsWhere = store && userRole !== 'super_admin' ? { store } : {}
       const [
         draftCount,
         pendingCount,
@@ -74,6 +75,31 @@ const purchaseOrderController = {
         ordered: orderedCount,
         received: receivedCount,
         cancelled: cancelledCount
+      }
+
+      const paymentStatsRows = await db.sequelize.query(`
+        SELECT
+          SUM(CASE WHEN COALESCE(pt.total_paid, 0) = 0 THEN 1 ELSE 0 END) AS unpaid,
+          SUM(CASE WHEN COALESCE(pt.total_paid, 0) > 0 AND COALESCE(pt.total_paid, 0) < po."finalAmount" THEN 1 ELSE 0 END) AS partial,
+          SUM(CASE WHEN COALESCE(pt.total_paid, 0) >= po."finalAmount" THEN 1 ELSE 0 END) AS paid
+        FROM purchase_order po
+        LEFT JOIN (
+          SELECT "purchaseOrder", SUM(amount) AS total_paid
+          FROM purchase_payment
+          WHERE "deletedAt" IS NULL
+          GROUP BY "purchaseOrder"
+        ) pt ON pt."purchaseOrder" = po.id
+        WHERE po."deletedAt" IS NULL
+        ${Object.keys(statsWhere).length > 0 ? 'AND po.store = :store' : ''}
+      `, {
+        replacements: statsWhere.store ? { store: statsWhere.store } : {},
+        type: db.Sequelize.QueryTypes.SELECT
+      })
+
+      const paymentStats = {
+        unpaid: parseInt(paymentStatsRows?.[0]?.unpaid || 0, 10),
+        partial: parseInt(paymentStatsRows?.[0]?.partial || 0, 10),
+        paid: parseInt(paymentStatsRows?.[0]?.paid || 0, 10)
       }
 
       const { count, rows } = await db.purchase_order.findAndCountAll({
@@ -124,7 +150,8 @@ const purchaseOrderController = {
           limit: parseInt(limit),
           totalPages: Math.ceil(count / parseInt(limit))
         },
-        stats
+        stats,
+        paymentStats
       })
     } catch (error) {
       console.log(error)

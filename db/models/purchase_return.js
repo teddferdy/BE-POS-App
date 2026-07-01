@@ -55,7 +55,7 @@ module.exports = (sequelize, DataTypes) => {
     })
     purchase_return.belongsTo(models.user, {
       foreignKey: 'createdBy',
-      as: 'returnedByData'
+      as: 'createdByUser'
     })
   }
 

@@ -24,6 +24,14 @@ router.get(
   purchaseReturnController.getByPO
 )
 
+router.post(
+  '/create',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  purchaseReturnController.create
+)
+
 router.patch(
   '/approve/:id',
   authorization,

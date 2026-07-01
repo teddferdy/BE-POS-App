@@ -86,7 +86,7 @@ const purchaseReturnController = {
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
           {
             model: db.user,
-            as: 'returnedByData',
+            as: 'createdByUser',
             attributes: ['id', 'fullName']
           }
         ],
@@ -97,13 +97,15 @@ const purchaseReturnController = {
 
       const transformed = rows.map((r) => {
         const json = r.toJSON()
-        if (json.returnedByData) {
+        if (json.createdByUser) {
           json.returnedBy = {
-            id: json.returnedByData.id,
-            name: json.returnedByData.fullName
+            id: json.createdByUser.id,
+            name: json.createdByUser.fullName
           }
+        } else if (json.returnedBy) {
+          json.returnedBy = { name: json.returnedBy }
         }
-        delete json.returnedByData
+        delete json.createdByUser
         if (json.items) {
           json.items = json.items.map((item) => {
             if (item.productData) {
@@ -181,7 +183,7 @@ const purchaseReturnController = {
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
           {
             model: db.user,
-            as: 'returnedByData',
+            as: 'createdByUser',
             attributes: ['id', 'fullName']
           }
         ]
@@ -194,13 +196,15 @@ const purchaseReturnController = {
       }
 
       const result = ret.toJSON()
-      if (result.returnedByData) {
+      if (result.createdByUser) {
         result.returnedBy = {
-          id: result.returnedByData.id,
-          name: result.returnedByData.fullName
+          id: result.createdByUser.id,
+          name: result.createdByUser.fullName
         }
+      } else if (result.returnedBy) {
+        result.returnedBy = { name: result.returnedBy }
       }
-      delete result.returnedByData
+      delete result.createdByUser
       if (result.items) {
         result.items = result.items.map((item) => {
           if (item.productData) {
@@ -396,11 +400,8 @@ const purchaseReturnController = {
   async getByPO(req, res) {
     try {
       const { poId } = req.params
-      const { store } = req.cookies
-      const userRole = req.user?.roleType
 
       const where = { purchaseOrder: poId }
-      if (store && userRole !== 'super_admin') where.store = store
 
       const returns = await db.purchase_return.findAll({
         where,
@@ -424,7 +425,7 @@ const purchaseReturnController = {
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
           {
             model: db.user,
-            as: 'returnedByData',
+            as: 'createdByUser',
             attributes: ['id', 'fullName']
           }
         ],
@@ -433,13 +434,15 @@ const purchaseReturnController = {
 
       const transformed = returns.map((r) => {
         const json = r.toJSON()
-        if (json.returnedByData) {
+        if (json.createdByUser) {
           json.returnedBy = {
-            id: json.returnedByData.id,
-            name: json.returnedByData.fullName
+            id: json.createdByUser.id,
+            name: json.createdByUser.fullName
           }
+        } else if (json.returnedBy) {
+          json.returnedBy = { name: json.returnedBy }
         }
-        delete json.returnedByData
+        delete json.createdByUser
         if (json.items) {
           json.items = json.items.map((item) => {
             if (item.productData) {
@@ -476,6 +479,129 @@ const purchaseReturnController = {
       return res
         .status(500)
         .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async create(req, res) {
+    try {
+      const { purchaseOrder: poId, items, reason, returnedBy } = req.body
+      const createdBy = req.user?.id || null
+
+      if (!poId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Purchase order ID is required'
+        })
+      }
+
+      const po = await db.purchase_order.findByPk(poId)
+      if (!po) {
+        return res.status(404).json({
+          success: false,
+          message: 'Purchase order not found'
+        })
+      }
+
+      if (po.status !== 'received') {
+        return res.status(400).json({
+          success: false,
+          message: 'Only received purchase orders can be returned'
+        })
+      }
+
+      if (!items || items.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one item is required'
+        })
+      }
+
+      const store = req.cookies.store || po.store
+
+      const date = new Date()
+      const rand = Math.random().toString(36).substring(2, 6).toUpperCase()
+      const returnNumber = `PR-${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}-${rand}`
+
+      const t = await db.sequelize.transaction()
+      try {
+        const ret = await db.purchase_return.create({
+          purchaseOrder: po.id,
+          store,
+          returnNumber,
+          status: 'pending',
+          reason: reason || null,
+          returnedBy: returnedBy || null,
+          createdBy
+        }, { transaction: t })
+
+        const retItems = items.map((item) => ({
+          purchaseReturn: ret.id,
+          product: item.productId || null,
+          ingredient: item.ingredient || null,
+          qty: item.qty,
+          unit: item.unit || 'pcs',
+          notes: item.notes || null
+        }))
+        await db.purchase_return_item.bulkCreate(retItems, { transaction: t })
+
+        for (const item of items) {
+          if (item.productId) {
+            const product = await db.product.findByPk(item.productId, { transaction: t })
+            if (product) {
+              const oldStock = Number(product.stock) || 0
+              await product.update({ stock: Math.max(oldStock - item.qty, 0) }, { transaction: t })
+              await db.stock_history.create({
+                product: item.productId,
+                store,
+                referenceType: 'purchase_return',
+                referenceId: ret.id,
+                quantityBefore: oldStock,
+                quantityChange: -item.qty,
+                quantityAfter: oldStock - item.qty,
+                unit: item.unit || 'pcs',
+                createdBy
+              }, { transaction: t })
+            }
+          }
+          if (item.ingredient) {
+            const ingredient = await db.ingredient.findByPk(item.ingredient, { transaction: t })
+            if (ingredient) {
+              const oldStock = Number(ingredient.stock) || 0
+              await ingredient.update({ stock: Math.max(oldStock - item.qty, 0) }, { transaction: t })
+              await db.stock_history.create({
+                ingredientName: ingredient.name,
+                store,
+                referenceType: 'purchase_return',
+                referenceId: ret.id,
+                quantityBefore: oldStock,
+                quantityChange: -item.qty,
+                quantityAfter: oldStock - item.qty,
+                unit: item.unit || ingredient.unit || 'pcs',
+                createdBy
+              }, { transaction: t })
+            }
+          }
+        }
+
+        await t.commit()
+
+        await createAudit(req, 'create', 'purchase_return', ret.id, 'Created purchase return: ' + ret.id)
+
+        return res.status(201).json({
+          success: true,
+          message: 'Purchase return created',
+          data: ret
+        })
+      } catch (err) {
+        await t.rollback()
+        throw err
+      }
+    } catch (error) {
+      console.error(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
     }
   }
 }
