@@ -17,7 +17,7 @@ module.exports = {
         icon: null,
         status: 'active',
         isSystem: true,
-        createdBy: 'system',
+        createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -30,7 +30,7 @@ module.exports = {
         icon: null,
         status: 'active',
         isSystem: true,
-        createdBy: 'system',
+        createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
       })

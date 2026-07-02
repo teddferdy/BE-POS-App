@@ -16,7 +16,7 @@ module.exports = {
         type: 'percentage',
         description: 'Pajak Pertambahan Nilai standar barang/jasa',
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -28,7 +28,7 @@ module.exports = {
         type: 'percentage',
         description: 'Pajak Penghasilan Pasal 23 atas jasa',
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
       })
@@ -40,7 +40,7 @@ module.exports = {
         type: 'percentage',
         description: 'Transaksi tidak dikenakan pajak',
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
       })
