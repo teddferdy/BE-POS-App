@@ -127,14 +127,14 @@ const productionOrderController = {
           {
             model: db.bom_line,
             as: 'lines',
-            include: [{ model: db.product, as: 'ingredientData' }]
+            include: [{ model: db.ingredient, as: 'ingredientData', attributes: ['id', 'name'] }]
           }
         ]
       })
       if (bomHeader?.lines?.length) {
         bomComponents = bomHeader.lines.map((l) => ({
           ingredientId: l.ingredientId,
-          ingredientName: l.ingredientData?.nameProduct || '',
+          ingredientName: l.ingredientData?.name || '',
           qty: l.qty,
           unit: l.unit,
           notes: l.notes

@@ -11,6 +11,16 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
   const offset = (parseInt(page) - 1) * limit
 
   try {
+    await Discount.update(
+      { status: 'inactive' },
+      {
+        where: {
+          status: 'active',
+          endDate: { [db.Sequelize.Op.lt]: new Date() }
+        }
+      }
+    )
+
     const { count, rows: subCategory } = await Discount.findAndCountAll({
       where: {
         ...(store ? { store } : {}),
@@ -51,6 +61,16 @@ exports.getAllDiscount = async (req, res) => {
   const offset = (parseInt(page) - 1) * limit
 
   try {
+    await Discount.update(
+      { status: 'inactive' },
+      {
+        where: {
+          status: 'active',
+          endDate: { [db.Sequelize.Op.lt]: new Date() }
+        }
+      }
+    )
+
     const whereCondition = {}
     if (store) whereCondition.store = store
     if (status && status !== 'all')
@@ -402,7 +422,7 @@ exports.postNewDiscount = async (req, res) => {
     code,
     conditions
   } = req.body
-  const store = req.body.store || req.user?.store
+  const store = req.body.store !== undefined ? req.body.store : req.user?.store
   try {
     const discountType = type === 'percentage' ? 'percent' : type
 
@@ -557,10 +577,7 @@ exports.editDiscountById = async (req, res) => {
         },
         {
           returning: true,
-          where: {
-            id: req.params.id,
-            ...(store ? { store } : {})
-          }
+          where: { id: req.params.id }
         }
       ).then(([_, data]) => {
         return data
@@ -595,12 +612,9 @@ exports.deleteDiscountById = async (req, res) => {
   const body = req.body
 
   try {
-    const store = body.store || req.user?.store
+  const store = body.store !== undefined ? body.store : req.user?.store
     const getId = await Discount.destroy({
-      where: {
-        id: req.params.id,
-        ...(store ? { store } : {})
-      }
+      where: { id: req.params.id }
     })
 
     if (getId) {
@@ -630,14 +644,18 @@ exports.deleteDiscountById = async (req, res) => {
 }
 
 exports.getDiscountById = async (req, res) => {
-  const store = req.query.store || req.user?.store
   try {
-    const discount = await Discount.findOne({
-      where: {
-        id: req.params.id,
-        ...(store ? { store } : {})
+    await Discount.update(
+      { status: 'inactive' },
+      {
+        where: {
+          status: 'active',
+          endDate: { [db.Sequelize.Op.lt]: new Date() }
+        }
       }
-    })
+    )
+
+    const discount = await Discount.findByPk(req.params.id)
     if (!discount) {
       return res
         .status(404)

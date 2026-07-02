@@ -54,7 +54,7 @@ module.exports = {
       ingredientId: {
         allowNull: false,
         type: Sequelize.INTEGER,
-        references: { model: 'product', key: 'id' },
+        references: { model: 'ingredient', key: 'id' },
         onDelete: 'CASCADE'
       },
       qty: { type: Sequelize.INTEGER, defaultValue: 0 },

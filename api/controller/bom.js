@@ -25,9 +25,9 @@ const bomController = {
             as: 'lines',
             include: [
               {
-                model: db.product,
+                model: db.ingredient,
                 as: 'ingredientData',
-                attributes: ['id', 'nameProduct', 'sku']
+                attributes: ['id', 'name', 'unit']
               }
             ]
           }
@@ -72,14 +72,15 @@ const bomController = {
             as: 'lines',
             include: [
               {
-                model: db.product,
+                model: db.ingredient,
                 as: 'ingredientData',
-                attributes: ['id', 'nameProduct', 'sku', 'sellingPrice']
+                attributes: ['id', 'name', 'unit']
               }
             ]
           }
         ]
       })
+
       if (!bom)
         return res
           .status(404)
@@ -132,6 +133,44 @@ const bomController = {
       }))
       await db.bom_line.bulkCreate(bomLines)
 
+      // ——— Auto-calculate HPP ———
+      const ingIds = [...new Set(bomLines.map((l) => l.ingredientId))]
+      const ings = await db.ingredient.findAll({ where: { id: ingIds } })
+      const costMap = Object.fromEntries(
+        ings.map((i) => [i.id, Number(i.costPrice || 0)])
+      )
+      const hpp = bomLines.reduce(
+        (sum, l) => sum + (costMap[l.ingredientId] || 0) * l.qty,
+        0
+      )
+      const prod = await db.product.findByPk(productId)
+      if (prod) {
+        const price = Number(prod.price || 0)
+        const foodCostPersen =
+          hpp > 0 && price > 0
+            ? Math.min(999.99, parseFloat(((hpp / price) * 100).toFixed(2)))
+            : 0
+        const marginPersen =
+          hpp > 0 && price > 0
+            ? Math.max(0, parseFloat(((1 - hpp / price) * 100).toFixed(2)))
+            : 0
+        const composition = bomLines.map((l) => {
+          const ing = ings.find((i) => i.id === l.ingredientId)
+          return {
+            ingredientId: l.ingredientId,
+            name: ing?.name || 'Unknown',
+            qty: l.qty,
+            unit: ing?.unit || l.unit || 'pcs'
+          }
+        })
+        await prod.update({
+          hppPerPorsi: hpp,
+          foodCostPersen,
+          marginPersen,
+          composition
+        })
+      }
+
       const result = await db.bom_header.findByPk(bom.id, {
         include: [
           { model: db.product, as: 'productData' },
@@ -177,6 +216,49 @@ const bomController = {
         await db.bom_line.bulkCreate(bomLines)
       }
 
+      // ——— Recalculate HPP ———
+      const currentLines = await db.bom_line.findAll({
+        where: { bomHeaderId: id }
+      })
+      if (currentLines.length > 0) {
+        const ingIds = [...new Set(currentLines.map((l) => l.ingredientId))]
+        const ings = await db.ingredient.findAll({ where: { id: ingIds } })
+        const costMap = Object.fromEntries(
+          ings.map((i) => [i.id, Number(i.costPrice || 0)])
+        )
+        const hpp = currentLines.reduce(
+          (sum, l) => sum + (costMap[l.ingredientId] || 0) * l.qty,
+          0
+        )
+        const prod = await db.product.findByPk(bom.productId)
+        if (prod) {
+          const price = Number(prod.price || 0)
+          const foodCostPersen =
+            hpp > 0 && price > 0
+              ? Math.min(999.99, parseFloat(((hpp / price) * 100).toFixed(2)))
+              : 0
+          const marginPersen =
+            hpp > 0 && price > 0
+              ? Math.max(0, parseFloat(((1 - hpp / price) * 100).toFixed(2)))
+              : 0
+          const composition = currentLines.map((l) => {
+            const ing = ings.find((i) => i.id === l.ingredientId)
+            return {
+              ingredientId: l.ingredientId,
+              name: ing?.name || 'Unknown',
+              qty: l.qty,
+              unit: ing?.unit || l.unit || 'pcs'
+            }
+          })
+          await prod.update({
+            hppPerPorsi: hpp,
+            foodCostPersen,
+            marginPersen,
+            composition
+          })
+        }
+      }
+
       const result = await db.bom_header.findByPk(id, {
         include: [
           { model: db.product, as: 'productData' },
@@ -206,6 +288,17 @@ const bomController = {
 
       await db.bom_line.destroy({ where: { bomHeaderId: id } })
       await bom.destroy()
+
+      // ——— Reset product composition ———
+      const prod = await db.product.findByPk(bom.productId)
+      if (prod) {
+        await prod.update({
+          hppPerPorsi: 0,
+          foodCostPersen: 0,
+          marginPersen: 0,
+          composition: []
+        })
+      }
 
       return res.status(200).json({ success: true, message: 'BOM deleted' })
     } catch (error) {

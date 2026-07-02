@@ -364,7 +364,7 @@ exports.createOrder = async (req, res) => {
       )
     }
 
-    // Stock validation
+    // Stock validation — products
     for (const item of items) {
       const prod = await Product.findByPk(item.product || item.productId)
       if (!prod) {
@@ -376,6 +376,25 @@ exports.createOrder = async (req, res) => {
         return res.status(400).json({
           message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${prod.stock}, diminta: ${item.quantity}`
         })
+      }
+    }
+
+    // Stock validation — ingredients via BOM
+    for (const item of items) {
+      const bom = await db.bom_header.findOne({
+        where: { productId: item.product || item.productId, status: 'active' },
+        include: [{ model: db.bom_line, as: 'lines' }]
+      })
+      if (!bom) continue
+      for (const line of bom.lines) {
+        const ing = await db.ingredient.findByPk(line.ingredientId)
+        if (!ing) continue
+        const needed = line.qty * Number(item.quantity)
+        if (Number(ing.stock) < needed) {
+          return res.status(400).json({
+            message: `Stok bahan "${ing.name}" tidak mencukupi untuk "${item.productName}". Tersedia: ${ing.stock}, dibutuhkan: ${needed}`
+          })
+        }
       }
     }
 
@@ -487,6 +506,37 @@ exports.createOrder = async (req, res) => {
             totalSelling: Number(item.quantity),
             store
           })
+        }
+
+        // ——— Deduct ingredient stock via BOM ———
+        const bom = await db.bom_header.findOne({
+          where: {
+            productId: item.product || item.productId,
+            status: 'active'
+          },
+          include: [{ model: db.bom_line, as: 'lines' }]
+        })
+        if (bom) {
+          for (const line of bom.lines) {
+            const ing = await db.ingredient.findByPk(line.ingredientId)
+            if (!ing) continue
+            const deductQty = line.qty * Number(item.quantity)
+            const oldIngStock = Number(ing.stock)
+            const newIngStock = Math.max(0, oldIngStock - deductQty)
+            await ing.update({ stock: newIngStock })
+            await db.stock_history.create({
+              product: product.id,
+              ingredientName: ing.name,
+              store,
+              referenceType: 'sale',
+              referenceId: order.id,
+              quantityBefore: oldIngStock,
+              quantityChange: -(oldIngStock - newIngStock),
+              quantityAfter: newIngStock,
+              unit: line.unit || ing.unit,
+              createdBy: req.user?.id
+            })
+          }
         }
       }
     }
@@ -647,6 +697,7 @@ exports.getOrdersByStore = async (req, res) => {
     const where = {}
     if (store) where.store = store
     if (status) where.status = status
+    if (req.query.source) where.source = req.query.source
     if (req.query.paymentStatus) where.paymentStatus = req.query.paymentStatus
     if (date) {
       where.createdAt = {
@@ -803,6 +854,34 @@ exports.updateOrderStatus = async (req, res) => {
               store
             })
           }
+
+          // ——— Deduct ingredient stock via BOM ———
+          const bom = await db.bom_header.findOne({
+            where: { productId: item.product, status: 'active' },
+            include: [{ model: db.bom_line, as: 'lines' }]
+          })
+          if (bom) {
+            for (const line of bom.lines) {
+              const ing = await db.ingredient.findByPk(line.ingredientId)
+              if (!ing) continue
+              const deductQty = line.qty * Number(item.quantity)
+              const oldIngStock = Number(ing.stock)
+              const newIngStock = Math.max(0, oldIngStock - deductQty)
+              await ing.update({ stock: newIngStock })
+              await db.stock_history.create({
+                product: product.id,
+                ingredientName: ing.name,
+                store,
+                referenceType: 'sale',
+                referenceId: order.id,
+                quantityBefore: oldIngStock,
+                quantityChange: -(oldIngStock - newIngStock),
+                quantityAfter: newIngStock,
+                unit: line.unit || ing.unit,
+                createdBy: changedBy
+              })
+            }
+          }
         }
       }
     }
@@ -957,7 +1036,7 @@ exports.getCustomerMenu = async (req, res) => {
 }
 
 exports.createCustomerOrder = async (req, res) => {
-  const { store, tableId, items, customerName, notes } = req.body
+  const { store, tableId, items, customerName, notes, customerId } = req.body
 
   try {
     if (!store || !items || !items.length) {
@@ -976,6 +1055,37 @@ exports.createCustomerOrder = async (req, res) => {
       return res.status(400).json({ message: 'Table not found' })
     }
 
+    // ——— Member lookup by customerId or name ———
+    let member = null
+    if (customerId) {
+      member = await db.member.findByPk(customerId)
+    } else if (customerName) {
+      const Op = require('sequelize').Op
+      member = await db.member.findOne({
+        where: {
+          name: { [Op.iLike]: customerName.trim() },
+          store,
+          status: 'active'
+        }
+      })
+      // ponytail: exact iLike match only; fuzzy search across stores if needed
+    }
+
+    let discountValue = 0
+    let discountType = 'none'
+    let appliedDiscountMeta = null
+
+    // ——— Auto tier discount ———
+    if (member && member.tier) {
+      const tier = await db.member_tier.findByPk(member.tier)
+      if (tier && tier.discountPercent > 0) {
+        discountValue = tier.discountPercent
+        discountType = 'percent'
+        appliedDiscountMeta = tier
+      }
+    }
+
+    // ——— Build items ———
     let subTotal = 0
     let totalQuantity = 0
     const orderItems = []
@@ -1001,10 +1111,21 @@ exports.createCustomerOrder = async (req, res) => {
       })
     }
 
+    // ——— Calculate totals ———
+    const taxRate = await getActiveTaxRate(store)
+    let discountAmount = 0
+    if (discountType === 'percent') {
+      discountAmount = Math.round(subTotal * (discountValue / 100))
+    }
+    const afterDiscount = subTotal - discountAmount
+    const taxAmount = Math.round(afterDiscount * (taxRate / 100))
+    const totalPrice = afterDiscount + taxAmount
+
     const order = await db.order.create({
       orderNumber,
       store,
       tableId: tableId || null,
+      customerId: member ? member.id : null,
       cashierId: null,
       cashierName: customerName || 'Customer',
       customerName: customerName || null,
@@ -1013,15 +1134,72 @@ exports.createCustomerOrder = async (req, res) => {
       status: 'pending',
       subTotal,
       totalQuantity,
-      discountType: 'none',
-      discountValue: 0,
-      taxAmount: 0,
+      discountType,
+      discountValue,
+      discountAmount,
+      taxRate,
+      taxAmount,
       serviceChargeAmount: 0,
-      totalPrice: subTotal
+      totalPrice
     })
 
     for (const item of orderItems) {
       await db.order_item.create({ ...item, order: order.id })
+    }
+
+    // ——— Award points to member ———
+    if (member) {
+      try {
+        const productIds = [...new Set(items.map((i) => i.productId))]
+        const products = await Product.findAll({
+          where: { id: productIds },
+          attributes: ['id', 'point']
+        })
+        const pointMap = Object.fromEntries(
+          products.map((p) => [p.id, Number(p.point) || 0])
+        )
+        const pointsEarned = items.reduce((sum, item) => {
+          return sum + (pointMap[item.productId] || 0) * Number(item.quantity)
+        }, 0)
+
+        if (pointsEarned > 0) {
+          const oldTotal = Number(member.totalPoints) || 0
+          const oldLifetime = Number(member.lifetimePoints) || 0
+          await member.update({
+            totalPoints: oldTotal + pointsEarned,
+            lifetimePoints: oldLifetime + pointsEarned
+          })
+          const Op = require('sequelize').Op
+          let targetTier = await db.member_tier.findOne({
+            where: { status: 'active', minPoints: { [Op.lte]: oldTotal + pointsEarned }, maxPoints: { [Op.gte]: oldTotal + pointsEarned } },
+            order: [['minPoints', 'DESC']]
+          })
+          if (!targetTier) {
+            targetTier = await db.member_tier.findOne({
+              where: { status: 'active', minPoints: { [Op.lte]: oldTotal + pointsEarned } },
+              order: [['minPoints', 'DESC']]
+            })
+          }
+          if (targetTier) {
+            const currentMin = Number(
+              (await db.member_tier.findByPk(member.tier))?.minPoints || -1
+            )
+            if (Number(targetTier.minPoints) > currentMin) {
+              await member.update({ tier: targetTier.id })
+            }
+          }
+          await db.member_point_history.create({
+            member: member.id,
+            pointsChange: pointsEarned,
+            pointsBefore: oldTotal,
+            pointsAfter: oldTotal + pointsEarned,
+            transactionId: order.id,
+            notes: `Earned ${pointsEarned} points from order ${orderNumber}`
+          })
+        }
+      } catch (e) {
+        console.error('Point earning error:', e.message)
+      }
     }
 
     if (table) {
@@ -1051,6 +1229,68 @@ exports.createCustomerOrder = async (req, res) => {
       message: 'Order created',
       data: fullOrder
     })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
+  }
+}
+
+// ——— Public customer member lookup by name ———
+exports.getCustomerMember = async (req, res) => {
+  const { name, store } = req.query
+  try {
+    if (!name || !store) {
+      return res.status(200).json({ data: null })
+    }
+    const Op = require('sequelize').Op
+    const member = await db.member.findOne({
+      where: {
+        name: { [Op.iLike]: name.trim() },
+        [Op.or]: [
+          { store: Number(store) },
+          { store: null }
+        ],
+        status: 'active'
+      }
+    })
+    if (!member) return res.status(200).json({ data: null })
+
+    let tier = null
+    if (member.tier) {
+      const t = await db.member_tier.findByPk(member.tier)
+      if (t) {
+        tier = { id: t.id, name: t.name, discountPercent: t.discountPercent }
+      }
+    }
+
+    return res.status(200).json({
+      data: {
+        id: member.id,
+        name: member.name,
+        totalPoints: member.totalPoints,
+        tier
+      }
+    })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
+  }
+}
+
+// ——— Public order tracking (no auth) ———
+exports.getCustomerOrder = async (req, res) => {
+  const { id } = req.params
+  try {
+    const order = await db.order.findOne({
+      where: { id },
+      attributes: ['id', 'orderNumber', 'status', 'totalPrice', 'totalQuantity', 'customerName', 'createdAt', 'tableId'],
+      include: [
+        { model: db.order_item, as: 'items', attributes: ['id', 'productName', 'quantity', 'price', 'totalPrice', 'status'] },
+        { model: db.table, as: 'table', attributes: ['name'] }
+      ]
+    })
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    return res.status(200).json({ data: order })
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ error: 'Internal Server Error' })
