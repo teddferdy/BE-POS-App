@@ -350,7 +350,7 @@ exports.addNewLocation = async (req, res) => {
       mainBranch: mainBranch || false,
       openingHours: openingHours || [],
       socialMedia: socialMedia || [],
-      createdBy: req.user?.fullName || 'System'
+      createdBy: req.user?.id || null
     })
 
     const newLocationId = `loc-${String(newLocation.id).padStart(3, '0')}`
