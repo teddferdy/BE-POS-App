@@ -261,15 +261,17 @@ const cashRegisterController = {
     try {
       const store = getStore(req)
       const { startDate, endDate, page = 1, limit = 50 } = req.query
+      const isSuperAdmin = req.user?.roleType === 'super_admin'
 
-      if (!store) {
+      const where = {}
+      if (store) {
+        where.store = store
+      } else if (!isSuperAdmin) {
         return res.status(400).json({
           success: false,
           message: 'Store not selected'
         })
       }
-
-      const where = { store }
 
       if (startDate || endDate) {
         where.openedAt = {}

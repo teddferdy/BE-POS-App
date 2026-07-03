@@ -41,8 +41,10 @@ const {
 
 exports.getAllLocationPublic = async (req, res) => {
   try {
+    const { status } = req.query
+    const whereClause = status === 'all' ? {} : { status: 'active' }
     const locations = await Location.findAll({
-      where: { status: 'active' },
+      where: whereClause,
       attributes: [
         'id',
         'store',
@@ -337,12 +339,7 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status:
-        isActive !== undefined
-          ? isActive
-            ? 'active'
-            : 'inactive'
-          : status || 'draft',
+      status: status || (isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft'),
       category,
       managerName,
       latitude: finalLatitude,
