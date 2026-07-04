@@ -1082,7 +1082,9 @@ const posController = {
         message: 'Success',
         data: {
           totalSales: totalSales || 0,
-          dailyTarget: store ? (await db.location.findByPk(store, { attributes: ['dailyTarget'] }))?.dailyTarget || 0 : 0,
+          dailyTarget: store
+            ? (await db.location.findByPk(store, { attributes: ['dailyTarget'] }))?.dailyTarget || 0
+            : (await db.location.sum('dailyTarget', { where: { status: 'active' } })) || 0,
           totalOrders: totalOrders || 0,
           totalProducts: totalProducts || 0,
           totalMembers: totalMembers || 0,
