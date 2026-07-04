@@ -45,9 +45,8 @@ async function getOrCreateIngredient(name, category, supplier, unit, costPrice, 
   const list = (await api('GET', '/ingredient/get-all?limit=200', undefined)).data || []
   const ex = list.find(i => i.name === name)
   if (ex) {
-    if (ex.costPrice !== costPrice || ex.minStock !== minStock) {
-      const up = await api('PUT', `/ingredient/edit/${ex.id}`, { costPrice, minStock, name: ex.name, category: ex.category, supplier: ex.supplier, unit: ex.unit, stock: ex.stock })
-      if (up.success) console.log(`  Updated price: ${name} Rp${up.data ? up.data.costPrice : costPrice}/${unit}`)
+    if (ex.costPrice !== costPrice || ex.minStock !== minStock || ex.category !== category || ex.supplier !== supplier) {
+      const up = await api('PUT', `/ingredient/edit/${ex.id}`, { costPrice, minStock, name: ex.name, category, supplier, unit: ex.unit, stock: ex.stock })
     }
     return ex.id
   }
