@@ -182,7 +182,7 @@ async function seedTestData() {
           `test-category-${i}`,
           'active',
           [1],
-          'super_admin'
+          'system'
         ]
       )
       categories.push(categoryResult.rows[0])
@@ -198,7 +198,7 @@ async function seedTestData() {
           `test-category-inactive-${i}`,
           'inactive',
           [1],
-          'super_admin'
+          'system'
         ]
       )
       categories.push(categoryResult.rows[0])
@@ -214,7 +214,7 @@ async function seedTestData() {
           `test-category-draft-${i}`,
           'draft',
           [1],
-          'super_admin'
+          'system'
         ]
       )
       categories.push(categoryResult.rows[0])
@@ -241,7 +241,7 @@ async function seedTestData() {
           `Contact Person ${i}`,
           `Test address supplier ${i}, Jakarta, Indonesia`,
           'active',
-          'super_admin'
+          'system'
         ]
       )
       suppliers.push(supplierResult.rows[0])
@@ -258,7 +258,7 @@ async function seedTestData() {
           `Contact Person Inactive ${i}`,
           `Inactive test address supplier ${i}`,
           'inactive',
-          'super_admin'
+          'system'
         ]
       )
       suppliers.push(supplierResult.rows[0])
@@ -275,7 +275,7 @@ async function seedTestData() {
           `Contact Person Draft ${i}`,
           `Draft test address supplier ${i} (to be completed)`,
           'draft',
-          'super_admin'
+          'system'
         ]
       )
       suppliers.push(supplierResult.rows[0])
@@ -304,7 +304,7 @@ async function seedTestData() {
           `["Benefit 1 ${i}", "Benefit 2 ${i}"]`,
           `#${Math.floor(Math.random() * 16777215).toString(16)}`,
           'active',
-          'super_admin'
+          'system'
         ]
       )
       memberTiers.push(tierResult.rows[0])
@@ -323,7 +323,7 @@ async function seedTestData() {
           `["Inactive Benefit 1 ${i}"]`,
           `#${Math.floor(Math.random() * 16777215).toString(16)}`,
           'inactive',
-          'super_admin'
+          'system'
         ]
       )
       memberTiers.push(tierResult.rows[0])
@@ -342,7 +342,7 @@ async function seedTestData() {
           `["Draft Benefit ${i}"]`,
           `#${Math.floor(Math.random() * 16777215).toString(16)}`,
           'draft',
-          'super_admin'
+          'system'
         ]
       )
       memberTiers.push(tierResult.rows[0])
@@ -366,7 +366,7 @@ async function seedTestData() {
           `Test Department ${i}`,
           `Test department description ${i}`,
           'active',
-          'super_admin'
+          'system'
         ]
       )
       departments.push(deptResult.rows[0])
@@ -380,7 +380,7 @@ async function seedTestData() {
           `Test Department Inactive ${i}`,
           `Inactive test department ${i}`,
           'inactive',
-          'super_admin'
+          'system'
         ]
       )
       departments.push(deptResult.rows[0])
@@ -394,7 +394,7 @@ async function seedTestData() {
           `Test Department Draft ${i}`,
           `Draft test department ${i}`,
           'draft',
-          'super_admin'
+          'system'
         ]
       )
       departments.push(deptResult.rows[0])
@@ -422,7 +422,7 @@ async function seedTestData() {
           `Test position description ${i}`,
           'active',
           1,
-          'super_admin'
+          'system'
         ]
       )
       positions.push(posResult.rows[0])
@@ -439,7 +439,7 @@ async function seedTestData() {
           `Inactive test position ${i}`,
           'inactive',
           1,
-          'super_admin'
+          'system'
         ]
       )
       positions.push(posResult.rows[0])
@@ -456,7 +456,7 @@ async function seedTestData() {
           `Draft test position ${i}`,
           'draft',
           1,
-          'super_admin'
+          'system'
         ]
       )
       positions.push(posResult.rows[0])
@@ -483,7 +483,7 @@ async function seedTestData() {
           `17:00:00`,
           'active',
           1,
-          'super_admin'
+          'system'
         ]
       )
       shifts.push(shiftResult.rows[0])
@@ -500,7 +500,7 @@ async function seedTestData() {
           `18:00:00`,
           'inactive',
           1,
-          'super_admin'
+          'system'
         ]
       )
       shifts.push(shiftResult.rows[0])
@@ -517,7 +517,7 @@ async function seedTestData() {
           `19:00:00`,
           'draft',
           1,
-          'super_admin'
+          'system'
         ]
       )
       shifts.push(shiftResult.rows[0])
@@ -548,7 +548,7 @@ async function seedTestData() {
           1000 + i * 100,
           5000 + i * 500,
           'active',
-          'super_admin'
+          'system'
         ]
       )
       members.push(memberResult.rows[0])
@@ -570,7 +570,7 @@ async function seedTestData() {
           100 + i * 50,
           1000 + i * 200,
           'inactive',
-          'super_admin'
+          'system'
         ]
       )
       members.push(memberResult.rows[0])
@@ -592,7 +592,7 @@ async function seedTestData() {
           50 + i * 10,
           500 + i * 100,
           'draft',
-          'super_admin'
+          'system'
         ]
       )
       members.push(memberResult.rows[0])
@@ -645,7 +645,7 @@ async function seedTestData() {
           new Date(2025 + i),
           statusVal,
           1,
-          'super_admin'
+          'system'
         ]
       )
       employees.push(employeeResult.rows[0])
@@ -688,7 +688,7 @@ async function seedTestData() {
           new Date(2024 + i),
           statusVal,
           1,
-          'super_admin'
+          'system'
         ]
       )
       employees.push(employeeResult.rows[0])
@@ -731,7 +731,7 @@ async function seedTestData() {
           new Date(2023 + i),
           statusVal,
           1,
-          'super_admin'
+          'system'
         ]
       )
       employees.push(employeeResult.rows[0])
