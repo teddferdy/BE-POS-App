@@ -792,7 +792,7 @@ exports.updateOrderStatus = async (req, res) => {
       notes: notes || (changedByName ? `By ${changedByName}` : null)
     })
 
-    // If transitioning from pending/unpaid to paid, reduce stock
+    // If transitioning to paid, reduce stock
     if (status === 'paid' && oldStatus !== 'paid') {
       const items = await OrderItem.findAll({ where: { order: id } })
 
@@ -848,6 +848,63 @@ exports.updateOrderStatus = async (req, res) => {
               referenceType: 'sale', referenceId: order.id,
               quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
               quantityAfter: newIngStock, unit: line.unit || ing.unit,
+              createdBy: changedBy
+            })
+          }
+        }
+      }
+    }
+
+    // If transitioning to cancelled/void, reverse stock
+    if (['cancelled', 'void'].includes(status) && !['cancelled', 'void'].includes(oldStatus)) {
+      const items = await OrderItem.findAll({ where: { order: id } })
+
+      for (const item of items) {
+        const product = await Product.findByPk(item.product)
+        if (!product) continue
+
+        const bom = await db.bom_header.findOne({
+          where: { productId: item.product, status: 'active' },
+          include: [{ model: db.bom_line, as: 'lines' }]
+        })
+
+        if (!bom) {
+          const oldStock = Number(product.stock) || 0
+          const newStock = oldStock + Number(item.quantity)
+          await product.update({ stock: newStock })
+
+          await db.stock_history.create({
+            product: product.id, store,
+            referenceType: 'sale_reversal', referenceId: order.id,
+            quantityBefore: oldStock, quantityChange: Number(item.quantity),
+            quantityAfter: newStock, unit: product.unit || 'pcs',
+            notes: `Pembatalan: ${order.orderNumber}`,
+            createdBy: changedBy
+          })
+        }
+
+        const findBs = await db.best_selling.findOne({
+          where: { productId: product.id, nameProduct: item.productName, store }
+        })
+        if (findBs) {
+          await db.best_selling.update(
+            { totalSelling: Math.max(0, Number(findBs.totalSelling) - Number(item.quantity)) },
+            { where: { productId: product.id, nameProduct: item.productName } }
+          )
+        }
+
+        if (bom) {
+          for (const line of bom.lines) {
+            const ing = await db.ingredient.findByPk(line.ingredientId)
+            if (!ing) continue
+            const restoreQty = line.qty * Number(item.quantity)
+            const oldIngStock = Number(ing.stock)
+            await ing.update({ stock: oldIngStock + restoreQty })
+            await db.stock_history.create({
+              product: product.id, ingredientName: ing.name, store,
+              referenceType: 'sale_reversal', referenceId: order.id,
+              quantityBefore: oldIngStock, quantityChange: restoreQty,
+              quantityAfter: oldIngStock + restoreQty, unit: line.unit || ing.unit,
               createdBy: changedBy
             })
           }

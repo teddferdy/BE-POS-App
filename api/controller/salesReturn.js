@@ -191,14 +191,21 @@ const salesReturnController = {
           const product = await db.product.findByPk(item.product, {
             transaction
           })
-          if (product) {
+          if (!product) continue
+
+          const bom = await db.bom_header.findOne({
+            where: { productId: item.product, status: 'active' },
+            include: [{ model: db.bom_line, as: 'lines' }],
+            transaction
+          })
+
+          if (!bom) {
             const oldStock = Number(product.stock) || 0
             await product.update(
               { stock: Math.max(0, oldStock - item.qty) },
               { transaction }
             )
 
-            // ponytail: per-store stock sync for return reversal
             const [pss] = await db.product_store_stock.findOrCreate({
               where: { product: item.product, store: ret.store },
               defaults: { stock: 0 },
@@ -224,6 +231,32 @@ const salesReturnController = {
               },
               { transaction }
             )
+          } else {
+            for (const line of bom.lines) {
+              const ing = await db.ingredient.findByPk(line.ingredientId, {
+                transaction
+              })
+              if (!ing) continue
+              const deductQty = line.qty * Number(item.qty)
+              const oldIngStock = Number(ing.stock)
+              const newIngStock = Math.max(0, oldIngStock - deductQty)
+              await ing.update({ stock: newIngStock }, { transaction })
+              await db.stock_history.create(
+                {
+                  product: product.id,
+                  ingredientName: ing.name,
+                  store: ret.store,
+                  referenceType: 'sale_return_reversal',
+                  quantityBefore: oldIngStock,
+                  quantityChange: -(oldIngStock - newIngStock),
+                  quantityAfter: newIngStock,
+                  unit: line.unit || ing.unit || 'pcs',
+                  notes: `Sales return rejected: ${ret.reason}`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction }
+              )
+            }
           }
         }
 

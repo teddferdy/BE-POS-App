@@ -803,14 +803,23 @@ const posController = {
           const product = await db.product.findByPk(item.productId, {
             transaction: t
           })
-          if (product) {
+          if (!product) continue
+
+          // ponytail: if BOM exists, restore ingredient stock (reverse of sale deduction).
+          // If no BOM, restore product stock directly.
+          const bom = await db.bom_header.findOne({
+            where: { productId: item.productId, status: 'active' },
+            include: [{ model: db.bom_line, as: 'lines' }],
+            transaction: t
+          })
+
+          if (!bom) {
             const oldStock = Number(product.stock) || 0
             await product.update(
               { stock: oldStock + item.qty },
               { transaction: t }
             )
 
-            // ponytail: per-store stock sync for sales return
             const [pss] = await db.product_store_stock.findOrCreate({
               where: { product: item.productId, store },
               defaults: { stock: 0 },
@@ -836,6 +845,34 @@ const posController = {
               },
               { transaction: t }
             )
+          } else {
+            for (const line of bom.lines) {
+              const ing = await db.ingredient.findByPk(line.ingredientId, {
+                transaction: t
+              })
+              if (!ing) continue
+              const restoreQty = line.qty * Number(item.qty)
+              const oldIngStock = Number(ing.stock)
+              await ing.update(
+                { stock: oldIngStock + restoreQty },
+                { transaction: t }
+              )
+              await db.stock_history.create(
+                {
+                  product: product.id,
+                  ingredientName: ing.name,
+                  store,
+                  referenceType: 'sale_return',
+                  quantityBefore: oldIngStock,
+                  quantityChange: restoreQty,
+                  quantityAfter: oldIngStock + restoreQty,
+                  unit: line.unit || ing.unit || 'pcs',
+                  notes: `Sales return: ${reason}`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction: t }
+              )
+            }
           }
         }
 

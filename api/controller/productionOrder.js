@@ -334,18 +334,76 @@ const productionOrderController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const order = await db.productionOrder.findOne({ where })
+      const order = await db.productionOrder.findOne({
+        where,
+        include: [{ model: db.product, as: 'productData' }]
+      })
       if (!order) {
         return res
           .status(404)
           .json({ success: false, message: 'Production order not found' })
       }
 
-      await order.update({
-        status,
-        modifiedBy: req.user?.id || null,
-        completedDate: status === 'completed' ? new Date() : order.completedDate
-      })
+      const oldStatus = order.status
+
+      // If cancelling an in-progress order, reverse ingredient deduction
+      if (status === 'cancelled' && oldStatus === 'in_progress') {
+        const transaction = await db.sequelize.transaction()
+        try {
+          const bomHeader = await db.bom_header.findOne({
+            where: { productId: order.productItemId, status: 'active' },
+            include: [{ model: db.bom_line, as: 'lines' }],
+            transaction
+          })
+          if (bomHeader?.lines?.length) {
+            for (const line of bomHeader.lines) {
+              const ing = await db.ingredient.findByPk(line.ingredientId, {
+                transaction
+              })
+              if (!ing) continue
+              const restoreQty = line.qty * order.plannedQty
+              const oldIngStock = Number(ing.stock)
+              await ing.update(
+                { stock: oldIngStock + restoreQty },
+                { transaction }
+              )
+              await db.stock_history.create(
+                {
+                  product: order.productItemId,
+                  ingredientName: ing.name,
+                  store: order.store,
+                  referenceType: 'production_reversal',
+                  quantityBefore: oldIngStock,
+                  quantityChange: restoreQty,
+                  quantityAfter: oldIngStock + restoreQty,
+                  unit: line.unit || ing.unit || 'pcs',
+                  notes: `Production cancelled: ${order.productionNo}`,
+                  createdBy: req.user?.id || null
+                },
+                { transaction }
+              )
+            }
+          }
+          await order.update(
+            {
+              status,
+              modifiedBy: req.user?.id || null,
+              completedDate: null
+            },
+            { transaction }
+          )
+          await transaction.commit()
+        } catch (err) {
+          await transaction.rollback()
+          throw err
+        }
+      } else {
+        await order.update({
+          status,
+          modifiedBy: req.user?.id || null,
+          completedDate: status === 'completed' ? new Date() : order.completedDate
+        })
+      }
 
       await createAudit(
         req,
