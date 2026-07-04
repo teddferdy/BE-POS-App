@@ -538,9 +538,21 @@ const purchaseOrderController = {
 
       try {
         if (items && items.length > 0) {
+          // Build a lookup of existing PO items by their DB id
+          const poItems = purchaseOrder.items.reduce((map, pi) => {
+            map[pi.id] = pi
+            return map
+          }, {})
+
           for (const item of items) {
+            const poItem = poItems[item.id]
+            if (!poItem) continue
+
+            const maxReceive = Number(poItem.quantity) - Number(poItem.receivedQuantity)
+            const receiveQty = Math.min(Number(item.receivedQuantity) || 0, maxReceive)
+
             await db.purchase_order_item.update(
-              { receivedQuantity: item.receivedQuantity },
+              { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${receiveQty}`) },
               { where: { id: item.id, purchaseOrder: id }, transaction }
             )
 
@@ -550,7 +562,6 @@ const purchaseOrderController = {
               })
               if (product) {
                 const quantityBefore = product.stock
-                const quantityChange = item.receivedQuantity
 
                 await db.stock_history.create(
                   {
@@ -559,8 +570,8 @@ const purchaseOrderController = {
                     referenceType: 'purchase',
                     referenceId: id,
                     quantityBefore,
-                    quantityChange,
-                    quantityAfter: quantityBefore + quantityChange,
+                    quantityChange: receiveQty,
+                    quantityAfter: quantityBefore + receiveQty,
                     unit: item.unit || 'pcs',
                     createdBy: req.user?.id
                   },
@@ -568,7 +579,7 @@ const purchaseOrderController = {
                 )
 
                 await product.update(
-                  { stock: product.stock + item.receivedQuantity },
+                  { stock: product.stock + receiveQty },
                   { transaction }
                 )
               }
@@ -591,15 +602,15 @@ const purchaseOrderController = {
                     referenceType: 'purchase',
                     referenceId: id,
                     quantityBefore,
-                    quantityChange: item.receivedQuantity,
-                    quantityAfter: quantityBefore + item.receivedQuantity,
+                    quantityChange: receiveQty,
+                    quantityAfter: quantityBefore + receiveQty,
                     unit: item.unit || 'pcs',
                     createdBy: req.user?.id
                   },
                   { transaction }
                 )
                 await ingredient.update(
-                  { stock: ingredient.stock + item.receivedQuantity },
+                  { stock: ingredient.stock + receiveQty },
                   { transaction }
                 )
               }
@@ -607,9 +618,18 @@ const purchaseOrderController = {
           }
         }
 
+        // Re-fetch items to check if all are fully received
+        const updatedItems = await db.purchase_order_item.findAll({
+          where: { purchaseOrder: id },
+          transaction
+        })
+        const allReceived = updatedItems.every(
+          pi => Number(pi.receivedQuantity) >= Number(pi.quantity)
+        )
+
         await purchaseOrder.update(
           {
-            status: 'received',
+            status: allReceived ? 'received' : 'ordered',
             receivedDate: receivedDate || new Date()
           },
           { transaction }

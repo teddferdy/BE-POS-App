@@ -460,12 +460,20 @@ exports.createOrder = async (req, res) => {
     // Reduce stock & create stock history
     for (const item of items) {
       const product = await Product.findByPk(item.product || item.productId)
-      if (product) {
+      if (!product) continue
+
+      // ponytail: if BOM exists, deduct ingredient stock only.
+      // If no BOM, deduct product stock directly.
+      const bom = await db.bom_header.findOne({
+        where: { productId: item.product || item.productId, status: 'active' },
+        include: [{ model: db.bom_line, as: 'lines' }]
+      })
+
+      if (!bom) {
         const oldStock = Number(product.stock) || 0
         const newStock = oldStock - Number(item.quantity)
         await product.update({ stock: newStock >= 0 ? newStock : 0 })
 
-        // ponytail: per-store stock sync, needed for stock transfers/opname
         const [pss] = await db.product_store_stock.findOrCreate({
           where: { product: product.id, store },
           defaults: { stock: 0 }
@@ -475,68 +483,48 @@ exports.createOrder = async (req, res) => {
         await pss.update({ stock: newPssStock >= 0 ? newPssStock : 0 })
 
         await db.stock_history.create({
-          product: product.id,
-          store,
-          referenceType: 'sale',
-          referenceId: order.id,
-          quantityBefore: oldStock,
-          quantityChange: -Number(item.quantity),
+          product: product.id, store,
+          referenceType: 'sale', referenceId: order.id,
+          quantityBefore: oldStock, quantityChange: -Number(item.quantity),
           quantityAfter: newStock >= 0 ? newStock : 0,
           unit: product.unit || 'pcs',
           notes: `Penjualan: ${orderNumber}`,
           createdBy: req.user?.id
         })
+      }
 
-        // Update best_selling
-        const findBs = await db.best_selling.findOne({
-          where: { productId: product.id, nameProduct: item.productName, store }
+      // best_selling — update regardless of BOM
+      const findBs = await db.best_selling.findOne({
+        where: { productId: product.id, nameProduct: item.productName, store }
+      })
+      if (findBs) {
+        await db.best_selling.update(
+          { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
+          { where: { productId: product.id, nameProduct: item.productName } }
+        )
+      } else {
+        await db.best_selling.create({
+          productId: product.id, nameProduct: item.productName,
+          image: product.image || null, totalSelling: Number(item.quantity), store
         })
-        if (findBs) {
-          await db.best_selling.update(
-            {
-              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
-            },
-            { where: { productId: product.id, nameProduct: item.productName } }
-          )
-        } else {
-          await db.best_selling.create({
-            productId: product.id,
-            nameProduct: item.productName,
-            image: product.image || null,
-            totalSelling: Number(item.quantity),
-            store
+      }
+
+      // BOM-based ingredient deduction
+      if (bom) {
+        for (const line of bom.lines) {
+          const ing = await db.ingredient.findByPk(line.ingredientId)
+          if (!ing) continue
+          const deductQty = line.qty * Number(item.quantity)
+          const oldIngStock = Number(ing.stock)
+          const newIngStock = Math.max(0, oldIngStock - deductQty)
+          await ing.update({ stock: newIngStock })
+          await db.stock_history.create({
+            product: product.id, ingredientName: ing.name, store,
+            referenceType: 'sale', referenceId: order.id,
+            quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
+            quantityAfter: newIngStock, unit: line.unit || ing.unit,
+            createdBy: req.user?.id
           })
-        }
-
-        // ——— Deduct ingredient stock via BOM ———
-        const bom = await db.bom_header.findOne({
-          where: {
-            productId: item.product || item.productId,
-            status: 'active'
-          },
-          include: [{ model: db.bom_line, as: 'lines' }]
-        })
-        if (bom) {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId)
-            if (!ing) continue
-            const deductQty = line.qty * Number(item.quantity)
-            const oldIngStock = Number(ing.stock)
-            const newIngStock = Math.max(0, oldIngStock - deductQty)
-            await ing.update({ stock: newIngStock })
-            await db.stock_history.create({
-              product: product.id,
-              ingredientName: ing.name,
-              store,
-              referenceType: 'sale',
-              referenceId: order.id,
-              quantityBefore: oldIngStock,
-              quantityChange: -(oldIngStock - newIngStock),
-              quantityAfter: newIngStock,
-              unit: line.unit || ing.unit,
-              createdBy: req.user?.id
-            })
-          }
         }
       }
     }
@@ -810,77 +798,58 @@ exports.updateOrderStatus = async (req, res) => {
 
       for (const item of items) {
         const product = await Product.findByPk(item.product)
-        if (product) {
+        if (!product) continue
+
+        const bom = await db.bom_header.findOne({
+          where: { productId: item.product, status: 'active' },
+          include: [{ model: db.bom_line, as: 'lines' }]
+        })
+
+        if (!bom) {
           const oldStock = Number(product.stock) || 0
           const newStock = Math.max(0, oldStock - Number(item.quantity))
           await product.update({ stock: newStock })
 
           await db.stock_history.create({
-            product: product.id,
-            store,
-            referenceType: 'sale',
-            referenceId: order.id,
-            quantityBefore: oldStock,
-            quantityChange: -Number(item.quantity),
-            quantityAfter: newStock,
-            unit: product.unit || 'pcs',
+            product: product.id, store,
+            referenceType: 'sale', referenceId: order.id,
+            quantityBefore: oldStock, quantityChange: -Number(item.quantity),
+            quantityAfter: newStock, unit: product.unit || 'pcs',
             notes: `Penjualan: ${order.orderNumber}`,
             createdBy: changedBy
           })
+        }
 
-          const findBs = await db.best_selling.findOne({
-            where: {
-              productId: product.id,
-              nameProduct: item.productName,
-              store
-            }
+        const findBs = await db.best_selling.findOne({
+          where: { productId: product.id, nameProduct: item.productName, store }
+        })
+        if (findBs) {
+          await db.best_selling.update(
+            { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
+            { where: { productId: product.id, nameProduct: item.productName } }
+          )
+        } else {
+          await db.best_selling.create({
+            productId: product.id, nameProduct: item.productName,
+            image: product.image || null, totalSelling: Number(item.quantity), store
           })
-          if (findBs) {
-            await db.best_selling.update(
-              {
-                totalSelling:
-                  Number(findBs.totalSelling) + Number(item.quantity)
-              },
-              {
-                where: { productId: product.id, nameProduct: item.productName }
-              }
-            )
-          } else {
-            await db.best_selling.create({
-              productId: product.id,
-              nameProduct: item.productName,
-              image: product.image || null,
-              totalSelling: Number(item.quantity),
-              store
+        }
+
+        if (bom) {
+          for (const line of bom.lines) {
+            const ing = await db.ingredient.findByPk(line.ingredientId)
+            if (!ing) continue
+            const deductQty = line.qty * Number(item.quantity)
+            const oldIngStock = Number(ing.stock)
+            const newIngStock = Math.max(0, oldIngStock - deductQty)
+            await ing.update({ stock: newIngStock })
+            await db.stock_history.create({
+              product: product.id, ingredientName: ing.name, store,
+              referenceType: 'sale', referenceId: order.id,
+              quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
+              quantityAfter: newIngStock, unit: line.unit || ing.unit,
+              createdBy: changedBy
             })
-          }
-
-          // ——— Deduct ingredient stock via BOM ———
-          const bom = await db.bom_header.findOne({
-            where: { productId: item.product, status: 'active' },
-            include: [{ model: db.bom_line, as: 'lines' }]
-          })
-          if (bom) {
-            for (const line of bom.lines) {
-              const ing = await db.ingredient.findByPk(line.ingredientId)
-              if (!ing) continue
-              const deductQty = line.qty * Number(item.quantity)
-              const oldIngStock = Number(ing.stock)
-              const newIngStock = Math.max(0, oldIngStock - deductQty)
-              await ing.update({ stock: newIngStock })
-              await db.stock_history.create({
-                product: product.id,
-                ingredientName: ing.name,
-                store,
-                referenceType: 'sale',
-                referenceId: order.id,
-                quantityBefore: oldIngStock,
-                quantityChange: -(oldIngStock - newIngStock),
-                quantityAfter: newIngStock,
-                unit: line.unit || ing.unit,
-                createdBy: changedBy
-              })
-            }
           }
         }
       }

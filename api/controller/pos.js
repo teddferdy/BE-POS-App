@@ -682,8 +682,9 @@ const posController = {
             })
             if (product) {
               const oldStock = Number(product.stock) || 0
+              const newStock = Math.max(0, oldStock - item.qty)
               await product.update(
-                { stock: oldStock - item.qty },
+                { stock: newStock },
                 { transaction: t }
               )
 
@@ -693,8 +694,8 @@ const posController = {
                   store,
                   referenceType: 'purchase_return',
                   quantityBefore: oldStock,
-                  quantityChange: -item.qty,
-                  quantityAfter: oldStock - item.qty,
+                  quantityChange: -(oldStock - newStock),
+                  quantityAfter: newStock,
                   unit: item.unit || 'pcs',
                   notes: `Purchase return: ${reason}`,
                   createdBy: req.user?.id || null
@@ -710,8 +711,9 @@ const posController = {
             })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
+              const newStock = Math.max(0, oldStock - item.qty)
               await ingredient.update(
-                { stock: oldStock - item.qty },
+                { stock: newStock },
                 { transaction: t }
               )
 
@@ -721,8 +723,8 @@ const posController = {
                   store,
                   referenceType: 'purchase_return',
                   quantityBefore: oldStock,
-                  quantityChange: -item.qty,
-                  quantityAfter: oldStock - item.qty,
+                  quantityChange: -(oldStock - newStock),
+                  quantityAfter: newStock,
                   unit: item.unit || 'pcs',
                   notes: `Purchase return: ${reason}`,
                   createdBy: req.user?.id || null
