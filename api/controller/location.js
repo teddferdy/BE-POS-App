@@ -152,6 +152,7 @@ exports.getAllLocationInTable = async (req, res) => {
       postalCode: loc.postalCode,
       category: loc.category || 'Main Branch',
       managerName: loc.managerName,
+      dailyTarget: loc.dailyTarget,
       openingHours: loc.openingHours || [
         { day: 'Monday', open: null, close: null },
         { day: 'Tuesday', open: null, close: null },
@@ -707,6 +708,7 @@ exports.getLocationById = async (req, res) => {
       latitude: location.latitude,
       longitude: location.longitude,
       mainBranch: location.mainBranch,
+      dailyTarget: location.dailyTarget,
       createdAt: location.createdAt,
       updatedAt: location.updatedAt,
       createdBy: location.createdBy || null,
