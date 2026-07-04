@@ -79,6 +79,10 @@ module.exports = (sequelize, DataTypes) => {
       },
       socialMedia: {
         type: DataTypes.JSONB
+      },
+      dailyTarget: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
       }
     },
     {
