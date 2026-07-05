@@ -165,7 +165,7 @@ exports.getAllProduct = async (req, res) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res) => {
-  const { page = 1, pageSize = req.query.limit || 10, status = 'all', store } = req.query
+  const { page = 1, pageSize = req.query.limit || 10, status = 'all', store, search, category, sort } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -192,9 +192,26 @@ exports.getAllProductInTable = async (req, res) => {
       }
     }
 
+    if (search) {
+      whereCondition[Op.and] = [
+        ...(whereCondition[Op.and] || []),
+        {
+          [Op.or]: [
+            { nameProduct: { [Op.iLike]: `%${search}%` } },
+            { sku: { [Op.iLike]: `%${search}%` } }
+          ]
+        }
+      ]
+    }
+
     // Get paginated products
     const includeOpts = [
-      { model: Category, as: 'categoryData', attributes: ['name'] }
+      {
+        model: Category,
+        as: 'categoryData',
+        attributes: ['name'],
+        ...(category ? { where: { name: { [Op.iLike]: category } } } : {})
+      }
     ]
     if (store) {
       includeOpts.push({
@@ -205,11 +222,18 @@ exports.getAllProductInTable = async (req, res) => {
         attributes: ['store', 'stock']
       })
     }
+
+    let order = [['createdAt', 'DESC']]
+    if (sort === 'price-asc') order = [['price', 'ASC']]
+    else if (sort === 'price-desc') order = [['price', 'DESC']]
+    else if (sort === 'stock-asc') order = [['stock', 'ASC']]
+
     const getAllProduct = await Product.findAll({
       where: whereCondition,
       limit: parseInt(pageSize),
       offset: parseInt(offset),
-      include: includeOpts
+      include: includeOpts,
+      order
     })
 
     // Resolve store IDs to names
@@ -239,8 +263,12 @@ exports.getAllProductInTable = async (req, res) => {
     }))
 
     // Get total count for pagination
+    const countIncludeOpts = category
+      ? [{ model: Category, as: 'categoryData', where: { name: { [Op.iLike]: category } }, required: true }]
+      : []
     const totalProducts = await Product.count({
-      where: whereCondition
+      where: whereCondition,
+      ...(countIncludeOpts.length ? { include: countIncludeOpts, distinct: true } : {})
     })
 
     // Calculate stats (based on store filter only, not status filter)

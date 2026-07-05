@@ -1,5 +1,13 @@
 const express = require('express')
+const rateLimit = require('express-rate-limit')
 const authController = require('../controller/auth')
+
+// ponytail: 10 login attempts per 15min window, upgrade: per-IP tracking with Redis if multi-instance
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many login attempts, try again later.' }
+})
 
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
@@ -32,7 +40,7 @@ const upload = multer({
 const router = express.Router()
 
 // Login Post
-router.post('/login', validate(loginSchema), authController.login)
+router.post('/login', loginLimiter, validate(loginSchema), authController.login)
 
 // Register (public)
 router.post('/register', validate(registerSchema), authController.registerNewUser)
