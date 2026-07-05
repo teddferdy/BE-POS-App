@@ -6,6 +6,8 @@ const invoiceController = require('../controller/invoice')
 const authorization = require('../../utils/authorization')
 const { requireRole } = authorization
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { updateInvoiceSettingSchema } = require('../validation/schemas')
 
 const uploadDir = '/tmp/uploads'
 if (!fs.existsSync(uploadDir)) {
@@ -36,6 +38,7 @@ router.put(
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
   uploadImage.single('logo'),
+  validate(updateInvoiceSettingSchema),
   invoiceController.updateSetting
 )
 router.post(

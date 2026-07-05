@@ -5,6 +5,8 @@ const taxConfigController = require('../controller/taxConfig')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createTaxConfigSchema, updateTaxConfigSchema } = require('../validation/schemas')
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
@@ -23,6 +25,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createTaxConfigSchema),
   taxConfigController.create
 )
 router.put(
@@ -30,6 +33,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateTaxConfigSchema),
   taxConfigController.update
 )
 router.delete(

@@ -16,6 +16,11 @@ const {
   parseProductTemplate
 } = require('../../utils/excelTemplate')
 
+const normalizeStores = (stores) => {
+  if (!Array.isArray(stores)) return []
+  return stores.map((s) => (typeof s === 'object' ? s.id : s))
+}
+
 exports.getProductByLocationSuperAdmin = async (req, res) => {
   const { store } = req.query
 
@@ -160,7 +165,7 @@ exports.getAllProduct = async (req, res) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res) => {
-  const { page = 1, pageSize = 10, status = 'all', store } = req.query
+  const { page = 1, pageSize = req.query.limit || 10, status = 'all', store } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -176,7 +181,16 @@ exports.getAllProductInTable = async (req, res) => {
       ...statusCondition
     }
 
-    if (store) whereCondition.store = store
+    if (store) {
+      const storeId = Number(store)
+      if (!isNaN(storeId)) {
+        whereCondition[Op.or] = [
+          { store: { [Op.contains]: [storeId] } },
+          { store: null },
+          db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
+        ]
+      }
+    }
 
     // Get paginated products
     const includeOpts = [
@@ -201,7 +215,7 @@ exports.getAllProductInTable = async (req, res) => {
     // Resolve store IDs to names
     const allStoreIds = [
       ...new Set(
-        getAllProduct.flatMap((p) => (Array.isArray(p.store) ? p.store : []))
+        getAllProduct.flatMap((p) => (Array.isArray(p.store) ? normalizeStores(p.store) : []))
       )
     ]
     const locationMap = {}
@@ -220,7 +234,7 @@ exports.getAllProductInTable = async (req, res) => {
       stock: items.storeStocks?.[0]?.stock ?? items.stock,
       nameCategory: items.categoryData ? items.categoryData.name : null,
       storeList: Array.isArray(items.store)
-        ? items.store.map((id) => ({ id, name: locationMap[id] || null }))
+        ? normalizeStores(items.store).map((id) => ({ id, name: locationMap[id] || null }))
         : []
     }))
 
@@ -230,7 +244,15 @@ exports.getAllProductInTable = async (req, res) => {
     })
 
     // Calculate stats (based on store filter only, not status filter)
-    const statsWhere = store ? { store } : {}
+    const statsWhere = store
+      ? {
+          [Op.or]: [
+            { store: { [Op.contains]: [Number(store)] } },
+            { store: null },
+            db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
+          ]
+        }
+      : {}
     const [totalCount, activeCount, inactiveCount, draftCount] =
       await Promise.all([
         Product.count({ where: statsWhere }),
@@ -353,7 +375,7 @@ exports.postAddProduct = async (req, res) => {
     let parsedStores = []
     if (stores) {
       try {
-        parsedStores = JSON.parse(stores)
+        parsedStores = normalizeStores(JSON.parse(stores))
       } catch (e) {
         parsedStores = []
       }
@@ -576,14 +598,11 @@ exports.editProductByLocationAndId = async (req, res) => {
     let parsedStores = []
     if (stores) {
       try {
-        parsedStores = JSON.parse(stores)
+        parsedStores = normalizeStores(JSON.parse(stores))
       } catch (e) {
         parsedStores = []
       }
     }
-    // Treat empty array as null (All Stores), consistent with import
-    if (Array.isArray(parsedStores) && parsedStores.length === 0)
-      parsedStores = null
 
     let parsedPriceTiers = []
     if (priceTiers) {
@@ -1242,9 +1261,13 @@ exports.importProduct = async (req, res) => {
               await StockHistory.create(
                 {
                   product: newProduct.id,
-                  type: 'in',
-                  quantity: productData.stock,
-                  note: 'Initial stock from import',
+                  store: req.cookies?.store || null,
+                  referenceType: 'adjustment',
+                  quantityBefore: 0,
+                  quantityChange: productData.stock,
+                  quantityAfter: productData.stock,
+                  unit: productData.unit || 'pcs',
+                  notes: 'Initial stock from import',
                   createdBy: req.user?.id || null
                 },
                 { transaction: t }

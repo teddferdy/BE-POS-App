@@ -4,6 +4,8 @@ const reservationController = require('../controller/reservation')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createReservationSchema, updateReservationSchema } = require('../validation/schemas')
 
 router.get(
   '/',
@@ -28,6 +30,7 @@ router.post(
   '/',
   authorization,
   validateStoreAccess,
+  validate(createReservationSchema),
   reservationController.create
 )
 router.put(
@@ -35,6 +38,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateReservationSchema),
   reservationController.update
 )
 router.delete(

@@ -4,6 +4,8 @@ const expenseController = require('../controller/expense')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createExpenseSchema, updateExpenseSchema } = require('../validation/schemas')
 
 // Get expenses - All authenticated users
 router.get(
@@ -31,6 +33,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createExpenseSchema),
   expenseController.create
 )
 router.put(
@@ -38,6 +41,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateExpenseSchema),
   expenseController.update
 )
 router.delete(

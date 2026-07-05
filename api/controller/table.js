@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const Table = db.table
 const Order = db.order
 const Reservation = db.reservation
+const Location = db.location
 const { createAudit } = require('../../utils/auditLog')
 
 exports.getTablesByStore = async (req, res) => {
@@ -20,25 +21,22 @@ exports.getTablesByStore = async (req, res) => {
       offset
     })
 
-    const activeReservations = await Reservation.findAll({
-      where: { store, status: ['pending', 'confirmed'] },
-      attributes: [
-        'id',
-        'tableId',
-        'customerName',
-        'customerPhone',
-        'startTime',
-        'endTime',
-        'reservationDate',
-        'status'
-      ]
-    })
+    const [locations, activeReservations] = await Promise.all([
+      Location.findAll({ attributes: ['id', 'name'], paranoid: false }),
+      Reservation.findAll({
+        where: { store, status: ['pending', 'confirmed'] },
+        attributes: ['id', 'tableId', 'customerName', 'customerPhone', 'startTime', 'endTime', 'reservationDate', 'status']
+      })
+    ])
+    const locMap = {}
+    for (const l of locations) locMap[l.id] = l.name
     const reservationByTable = {}
     for (const r of activeReservations) {
       if (r.tableId) reservationByTable[r.tableId] = r
     }
     const data = rows.map((t) => {
       const tJson = t.toJSON()
+      tJson.store = { id: tJson.store, name: locMap[tJson.store] || 'Unknown' }
       if (reservationByTable[t.id]) {
         tJson.activeReservation = reservationByTable[t.id]
       }
@@ -81,6 +79,10 @@ exports.getTableWithActiveOrders = async (req, res) => {
   const store = req.query.store || req.user?.store
 
   try {
+    const locations = await Location.findAll({ attributes: ['id', 'name'] })
+    const locMap = {}
+    for (const l of locations) locMap[l.id] = l.name
+
     const tables = await Table.findAll({
       where: store ? { store } : {},
       include: [
@@ -96,9 +98,15 @@ exports.getTableWithActiveOrders = async (req, res) => {
       order: [['createdAt', 'DESC']]
     })
 
+    const data = tables.map((t) => {
+      const j = t.toJSON()
+      j.store = { id: j.store, name: locMap[j.store] || 'Unknown' }
+      return j
+    })
+
     return res.status(200).json({
       message: 'Success',
-      data: tables
+      data
     })
   } catch (error) {
     console.error('Error:', error)

@@ -44,6 +44,8 @@ const uploadImage = multer({
 const categoryController = require('../controller/category')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validate } = require('../middleware/validate')
+const { createCategorySchema, updateCategorySchema } = require('../validation/schemas')
 
 // Get All List To Table
 router.get(
@@ -65,6 +67,7 @@ router.post(
   authorization,
   requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
+  validate(createCategorySchema),
   categoryController.addNewCategory
 )
 
@@ -74,6 +77,7 @@ router.put(
   authorization,
   requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
+  validate(updateCategorySchema),
   categoryController.editCategoryById
 )
 

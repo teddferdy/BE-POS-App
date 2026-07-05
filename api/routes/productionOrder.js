@@ -4,6 +4,8 @@ const productionOrderController = require('../controller/productionOrder')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createProductionOrderSchema, updateProductionOrderSchema } = require('../validation/schemas')
 
 router.get(
   '/get-all',
@@ -23,6 +25,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createProductionOrderSchema),
   productionOrderController.create
 )
 router.put(
@@ -30,6 +33,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateProductionOrderSchema),
   productionOrderController.update
 )
 router.delete(

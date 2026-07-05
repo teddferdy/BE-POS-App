@@ -11,11 +11,16 @@ const {
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 
+const normalizeStores = (stores) => {
+  if (!Array.isArray(stores)) return []
+  return stores.map((s) => (typeof s === 'object' ? s.id : s))
+}
+
 const parseStoreField = (val) => {
   if (!val || val === '') return null
   try {
     const parsed = JSON.parse(val)
-    return Array.isArray(parsed) ? parsed : [parseInt(val, 10)]
+    return Array.isArray(parsed) ? normalizeStores(parsed) : [parseInt(val, 10)]
   } catch {
     return [parseInt(val, 10)]
   }
@@ -23,8 +28,9 @@ const parseStoreField = (val) => {
 
 const resolveStoreNames = async (storeIds) => {
   if (!storeIds || !Array.isArray(storeIds) || storeIds.length === 0) return []
+  const ids = normalizeStores(storeIds)
   const locations = await Location.findAll({
-    where: { id: storeIds },
+    where: { id: ids },
     attributes: ['id', 'name']
   })
   return locations.map((l) => ({ id: l.id, name: l.name }))
@@ -80,7 +86,7 @@ exports.getCategoryById = async (req, res) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
-  const { page = 1, pageSize = 10, status = 'all', store } = req.query
+  const { page = 1, pageSize = req.query.limit || 10, status = 'all', store } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -138,7 +144,7 @@ exports.getAllCategoryInTable = async (req, res) => {
 
     const allStoreIds = [
       ...new Set(
-        categories.flatMap((c) => (Array.isArray(c.store) ? c.store : []))
+        categories.flatMap((c) => (Array.isArray(c.store) ? normalizeStores(c.store) : []))
       )
     ]
     const locationMap = {}
@@ -162,7 +168,7 @@ exports.getAllCategoryInTable = async (req, res) => {
       status: item.status,
       productCount: countMap[item.id] || 0,
       store: Array.isArray(item.store)
-        ? item.store.map((id) => ({ id, name: locationMap[id] || null }))
+        ? normalizeStores(item.store).map((id) => ({ id, name: locationMap[id] || null }))
         : [],
       createdBy: item.createdBy,
       createdByUser: item.dataValues?.createdByUser || null,
@@ -365,7 +371,7 @@ exports.editCategoryById = async (req, res) => {
     const store = body.store
       ? parseStoreField(body.store)
       : Array.isArray(category.store)
-        ? category.store
+        ? normalizeStores(category.store)
         : null
 
     const [affectedCount, updatedRows] = await Category.update(
@@ -515,7 +521,7 @@ exports.exportCategory = async (req, res) => {
     const formatStores = (storeVal) => {
       if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0)
         return 'All Stores'
-      return storeVal
+      return normalizeStores(storeVal)
         .map((id) => storeNameById[id] || `Store #${id}`)
         .join(', ')
     }

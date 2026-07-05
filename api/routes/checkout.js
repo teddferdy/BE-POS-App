@@ -3,11 +3,11 @@ const router = express.Router()
 
 // Controller
 const checkoutController = require('../controller/checkout')
-
-// Authorization
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createCheckoutSchema } = require('../validation/schemas')
 
 // Add New Checkout
 router.post(
@@ -15,6 +15,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createCheckoutSchema),
   checkoutController.checkout
 )
 

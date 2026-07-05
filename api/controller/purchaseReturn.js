@@ -231,6 +231,16 @@ const purchaseReturnController = {
 
       const enriched = await attachPriceInfo(result, result.purchaseOrder)
 
+      // ponytail: attach PO orderNumber for display
+      if (enriched.purchaseOrder) {
+        const po = await db.purchase_order.findByPk(enriched.purchaseOrder, {
+          attributes: ['id', 'orderNumber']
+        })
+        enriched.purchaseOrder = po
+          ? { id: po.id, orderNumber: po.orderNumber }
+          : { id: enriched.purchaseOrder, orderNumber: null }
+      }
+
       return res
         .status(200)
         .json({ success: true, message: 'Success', data: enriched })

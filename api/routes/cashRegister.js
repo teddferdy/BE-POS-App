@@ -4,12 +4,15 @@ const cashRegisterController = require('../controller/cashRegister')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createCashRegisterSchema, updateCashRegisterSchema } = require('../validation/schemas')
 
 router.post(
   '/open',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createCashRegisterSchema),
   cashRegisterController.open
 )
 router.put(
@@ -17,6 +20,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateCashRegisterSchema),
   cashRegisterController.close
 )
 router.get(

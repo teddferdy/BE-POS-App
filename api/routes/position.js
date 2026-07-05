@@ -3,10 +3,11 @@ const multer = require('multer')
 const router = express.Router()
 
 const positionController = require('../controller/position')
-// Authorization
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createPositionSchema } = require('../validation/schemas')
 
 // Configure multer for file uploads
 const upload = multer({
@@ -62,6 +63,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPositionSchema),
   positionController.addNewPosition
 )
 
@@ -71,6 +73,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPositionSchema.partial()),
   positionController.editPositionById
 )
 

@@ -10,6 +10,8 @@ const DEFAULT_TEMPLATE = {
   showAddress: true,
   showMemberInfo: true,
   showLogo: true,
+  showSocialMedia: true,
+  socialMediaVisibility: null,
   logo: null
 }
 
@@ -51,6 +53,8 @@ const invoiceController = {
         showAddress,
         showMemberInfo,
         showLogo,
+        showSocialMedia,
+        socialMediaVisibility,
         removeLogo
       } = req.body
 
@@ -93,6 +97,12 @@ const invoiceController = {
           showLogo !== undefined
             ? toBool(showLogo)
             : (existing?.showLogo ?? true),
+        showSocialMedia:
+          showSocialMedia !== undefined
+            ? toBool(showSocialMedia)
+            : (existing?.showSocialMedia ?? true),
+        socialMediaVisibility:
+          socialMediaVisibility !== undefined ? socialMediaVisibility : (existing?.socialMediaVisibility ?? null),
         logo: logoUrl,
         modifiedBy: req.user?.id
       }

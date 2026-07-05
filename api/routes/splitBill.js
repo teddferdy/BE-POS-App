@@ -4,12 +4,15 @@ const splitBillController = require('../controller/splitBill')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createSplitBillSchema } = require('../validation/schemas')
 
 router.post(
   '/create',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createSplitBillSchema),
   splitBillController.create
 )
 router.get(

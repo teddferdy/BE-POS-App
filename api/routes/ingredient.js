@@ -5,6 +5,8 @@ const ingredientController = require('../controller/ingredient')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createIngredientSchema, updateIngredientSchema } = require('../validation/schemas')
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -44,6 +46,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createIngredientSchema),
   ingredientController.create
 )
 router.put(
@@ -51,6 +54,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateIngredientSchema),
   ingredientController.update
 )
 router.put(

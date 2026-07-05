@@ -6,6 +6,8 @@ const departmentController = require('../controller/department')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createDepartmentSchema } = require('../validation/schemas')
 
 // Configure multer for file uploads
 const upload = multer({
@@ -57,6 +59,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createDepartmentSchema),
   departmentController.addNewDepartment
 )
 
@@ -65,6 +68,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createDepartmentSchema.partial()),
   departmentController.editDepartmentById
 )
 

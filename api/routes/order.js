@@ -4,12 +4,15 @@ const orderController = require('../controller/order')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createOrderSchema, updateOrderStatusSchema, updateOrderItemStatusSchema } = require('../validation/schemas')
 
 // Order CRUD - All authenticated users (POS operations)
 router.post(
   '/create',
   authorization,
   validateStoreAccess,
+  validate(createOrderSchema),
   orderController.createOrder
 )
 router.get(
@@ -34,12 +37,14 @@ router.put(
   '/update-status',
   authorization,
   validateStoreAccess,
+  validate(updateOrderStatusSchema),
   orderController.updateOrderStatus
 )
 router.put(
   '/update-item-status',
   authorization,
   validateStoreAccess,
+  validate(updateOrderItemStatusSchema),
   orderController.updateOrderItemStatus
 )
 // Customer-facing (no auth)

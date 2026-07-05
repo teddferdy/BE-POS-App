@@ -4,6 +4,8 @@ const locationController = require('../controller/location')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createLocationSchema, updateLocationSchema } = require('../validation/schemas')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -63,6 +65,7 @@ router.post(
   validateStoreAccess,
   requireRole('super_admin'),
   upload,
+  validate(createLocationSchema),
   locationController.addNewLocation
 )
 
@@ -73,6 +76,7 @@ router.put(
   validateStoreAccess,
   requireRole('super_admin'),
   upload,
+  validate(updateLocationSchema),
   locationController.editLocationById
 )
 

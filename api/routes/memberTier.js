@@ -3,6 +3,8 @@ const router = express.Router()
 const memberTierController = require('../controller/memberTier')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validate } = require('../middleware/validate')
+const { createMemberTierSchema, updateMemberTierSchema } = require('../validation/schemas')
 
 router.get('/get-all', authorization, memberTierController.getAll)
 router.get('/detail/:id', authorization, memberTierController.getDetail)
@@ -10,12 +12,14 @@ router.post(
   '/add',
   authorization,
   requireRole('super_admin', 'admin'),
+  validate(createMemberTierSchema),
   memberTierController.create
 )
 router.put(
   '/edit/:id',
   authorization,
   requireRole('super_admin', 'admin'),
+  validate(updateMemberTierSchema),
   memberTierController.update
 )
 router.delete(

@@ -30,6 +30,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: true
       },
+      showSocialMedia: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
+      socialMediaVisibility: {
+        type: DataTypes.TEXT,
+        allowNull: true
+      },
       logo: {
         type: DataTypes.STRING,
         allowNull: true

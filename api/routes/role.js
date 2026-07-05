@@ -4,6 +4,8 @@ const router = express.Router()
 const roleController = require('../controller/role')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validate } = require('../middleware/validate')
+const { createRoleSchema, updateRoleSchema } = require('../validation/schemas')
 
 // Get All role
 router.get('/get-role', roleController.getAllRole)
@@ -19,6 +21,7 @@ router.get(
 router.post(
   '/add-new-role',
   requireRole('super_admin'),
+  validate(createRoleSchema),
   roleController.addNewRole
 )
 
@@ -26,6 +29,7 @@ router.post(
 router.put(
   '/edit-role/:id',
   requireRole('super_admin'),
+  validate(updateRoleSchema),
   roleController.editRoleById
 )
 

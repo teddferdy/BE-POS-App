@@ -5,6 +5,8 @@ const stockOpnameController = require('../controller/stockOpname')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createStockOpnameSchema, updateStockOpnameSchema } = require('../validation/schemas')
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -51,6 +53,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createStockOpnameSchema),
   stockOpnameController.create
 )
 router.put(
@@ -58,6 +61,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateStockOpnameSchema),
   stockOpnameController.update
 )
 router.delete(

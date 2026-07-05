@@ -3,10 +3,11 @@ const router = express.Router()
 const multer = require('multer')
 
 const typePaymentController = require('../controller/type-payment')
-// Authorization
 const authorization = require('../../utils/authorization')
 const { requireRole } = authorization
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createTypePaymentSchema, updateTypePaymentSchema } = require('../validation/schemas')
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
@@ -40,6 +41,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createTypePaymentSchema),
   typePaymentController.postNewTypePayment
 )
 
@@ -49,6 +51,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateTypePaymentSchema),
   typePaymentController.editTypePaymentById
 )
 

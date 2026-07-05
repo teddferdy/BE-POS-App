@@ -4,6 +4,8 @@ const productController = require('../controller/product')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createProductSchema, updateProductSchema } = require('../validation/schemas')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -113,6 +115,7 @@ router.post(
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
   upload,
+  validate(createProductSchema),
   productController.postAddProduct
 )
 router.put(
@@ -121,6 +124,7 @@ router.put(
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
   upload,
+  validate(updateProductSchema),
   productController.editProductByLocationAndId
 )
 router.delete(

@@ -4,6 +4,16 @@ const posController = require('../controller/pos')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const {
+  createPosTransferSchema,
+  createPosAdjustSchema,
+  createPosReturnSchema,
+  updatePriceByStoreSchema,
+  sendInvoiceWaSchema,
+  sendInvoiceEmailSchema,
+  addBatchSchema
+} = require('../validation/schemas')
 
 // Barcode lookup untuk POS scan
 router.get(
@@ -19,6 +29,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPosTransferSchema),
   posController.transfer
 )
 router.get(
@@ -56,6 +67,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPosAdjustSchema),
   posController.adjust
 )
 
@@ -65,6 +77,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPosReturnSchema),
   posController.returnPurchaseOrder
 )
 
@@ -74,6 +87,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPosReturnSchema),
   posController.returnSalesOrder
 )
 
@@ -107,6 +121,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updatePriceByStoreSchema),
   posController.updatePriceByStore
 )
 
@@ -115,12 +130,14 @@ router.post(
   '/invoice/send-wa',
   authorization,
   validateStoreAccess,
+  validate(sendInvoiceWaSchema),
   posController.sendInvoiceWhatsApp
 )
 router.post(
   '/invoice/send-email',
   authorization,
   validateStoreAccess,
+  validate(sendInvoiceEmailSchema),
   posController.sendInvoiceEmail
 )
 
@@ -145,6 +162,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(addBatchSchema),
   posController.addBatch
 )
 router.get(

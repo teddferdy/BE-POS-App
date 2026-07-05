@@ -4,6 +4,8 @@ const tableController = require('../controller/table')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createTableSchema, updateTableSchema } = require('../validation/schemas')
 
 // Get tables - All authenticated users
 router.get(
@@ -31,6 +33,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createTableSchema),
   tableController.createTable
 )
 router.put(
@@ -38,6 +41,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateTableSchema),
   tableController.updateTable
 )
 router.delete(

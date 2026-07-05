@@ -57,7 +57,7 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
 
 exports.getAllTypePayment = async (req, res) => {
   const store = req.query.store || req.user?.store
-  const { page = 1, pageSize = 10, status } = req.query
+  const { page = 1, pageSize = req.query.limit || 10, status } = req.query
 
   try {
     const offset = (page - 1) * pageSize

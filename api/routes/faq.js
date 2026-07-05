@@ -1,5 +1,7 @@
 const { Router } = require('express')
 const faq = require('../../data/faq.json')
+const { validate } = require('../middleware/validate')
+const { askFaqSchema } = require('../validation/schemas')
 
 const router = Router()
 const GEMINI_KEY = process.env.GEMINI_API_KEY
@@ -22,7 +24,7 @@ router.get('/faq', (req, res) => {
   res.json(search(q))
 })
 
-router.post('/faq/ask', async (req, res) => {
+router.post('/faq/ask', validate(askFaqSchema), async (req, res) => {
   const { question } = req.body
   if (!question) return res.status(400).json({ error: 'question required' })
   try {

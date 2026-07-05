@@ -6,6 +6,8 @@ const discountController = require('../controller/discount')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createDiscountSchema, updateDiscountSchema } = require('../validation/schemas')
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
@@ -29,6 +31,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createDiscountSchema),
   discountController.postNewDiscount
 )
 
@@ -38,6 +41,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateDiscountSchema),
   discountController.editDiscountById
 )
 

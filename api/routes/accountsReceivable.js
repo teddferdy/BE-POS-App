@@ -4,6 +4,8 @@ const arController = require('../controller/accountsReceivable')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createAccountsReceivableSchema, updateAccountsReceivableSchema } = require('../validation/schemas')
 
 router.get('/list', authorization, validateStoreAccess, arController.list)
 router.get(
@@ -18,6 +20,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createAccountsReceivableSchema),
   arController.create
 )
 router.post(
@@ -31,6 +34,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateAccountsReceivableSchema),
   arController.update
 )
 router.delete(

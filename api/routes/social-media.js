@@ -3,11 +3,11 @@ const express = require('express')
 const router = express.Router()
 
 const SocialMediaController = require('../controller/social-media')
-
-// Authorization
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createSocialMediaSchema, updateSocialMediaSchema } = require('../validation/schemas')
 
 // Get Social Media
 router.get(
@@ -23,6 +23,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createSocialMediaSchema),
   SocialMediaController.addNewSocialMedia
 )
 
@@ -32,6 +33,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateSocialMediaSchema),
   SocialMediaController.editSocialMediaById
 )
 

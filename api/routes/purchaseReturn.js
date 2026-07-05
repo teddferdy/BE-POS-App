@@ -4,6 +4,8 @@ const purchaseReturnController = require('../controller/purchaseReturn')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createPurchaseReturnSchema } = require('../validation/schemas')
 
 router.get(
   '/get-all',
@@ -29,6 +31,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPurchaseReturnSchema),
   purchaseReturnController.create
 )
 

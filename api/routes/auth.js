@@ -3,6 +3,8 @@ const authController = require('../controller/auth')
 
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validate } = require('../middleware/validate')
+const { loginSchema, registerSchema, resetPasswordSchema } = require('../validation/schemas')
 
 const fs = require('fs')
 const multer = require('multer')
@@ -30,10 +32,10 @@ const upload = multer({
 const router = express.Router()
 
 // Login Post
-router.post('/login', authController.login)
+router.post('/login', validate(loginSchema), authController.login)
 
 // Register (public)
-router.post('/register', authController.registerNewUser)
+router.post('/register', validate(registerSchema), authController.registerNewUser)
 
 // Get User By Location (all authenticated users)
 router.get('/get-user', authorization, authController.userByLocation)

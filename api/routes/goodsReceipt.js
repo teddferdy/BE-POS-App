@@ -4,6 +4,8 @@ const goodsReceiptController = require('../controller/goodsReceipt')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createGoodsReceiptSchema, updateGoodsReceiptSchema } = require('../validation/schemas')
 
 router.get(
   '/get-all',
@@ -35,6 +37,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createGoodsReceiptSchema),
   goodsReceiptController.create
 )
 router.put(
@@ -42,6 +45,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateGoodsReceiptSchema),
   goodsReceiptController.update
 )
 router.delete(

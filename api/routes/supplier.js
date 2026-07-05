@@ -5,6 +5,8 @@ const supplierController = require('../controller/supplier')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createSupplierSchema, updateSupplierSchema } = require('../validation/schemas')
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
@@ -29,6 +31,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createSupplierSchema),
   supplierController.create
 )
 router.put(
@@ -36,6 +39,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateSupplierSchema),
   supplierController.update
 )
 router.delete(

@@ -5,6 +5,8 @@ const ingredientCategoryController = require('../controller/ingredientCategory')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createIngredientCategorySchema, updateIngredientCategorySchema } = require('../validation/schemas')
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
@@ -25,6 +27,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createIngredientCategorySchema),
   ingredientCategoryController.create
 )
 router.put(
@@ -32,6 +35,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(updateIngredientCategorySchema),
   ingredientCategoryController.update
 )
 router.delete(

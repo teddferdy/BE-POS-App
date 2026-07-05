@@ -982,8 +982,9 @@ exports.getKitchenOrders = async (req, res) => {
 
   try {
     // ponytail: order-level status is 'paid' at POS — kitchen cares about item status only
+    const whereClause = store ? { store } : {}
     const orders = await Order.findAll({
-      where: { store },
+      where: whereClause,
       include: [
         {
           model: OrderItem,

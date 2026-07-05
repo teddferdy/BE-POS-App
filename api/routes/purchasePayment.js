@@ -4,6 +4,8 @@ const purchasePaymentController = require('../controller/purchasePayment')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const { validate } = require('../middleware/validate')
+const { createPurchasePaymentSchema } = require('../validation/schemas')
 
 router.get(
   '/detail/:id',
@@ -40,6 +42,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  validate(createPurchasePaymentSchema),
   purchasePaymentController.record
 )
 router.delete(
