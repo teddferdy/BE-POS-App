@@ -4,8 +4,20 @@ const fs = require('fs')
 const path = require('path')
 
 // ponytail: Vercel serverless can't run puppeteer/WA.
-// Point WHATSAPP_API_URL at a local ngrok'd whatsapp-server.js instance.
+// Point WHATSAPP_API_URL at a local tunnel (ngrok/localtunnel) to whatsapp-server.js
 const API = process.env.WHATSAPP_API_URL
+
+// ponytail: tunnel services (ngrok-free, localtunnel) show interstitial pages for
+// non-browser requests. These headers bypass them.
+const apiFetch = (url, opts = {}) => fetch(url, {
+  ...opts,
+  headers: {
+    'User-Agent': 'Mozilla/5.0',
+    'Bypass-Tunnel-Reminder': 'true',
+    'Accept': 'application/json',
+    ...opts.headers
+  }
+})
 
 // ponytail: Vercel serverless can only write to /tmp
 const AUTH_DIR = !API && (process.env.VERCEL
@@ -35,7 +47,7 @@ const clearReadyCheck = () => {
 }
 
 const initClient = () => {
-  if (API) return fetch(`${API}/init`).then(r => r.json()).then(d => d.data?.initialized)
+  if (API) return apiFetch(`${API}/init`).then(r => r.json()).then(d => d.data?.initialized)
   if (initPromise) return initPromise
 
   initPromise = new Promise((resolve) => {
@@ -70,15 +82,15 @@ const initClient = () => {
       client.on('qr', async (qr) => {
         try {
           qrCodeBase64 = await QRCode.toDataURL(qr)
+          const ascii = await QRCode.toString(qr, { type: 'terminal', small: true })
+          console.log('\n=== WHATSAPP QR CODE ===')
+          console.log(ascii)
         } catch {
           qrCodeBase64 = null
+          console.log('\n=== WHATSAPP QR CODE (fallback) ===')
+          console.log('Failed to render QR. Open GET /pos/whatsapp/status to view.\n')
         }
         isReady = false
-        console.log('\n=== WHATSAPP QR CODE ===')
-        console.log(
-          'Scan the QR code with WhatsApp mobile app to enable invoice sending.'
-        )
-        console.log('QR updated. Open GET /pos/whatsapp/status to view.\n')
       })
 
       client.on('authenticated', () => {
@@ -162,7 +174,7 @@ const initClient = () => {
 
 const getConnectionStatus = async () => {
   if (API) {
-    const r = await fetch(`${API}/status`)
+    const r = await apiFetch(`${API}/status`)
     const d = await r.json()
     return d.data
   }
@@ -180,7 +192,7 @@ const sendDocument = async (phoneNumber, filePath, caption) => {
   if (API) {
     const fileBase64 = fs.readFileSync(filePath).toString('base64')
     const fileName = path.basename(filePath)
-    const r = await fetch(`${API}/send`, {
+    const r = await apiFetch(`${API}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone: phoneNumber, fileBase64, fileName, caption })
@@ -211,7 +223,7 @@ const sendDocument = async (phoneNumber, filePath, caption) => {
 
 const logout = async () => {
   if (API) {
-    await fetch(`${API}/logout`, { method: 'POST' })
+    await apiFetch(`${API}/logout`, { method: 'POST' })
     return
   }
   clearReadyCheck()
@@ -244,7 +256,7 @@ const destroyClient = () => {
 
 const restartClient = async () => {
   if (API) {
-    const r = await fetch(`${API}/restart`, { method: 'POST' })
+    const r = await apiFetch(`${API}/restart`, { method: 'POST' })
     const d = await r.json()
     return d.data?.initialized
   }

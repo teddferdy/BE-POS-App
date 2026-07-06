@@ -21,18 +21,30 @@ app.use(express.json({ limit: '50mb' }))
 // Init on start
 initClient()
 
-app.get('/status', (req, res) => {
-  res.json({ success: true, message: 'WhatsApp status', data: getConnectionStatus() })
+app.get('/status', async (req, res) => {
+  res.json({
+    success: true,
+    message: 'WhatsApp status',
+    data: await getConnectionStatus()
+  })
 })
 
 app.get('/init', async (req, res) => {
   const result = await initClient()
-  res.json({ success: true, message: 'WhatsApp client initialized', data: { initialized: !!result } })
+  res.json({
+    success: true,
+    message: 'WhatsApp client initialized',
+    data: { initialized: !!result }
+  })
 })
 
 app.post('/restart', async (req, res) => {
   const result = await restartClient()
-  res.json({ success: true, message: 'WhatsApp client restarting', data: { initialized: !!result } })
+  res.json({
+    success: true,
+    message: 'WhatsApp client restarting',
+    data: { initialized: !!result }
+  })
 })
 
 app.post('/logout', async (req, res) => {
@@ -43,7 +55,8 @@ app.post('/logout', async (req, res) => {
 app.post('/send', async (req, res) => {
   try {
     const { phone, fileBase64, fileName, caption } = req.body
-    if (!phone || !fileBase64) throw new Error('phone and fileBase64 are required')
+    if (!phone || !fileBase64)
+      throw new Error('phone and fileBase64 are required')
 
     const tmpPath = `/tmp/${fileName || 'invoice.pdf'}`
     fs.writeFileSync(tmpPath, Buffer.from(fileBase64, 'base64'))
