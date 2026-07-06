@@ -193,7 +193,11 @@ exports.createLocationSchema = z.object({
   image: z.string().optional().nullable()
 })
 
-exports.updateLocationSchema = exports.createLocationSchema.partial()
+exports.updateLocationSchema = exports.createLocationSchema
+  .partial()
+  .passthrough()
+// ponytail: passthrough preserves locationId, id, storeId, coordinates, etc.
+// that the controller needs but aren't in the base schema
 
 // ===================== Supplier =====================
 exports.createSupplierSchema = z.object({
