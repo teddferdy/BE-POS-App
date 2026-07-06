@@ -5,8 +5,11 @@ const { createAudit } = require('../../utils/auditLog')
 const expenseCategoryController = {
   async getAll(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
-      const { status, search } = req.query
+      const { status, search, store: queryStore } = req.query
+      let store = queryStore || req.cookies.store || req.user?.store
+      if (req.user?.roleType !== 'super_admin') {
+        store = req.user?.store
+      }
 
       const where = store ? { store } : {}
 

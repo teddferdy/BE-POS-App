@@ -9,10 +9,15 @@ const stockHistoryController = {
         product,
         startDate,
         endDate,
-        store,
+        store: queryStore,
         page = 1,
         limit = 50
       } = req.query
+
+      let store = queryStore || req.user?.store
+      if (req.user?.roleType !== 'super_admin') {
+        store = req.user?.store
+      }
 
       const where = {}
 
