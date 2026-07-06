@@ -111,16 +111,7 @@ Object.keys(db).forEach((modelName) => {
   })
 })
 
-Object.keys(db).forEach((modelName) => {
-  const model = db[modelName]
-  if (typeof model !== 'function' || !model.rawAttributes) return
-  if (!model.rawAttributes.updatedAt) return
-  model.rawAttributes.updatedAt.allowNull = true
-  model.beforeSave((instance) => {
-    if (!instance.isNewRecord) return
-    instance.setDataValue('updatedAt', null)
-  })
-})
+// ponytail: removed broken beforeSave hook that set updatedAt=null on create
 
 db.sequelize = sequelize
 db.Sequelize = Sequelize
