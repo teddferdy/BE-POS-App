@@ -3,6 +3,11 @@ const QRCode = require('qrcode')
 const fs = require('fs')
 const path = require('path')
 
+// ponytail: Vercel serverless can only write to /tmp
+const AUTH_DIR = process.env.VERCEL
+  ? '/tmp/.wwebjs_auth'
+  : path.join(__dirname, '..', '.wwebjs_auth')
+
 const CHROME_PATH =
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
@@ -47,7 +52,7 @@ const initClient = () => {
 
       client = new Client({
         authStrategy: new LocalAuth({
-          dataPath: path.join(__dirname, '..', '.wwebjs_auth')
+          dataPath: AUTH_DIR
         }),
         puppeteer: puppeteerOpts,
         webVersionCache: {
@@ -204,9 +209,8 @@ const destroyClient = () => {
     }
     client = null
   }
-  const authPath = path.join(__dirname, '..', '.wwebjs_auth')
-  if (fs.existsSync(authPath)) {
-    fs.rmSync(authPath, { recursive: true, force: true })
+  if (fs.existsSync(AUTH_DIR)) {
+    fs.rmSync(AUTH_DIR, { recursive: true, force: true })
   }
 }
 
