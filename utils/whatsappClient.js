@@ -3,10 +3,14 @@ const QRCode = require('qrcode')
 const fs = require('fs')
 const path = require('path')
 
+// ponytail: Vercel serverless can't run puppeteer/WA.
+// Point WHATSAPP_API_URL at a local ngrok'd whatsapp-server.js instance.
+const API = process.env.WHATSAPP_API_URL
+
 // ponytail: Vercel serverless can only write to /tmp
-const AUTH_DIR = process.env.VERCEL
+const AUTH_DIR = !API && (process.env.VERCEL
   ? '/tmp/.wwebjs_auth'
-  : path.join(__dirname, '..', '.wwebjs_auth')
+  : path.join(__dirname, '..', '.wwebjs_auth'))
 
 const CHROME_PATH =
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -31,6 +35,7 @@ const clearReadyCheck = () => {
 }
 
 const initClient = () => {
+  if (API) return fetch(`${API}/init`).then(r => r.json()).then(d => d.data?.initialized)
   if (initPromise) return initPromise
 
   initPromise = new Promise((resolve) => {
@@ -155,16 +160,35 @@ const initClient = () => {
   return initPromise
 }
 
-const getConnectionStatus = () => ({
-  ready: isReady,
-  hasQR: !!qrCodeBase64,
-  qrBase64: qrCodeBase64,
-  error: initError,
-  phoneNumber: client?.info?.wid?.user || null,
-  pushName: client?.info?.pushname || null
-})
+const getConnectionStatus = async () => {
+  if (API) {
+    const r = await fetch(`${API}/status`)
+    const d = await r.json()
+    return d.data
+  }
+  return {
+    ready: isReady,
+    hasQR: !!qrCodeBase64,
+    qrBase64: qrCodeBase64,
+    error: initError,
+    phoneNumber: client?.info?.wid?.user || null,
+    pushName: client?.info?.pushname || null
+  }
+}
 
 const sendDocument = async (phoneNumber, filePath, caption) => {
+  if (API) {
+    const fileBase64 = fs.readFileSync(filePath).toString('base64')
+    const fileName = path.basename(filePath)
+    const r = await fetch(`${API}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phoneNumber, fileBase64, fileName, caption })
+    })
+    const d = await r.json()
+    if (!d.success) throw new Error(d.message)
+    return
+  }
   if (!client || !isReady) {
     throw new Error('WhatsApp not connected. Scan QR code first.')
   }
@@ -186,6 +210,10 @@ const sendDocument = async (phoneNumber, filePath, caption) => {
 }
 
 const logout = async () => {
+  if (API) {
+    await fetch(`${API}/logout`, { method: 'POST' })
+    return
+  }
   clearReadyCheck()
   if (client) {
     try {
@@ -215,6 +243,11 @@ const destroyClient = () => {
 }
 
 const restartClient = async () => {
+  if (API) {
+    const r = await fetch(`${API}/restart`, { method: 'POST' })
+    const d = await r.json()
+    return d.data?.initialized
+  }
   await logout()
   initPromise = initClient()
   return initPromise

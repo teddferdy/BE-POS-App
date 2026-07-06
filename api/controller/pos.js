@@ -1552,7 +1552,7 @@ const posController = {
   // Get WhatsApp connection status
   async getWhatsAppStatus(req, res) {
     try {
-      const status = getConnectionStatus()
+      const status = await getConnectionStatus()
       return res.status(200).json({
         success: true,
         message: 'WhatsApp status',
