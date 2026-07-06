@@ -9,11 +9,16 @@ const stockHistoryController = {
         product,
         startDate,
         endDate,
+        store,
         page = 1,
         limit = 50
       } = req.query
 
       const where = {}
+
+      if (store) {
+        where.store = store
+      }
 
       if (referenceType) {
         where.referenceType = referenceType

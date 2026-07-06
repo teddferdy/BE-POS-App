@@ -29,6 +29,13 @@ const supplierController = {
         })
       }
 
+      if (req.user?.roleType !== 'super_admin' && supplier.store && supplier.store !== req.user?.store) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda tidak memiliki akses untuk melihat supplier ini'
+        })
+      }
+
       const productCount = await db.product.count({
         where: { supplier: id }
       })
@@ -54,7 +61,16 @@ const supplierController = {
     try {
       const { search, status, page = 1, limit = 10 } = req.query
 
+      const store = req.query.store || req.user?.store
       const where = {}
+      if (req.user?.roleType !== 'super_admin') {
+        if (req.user?.store) {
+          where.store = req.user.store
+        }
+      } else if (store) {
+        where.store = store
+      }
+
       if (search) {
         where[Op.or] = [
           { name: { [Op.iLike]: `%${search}%` } },
@@ -125,6 +141,13 @@ const supplierController = {
         return res.status(404).json({
           success: false,
           message: 'Supplier not found'
+        })
+      }
+
+      if (req.user?.roleType !== 'super_admin' && supplier.store && supplier.store !== req.user?.store) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda tidak memiliki akses untuk melihat supplier ini'
         })
       }
 
@@ -284,6 +307,13 @@ const supplierController = {
         return res.status(404).json({
           success: false,
           message: 'Supplier not found'
+        })
+      }
+
+      if (req.user?.roleType !== 'super_admin' && supplier.store && supplier.store !== store) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda tidak memiliki akses untuk mengupdate supplier ini'
         })
       }
 

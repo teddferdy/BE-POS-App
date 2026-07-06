@@ -8,6 +8,14 @@ exports.getAllMember = async (req, res) => {
     const { nameMember, phoneNumber, page = 1, limit = 10 } = req.query
     const filters = {}
 
+    let store = req.query.store || req.user?.store
+    if (req.user?.roleType !== 'super_admin') {
+      store = req.user?.store
+    }
+    if (store) {
+      filters.store = store
+    }
+
     if (nameMember) {
       filters.name = {
         [Op.like]: `%${nameMember}%`
@@ -29,10 +37,10 @@ exports.getAllMember = async (req, res) => {
       order: [['createdAt', 'DESC']]
     })
 
-    const totalMembers = await Member.count()
-    const activeCount = await Member.count({ where: { status: 'active' } })
-    const draftCount = await Member.count({ where: { status: 'draft' } })
-    const inactiveCount = await Member.count({ where: { status: 'inactive' } })
+    const totalMembers = await Member.count({ where: filters })
+    const activeCount = await Member.count({ where: { ...filters, status: 'active' } })
+    const draftCount = await Member.count({ where: { ...filters, status: 'draft' } })
+    const inactiveCount = await Member.count({ where: { ...filters, status: 'inactive' } })
 
     return res.status(200).json({
       success: true,
@@ -178,7 +186,9 @@ exports.addNewMember = async (req, res) => {
       }
     }
 
+    const store = req.user?.roleType === 'super_admin' ? (body.store || null) : req.user?.store
     const createdMember = await Member.create({
+      store,
       name: body.nameMember,
       phoneNumber: body.phoneNumber,
       email: body.email || null,
@@ -242,6 +252,13 @@ exports.editMember = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Member tidak ditemukan'
+      })
+    }
+
+    if (req.user?.roleType !== 'super_admin' && member.store && member.store !== req.user?.store) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki akses untuk mengedit member ini'
       })
     }
 
@@ -331,6 +348,13 @@ exports.deleteMember = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Member tidak ditemukan'
+      })
+    }
+
+    if (req.user?.roleType !== 'super_admin' && member.store && member.store !== req.user?.store) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki akses untuk menghapus member ini'
       })
     }
 
