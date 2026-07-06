@@ -127,7 +127,7 @@ const orderItemSchema = z.object({
   notes: z.string().optional().default(''),
   modifiers: z.array(z.any()).optional().default([]),
   variant: z.string().optional()
-})
+}).passthrough()
 
 exports.createOrderSchema = z.object({
   store: strToNum(),
