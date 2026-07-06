@@ -474,10 +474,14 @@ exports.createOrder = async (req, res) => {
         const newStock = oldStock - Number(item.quantity)
         await product.update({ stock: newStock >= 0 ? newStock : 0 })
 
-        const [pss] = await db.product_store_stock.findOrCreate({
-          where: { product: product.id, store },
-          defaults: { stock: 0, updatedAt: new Date() }
+        let pss = await db.product_store_stock.findOne({
+          where: { product: product.id, store }
         })
+        if (!pss) {
+          pss = await db.product_store_stock.create({
+            product: product.id, store, stock: 0
+          })
+        }
         const oldPssStock = Number(pss.stock) || 0
         const newPssStock = oldPssStock - Number(item.quantity)
         await pss.update({ stock: newPssStock >= 0 ? newPssStock : 0 })

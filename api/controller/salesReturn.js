@@ -206,11 +206,15 @@ const salesReturnController = {
               { transaction }
             )
 
-            const [pss] = await db.product_store_stock.findOrCreate({
+            let pss = await db.product_store_stock.findOne({
               where: { product: item.product, store: ret.store },
-              defaults: { stock: 0 },
               transaction
             })
+            if (!pss) {
+              pss = await db.product_store_stock.create({
+                product: item.product, store: ret.store, stock: 0
+              }, { transaction })
+            }
             const oldPssStock = Number(pss.stock) || 0
             await pss.update(
               { stock: Math.max(0, oldPssStock - item.qty) },

@@ -717,10 +717,14 @@ exports.editProductByLocationAndId = async (req, res) => {
     // Update per-store stock for the current store
     const storeId = req.cookies?.store || req.body?.storeId
     if (storeId && stockDiff !== 0) {
-      const [pss] = await db.product_store_stock.findOrCreate({
-        where: { product: id, store: storeId },
-        defaults: { stock: 0 }
+      let pss = await db.product_store_stock.findOne({
+        where: { product: id, store: storeId }
       })
+      if (!pss) {
+        pss = await db.product_store_stock.create({
+          product: id, store: storeId, stock: 0
+        })
+      }
       const newPssStock = Math.max(0, Number(pss.stock) + stockDiff)
       await pss.update({ stock: newPssStock })
     }

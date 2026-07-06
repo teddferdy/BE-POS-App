@@ -579,11 +579,15 @@ const posController = {
         // Update per-store stock
         const adjStore = storeId || store
         if (adjStore) {
-          const [pss] = await db.product_store_stock.findOrCreate({
+          let pss = await db.product_store_stock.findOne({
             where: { product: productId, store: adjStore },
-            defaults: { stock: 0 },
             transaction: t
           })
+          if (!pss) {
+            pss = await db.product_store_stock.create({
+              product: productId, store: adjStore, stock: 0
+            }, { transaction: t })
+          }
           const oldPssStock = Number(pss.stock) || 0
           const newPssStock = oldPssStock + Number(qty)
           await pss.update(
@@ -820,11 +824,15 @@ const posController = {
               { transaction: t }
             )
 
-            const [pss] = await db.product_store_stock.findOrCreate({
+            let pss = await db.product_store_stock.findOne({
               where: { product: item.productId, store },
-              defaults: { stock: 0 },
               transaction: t
             })
+            if (!pss) {
+              pss = await db.product_store_stock.create({
+                product: item.productId, store, stock: 0
+              }, { transaction: t })
+            }
             const oldPssStock = Number(pss.stock) || 0
             await pss.update(
               { stock: oldPssStock + item.qty },
