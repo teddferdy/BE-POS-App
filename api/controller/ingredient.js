@@ -6,49 +6,67 @@ const excelJS = require('exceljs')
 const ingredientController = {
   async getAll(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
-      const { search, status, lowStock } = req.query
+      const store = req.query.store || req.user?.store
+      const { search, status, lowStock, page = 1, limit = 10 } = req.query
+      const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const where = store ? { store } : {}
+      const where = {}
+      const andConditions = []
+      if (store) {
+        where[Op.or] = [{ store }, { store: null }]
+      }
       if (search) {
-        where[Op.or] = [{ name: { [Op.iLike]: `%${search}%` } }]
+        andConditions.push({ name: { [Op.iLike]: `%${search}%` } })
       }
       if (status !== undefined) {
-        where.status =
-          status === 'true' || status === 'active' ? 'active' : 'inactive'
+        andConditions.push({
+          status: status === 'true' || status === 'active' ? 'active' : 'inactive'
+        })
+      }
+      if (andConditions.length > 0) {
+        where[Op.and] = andConditions
       }
 
-      let ingredients = await db.ingredient.findAll({
-        where,
-        include: [
-          {
-            model: db.supplier,
-            as: 'supplierData',
-            attributes: ['id', 'name']
-          },
-          {
-            model: db.ingredientCategory,
-            as: 'categoryData',
-            attributes: ['id', 'name']
-          }
-        ],
-        order: [['createdAt', 'DESC']]
-      })
+      let { count, rows: ingredients } =
+        await db.ingredient.findAndCountAll({
+          where,
+          include: [
+            {
+              model: db.supplier,
+              as: 'supplierData',
+              attributes: ['id', 'name']
+            },
+            {
+              model: db.ingredientCategory,
+              as: 'categoryData',
+              attributes: ['id', 'name']
+            }
+          ],
+          limit: parseInt(limit),
+          offset,
+          order: [['createdAt', 'DESC']]
+        })
 
       if (lowStock === 'true') {
         ingredients = ingredients.filter((ing) => ing.stock <= ing.minStock)
+        count = ingredients.length
       }
 
-      const storeWhere = store ? { store } : {}
+      const storeFilter = store
+        ? { [Op.or]: [{ store }, { store: null }] }
+        : {}
       const [active, draft, inactive] = await Promise.all([
-        db.ingredient.count({ where: { ...storeWhere, status: 'active' } }),
-        db.ingredient.count({ where: { ...storeWhere, status: 'draft' } }),
-        db.ingredient.count({ where: { ...storeWhere, status: 'inactive' } })
+        db.ingredient.count({ where: { ...storeFilter, status: 'active' } }),
+        db.ingredient.count({ where: { ...storeFilter, status: 'draft' } }),
+        db.ingredient.count({ where: { ...storeFilter, status: 'inactive' } })
       ])
 
       return res.status(200).json({
         success: true,
         message: 'Success get ingredients',
+        totalItems: count,
+        totalPages: Math.ceil(count / parseInt(limit)),
+        currentPage: parseInt(page),
         data: ingredients,
         stats: { total: active + draft + inactive, active, draft, inactive }
       })

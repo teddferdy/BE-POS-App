@@ -86,7 +86,11 @@ exports.getCategoryById = async (req, res) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
-  const { page = 1, pageSize = req.query.limit || 10, status = 'all', store } = req.query
+  let { page = 1, pageSize = req.query.limit || 10, status = 'all', store } = req.query
+
+  if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
+    store = req.user.store
+  }
 
   try {
     const offset = (page - 1) * pageSize

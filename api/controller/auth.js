@@ -264,7 +264,7 @@ exports.login = async (req, res) => {
 
     if (findUser.roleId) {
       roleData = await db.role.findByPk(findUser.roleId)
-      if (roleData && !accessMenu) {
+      if (roleData && (!accessMenu || !accessMenu.length)) {
         accessMenu = roleData.accessMenu
       }
     }

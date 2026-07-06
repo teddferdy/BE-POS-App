@@ -4,8 +4,39 @@ const Order = db.order
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 
+const resolveStoreNames = async (storeIds) => {
+  if (!storeIds || storeIds.length === 0) return []
+  const Location = db.location
+  const locations = await Location.findAll({
+    where: { id: storeIds },
+    attributes: ['id', 'name']
+  })
+  return locations.map((l) => ({ id: l.id, name: l.name }))
+}
+
+const attachStoreData = async (rows) => {
+  if (!rows?.length) return rows
+  const allStoreIds = [...new Set(rows.map((r) => r.store).filter(Boolean))]
+  const locationMap = {}
+  if (allStoreIds.length > 0) {
+    const Location = db.location
+    const locations = await Location.findAll({
+      where: { id: allStoreIds },
+      attributes: ['id', 'name']
+    })
+    locations.forEach((l) => { locationMap[l.id] = l.name })
+  }
+  return rows.map((r) => ({
+    ...r,
+    store: r.store ? { id: r.store, name: locationMap[r.store] || null } : []
+  }))
+}
+
 exports.getAllDiscountByLocationAndActive = async (req, res) => {
-  const store = req.query.store || req.user?.store
+  let store = req.query.store || req.user?.store
+  if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
+    store = req.user.store
+  }
   const { page = 1, size = 10 } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
@@ -21,14 +52,21 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
       }
     )
 
+    const whereDiscount = { status: 'active' }
+    if (store) {
+      whereDiscount[db.Sequelize.Op.or] = [
+        { store },
+        { store: null }
+      ]
+    }
+
     const { count, rows: subCategory } = await Discount.findAndCountAll({
-      where: {
-        ...(store ? { store } : {}),
-        status: 'active'
-      },
+      where: whereDiscount,
       limit: limit,
       offset: offset
     })
+
+    const data = await attachStoreData(subCategory.map((r) => r.dataValues))
 
     return res.status(200).json({
       success: true,
@@ -36,14 +74,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
       totalItems: count,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
-      data:
-        subCategory?.length > 0
-          ? subCategory?.map((items) => {
-              return {
-                ...items?.dataValues
-              }
-            })
-          : []
+      data
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -55,7 +86,10 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
 }
 
 exports.getAllDiscount = async (req, res) => {
-  const store = req.query.store || req.user?.store
+  let store = req.query.store || req.user?.store
+  if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
+    store = req.user.store
+  }
   const { page = 1, size = 10, limit: queryLimit, status } = req.query
   const limit = parseInt(queryLimit || size)
   const offset = (parseInt(page) - 1) * limit
@@ -71,25 +105,34 @@ exports.getAllDiscount = async (req, res) => {
       }
     )
 
-    const whereCondition = {}
-    if (store) whereCondition.store = store
+    const whereDiscount = {}
+    if (store) {
+      whereDiscount[db.Sequelize.Op.or] = [
+        { store },
+        { store: null }
+      ]
+    }
     if (status && status !== 'all')
-      whereCondition.status =
+      whereDiscount.status =
         status === 'true' || status === 'active' ? 'active' : 'inactive'
 
     const { count, rows } = await Discount.findAndCountAll({
-      where: whereCondition,
+      where: whereDiscount,
       limit,
       offset,
       order: [['createdAt', 'DESC']]
     })
 
-    const storeFilter = store ? { store } : {}
+    const storeFilter = store
+      ? { [db.Sequelize.Op.or]: [{ store }, { store: null }] }
+      : {}
     const [activeCount, draftCount, inactiveCount] = await Promise.all([
       Discount.count({ where: { ...storeFilter, status: 'active' } }),
       Discount.count({ where: { ...storeFilter, status: 'draft' } }),
       Discount.count({ where: { ...storeFilter, status: 'inactive' } })
     ])
+
+    const data = await attachStoreData(rows.map((i) => i.dataValues))
 
     return res.status(200).json({
       success: true,
@@ -97,7 +140,7 @@ exports.getAllDiscount = async (req, res) => {
       totalItems: count,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
-      data: rows.map((items) => items.dataValues),
+      data,
       stats: {
         total: activeCount + draftCount + inactiveCount,
         active: activeCount,

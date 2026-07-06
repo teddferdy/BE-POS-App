@@ -65,7 +65,7 @@ const server = http.createServer(app)
 const corsOptions = {
   origin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
-    : ['https://bisa-nota-demo.vercel.app', 'http://localhost:3000'],
+    : ['https://bisa-nota-demo.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
