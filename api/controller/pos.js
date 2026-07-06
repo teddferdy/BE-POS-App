@@ -585,7 +585,7 @@ const posController = {
           })
           if (!pss) {
             pss = await db.product_store_stock.create({
-              product: productId, store: adjStore, stock: 0
+              product: productId, store: adjStore, stock: 0, updatedAt: new Date()
             }, { transaction: t })
           }
           const oldPssStock = Number(pss.stock) || 0
@@ -830,7 +830,7 @@ const posController = {
             })
             if (!pss) {
               pss = await db.product_store_stock.create({
-                product: item.productId, store, stock: 0
+                product: item.productId, store, stock: 0, updatedAt: new Date()
               }, { transaction: t })
             }
             const oldPssStock = Number(pss.stock) || 0

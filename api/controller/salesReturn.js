@@ -212,7 +212,7 @@ const salesReturnController = {
             })
             if (!pss) {
               pss = await db.product_store_stock.create({
-                product: item.product, store: ret.store, stock: 0
+                product: item.product, store: ret.store, stock: 0, updatedAt: new Date()
               }, { transaction })
             }
             const oldPssStock = Number(pss.stock) || 0

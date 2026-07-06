@@ -494,7 +494,8 @@ exports.postAddProduct = async (req, res) => {
         await db.product_store_stock.create({
           product: postData.id,
           store: parsedStores[i],
-          stock: s
+          stock: s,
+          updatedAt: new Date()
         })
       }
     }
@@ -722,7 +723,7 @@ exports.editProductByLocationAndId = async (req, res) => {
       })
       if (!pss) {
         pss = await db.product_store_stock.create({
-          product: id, store: storeId, stock: 0
+          product: id, store: storeId, stock: 0, updatedAt: new Date()
         })
       }
       const newPssStock = Math.max(0, Number(pss.stock) + stockDiff)
