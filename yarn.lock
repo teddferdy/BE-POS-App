@@ -2051,6 +2051,11 @@ exceljs@^4.4.0:
     unzipper "^0.10.11"
     uuid "^8.3.0"
 
+express-async-errors@^3.1.1:
+  version "3.1.1"
+  resolved "https://registry.npmjs.org/express-async-errors/-/express-async-errors-3.1.1.tgz"
+  integrity sha512-h6aK1da4tpqWSbyCa3FxB/V6Ehd4EEB15zyQq9qe75OZBp0krinNKuH4rAY+S/U/2I36vdLAUFSjQJ+TFmODng==
+
 express-rate-limit@^8.5.1:
   version "8.5.1"
   resolved "https://registry.npmjs.org/express-rate-limit/-/express-rate-limit-8.5.1.tgz"
@@ -2058,7 +2063,7 @@ express-rate-limit@^8.5.1:
   dependencies:
     ip-address "^10.2.0"
 
-express@^4.19.2, "express@>= 4.11":
+express@^4.16.2, express@^4.19.2, "express@>= 4.11":
   version "4.19.2"
   resolved "https://registry.npmjs.org/express/-/express-4.19.2.tgz"
   integrity sha512-5T6nhjsT+EOMzuck8JjBHARTHfMht0POzlA60WV2pMD3gyXw2LZnZ+ueGdNxG+0calOJcWKbpFcuzLZ91YWq9Q==
