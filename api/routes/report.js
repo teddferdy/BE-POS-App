@@ -35,5 +35,11 @@ router.get(
   validateStoreAccess,
   reportController.getBestSellerReport
 )
+router.get(
+  '/profit-per-product',
+  authorization,
+  validateStoreAccess,
+  reportController.getProfitPerProduct
+)
 
 module.exports = router

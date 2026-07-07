@@ -507,3 +507,58 @@ exports.getCashFlow = async (req, res) => {
     res.status(500).json({ success: false, message: err.message })
   }
 }
+
+exports.getProfitPerProduct = async (req, res) => {
+  try {
+    const { store, startDate, endDate } = req.query
+    const orderWhere = { paymentStatus: 'paid' }
+    if (store) orderWhere.store = store
+    if (startDate || endDate) {
+      orderWhere.createdAt = {}
+      if (startDate) orderWhere.createdAt[Op.gte] = new Date(startDate)
+      if (endDate) {
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        orderWhere.createdAt[Op.lte] = end
+      }
+    }
+    const orders = await Order.findAll({ where: orderWhere, attributes: ['id', 'createdAt'] })
+    const orderIds = orders.map((o) => o.id)
+    if (orderIds.length === 0) {
+      return res.json({ success: true, data: [] })
+    }
+    const items = await OrderItem.findAll({
+      where: { order: orderIds },
+      attributes: ['product', 'productName', 'quantity', 'totalPrice', 'hppSnapshot']
+    })
+    const map = {}
+    for (const i of items) {
+      const pid = i.product
+      if (!map[pid]) {
+        map[pid] = {
+          productId: pid,
+          productName: i.productName || 'Unknown',
+          qtySold: 0,
+          totalSales: 0,
+          totalHpp: 0
+        }
+      }
+      map[pid].qtySold += Number(i.quantity || 0)
+      map[pid].totalSales += Number(i.totalPrice || 0)
+      map[pid].totalHpp += Number(i.hppSnapshot || 0)
+    }
+    const result = Object.values(map)
+      .map((p) => ({
+        ...p,
+        profit: p.totalSales - p.totalHpp,
+        margin:
+          p.totalSales > 0
+            ? Math.round(((p.totalSales - p.totalHpp) / p.totalSales) * 10000) / 100
+            : 0
+      }))
+      .sort((a, b) => b.profit - a.profit)
+    res.json({ success: true, data: result })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+}
