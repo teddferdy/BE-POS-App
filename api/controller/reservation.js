@@ -1,4 +1,5 @@
 const db = require('../../db/models')
+const { Op } = require('sequelize')
 const Reservation = db.reservation
 const Table = db.table
 const Location = db.location
@@ -6,7 +7,7 @@ const { createAudit } = require('../../utils/auditLog')
 
 exports.getAll = async (req, res) => {
   const store = req.query.store || req.user?.store
-  const { page = 1, size = 10, date, status } = req.query
+  const { page = 1, size = 10, date, status, search } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
@@ -15,6 +16,12 @@ exports.getAll = async (req, res) => {
     if (store) where.store = store
     if (date) where.reservationDate = date
     if (status && status !== 'all') where.status = status
+    if (search) {
+      where[Op.or] = [
+        { customerName: { [Op.iLike]: `%${search}%` } },
+        { customerPhone: { [Op.iLike]: `%${search}%` } }
+      ]
+    }
 
     const { count, rows } = await Reservation.findAndCountAll({
       where,

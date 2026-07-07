@@ -30,17 +30,24 @@ const STOCK_OPNAME_EXCEL_HEADERS = [
 const stockOpnameController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate } = req.query
+      const { page = 1, limit = 10, status, startDate, endDate, store: queryStore, search } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') {
-        where.store = store
-      }
+      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      if (effectiveStore) where.store = effectiveStore
 
       if (status) {
         where.status = status
+      }
+
+      if (search) {
+        where[Op.or] = [
+          { auditId: { [Op.iLike]: `%${search}%` } },
+          { auditor: { [Op.iLike]: `%${search}%` } },
+          { warehouse: { [Op.iLike]: `%${search}%` } }
+        ]
       }
 
       if (startDate || endDate) {

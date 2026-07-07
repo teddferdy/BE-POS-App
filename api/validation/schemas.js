@@ -98,7 +98,8 @@ exports.createProductSchema = z.object({
   tipeProduk: z.string().optional().default('menu'),
   composition: jsonField().optional().default([]),
   redeemPoints: strToNum().optional().default(0),
-  createdBy: z.string().optional()
+  createdBy: z.string().optional(),
+  image: z.string().optional().nullable()
 })
 
 exports.updateProductSchema = exports.createProductSchema.partial()
@@ -152,19 +153,25 @@ exports.createOrderSchema = z.object({
   subTotal: strToNum().optional().default(0),
   taxRate: z.string().optional().default('0'),
   serviceChargeRate: z.string().optional().default('0'),
-  paymentMethod: z.string().optional(),
+  paymentMethod: z.enum(['cash', 'qris', 'debit', 'credit', 'other', 'points', 'transfer']).optional(),
   appliedDiscountId: strToNum().optional().nullable(),
-  pointDiscountAmount: strToNum().optional().default(0)
+  pointDiscountAmount: strToNum().optional().default(0),
+  redeemedPoints: strToNum().optional().default(0)
 })
 
 exports.updateOrderStatusSchema = z.object({
   id: strToNum(),
-  status: z.enum(['pending', 'confirmed', 'preparing', 'ready', 'served', 'paid', 'cancelled', 'void'])
+  store: strToNum().optional(),
+  status: z.enum(['pending', 'confirmed', 'preparing', 'ready', 'served', 'paid', 'cancelled', 'void']),
+  changedBy: strToNum().optional().nullable(),
+  changedByName: z.string().optional().nullable(),
+  notes: z.string().optional().default('')
 })
 
 exports.updateOrderItemStatusSchema = z.object({
+  id: strToNum(),
   itemId: strToNum(),
-  status: z.string().min(1)
+  itemStatus: z.string().min(1)
 })
 
 // ===================== Location =====================
@@ -282,8 +289,10 @@ exports.updateDiscountSchema = exports.createDiscountSchema.partial()
 
 // ===================== Purchase Order =====================
 const poItemSchema = z.object({
-  product: strToNum(),
+  product: strToNum().optional().nullable(),
   productName: z.string().optional(),
+  ingredient: strToNum().optional().nullable(),
+  ingredientName: z.string().optional(),
   quantity: strToNum(),
   price: strToNum().optional().default(0),
   unit: z.string().optional().default('pcs')
@@ -294,9 +303,12 @@ exports.createPurchaseOrderSchema = z.object({
   supplier: strToNum().optional().nullable(),
   items: z.array(poItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
+  discount: strToNum().optional().default(0),
+  pic: strToNum().optional().nullable(),
+  createdBy: z.string().optional(),
   status: z.enum(['draft', 'pending', 'ordered', 'received', 'cancelled']).optional().default('draft'),
   orderDate: z.string().optional(),
-  expectedDate: z.string().optional().nullable()
+  dueDate: z.string().optional().nullable()
 })
 
 exports.updatePurchaseOrderSchema = exports.createPurchaseOrderSchema.partial()

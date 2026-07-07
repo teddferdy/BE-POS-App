@@ -69,7 +69,8 @@ exports.getAllLocationPublic = async (req, res) => {
 
 exports.getAllLocationInTable = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status = 'all', category = 'all' } = req.query
+    const userRole = req.user?.roleType
+    const { page = 1, limit = 10, status = 'all', category = 'all', search, store: queryStore } = req.query
     const offset = (page - 1) * limit
 
     let whereClause = {}
@@ -79,6 +80,18 @@ exports.getAllLocationInTable = async (req, res) => {
       whereClause.status = 'inactive'
     } else if (status === 'draft') {
       whereClause.status = 'draft'
+    }
+
+    if (userRole === 'super_admin' && queryStore) {
+      whereClause.id = queryStore
+    }
+
+    if (search) {
+      whereClause[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { detailLocation: { [Op.iLike]: `%${search}%` } },
+        { phoneNumber: { [Op.iLike]: `%${search}%` } }
+      ]
     }
 
     const [total, activeCount, inactiveCount, draftCount, citiesResult] =

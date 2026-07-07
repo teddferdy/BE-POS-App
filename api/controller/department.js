@@ -32,7 +32,7 @@ exports.getAllDepartment = async (req, res) => {
 
 exports.getAllDepartmentInTable = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status = 'all' } = req.query
+    const { page = 1, limit = 10, status = 'all', search } = req.query
     const offset = (page - 1) * limit
 
     let whereCondition = {}
@@ -40,6 +40,10 @@ exports.getAllDepartmentInTable = async (req, res) => {
       whereCondition = { status: 'active' }
     } else if (status === 'false') {
       whereCondition = { status: 'inactive' }
+    }
+
+    if (search) {
+      whereCondition.name = { [Op.iLike]: `%${search}%` }
     }
 
     const { rows: getAllDepartment, count: totalItems } =

@@ -399,16 +399,27 @@ const posController = {
   // Get stock transfer history
   async getTransferHistory(req, res) {
     try {
-      const { store } = req.cookies
-      const { page = 1, limit = 20, status, startDate, endDate } = req.query
+      const { store: cookieStore } = req.cookies
+      const userRole = req.user?.roleType
+      const { page = 1, limit = 20, status, startDate, endDate, store: queryStore, search } = req.query
 
-      const where = {}
-      if (store) {
-        where[Op.or] = [{ fromStore: store }, { toStore: store }]
-      }
+      let where = {}
+      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const storeClause = effectiveStore
+        ? [{ fromStore: effectiveStore }, { toStore: effectiveStore }]
+        : null
 
-      if (status) {
-        where.status = status
+      if (status) where.status = status
+
+      if (storeClause && search) {
+        where[Op.and] = [
+          { [Op.or]: storeClause },
+          { transferNumber: { [Op.iLike]: `%${search}%` } }
+        ]
+      } else if (storeClause) {
+        where[Op.or] = storeClause
+      } else if (search) {
+        where.transferNumber = { [Op.iLike]: `%${search}%` }
       }
 
       if (startDate || endDate) {

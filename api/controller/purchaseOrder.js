@@ -17,8 +17,8 @@ const generateOrderNumber = (prefix) => {
 const purchaseOrderController = {
   async getAll(req, res) {
     try {
-      const store = req.cookies.store || req.query.store
       const userRole = req.user?.roleType
+      const effectiveStore = userRole === 'super_admin' ? (req.query.store || req.cookies.store) : req.cookies.store
       const {
         status,
         supplier,
@@ -30,7 +30,7 @@ const purchaseOrderController = {
       } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') where.store = store
+      if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (supplier) where.supplier = supplier
       if (startDate || endDate) {
@@ -47,7 +47,7 @@ const purchaseOrderController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const statsWhere = store && userRole !== 'super_admin' ? { store } : {}
+      const statsWhere = effectiveStore ? { store: effectiveStore } : {}
       const [
         draftCount,
         pendingCount,
@@ -285,7 +285,9 @@ const purchaseOrderController = {
 
   async create(req, res) {
     try {
-      const store = req.cookies.store || req.body.store
+      const { store: bodyStore } = req.body
+      const userRole = req.user?.roleType
+      const store = userRole === 'super_admin' ? (bodyStore || req.cookies.store) : (req.cookies.store || bodyStore)
       const {
         supplier,
         items,

@@ -86,7 +86,7 @@ exports.getCategoryById = async (req, res) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
-  let { page = 1, pageSize = req.query.limit || 10, status = 'all', store } = req.query
+  let { page = 1, pageSize = req.query.limit || 10, status = 'all', store, search } = req.query
 
   if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
     store = req.user.store
@@ -96,6 +96,7 @@ exports.getAllCategoryInTable = async (req, res) => {
     const offset = (page - 1) * pageSize
 
     let whereClause = {}
+    let statsWhere = {}
     if (status === 'active' || status === 'true') {
       whereClause.status = 'active'
     } else if (status === 'inactive' || status === 'false') {
@@ -104,11 +105,29 @@ exports.getAllCategoryInTable = async (req, res) => {
 
     if (store) {
       const storeId = parseInt(store)
-      whereClause[Op.or] = [
+      const storeOr = [
         { store: null },
         { store: { [Op.contains]: [storeId] } },
         db.sequelize.literal('"category"."store" = \'[]\'::jsonb')
       ]
+      whereClause[Op.or] = storeOr
+      statsWhere = { [Op.or]: storeOr }
+    } else {
+      statsWhere = {}
+    }
+
+    if (search) {
+      const existingOr = whereClause[Op.or]
+      const searchClause = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { idCategory: { [Op.iLike]: `%${search}%` } }
+      ]
+      if (existingOr) {
+        whereClause[Op.and] = [{ [Op.or]: existingOr }, { [Op.or]: searchClause }]
+        delete whereClause[Op.or]
+      } else {
+        whereClause[Op.or] = searchClause
+      }
     }
 
     const [
@@ -133,10 +152,10 @@ exports.getAllCategoryInTable = async (req, res) => {
         group: ['category'],
         raw: true
       }),
-      Category.count({}),
-      Category.count({ where: { status: 'active' } }),
-      Category.count({ where: { status: 'inactive' } }),
-      Category.count({ where: { status: 'draft' } })
+      Category.count({ where: statsWhere }),
+      Category.count({ where: { ...statsWhere, status: 'active' } }),
+      Category.count({ where: { ...statsWhere, status: 'inactive' } }),
+      Category.count({ where: { ...statsWhere, status: 'draft' } })
     ])
 
     const countMap = {}

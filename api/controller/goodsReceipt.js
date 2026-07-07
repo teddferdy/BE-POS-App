@@ -23,7 +23,8 @@ const goodsReceiptController = {
         poId,
         startDate,
         endDate,
-        store: queryStore
+        store: queryStore,
+        search
       } = req.query
 
       const where = {}
@@ -31,6 +32,13 @@ const goodsReceiptController = {
       else if (store && userRole !== 'super_admin') where.store = store
       if (status) where.status = status
       if (poId) where.purchaseOrderId = poId
+      if (search) {
+        where[Op.or] = [
+          { receiptNumber: { [Op.iLike]: `%${search}%` } },
+          { notes: { [Op.iLike]: `%${search}%` } },
+          { '$purchaseOrderData.orderNumber$': { [Op.iLike]: `%${search}%` } }
+        ]
+      }
       if (startDate || endDate) {
         where.receivedDate = {}
         if (startDate) where.receivedDate[Op.gte] = new Date(startDate)

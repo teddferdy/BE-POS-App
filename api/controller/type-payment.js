@@ -1,33 +1,28 @@
 const db = require('../../db/models')
+const { Op } = require('sequelize')
 const TypePayment = db.type_payment
 const { createAudit } = require('../../utils/auditLog')
-const ExcelJS = require('exceljs')
 
 exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
   const store = req.query.store || req.user?.store
-  const { page = 1, limit = 10 } = req.query
+  const { page = 1, limit = 10, search } = req.query
 
   try {
     const offset = (page - 1) * limit
 
+    const where = store ? { store } : {}
+    if (search) where.name = { [Op.iLike]: `%${search}%` }
+
     const { rows: typePayment, count } = await TypePayment.findAndCountAll({
-      where: {
-        ...(store ? { store } : {})
-      },
+      where,
       limit: parseInt(limit),
       offset: parseInt(offset)
     })
 
     const [active, draft, inactive] = await Promise.all([
-      TypePayment.count({
-        where: { ...(store ? { store } : {}), status: 'active' }
-      }),
-      TypePayment.count({
-        where: { ...(store ? { store } : {}), status: 'draft' }
-      }),
-      TypePayment.count({
-        where: { ...(store ? { store } : {}), status: 'inactive' }
-      })
+      TypePayment.count({ where: store ? { store, status: 'active' } : { status: 'active' } }),
+      TypePayment.count({ where: store ? { store, status: 'draft' } : { status: 'draft' } }),
+      TypePayment.count({ where: store ? { store, status: 'inactive' } : { status: 'inactive' } })
     ])
 
     return res.status(200).json({
@@ -57,7 +52,7 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
 
 exports.getAllTypePayment = async (req, res) => {
   const store = req.query.store || req.user?.store
-  const { page = 1, pageSize = req.query.limit || 10, status } = req.query
+  const { page = 1, pageSize = req.query.limit || 10, status, search } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -69,6 +64,8 @@ exports.getAllTypePayment = async (req, res) => {
     } else if (status === 'inactive' || status === 'false') {
       queryConditions.status = 'inactive'
     }
+
+    if (search) queryConditions.name = { [Op.iLike]: `%${search}%` }
 
     const subCategory = await TypePayment.findAll({
       where: queryConditions,

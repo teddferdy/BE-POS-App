@@ -335,13 +335,20 @@ const purchasePaymentController = {
 
   async list(req, res) {
     try {
-      const { store } = req.cookies
+      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 20, startDate, endDate, supplierId } = req.query
+      const { page = 1, limit = 20, startDate, endDate, supplierId, store: queryStore, search } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') where.store = store
+      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      if (effectiveStore) where.store = effectiveStore
       if (supplierId) where.supplier = supplierId
+      if (search) {
+        where[Op.or] = [
+          { '$purchaseOrderData.orderNumber$': { [Op.iLike]: `%${search}%` } },
+          { '$supplierData.name$': { [Op.iLike]: `%${search}%` } }
+        ]
+      }
       if (startDate || endDate) {
         where.paymentDate = {}
         if (startDate) where.paymentDate[Op.gte] = startDate

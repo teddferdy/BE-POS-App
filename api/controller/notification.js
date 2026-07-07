@@ -5,7 +5,7 @@ const { emitNotification } = require('../service/socket')
 
 exports.getAllNotifications = async (req, res) => {
   try {
-    const { page = 1, limit = 20, isRead, store } = req.query
+    const { page = 1, limit = 20, isRead, store, search } = req.query
     const offset = (page - 1) * limit
 
     const userRole = req.user?.roleType
@@ -21,6 +21,13 @@ exports.getAllNotifications = async (req, res) => {
 
     if (isRead !== undefined && isRead !== '') {
       whereCondition.isRead = isRead === 'true'
+    }
+
+    if (search) {
+      whereCondition[Op.or] = [
+        { title: { [Op.iLike]: `%${search}%` } },
+        { message: { [Op.iLike]: `%${search}%` } }
+      ]
     }
 
     const { count, rows } = await Notification.findAndCountAll({

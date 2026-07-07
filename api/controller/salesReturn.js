@@ -5,13 +5,20 @@ const { createAudit } = require('../../utils/auditLog')
 const salesReturnController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate } = req.query
+      const { page = 1, limit = 10, status, startDate, endDate, store: queryStore, search } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') where.store = store
+      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
+      if (search) {
+        where[Op.or] = [
+          { returnNumber: { [Op.iLike]: `%${search}%` } },
+          { reason: { [Op.iLike]: `%${search}%` } }
+        ]
+      }
       if (startDate || endDate) {
         where.createdAt = {}
         if (startDate) where.createdAt[Op.gte] = new Date(startDate)

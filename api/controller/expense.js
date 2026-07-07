@@ -32,7 +32,8 @@ const expenseController = {
         endDate,
         paymentMethod,
         page = 1,
-        limit = 50
+        limit = 50,
+        search
       } = req.query
 
       const where = store ? { store } : {}
@@ -40,6 +41,13 @@ const expenseController = {
       if (category) where.category = category
       if (status) where.status = status
       if (paymentMethod) where.paymentMethod = paymentMethod
+
+      if (search) {
+        where[Op.or] = [
+          { description: { [Op.iLike]: `%${search}%` } },
+          { '$categoryData.name$': { [Op.iLike]: `%${search}%` } }
+        ]
+      }
 
       if (startDate || endDate) {
         where.date = {}

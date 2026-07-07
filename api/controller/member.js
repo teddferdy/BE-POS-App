@@ -5,7 +5,7 @@ const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllMember = async (req, res) => {
   try {
-    const { nameMember, phoneNumber, page = 1, limit = 10 } = req.query
+    const { nameMember, phoneNumber, page = 1, limit = 10, tier, status } = req.query
     const filters = {}
 
     let store = req.query.store || req.user?.store
@@ -26,6 +26,14 @@ exports.getAllMember = async (req, res) => {
       filters.phoneNumber = {
         [Op.like]: `%${phoneNumber}%`
       }
+    }
+
+    if (tier != null) {
+      filters.tier = tier
+    }
+
+    if (status) {
+      filters.status = status
     }
 
     const offset = (page - 1) * limit

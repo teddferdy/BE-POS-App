@@ -15,7 +15,7 @@ const generateProductionNo = () => {
 const productionOrderController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
       const {
         page = 1,
@@ -23,15 +23,22 @@ const productionOrderController = {
         status,
         startDate,
         endDate,
-        product
+        product,
+        store: queryStore,
+        search
       } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') {
-        where.store = store
-      }
+      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (product) where.productItemId = product
+      if (search) {
+        where[Op.or] = [
+          { productionNo: { [Op.iLike]: `%${search}%` } },
+          { '$productData.nameProduct$': { [Op.iLike]: `%${search}%` } }
+        ]
+      }
       if (startDate || endDate) {
         where.scheduledDate = {}
         if (startDate) where.scheduledDate[Op.gte] = startDate

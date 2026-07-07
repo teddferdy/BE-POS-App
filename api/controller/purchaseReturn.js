@@ -31,13 +31,21 @@ async function attachPriceInfo(json, poId) {
 const purchaseReturnController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate } = req.query
+      const { page = 1, limit = 10, status, startDate, endDate, store: queryStore, search, supplier } = req.query
 
       const where = {}
-      if (store && userRole !== 'super_admin') where.store = store
+      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
+      if (search) {
+        where[Op.or] = [
+          { returnNumber: { [Op.iLike]: `%${search}%` } },
+          { reason: { [Op.iLike]: `%${search}%` } }
+        ]
+      }
+      if (supplier) where.supplier = supplier
       if (startDate || endDate) {
         where.createdAt = {}
         if (startDate) where.createdAt[Op.gte] = new Date(startDate)
@@ -46,7 +54,7 @@ const purchaseReturnController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const statsWhere = store ? { store } : {}
+      const statsWhere = effectiveStore ? { store: effectiveStore } : {}
       const [pendingCount, approvedCount, rejectedCount] = await Promise.all([
         db.purchase_return.count({
           where: { ...statsWhere, status: 'pending' }

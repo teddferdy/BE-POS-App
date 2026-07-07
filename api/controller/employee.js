@@ -204,15 +204,23 @@ exports.getAllEmployee = async (req, res) => {
     const currentUserRole = req.user?.roleType
     const currentUserStore = req.user?.store
 
-    const { page: rawPage = 1, limit: rawLimit = 10 } = req.query
+    const { page: rawPage = 1, limit: rawLimit = 10, search, status } = req.query
     const page = Math.max(1, parseInt(rawPage) || 1)
     const limit = Math.max(1, Math.min(100, parseInt(rawLimit) || 10))
     const offset = (page - 1) * limit
 
     const whereCondition = { userType: 'user' }
 
-    if (req.query.status) {
-      whereCondition.status = req.query.status
+    if (status) {
+      whereCondition.status = status
+    }
+
+    if (search) {
+      whereCondition[Op.or] = [
+        { fullName: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { userName: { [Op.iLike]: `%${search}%` } }
+      ]
     }
 
     if (currentUserRole === 'admin') {

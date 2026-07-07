@@ -22,7 +22,7 @@ const normalizeStores = (stores) => {
 }
 
 exports.getProductByLocationSuperAdmin = async (req, res) => {
-  const { store } = req.query
+  const { store, search } = req.query
 
   try {
     const whereCondition = { status: 'active' }
@@ -40,6 +40,18 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
             ]
           }
         ]
+      }
+    }
+
+    if (search) {
+      const searchOr = [
+        { nameProduct: { [Op.iLike]: `%${search}%` } },
+        { sku: { [Op.iLike]: `%${search}%` } }
+      ]
+      if (whereCondition[Op.and]) {
+        whereCondition[Op.and].push({ [Op.or]: searchOr })
+      } else {
+        whereCondition[Op.or] = searchOr
       }
     }
 

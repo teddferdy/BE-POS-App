@@ -260,7 +260,7 @@ const cashRegisterController = {
   async getHistory(req, res) {
     try {
       const store = getStore(req)
-      const { startDate, endDate, page = 1, limit = 50 } = req.query
+      const { startDate, endDate, page = 1, limit = 50, search } = req.query
       const isSuperAdmin = req.user?.roleType === 'super_admin'
 
       const where = {}
@@ -271,6 +271,14 @@ const cashRegisterController = {
           success: false,
           message: 'Store not selected'
         })
+      }
+
+      if (search) {
+        where[Op.or] = [
+          { '$userData.fullName$': { [Op.iLike]: `%${search}%` } },
+          { '$storeData.name$': { [Op.iLike]: `%${search}%` } },
+          { status: { [Op.iLike]: `%${search}%` } }
+        ]
       }
 
       if (startDate || endDate) {

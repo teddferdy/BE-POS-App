@@ -1,10 +1,11 @@
+const { Op } = require('sequelize')
 const db = require('../../db/models')
 const Shift = db.shift
 const User = db.user
 const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllShift = async (req, res) => {
-  const { page: rawPage, pageSize: rawPageSize, status = 'all' } = req.query
+  const { page: rawPage, pageSize: rawPageSize, status = 'all', search } = req.query
   const page = Math.max(1, parseInt(rawPage) || 1)
   const pageSize = Math.max(1, parseInt(rawPageSize) || 10)
 
@@ -18,20 +19,17 @@ exports.getAllShift = async (req, res) => {
       statusCondition = { status: 'inactive' }
     }
 
+    const where = { ...statusCondition }
+    if (search) where.name = { [Op.iLike]: `%${search}%` }
+
     const shiftCategory = await Shift.findAll({
-      where: {
-        ...statusCondition
-      },
+      where,
       limit: pageSize,
       offset,
       order: [['createdAt', 'DESC']]
     })
 
-    const totalShifts = await Shift.count({
-      where: {
-        ...statusCondition
-      }
-    })
+    const totalShifts = await Shift.count({ where })
 
     const [active, draft, inactive] = await Promise.all([
       Shift.count({ where: { status: 'active' } }),

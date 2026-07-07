@@ -1,4 +1,5 @@
 const db = require('../../db/models')
+const { Op } = require('sequelize')
 const Discount = db.discount
 const Order = db.order
 const ExcelJS = require('exceljs')
@@ -37,7 +38,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
   if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
     store = req.user.store
   }
-  const { page = 1, size = 10 } = req.query
+  const { page = 1, size = 10, search } = req.query
   const limit = parseInt(size)
   const offset = (parseInt(page) - 1) * limit
 
@@ -59,6 +60,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
         { store: null }
       ]
     }
+    if (search) whereDiscount.name = { [Op.iLike]: `%${search}%` }
 
     const { count, rows: subCategory } = await Discount.findAndCountAll({
       where: whereDiscount,
@@ -90,7 +92,7 @@ exports.getAllDiscount = async (req, res) => {
   if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
     store = req.user.store
   }
-  const { page = 1, size = 10, limit: queryLimit, status } = req.query
+  const { page = 1, size = 10, limit: queryLimit, status, search } = req.query
   const limit = parseInt(queryLimit || size)
   const offset = (parseInt(page) - 1) * limit
 
@@ -115,6 +117,7 @@ exports.getAllDiscount = async (req, res) => {
     if (status && status !== 'all')
       whereDiscount.status =
         status === 'true' || status === 'active' ? 'active' : 'inactive'
+    if (search) whereDiscount.name = { [Op.iLike]: `%${search}%` }
 
     const { count, rows } = await Discount.findAndCountAll({
       where: whereDiscount,
