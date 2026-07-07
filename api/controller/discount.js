@@ -76,7 +76,13 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
       totalItems: count,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
-      data
+      data,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / limit)
+      }
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -149,6 +155,12 @@ exports.getAllDiscount = async (req, res) => {
         active: activeCount,
         draft: draftCount,
         inactive: inactiveCount
+      },
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / limit)
       }
     })
   } catch (error) {

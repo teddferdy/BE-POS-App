@@ -46,35 +46,21 @@ const authorization = (req, res, next) => {
 }
 
 const requireRole = (...roles) => {
+  // ponytail: authorization middleware already decodes JWT; requireRole reuses req.user
   return (req, res, next) => {
-    const token = getToken(req)
-
-    if (!token) {
+    if (!req.user) {
       return res.status(401).json({
         message: 'User Belum Login'
       })
     }
 
-    try {
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET_KEY || 'secret-key-user'
-      )
-      req.user = decoded
-      setUserContext(decoded)
-
-      if (!roles.includes(decoded.roleType)) {
-        return res.status(403).json({
-          message: 'Akses Ditolak - Anda tidak memiliki izin'
-        })
-      }
-
-      return next()
-    } catch (error) {
-      return res.status(401).json({
-        message: 'Token Tidak Valid'
+    if (!roles.includes(req.user.roleType)) {
+      return res.status(403).json({
+        message: 'Akses Ditolak - Anda tidak memiliki izin'
       })
     }
+
+    return next()
   }
 }
 

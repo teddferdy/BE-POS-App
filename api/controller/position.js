@@ -88,6 +88,7 @@ exports.getAllPositionInTable = async (req, res) => {
       total: totalItems,
       pagination: {
         totalItems,
+        total: totalItems,
         totalPages,
         currentPage: parseInt(page),
         limit: parseInt(limit)

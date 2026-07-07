@@ -82,6 +82,7 @@ exports.getAllDepartmentInTable = async (req, res) => {
       data: getAllDepartment?.length > 0 ? getAllDepartment : [],
       pagination: {
         totalItems,
+        total: totalItems,
         totalPages,
         currentPage: parseInt(page),
         limit: parseInt(limit)

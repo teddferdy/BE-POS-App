@@ -77,30 +77,35 @@ const purchaseOrderController = {
         cancelled: cancelledCount
       }
 
-      const paymentStatsRows = await db.sequelize.query(`
-        SELECT
-          SUM(CASE WHEN COALESCE(pt.total_paid, 0) = 0 THEN 1 ELSE 0 END) AS unpaid,
-          SUM(CASE WHEN COALESCE(pt.total_paid, 0) > 0 AND COALESCE(pt.total_paid, 0) < po."finalAmount" THEN 1 ELSE 0 END) AS partial,
-          SUM(CASE WHEN COALESCE(pt.total_paid, 0) >= po."finalAmount" THEN 1 ELSE 0 END) AS paid
-        FROM purchase_order po
-        LEFT JOIN (
-          SELECT "purchaseOrder", SUM(amount) AS total_paid
-          FROM purchase_payment
-          WHERE "deletedAt" IS NULL
-          GROUP BY "purchaseOrder"
-        ) pt ON pt."purchaseOrder" = po.id
-        WHERE po."deletedAt" IS NULL
-        ${Object.keys(statsWhere).length > 0 ? 'AND po.store = :store' : ''}
-      `, {
-        replacements: statsWhere.store ? { store: statsWhere.store } : {},
-        type: db.Sequelize.QueryTypes.SELECT
+      // ponytail: JS-side aggregation, raw SQL was hard to maintain
+      const allPOs = await db.purchase_order.findAll({
+        where: statsWhere,
+        attributes: ['id', 'finalAmount']
       })
 
-      const paymentStats = {
-        unpaid: parseInt(paymentStatsRows?.[0]?.unpaid || 0, 10),
-        partial: parseInt(paymentStatsRows?.[0]?.partial || 0, 10),
-        paid: parseInt(paymentStatsRows?.[0]?.paid || 0, 10)
-      }
+      const poIds = allPOs.map(p => p.id)
+      const paymentAggs = poIds.length > 0 ? await db.purchase_payment.findAll({
+        attributes: [
+          'purchaseOrder',
+          [db.sequelize.fn('SUM', db.sequelize.col('amount')), 'totalPaid']
+        ],
+        where: { deletedAt: null, purchaseOrder: poIds },
+        group: ['purchaseOrder'],
+        raw: true
+      }) : []
+
+      const paidMap = {}
+      paymentAggs.forEach(p => { paidMap[p.purchaseOrder] = Number(p.totalPaid) })
+
+      let unpaid = 0, partial = 0, paid = 0
+      allPOs.forEach(po => {
+        const tp = paidMap[po.id] || 0
+        if (tp === 0) unpaid++
+        else if (tp < Number(po.finalAmount)) partial++
+        else paid++
+      })
+
+      const paymentStats = { unpaid, partial, paid }
 
       const { count, rows } = await db.purchase_order.findAndCountAll({
         where,

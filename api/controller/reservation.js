@@ -47,10 +47,13 @@ exports.getAll = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Success',
-      totalItems: count,
-      totalPages: Math.ceil(count / limit),
-      currentPage: parseInt(page),
       data: rows.map((r) => r.dataValues),
+      pagination: {
+        total: count,
+        totalPages: Math.ceil(count / limit),
+        page: parseInt(page),
+        limit: parseInt(limit)
+      },
       stats: { total: count, ...stats }
     })
   } catch (error) {

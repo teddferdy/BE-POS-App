@@ -45,6 +45,7 @@ exports.getAllShift = async (req, res) => {
         currentPage: page,
         pageSize: pageSize,
         totalItems: totalShifts,
+        total: totalShifts,
         totalPages: Math.ceil(totalShifts / pageSize)
       },
       stats: { total: active + draft + inactive, active, draft, inactive }

@@ -68,7 +68,13 @@ const ingredientController = {
         totalPages: Math.ceil(count / parseInt(limit)),
         currentPage: parseInt(page),
         data: ingredients,
-        stats: { total: active + draft + inactive, active, draft, inactive }
+        stats: { total: active + draft + inactive, active, draft, inactive },
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / parseInt(limit))
+        }
       })
     } catch (error) {
       console.log(error)

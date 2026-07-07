@@ -5,16 +5,19 @@ const { createAudit } = require('../../utils/auditLog')
 const accountsReceivableController = {
   async list(req, res) {
     try {
-      const { store } = req.cookies
+      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
       const {
         page = 1,
-        limit = 20,
+        limit = 10,
         status,
         customerId,
         startDate,
-        endDate
+        endDate,
+        store: queryStore
       } = req.query
+
+      const store = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
 
       const where = {}
       if (store && userRole !== 'super_admin') where.store = store
