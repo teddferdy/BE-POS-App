@@ -156,6 +156,105 @@ const routes = [
 
 routes.forEach(({ path, route }) => app.use(path, route))
 
+const { execSync } = require('child_process')
+const fs = require('fs')
+
+const ESCPOS_RECEIPT_WIDTH = 48
+const escposPadBoth = (left, right, width) => {
+  const w = width || ESCPOS_RECEIPT_WIDTH
+  const space = Math.max(1, w - left.length - right.length)
+  return left + ' '.repeat(space) + right
+}
+const escposLine = (char, width) => (char || '-').repeat(width || ESCPOS_RECEIPT_WIDTH)
+const escposPrice = (val) => `Rp${Number(val || 0).toLocaleString('id-ID')}`
+const escposDate = (date) => {
+  const d = new Date(date)
+  return d.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
+const escposTime = (date) => {
+  const d = new Date(date)
+  return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+}
+
+function generateESCPOS(data) {
+  const w = ESCPOS_RECEIPT_WIDTH
+  const {
+    storeName = 'TOKO ANDA', storeAddress = '', storePhone = '',
+    memberName = '', memberTier = '', memberPoints = 0,
+    orderNumber = '', cashier = '', date = new Date().toISOString(),
+    items = [], subtotal = 0, discount = 0, serviceCharge = 0, tax = 0,
+    total = 0, paymentMethod = 'Tunai', cashAmount = 0, changeAmount = 0,
+    footer = 'Terima kasih atas kunjungan Anda'
+  } = data
+
+  let enc = ''
+  enc += '\x1B\x40'
+  enc += '\x1B\x61\x01\x1B\x21\x20\x1B\x45\x01' + storeName + '\n\x1B\x45\x00\x1B\x21\x00'
+  enc += '\x1B\x61\x01'
+  if (storeAddress) enc += storeAddress + '\n'
+  if (storePhone) enc += 'Telp: ' + storePhone + '\n'
+  enc += escposLine('=', w) + '\n\x1B\x61\x00'
+  enc += escposPadBoth(escposDate(date), escposTime(date)) + '\n'
+  enc += escposPadBoth('Invoice: ' + orderNumber, 'Kasir: ' + cashier) + '\n'
+  if (memberName) {
+    enc += 'Member: ' + memberName + '\n'
+    if (memberTier) enc += 'Tier: ' + memberTier + '\n'
+    if (memberPoints) enc += 'Poin: ' + Number(memberPoints).toLocaleString('id-ID') + '\n'
+  }
+  enc += escposLine('=', w) + '\n'
+  enc += escposPadBoth('Item', '') + '\n'
+  enc += '  ' + 'Qty'.padEnd(3) + '  ' + 'Harga'.padStart(15) + '  ' + 'Total'.padStart(13) + '\n'
+  enc += escposLine('-', w) + '\n'
+  items.forEach((item) => {
+    const name = item.name || item.productName || '-'
+    const qty = item.qty || item.quantity || 0
+    const price = item.price || 0
+    const itemTotal = item.total || item.subtotal || qty * price
+    enc += name + '\n'
+    enc += '  ' + String(qty).padEnd(3)
+    enc += escposPrice(price).padStart(15)
+    enc += '  ' + escposPrice(itemTotal).padStart(13) + '\n'
+  })
+  enc += escposLine('=', w) + '\n'
+  enc += escposPadBoth('Subtotal', escposPrice(subtotal)) + '\n'
+  if (discount > 0) enc += escposPadBoth('Diskon', '-' + escposPrice(discount)) + '\n'
+  if (serviceCharge > 0) enc += escposPadBoth('Biaya Layanan', escposPrice(serviceCharge)) + '\n'
+  enc += escposPadBoth('Pajak (10%)', escposPrice(tax)) + '\n'
+  enc += '\x1B\x45\x01' + escposLine('=', w) + '\n'
+  enc += escposPadBoth('TOTAL', escposPrice(total)) + '\n'
+  enc += '\x1B\x45\x00' + escposLine('-', w) + '\n'
+  enc += escposPadBoth(paymentMethod, escposPrice(cashAmount)) + '\n'
+  if (changeAmount > 0) enc += escposPadBoth('Kembali', escposPrice(changeAmount)) + '\n'
+  enc += escposLine('=', w) + '\n\x1B\x61\x01' + footer + '\n\n\n'
+  return enc
+}
+
+app.post('/print-thermal', (req, res) => {
+  const { data, baudRate = 115200 } = req.body
+  if (!data) return res.status(400).json({ success: false, message: 'No receipt data' })
+
+  const port = '/dev/cu.RPP02N'
+  if (!fs.existsSync(port)) {
+    return res.status(404).json({ success: false, message: 'RPP02N not paired. Open Bluetooth Settings, pair the printer, then retry.' })
+  }
+
+  try {
+    const escpos = generateESCPOS(data)
+    execSync(`stty -f "${port}" ${baudRate} cs8 -cstopb -parenb 2>/dev/null`)
+
+    const timeout = setTimeout(() => {
+      res.status(504).json({ success: false, message: 'Printer not responding. Check: (1) Printer is ON (2) Connected in Bluetooth settings' })
+    }, 5000)
+
+    fs.writeFile(port, Buffer.from(escpos, 'ascii'), () => {
+      clearTimeout(timeout)
+      res.json({ success: true, message: 'Printed via RPP02N' })
+    })
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message })
+  }
+})
+
 app.use((err, req, res, next) => {
   console.error(err.stack)
   res.status(err.status || 500).json({
