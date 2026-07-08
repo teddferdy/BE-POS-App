@@ -125,22 +125,10 @@ exports.getAllLocationInTable = async (req, res) => {
       attributes: ['id', 'fullName', 'email']
     })
     const userById = {}
-    const userByFullName = {}
     allUsers.forEach((u) => {
-      const obj = { id: u.id, fullName: u.fullName, email: u.email }
-      userById[u.id] = obj
-      userById[String(u.id)] = obj
-      if (u.fullName) userByFullName[u.fullName.toLowerCase()] = obj
+      userById[u.id] = u.fullName
+      userById[String(u.id)] = u.fullName
     })
-
-    const resolveUser = (val) => {
-      if (!val) return null
-      const byId = userById[val]
-      if (byId) return byId
-      const byName = userByFullName[String(val).toLowerCase()]
-      if (byName) return byName
-      return { fullName: val }
-    }
 
     const { rows: locations } = await Location.findAndCountAll({
       where: whereClause,
@@ -178,8 +166,8 @@ exports.getAllLocationInTable = async (req, res) => {
       socialMedia: loc.socialMedia || [],
       createdAt: loc.createdAt,
       updatedAt: loc.updatedAt,
-      createdBy: resolveUser(loc.createdBy),
-      modifiedBy: resolveUser(loc.modifiedBy)
+      createdBy: userById[loc.createdBy]?.fullName || loc.createdBy || null,
+      modifiedBy: userById[loc.modifiedBy]?.fullName || loc.modifiedBy || null
     }))
 
     return res.status(200).json({
