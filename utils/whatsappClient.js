@@ -24,18 +24,16 @@ const sendDocument = async (phoneNumber, filePath, caption, storeId = 'default')
   if (FONNTE_TOKENS.length === 0) throw new Error('FONNTE_TOKEN not configured')
 
   const cleanPhone = String(phoneNumber).replace(/[^0-9]/g, '')
+  let lastErr = ''
 
   for (const token of FONNTE_TOKENS) {
     const form = new FormData()
     form.append('target', cleanPhone)
     form.append('message', caption || '')
     form.append('countryCode', '62')
-    form.append('filename', path.basename(filePath || 'invoice.pdf'))
 
-    if (filePath && fs.existsSync(filePath)) {
-      const buf = fs.readFileSync(filePath)
-      form.append('file', new Blob([buf], { type: 'application/pdf' }), path.basename(filePath))
-    }
+    // ponytail: free Fonnte doesn't support file attachment, text-only
+    // caption already has full invoice info
 
     const res = await fetch(FONNTE_URL, {
       method: 'POST',
@@ -45,9 +43,10 @@ const sendDocument = async (phoneNumber, filePath, caption, storeId = 'default')
 
     const result = await res.json()
     if (result.status) return
+    lastErr = result.reason || JSON.stringify(result)
   }
 
-  throw new Error('Semua device Fonnte terputus. Scan QR di dashboard Fonnte.')
+  throw new Error('Fonnte: ' + lastErr)
 }
 
 module.exports = {
