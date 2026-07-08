@@ -86,26 +86,32 @@ const supplierController = {
 
       const store = req.query.store || req.user?.store
       const where = {}
-      let storeOr
       if (req.user?.roleType !== 'super_admin') {
         if (req.user?.store) {
           const storeId = Number(req.user.store)
-          storeOr = { store: { [Op.contains]: [storeId] } }
+          where[Op.or] = [
+            { store: null },
+            { store: { [Op.contains]: [storeId] } },
+            db.sequelize.literal('"supplier"."store" = \'[]\'::jsonb')
+          ]
         }
       } else if (store && store !== '') {
         const storeId = Number(store)
-        storeOr = { store: { [Op.contains]: [storeId] } }
+        where[Op.or] = [
+          { store: null },
+          { store: { [Op.contains]: [storeId] } },
+          db.sequelize.literal('"supplier"."store" = \'[]\'::jsonb')
+        ]
       }
-      if (storeOr) where.store = storeOr.store
 
       if (search) {
         const searchClause = [
           { name: { [Op.iLike]: `%${search}%` } },
           { phone: { [Op.iLike]: `%${search}%` } }
         ]
-        if (where.store) {
-          where[Op.and] = [{ store: storeOr.store }, { [Op.or]: searchClause }]
-          delete where.store
+        if (where[Op.or]) {
+          where[Op.and] = [{ [Op.or]: where[Op.or] }, { [Op.or]: searchClause }]
+          delete where[Op.or]
         } else {
           where[Op.or] = searchClause
         }
@@ -595,7 +601,11 @@ const supplierController = {
       const where = {}
       if (store) {
         const storeId = Number(store)
-        where.store = { [Op.contains]: [storeId] }
+        where[Op.or] = [
+          { store: null },
+          { store: { [Op.contains]: [storeId] } },
+          db.sequelize.literal('"supplier"."store" = \'[]\'::jsonb')
+        ]
       }
 
       const suppliers = await db.supplier.findAll({
