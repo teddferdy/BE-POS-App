@@ -13,7 +13,10 @@ const { createAudit } = require('../../utils/auditLog')
 
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
-  return stores.map((s) => (typeof s === 'object' ? s.id : s))
+  return stores.flatMap((s) => {
+    if (s == null) return []
+    return typeof s === 'object' ? [s.id] : [s]
+  })
 }
 
 const parseStoreField = (val) => {
