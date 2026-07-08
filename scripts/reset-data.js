@@ -5,7 +5,7 @@ const envFile =
 require('dotenv').config({ path: envFile })
 const db = require('../db/models')
 
-const TABLES_TO_KEEP = ['role', 'type_payment', 'tax_config', 'discount', 'location', 'table']
+const TABLES_TO_KEEP = ['role', 'type_payment', 'tax_config', 'discount', 'table']
 const SEEDED_USERNAMES = ['super_admin', 'angga', 'febi', 'surya']
 
 async function resetData() {
