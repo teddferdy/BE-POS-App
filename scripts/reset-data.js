@@ -1,4 +1,8 @@
-require('dotenv').config({ path: __dirname + '/../.env' })
+const envFile =
+  process.env.NODE_ENV === 'production'
+    ? __dirname + '/../.env.production'
+    : __dirname + '/../.env'
+require('dotenv').config({ path: envFile })
 const db = require('../db/models')
 
 const TABLES_TO_KEEP = ['role', 'type_payment', 'tax_config', 'discount', 'location', 'table']
