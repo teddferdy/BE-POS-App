@@ -123,9 +123,13 @@ exports.getAllLocationInTable = async (req, res) => {
 
     const USER_NAMES = {
       1: 'Super Admin',
-      2: 'Surya',
-      3: 'Angga',
-      4: 'Febi'
+      2: 'Admin',
+      3: 'Kasir Utama',
+      4: 'Staff Gudang',
+      5: 'Fabiola Rosa',
+      6: 'Surya',
+      7: 'Angga',
+      8: 'Development User'
     }
 
     const { rows: locations } = await Location.findAndCountAll({
