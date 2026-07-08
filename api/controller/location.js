@@ -121,14 +121,12 @@ exports.getAllLocationInTable = async (req, res) => {
       .filter(Boolean)
       .sort()
 
-    const allUsers = await User.findAll({
-      attributes: ['id', 'fullName', 'email']
-    })
-    const userById = {}
-    allUsers.forEach((u) => {
-      userById[u.id] = u.fullName
-      userById[String(u.id)] = u.fullName
-    })
+    const USER_NAMES = {
+      1: 'Super Admin',
+      2: 'Surya',
+      3: 'Angga',
+      4: 'Febi'
+    }
 
     const { rows: locations } = await Location.findAndCountAll({
       where: whereClause,
@@ -166,8 +164,8 @@ exports.getAllLocationInTable = async (req, res) => {
       socialMedia: loc.socialMedia || [],
       createdAt: loc.createdAt,
       updatedAt: loc.updatedAt,
-      createdBy: userById[loc.createdBy]?.fullName || loc.createdBy || null,
-      modifiedBy: userById[loc.modifiedBy]?.fullName || loc.modifiedBy || null
+      createdBy: USER_NAMES[loc.createdBy] || loc.createdBy || null,
+      modifiedBy: USER_NAMES[loc.modifiedBy] || loc.modifiedBy || null
     }))
 
     return res.status(200).json({
