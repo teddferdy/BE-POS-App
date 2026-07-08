@@ -209,7 +209,7 @@ exports.updateLocationSchema = exports.createLocationSchema
 // ===================== Supplier =====================
 exports.createSupplierSchema = z.object({
   name: z.string().min(1, 'Supplier name is required'),
-  store: strToNum().optional().nullable(),
+  store: storeArray().optional().nullable(),
   phone: z.string().optional().nullable(),
   email: z.string().email().optional().or(z.literal('')),
   contactPerson: z.string().optional().nullable(),

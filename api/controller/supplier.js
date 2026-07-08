@@ -3,6 +3,25 @@ const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const ExcelJS = require('exceljs')
+const Location = db.location
+
+const normalizeStores = (stores) => {
+  if (!Array.isArray(stores)) return []
+  return stores.flatMap((s) => {
+    if (s == null) return []
+    return typeof s === 'object' ? [s.id] : [s]
+  })
+}
+
+const resolveStoreNames = async (storeIds) => {
+  if (!storeIds || !Array.isArray(storeIds) || storeIds.length === 0) return []
+  const ids = normalizeStores(storeIds)
+  const locations = await Location.findAll({
+    where: { id: ids },
+    attributes: ['id', 'name']
+  })
+  return locations.map((l) => ({ id: l.id, name: l.name }))
+}
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -29,7 +48,8 @@ const supplierController = {
         })
       }
 
-      if (req.user?.roleType !== 'super_admin' && supplier.store && supplier.store !== req.user?.store) {
+      const supplierStores = normalizeStores(supplier.store)
+      if (req.user?.roleType !== 'super_admin' && supplierStores.length > 0 && !supplierStores.includes(Number(req.user?.store))) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk melihat supplier ini'
@@ -40,11 +60,14 @@ const supplierController = {
         where: { supplier: id }
       })
 
+      const storeNames = await resolveStoreNames(supplierStores)
+
       return res.status(200).json({
         success: true,
         message: 'Success get supplier detail',
         data: {
           ...supplier.toJSON(),
+          store: storeNames,
           productCount
         }
       })
@@ -63,26 +86,34 @@ const supplierController = {
 
       const store = req.query.store || req.user?.store
       const where = {}
+      let storeOr
       if (req.user?.roleType !== 'super_admin') {
         if (req.user?.store) {
-          where.store = req.user.store
+          const storeId = Number(req.user.store)
+          storeOr = { store: { [Op.contains]: [storeId] } }
         }
-      } else if (store) {
-        where.store = store
+      } else if (store && store !== '') {
+        const storeId = Number(store)
+        storeOr = { store: { [Op.contains]: [storeId] } }
       }
+      if (storeOr) where.store = storeOr.store
 
       if (search) {
-        where[Op.or] = [
+        const searchClause = [
           { name: { [Op.iLike]: `%${search}%` } },
           { phone: { [Op.iLike]: `%${search}%` } }
         ]
+        if (where.store) {
+          where[Op.and] = [{ store: storeOr.store }, { [Op.or]: searchClause }]
+          delete where.store
+        } else {
+          where[Op.or] = searchClause
+        }
       }
       if (status !== undefined) {
-        // Handle string status values directly (including 'draft')
         if (typeof status === 'string') {
           where.status = status
         } else {
-          // Handle boolean status values
           where.status =
             status === true || status === 'true' || status === 'active'
               ? 'active'
@@ -106,10 +137,33 @@ const supplierController = {
           db.supplier.count({ where: { ...where, status: 'draft' } })
         ])
 
+      const allStoreIds = [
+        ...new Set(
+          suppliers.flatMap((s) => (Array.isArray(s.store) ? normalizeStores(s.store) : []))
+        )
+      ]
+      const locationMap = {}
+      if (allStoreIds.length > 0) {
+        const locations = await Location.findAll({
+          where: { id: allStoreIds },
+          attributes: ['id', 'name']
+        })
+        locations.forEach((l) => {
+          locationMap[l.id] = l.name
+        })
+      }
+
+      const data = suppliers.map((item) => ({
+        ...item.toJSON(),
+        store: Array.isArray(item.store)
+          ? normalizeStores(item.store).map((id) => ({ id, name: locationMap[id] || null }))
+          : []
+      }))
+
       return res.status(200).json({
         success: true,
         message: 'Success get suppliers',
-        data: suppliers,
+        data,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -144,17 +198,23 @@ const supplierController = {
         })
       }
 
-      if (req.user?.roleType !== 'super_admin' && supplier.store && supplier.store !== req.user?.store) {
+      const supplierStores = normalizeStores(supplier.store)
+      if (req.user?.roleType !== 'super_admin' && supplierStores.length > 0 && !supplierStores.includes(Number(req.user?.store))) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk melihat supplier ini'
         })
       }
 
+      const storeNames = await resolveStoreNames(supplierStores)
+
       return res.status(200).json({
         success: true,
         message: 'Success get supplier',
-        data: supplier
+        data: {
+          ...supplier.toJSON(),
+          store: storeNames
+        }
       })
     } catch (error) {
       console.log(error)
@@ -167,7 +227,11 @@ const supplierController = {
 
   async create(req, res) {
     try {
-      const store = req.user?.store
+      const store = Array.isArray(req.body.store)
+        ? req.body.store
+        : req.user?.store
+          ? [Number(req.user.store)]
+          : []
       const {
         name,
         contactPerson,
@@ -310,7 +374,8 @@ const supplierController = {
         })
       }
 
-      if (req.user?.roleType !== 'super_admin' && supplier.store && supplier.store !== store) {
+      const supplierStores = normalizeStores(supplier.store)
+      if (req.user?.roleType !== 'super_admin' && supplierStores.length > 0 && !supplierStores.includes(Number(store))) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk mengupdate supplier ini'
@@ -361,6 +426,8 @@ const supplierController = {
         }
       }
 
+      const newStore = Array.isArray(req.body.store) ? req.body.store : undefined
+
       await supplier.update({
         name: trimmedName ?? supplier.name,
         contactPerson:
@@ -383,6 +450,7 @@ const supplierController = {
                 ? 'inactive'
                 : status
             : supplier.status,
+        ...(newStore !== undefined ? { store: newStore } : {}),
         modifiedBy
       })
 
@@ -413,16 +481,21 @@ const supplierController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.user?.store
+      const store = Number(req.user?.store)
 
-      const supplier = await db.supplier.findOne({
-        where: { id, ...(store ? { store } : {}) }
-      })
-
+      const supplier = await db.supplier.findByPk(id)
       if (!supplier) {
         return res.status(404).json({
           success: false,
           message: 'Supplier not found'
+        })
+      }
+
+      const supplierStores = normalizeStores(supplier.store)
+      if (store && supplierStores.length > 0 && !supplierStores.includes(store)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda tidak memiliki akses untuk menghapus supplier ini'
         })
       }
 
@@ -520,7 +593,10 @@ const supplierController = {
     try {
       const { store } = req.query
       const where = {}
-      if (store) where.store = store
+      if (store) {
+        const storeId = Number(store)
+        where.store = { [Op.contains]: [storeId] }
+      }
 
       const suppliers = await db.supplier.findAll({
         where,
@@ -632,7 +708,7 @@ const supplierController = {
             : 'active'
 
           suppliersToCreate.push({
-            store: req.user?.store,
+            store: req.user?.store ? [Number(req.user.store)] : [],
             name: name.trim(),
             contactPerson: contactPerson?.toString().trim() || null,
             phone: phone?.toString().trim() || null,
