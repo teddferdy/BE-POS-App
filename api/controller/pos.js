@@ -8,6 +8,8 @@ const {
   restartClient
 } = require('../../utils/whatsappClient')
 
+const getStoreId = (req) => req.query.storeId || 'default'
+
 const posController = {
   // Barcode lookup untuk POS scan
   async lookupBarcode(req, res) {
@@ -1302,12 +1304,12 @@ const posController = {
         })
       }
 
-      const status = getConnectionStatus()
+      const status = await getConnectionStatus()
       if (!status.ready) {
         return res.status(400).json({
           success: false,
           message:
-            'WhatsApp tidak terhubung. Silakan scan QR code di pengaturan.',
+            status.error || 'WhatsApp tidak terhubung. Silakan cek pengaturan.',
           data: { waConnected: false }
         })
       }
@@ -1571,7 +1573,8 @@ const posController = {
   // Get WhatsApp connection status
   async getWhatsAppStatus(req, res) {
     try {
-      const status = await getConnectionStatus()
+      const storeId = getStoreId(req)
+      const status = await getConnectionStatus(storeId)
       return res.status(200).json({
         success: true,
         message: 'WhatsApp status',
@@ -1588,7 +1591,8 @@ const posController = {
   // Logout WhatsApp
   async logoutWhatsApp(req, res) {
     try {
-      await logout()
+      const storeId = getStoreId(req)
+      await logout(storeId)
       return res.status(200).json({
         success: true,
         message:
@@ -1605,11 +1609,12 @@ const posController = {
   // Restart WhatsApp client (logout + re-init)
   async restartWhatsApp(req, res) {
     try {
-      const result = await restartClient()
+      const storeId = getStoreId(req)
+      const result = await restartClient(storeId)
       return res.status(200).json({
         success: true,
         message: 'WhatsApp client restarting',
-        data: { initialized: !!result }
+        data: { initialized: !!result, storeId }
       })
     } catch (error) {
       return res.status(500).json({

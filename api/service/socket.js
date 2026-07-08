@@ -69,8 +69,11 @@ const emitNotification = (storeId, notification) => {
   }
 }
 
+const getIO = () => io
+
 module.exports = {
   initSocket,
+  getIO,
   emitToKitchen,
   emitToStore,
   emitNewOrder,

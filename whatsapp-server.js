@@ -18,38 +18,48 @@ const {
 const app = express()
 app.use(express.json({ limit: '50mb' }))
 
-// Init on start
+// Lazy-init on first request per store
 initClient()
 
+const storeId = (req) => req.query.storeId || 'default'
+
 app.get('/status', async (req, res) => {
+  const sid = storeId(req)
   res.json({
     success: true,
     message: 'WhatsApp status',
-    data: await getConnectionStatus()
+    data: { ...(await getConnectionStatus(sid)), storeId: sid }
   })
 })
 
 app.get('/init', async (req, res) => {
-  const result = await initClient()
+  const sid = storeId(req)
+  const result = await initClient(sid)
   res.json({
     success: true,
     message: 'WhatsApp client initialized',
-    data: { initialized: !!result }
+    data: { initialized: !!result, storeId: sid }
   })
 })
 
 app.post('/restart', async (req, res) => {
-  const result = await restartClient()
+  const sid = storeId(req)
+  const result = await restartClient(sid)
   res.json({
     success: true,
     message: 'WhatsApp client restarting',
-    data: { initialized: !!result }
+    data: { initialized: !!result, storeId: sid }
   })
 })
 
 app.post('/logout', async (req, res) => {
-  await logout()
-  res.json({ success: true, message: 'WhatsApp berhasil diputuskan' })
+  const sid = storeId(req)
+  await logout(sid)
+  res.json({
+    success: true,
+    message: 'WhatsApp berhasil diputuskan',
+    storeId: sid
+  })
 })
 
 app.post('/send', async (req, res) => {
