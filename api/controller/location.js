@@ -20,14 +20,10 @@ const StockHistory = db.stock_history
 const PurchaseOrder = db.purchase_order
 
 const USER_NAMES = {
-  1: 'Super Admin',
-  2: 'Admin',
-  3: 'Kasir Utama',
-  4: 'Staff Gudang',
-  5: 'Fabiola Rosa',
-  6: 'Surya',
-  7: 'Angga',
-  8: 'Development User'
+  10: 'Super Admin',
+  16: 'Angga',
+  17: 'Febi',
+  18: 'Surya'
 }
 const Order = db.order
 const Expense = db.expense
