@@ -3,7 +3,9 @@ const path = require('path')
 const fs = require('fs')
 
 const generateInvoicePdf = (order, storeData, items) => {
-  const invoiceDir = path.join(__dirname, '..', 'public', 'invoices')
+  const invoiceDir = process.env.VERCEL
+    ? '/tmp/invoices'
+    : path.join(__dirname, '..', 'public', 'invoices')
   if (!fs.existsSync(invoiceDir)) fs.mkdirSync(invoiceDir, { recursive: true })
 
   const fileName = `invoice-${order.orderNumber || order.id}.pdf`
