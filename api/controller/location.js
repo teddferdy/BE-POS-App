@@ -18,6 +18,17 @@ const DailySummary = db.daily_summary
 const StockOpname = db.stockOpname
 const StockHistory = db.stock_history
 const PurchaseOrder = db.purchase_order
+
+const USER_NAMES = {
+  1: 'Super Admin',
+  2: 'Admin',
+  3: 'Kasir Utama',
+  4: 'Staff Gudang',
+  5: 'Fabiola Rosa',
+  6: 'Surya',
+  7: 'Angga',
+  8: 'Development User'
+}
 const Order = db.order
 const Expense = db.expense
 const Table = db.table
@@ -120,17 +131,6 @@ exports.getAllLocationInTable = async (req, res) => {
       .map((r) => r.category)
       .filter(Boolean)
       .sort()
-
-    const USER_NAMES = {
-      1: 'Super Admin',
-      2: 'Admin',
-      3: 'Kasir Utama',
-      4: 'Staff Gudang',
-      5: 'Fabiola Rosa',
-      6: 'Surya',
-      7: 'Angga',
-      8: 'Development User'
-    }
 
     const { rows: locations } = await Location.findAndCountAll({
       where: whereClause,
@@ -714,8 +714,8 @@ exports.getLocationById = async (req, res) => {
       dailyTarget: location.dailyTarget,
       createdAt: location.createdAt,
       updatedAt: location.updatedAt,
-      createdBy: location.createdBy || null,
-      modifiedBy: location.modifiedBy || null,
+      createdBy: USER_NAMES[location.createdBy] || location.createdBy || null,
+      modifiedBy: USER_NAMES[location.modifiedBy] || location.modifiedBy || null,
       openingHours: location.openingHours || [
         { day: 'Monday', open: null, close: null },
         { day: 'Tuesday', open: null, close: null },

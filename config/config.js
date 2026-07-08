@@ -1,6 +1,10 @@
 /* eslint-disable no-undef */
 const pg = require('pg')
-require('dotenv').config({ path: `${process.cwd()}/.env` })
+const envPath =
+  process.env.NODE_ENV === 'production'
+    ? `${process.cwd()}/.env.production`
+    : `${process.cwd()}/.env`
+require('dotenv').config({ path: envPath })
 
 module.exports = {
   development: {
