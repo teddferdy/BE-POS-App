@@ -479,7 +479,7 @@ exports.createOrder = async (req, res) => {
         })
         if (!pss) {
           pss = await db.product_store_stock.create({
-            product: product.id, store, stock: 0, updatedAt: new Date()
+            product: product.id, store, stock: product.stock, updatedAt: new Date()
           })
         }
         const oldPssStock = Number(pss.stock) || 0
