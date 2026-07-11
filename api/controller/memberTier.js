@@ -23,14 +23,27 @@ const memberTierController = {
         order: [['createdAt', 'DESC']]
       })
 
-      const activeCount = tiers.filter((t) => t.status === 'active').length
+      const normalizeStatus = (s) => {
+        const v = String(s ?? '').toLowerCase()
+        if (v === 'true' || v === 'active') return 'active'
+        if (v === 'false' || v === 'inactive') return 'inactive'
+        return 'draft'
+      }
+
+      const activeCount = tiers.filter((t) => normalizeStatus(t.status) === 'active').length
+      const draftCount = tiers.filter((t) => normalizeStatus(t.status) === 'draft').length
+      const inactiveCount = tiers.filter((t) => normalizeStatus(t.status) === 'inactive').length
+      const totalMembers = tiers.reduce((sum, t) => sum + (Number(t.getDataValue('memberCount')) || 0), 0)
 
       return res.status(200).json({
         success: true,
         message: 'Success get member tiers',
         data: tiers,
         total: tiers.length,
-        activeCount
+        activeCount,
+        draftCount,
+        inactiveCount,
+        totalMembers
       })
     } catch (error) {
       console.log(error)
@@ -120,7 +133,7 @@ const memberTierController = {
         pointMultiplier: pointMultiplier || 1.0,
         benefits: benefits || [],
         color: color || '#000000',
-        status: status !== undefined ? status : true,
+        status: status !== undefined ? status : 'active',
         createdBy
       })
       createAudit(
@@ -185,10 +198,10 @@ const memberTierController = {
         color: color || tier.color,
         status:
           status !== undefined
-            ? status === true
-              ? true
-              : status === false
-                ? false
+            ? status === true || status === 'true'
+              ? 'active'
+              : status === false || status === 'false'
+                ? 'inactive'
                 : status
             : tier.status,
         modifiedBy
