@@ -9,9 +9,9 @@ const memberTierController = {
       const where = {}
       if (status) {
         if (status === 'active') {
-          where.status = { [Op.or]: ['active', 'true', true] }
+          where.status = { [Op.or]: ['active', 'true'] }
         } else if (status === 'inactive') {
-          where.status = { [Op.or]: ['inactive', 'false', false] }
+          where.status = { [Op.or]: ['inactive', 'false'] }
         } else {
           where.status = status
         }
@@ -34,8 +34,8 @@ const memberTierController = {
 
       const normalizeStatus = (s) => {
         const v = String(s ?? '').toLowerCase()
-        if (v === 'true' || v === 'active') return 'active'
-        if (v === 'false' || v === 'inactive') return 'inactive'
+        if (v === 'active' || v === 'true') return 'active'
+        if (v === 'inactive' || v === 'false') return 'inactive'
         return 'draft'
       }
 
@@ -211,7 +211,7 @@ const memberTierController = {
               ? 'active'
               : status === false || status === 'false'
                 ? 'inactive'
-                : status
+                : String(status)
             : tier.status,
         modifiedBy
       })
@@ -285,7 +285,7 @@ const memberTierController = {
 
       const tier = await db.member_tier.findOne({
         where: {
-          status: { [Op.or]: ['active', 'true', true] },
+          status: { [Op.or]: ['active', 'true'] },
           minPoints: { [Op.lte]: points },
           maxPoints: { [Op.gte]: points }
         },
@@ -309,7 +309,7 @@ const memberTierController = {
   async updateMemberTier(req, res) {
     try {
       const tiers = await db.member_tier.findAll({
-        where: { status: { [Op.or]: ['active', 'true', true] } },
+        where: { status: { [Op.or]: ['active', 'true'] } },
         order: [['minPoints', 'DESC']]
       })
 
