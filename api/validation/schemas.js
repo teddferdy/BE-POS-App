@@ -333,7 +333,7 @@ exports.updateReservationSchema = exports.createReservationSchema.partial()
 // ===================== Table =====================
 exports.createTableSchema = z.object({
   store: strToNum().optional().nullable(),
-  tableNumber: z.string().min(1, 'Table number is required'),
+  name: z.string().min(1, 'Table name is required'),
   capacity: strToNum().optional().default(4),
   status: z.enum(['available', 'occupied', 'reserved', 'maintenance']).optional().default('available'),
   description: z.string().optional().nullable()
