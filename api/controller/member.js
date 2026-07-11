@@ -194,11 +194,15 @@ exports.addNewMember = async (req, res) => {
       }
     }
 
+    const phoneNumber = body.phoneNumber && body.phoneNumber.trim() !== ''
+      ? body.phoneNumber
+      : `GUEST-${Date.now()}`
+
     const store = req.user?.roleType === 'super_admin' ? (body.store || null) : req.user?.store
     const createdMember = await Member.create({
       store,
       name: body.nameMember,
-      phoneNumber: body.phoneNumber,
+      phoneNumber,
       email: body.email || null,
       dateOfBirth: body.birthDate,
       gender: body.gender,
