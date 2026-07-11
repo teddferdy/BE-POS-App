@@ -6,7 +6,16 @@ const memberTierController = {
   async getAll(req, res) {
     try {
       const { status } = req.query
-      const where = status ? { status } : {}
+      const where = {}
+      if (status) {
+        if (status === 'active') {
+          where.status = { [Op.or]: ['active', 'true', true] }
+        } else if (status === 'inactive') {
+          where.status = { [Op.or]: ['inactive', 'false', false] }
+        } else {
+          where.status = status
+        }
+      }
 
       const tiers = await db.member_tier.findAll({
         where,
@@ -276,7 +285,7 @@ const memberTierController = {
 
       const tier = await db.member_tier.findOne({
         where: {
-          status: 'active',
+          status: { [Op.or]: ['active', 'true', true] },
           minPoints: { [Op.lte]: points },
           maxPoints: { [Op.gte]: points }
         },
@@ -300,7 +309,7 @@ const memberTierController = {
   async updateMemberTier(req, res) {
     try {
       const tiers = await db.member_tier.findAll({
-        where: { status: 'active' },
+        where: { status: { [Op.or]: ['active', 'true', true] } },
         order: [['minPoints', 'DESC']]
       })
 
