@@ -7,10 +7,60 @@
 
 ---
 
+## Response Format
+
+### Standard Success (list)
+```json
+{
+  "success": true,
+  "message": "Success",
+  "data": [],
+  "pagination": {
+    "total": 0,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 0
+  }
+}
+```
+
+### Standard Success (single)
+```json
+{
+  "success": true,
+  "message": "Success",
+  "data": {}
+}
+```
+
+### Success with stats
+```json
+{
+  "success": true,
+  "message": "Success",
+  "data": [],
+  "pagination": { "total": 0, "page": 1, "limit": 10, "totalPages": 0 },
+  "stats": {},
+  "summary": {}
+}
+```
+
+### Error
+```json
+{
+  "success": false,
+  "message": "Error message here"
+}
+```
+
+---
+
 ## Auth
 
 ### POST `/auth/login`
-No auth required.
+No auth required. Rate limited: 10 attempts / 15 min.
+
+**Request:**
 ```json
 {
   "userName": "string (required)",
@@ -18,8 +68,29 @@ No auth required.
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "token": "eyJhbGci...",
+  "user": {
+    "id": 1,
+    "userName": "admin",
+    "fullName": "Admin",
+    "roleType": "super_admin",
+    "store": [1, 2],
+    "accessMenu": {}
+  }
+}
+```
+
+---
+
 ### POST `/auth/register`
 No auth required.
+
+**Request:**
 ```json
 {
   "userName": "string (required)",
@@ -39,8 +110,21 @@ No auth required.
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Registration successful",
+  "data": { "id": 1, "userName": "newuser" }
+}
+```
+
+---
+
 ### POST `/auth/reset-password`
 No auth required.
+
+**Request:**
 ```json
 {
   "email": "string (optional)",
@@ -48,20 +132,87 @@ No auth required.
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Password reset email sent"
+}
+```
+
+---
+
 ### POST `/auth/logout`
 Auth required.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Logged out successfully"
+}
+```
+
+---
 
 ### GET `/auth/get-user`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "userName": "admin",
+    "fullName": "Admin User",
+    "email": "admin@example.com",
+    "roleType": "super_admin",
+    "store": [1, 2],
+    "shift": 1,
+    "position": 1,
+    "accessMenu": {}
+  }
+}
+```
+
+---
+
 ### GET `/auth/get-all-user`
 Auth required (super_admin).
+
+**Query:** `page` (number), `limit` (number), `search` (string), `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "userName": "admin", "fullName": "Admin", "roleType": "super_admin", "store": [1] }
+  ],
+  "pagination": { "total": 50, "page": 1, "limit": 10, "totalPages": 5 }
+}
+```
+
+---
 
 ### GET `/auth/generate-employee-id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": "EMP-2026-001"
+}
+```
+
+---
+
 ### PUT `/auth/change-profile-user`
 Auth required (super_admin).
+
+**Request:**
 ```json
 {
   "userId": "number (required)",
@@ -69,8 +220,20 @@ Auth required (super_admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Role updated"
+}
+```
+
+---
+
 ### PUT `/auth/edit-user`
 Auth required.
+
+**Request:**
 ```json
 {
   "id": "number (required)",
@@ -86,85 +249,235 @@ Auth required.
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Profile updated",
+  "data": { "id": 1, "fullName": "Updated Name" }
+}
+```
+
 ---
 
 ## Product
 
 ### GET `/product/get-product`
-Auth required. Query: `store`, `nameProduct`, `category`, `page`, `limit`.
+Auth required. Products for cashier view.
+
+**Query:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `store` | number | Store ID |
+| `nameProduct` | string | Search by name |
+| `category` | number | Category ID |
+| `page` | number | Page number |
+| `limit` | number | Items per page |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "nameProduct": "Nasi Goreng",
+      "category": 1,
+      "price": 25000,
+      "stock": 100,
+      "unit": "pcs",
+      "barcode": "8991234567890",
+      "image": "https://...",
+      "status": "active"
+    }
+  ]
+}
+```
+
+---
 
 ### GET `/product/get-product-by-super-admin`
-Auth required. Query: `page`, `limit`, `search`, `store`.
+Auth required.
+
+**Query:** `page`, `limit`, `search`, `store`.
+
+**Response:** Same as above with pagination.
+
+---
 
 ### GET `/product/get-product-all`
-Auth required. Query: `page`, `limit`, `search`, `store`, `category`.
+Auth required. Full product list for table.
+
+**Query:** `page`, `limit`, `search`, `store`, `category`.
+
+**Response:** Same as above with pagination.
+
+---
 
 ### GET `/product/get-by-id/:id`
 Auth required (super_admin/admin).
 
-### POST `/product/add-product`
-Auth required (super_admin/admin). Content-Type: `multipart/form-data`.
+**Response:**
 ```json
 {
-  "nameProduct": "string (required)",
-  "category": "number (required)",
-  "status": "active | inactive | draft (default: active)",
-  "description": "string (optional)",
-  "price": "number (default: 0)",
-  "costPrice": "number (default: 0)",
-  "stock": "number (default: 0)",
-  "minStock": "number (default: 0)",
-  "unit": "string (default: pcs)",
-  "baseUnit": "string (default: pcs)",
-  "conversionFactor": "string (default: 1)",
-  "point": "number (default: 0)",
-  "barcode": "string (optional)",
-  "brand": "string (optional)",
-  "hasModifiers": "boolean (default: false)",
-  "modifiers": "JSON array (default: [])",
-  "isOption": "boolean (default: false)",
-  "options": "JSON array (default: [])",
-  "isAvailable": "boolean (default: true)",
-  "stores": "array of numbers (optional)",
-  "supplier": "number (optional)",
-  "tax": "JSON object (optional)",
-  "priceTiers": "JSON array (default: [])",
-  "currencyId": "number (optional)",
-  "currencyCode": "string (optional)",
-  "tipeProduk": "string (default: menu)",
-  "composition": "JSON array (default: [])",
-  "redeemPoints": "number (default: 0)",
-  "image": "file (optional)"
+  "success": true,
+  "data": {
+    "id": 1,
+    "nameProduct": "Nasi Goreng",
+    "category": 1,
+    "status": "active",
+    "price": 25000,
+    "costPrice": 15000,
+    "stock": 100,
+    "minStock": 10,
+    "unit": "pcs",
+    "baseUnit": "pcs",
+    "conversionFactor": "1",
+    "barcode": "8991234567890",
+    "brand": "Brand X",
+    "stores": [1, 2],
+    "supplier": 1,
+    "tax": { "name": "PPN", "rate": 11 },
+    "image": "https://..."
+  }
 }
 ```
+
+---
+
+### POST `/product/add-product`
+Auth required (super_admin/admin). Content-Type: `multipart/form-data`.
+
+**Request:**
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `nameProduct` | string | **YES** | - |
+| `category` | number | **YES** | - |
+| `status` | string | No | `active` |
+| `description` | string | No | `''` |
+| `price` | number | No | `0` |
+| `costPrice` | number | No | `0` |
+| `stock` | number | No | `0` |
+| `minStock` | number | No | `0` |
+| `unit` | string | No | `pcs` |
+| `baseUnit` | string | No | `pcs` |
+| `conversionFactor` | string | No | `"1"` |
+| `point` | number | No | `0` |
+| `barcode` | string | No | null |
+| `brand` | string | No | null |
+| `hasModifiers` | boolean | No | `false` |
+| `modifiers` | JSON array | No | `[]` |
+| `isOption` | boolean | No | `false` |
+| `options` | JSON array | No | `[]` |
+| `isAvailable` | boolean | No | `true` |
+| `stores` | array of numbers | No | null |
+| `supplier` | number | No | null |
+| `tax` | JSON object | No | null |
+| `priceTiers` | JSON array | No | `[]` |
+| `currencyId` | number | No | null |
+| `currencyCode` | string | No | null |
+| `tipeProduk` | string | No | `menu` |
+| `composition` | JSON array | No | `[]` |
+| `redeemPoints` | number | No | `0` |
+| `image` | file | No | null |
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Product created",
+  "data": { "id": 1, "nameProduct": "Nasi Goreng" }
+}
+```
+
+---
 
 ### PUT `/product/edit-product`
 Auth required (super_admin/admin). Content-Type: `multipart/form-data`. Same fields as add, all optional.
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Product updated",
+  "data": { "id": 1, "nameProduct": "Nasi Goreng Updated" }
+}
+```
+
+---
+
 ### DELETE `/product/delete-product/:id`
 Auth required (super_admin/admin).
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Product deleted"
+}
+```
+
+---
+
 ### GET `/product/template`
-Auth required. Returns Excel template.
+Auth required. Returns Excel template file.
 
 ### GET `/product/download`
-Auth required. Returns Excel data.
+Auth required. Returns Excel file with product data.
 
 ### POST `/product/import`
 Auth required. Content-Type: `multipart/form-data`. Field: `file` (Excel).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Import successful",
+  "imported": 10,
+  "failed": 2,
+  "errors": ["Row 3: name is required", "Row 7: category not found"]
+}
+```
 
 ---
 
 ## Category
 
 ### GET `/category/get-category-all`
-Auth required. Query: `page`, `limit`, `search`.
+Auth required.
+
+**Query:** `page`, `limit`, `search`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Makanan", "status": "active", "store": [1, 2] }
+  ],
+  "pagination": { "total": 20, "page": 1, "limit": 10, "totalPages": 2 }
+}
+```
+
+---
 
 ### GET `/category/get-category/:id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "id": 1, "name": "Makanan", "description": "All food items", "status": "active" }
+}
+```
+
+---
+
 ### POST `/category/add-new-category`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -175,6 +488,17 @@ Auth required (super_admin/admin).
   "store": "array of numbers (optional)"
 }
 ```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Category created",
+  "data": { "id": 1, "name": "Makanan" }
+}
+```
+
+---
 
 ### PUT `/category/edit-category/:id`
 Auth required (super_admin/admin). Same fields, all optional.
@@ -190,19 +514,97 @@ Auth required (super_admin/admin). Import uses multipart/form-data with `file` f
 ## Location (Store)
 
 ### GET `/location/get-location-public`
-No auth. Returns active locations.
+No auth. Returns active locations (for registration dropdown).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Store Jakarta", "address": "Jl. Sudirman 123" }
+  ]
+}
+```
+
+---
 
 ### GET `/location/get-location-all`
-Auth required (super_admin). Query: `page`, `limit`, `search`.
+Auth required (super_admin).
+
+**Query:** `page`, `limit`, `search`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Store Jakarta",
+      "address": "Jl. Sudirman 123",
+      "city": "Jakarta",
+      "province": "DKI Jakarta",
+      "status": "active",
+      "category": "restoran",
+      "dailyTarget": 5000000
+    }
+  ],
+  "pagination": { "total": 5, "page": 1, "limit": 10, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/location/get-location-detail/:locationId`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "Store Jakarta",
+    "address": "Jl. Sudirman 123",
+    "detailLocation": "Lantai 2",
+    "city": "Jakarta",
+    "province": "DKI Jakarta",
+    "district": "Setiabudi",
+    "village": "Karet",
+    "postalCode": "12190",
+    "latitude": "-6.2088",
+    "longitude": "106.8456",
+    "mainBranch": true,
+    "managerName": "Budi",
+    "email": "jakarta@example.com",
+    "phoneNumber": "08123456789",
+    "category": "restoran",
+    "status": "active",
+    "openingHours": { "mon": "08:00-22:00" },
+    "dailyTarget": 5000000
+  }
+}
+```
+
+---
+
 ### GET `/location/generate-id`
-Auth required (super_admin). Returns generated location ID.
+Auth required (super_admin).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": "LOC-2026-001"
+}
+```
+
+---
 
 ### POST `/location/add-new-location`
 Auth required (super_admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -229,6 +631,17 @@ Auth required (super_admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Location created",
+  "data": { "id": 1, "name": "Store Jakarta", "locationId": "LOC-2026-001" }
+}
+```
+
+---
+
 ### PUT `/location/edit-location`
 Auth required (super_admin). Same fields, all optional.
 
@@ -240,13 +653,60 @@ Auth required (super_admin).
 ## Member
 
 ### GET `/member/get-member`
-Auth required. Query: `page`, `limit`, `search`, `tier`, `status`, `sortBy`, `store`.
+Auth required.
+
+**Query:** `page`, `limit`, `search`, `tier`, `status`, `sortBy`, `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "nameMember": "John Doe",
+      "phoneNumber": "08123456789",
+      "email": "john@example.com",
+      "point": 1500,
+      "tier": { "id": 1, "name": "Gold", "discountPercent": 10 },
+      "status": "active"
+    }
+  ],
+  "pagination": { "total": 100, "page": 1, "limit": 10, "totalPages": 10 },
+  "stats": { "total": 100, "active": 80, "draft": 10, "inactive": 10 }
+}
+```
+
+---
 
 ### GET `/member/get-member/:id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "nameMember": "John Doe",
+    "phoneNumber": "08123456789",
+    "email": "john@example.com",
+    "point": 1500,
+    "tier": { "id": 1, "name": "Gold" },
+    "birthDate": "1990-01-01",
+    "gender": "male",
+    "address": "Jl. Melati 5",
+    "status": "active"
+  }
+}
+```
+
+---
+
 ### POST `/member/add-new-member`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "nameMember": "string (required)",
@@ -262,6 +722,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Member created",
+  "data": { "id": 1, "nameMember": "John Doe" }
+}
+```
+
+---
+
 ### PUT `/member/edit-member/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
@@ -270,9 +741,18 @@ Auth required (super_admin/admin).
 
 ### PUT `/member/edit-point-member/:phoneNumber`
 Auth required.
+
+**Request:**
+```json
+{ "point": "number (required)" }
+```
+
+**Response:**
 ```json
 {
-  "point": "number (required)"
+  "success": true,
+  "message": "Points updated",
+  "data": { "point": 2000 }
 }
 ```
 
@@ -283,14 +763,64 @@ Auth required.
 ### GET `/member-tier/get-all`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Gold",
+      "minPoints": 1000,
+      "maxPoints": 5000,
+      "discountPercent": 10,
+      "benefits": "Free shipping, Priority service",
+      "members": 25
+    }
+  ]
+}
+```
+
+---
+
 ### GET `/member-tier/detail/:id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "Gold",
+    "minPoints": 1000,
+    "maxPoints": 5000,
+    "discountPercent": 10,
+    "benefits": "Free shipping",
+    "members": 25
+  }
+}
+```
+
+---
+
 ### GET `/member-tier/get-by-points`
-Auth required. Query: `points`.
+Auth required. **Query:** `points` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "id": 1, "name": "Gold", "discountPercent": 10 }
+}
+```
+
+---
 
 ### POST `/member-tier/add`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -301,6 +831,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Tier created",
+  "data": { "id": 1, "name": "Gold" }
+}
+```
+
+---
+
 ### PUT `/member-tier/edit/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
@@ -308,7 +849,7 @@ Auth required (super_admin/admin). Same fields, all optional.
 Auth required (super_admin/admin).
 
 ### POST `/member-tier/update-members`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Batch update member tier assignments.
 
 ---
 
@@ -316,6 +857,8 @@ Auth required (super_admin/admin).
 
 ### POST `/order/create`
 Auth required.
+
+**Request:**
 ```json
 {
   "store": "number (required)",
@@ -346,17 +889,108 @@ Auth required.
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Order created",
+  "data": {
+    "id": 1,
+    "orderNumber": "ORD-20260711-001",
+    "store": 1,
+    "status": "pending",
+    "items": [...],
+    "subTotal": 50000,
+    "total": 55500
+  }
+}
+```
+
+---
+
 ### GET `/order/get-orders`
-Auth required. Query: `store`, `page`, `limit`, `status`.
+Auth required.
+
+**Query:** `store` (number), `page` (number), `limit` (number), `status` (string), `startDate`, `endDate`.
+
+**Response:**
+```json
+{
+  "message": "Success",
+  "data": [
+    {
+      "id": 1,
+      "orderNumber": "ORD-20260711-001",
+      "store": 1,
+      "status": "paid",
+      "total": 55500,
+      "items": [...],
+      "createdAt": "2026-07-11T10:30:00Z"
+    }
+  ],
+  "pagination": { "total": 50, "page": 1, "limit": 10, "totalPages": 5 }
+}
+```
+
+---
 
 ### GET `/order/get-order/:id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "orderNumber": "ORD-20260711-001",
+    "store": 1,
+    "tableId": 5,
+    "customerId": 1,
+    "customerName": "John",
+    "status": "served",
+    "items": [
+      { "product": 1, "productName": "Nasi Goreng", "quantity": 2, "price": 25000, "status": "served" }
+    ],
+    "subTotal": 50000,
+    "discountValue": 5000,
+    "taxRate": 11,
+    "total": 50500,
+    "paymentMethod": "cash",
+    "createdAt": "2026-07-11T10:30:00Z"
+  }
+}
+```
+
+---
+
 ### GET `/order/kitchen`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "orderNumber": "ORD-20260711-001",
+      "tableNumber": "5",
+      "items": [
+        { "product": 1, "productName": "Nasi Goreng", "quantity": 2, "status": "pending", "notes": "pedas" }
+      ],
+      "source": "pos"
+    }
+  ]
+}
+```
+
+---
 
 ### PUT `/order/update-status`
 Auth required.
+
+**Request:**
 ```json
 {
   "id": "number (required)",
@@ -365,8 +999,17 @@ Auth required.
 }
 ```
 
+**Response:**
+```json
+{ "success": true, "message": "Status updated" }
+```
+
+---
+
 ### PUT `/order/update-item-status`
 Auth required.
+
+**Request:**
 ```json
 {
   "id": "number (required)",
@@ -375,11 +1018,18 @@ Auth required.
 }
 ```
 
+**Response:**
+```json
+{ "success": true, "message": "Item status updated" }
+```
+
+---
+
 ### GET `/order/customer-menu`
-No auth. Query: `store`.
+No auth. **Query:** `store` (number).
 
 ### GET `/order/customer-member`
-No auth. Query: `phone`.
+No auth. **Query:** `phone` (string).
 
 ### GET `/order/customer-order/:id`
 No auth.
@@ -388,7 +1038,7 @@ No auth.
 No auth. Same structure as `/order/create`.
 
 ### GET `/order/receipt-html/:id`
-No auth.
+No auth. Returns HTML receipt.
 
 ---
 
@@ -396,6 +1046,8 @@ No auth.
 
 ### POST `/checkout/checkout-item`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "idCustomer": "number (optional)",
@@ -414,6 +1066,23 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Checkout successful",
+  "data": {
+    "orderId": 1,
+    "orderNumber": "ORD-20260711-001",
+    "total": 55500,
+    "paymentAmount": 60000,
+    "change": 4500
+  }
+}
+```
+
+---
+
 ### PUT `/checkout/edit-checkout-item`
 Auth required.
 
@@ -425,16 +1094,31 @@ Auth required.
 ## Table
 
 ### GET `/table/get-tables`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "tableNumber": "T1", "capacity": 4, "status": "available", "store": 1 },
+    { "id": 2, "tableNumber": "T2", "capacity": 2, "status": "occupied", "store": 1 }
+  ]
+}
+```
+
+---
 
 ### GET `/table/get-tables-with-orders`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
 
 ### GET `/table/get-availability`
-Auth required. Query: `store`, `date`, `time`.
+Auth required. **Query:** `store`, `date`, `time`.
 
 ### POST `/table/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "tableNumber": "string (required)",
@@ -445,6 +1129,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Table created",
+  "data": { "id": 1, "tableNumber": "T1", "capacity": 4, "status": "available" }
+}
+```
+
+---
+
 ### PUT `/table/update/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
@@ -453,10 +1148,10 @@ Auth required (super_admin/admin).
 
 ### PUT `/table/update-status/:id`
 Auth required.
+
+**Request:**
 ```json
-{
-  "status": "available | occupied | reserved | maintenance (required)"
-}
+{ "status": "available | occupied | reserved | maintenance (required)" }
 ```
 
 ---
@@ -464,10 +1159,44 @@ Auth required.
 ## Discount
 
 ### GET `/discount/get-discount-by-location`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Diskon Lebaran",
+      "type": "percent",
+      "value": 10,
+      "maximumDiscount": 50000,
+      "minimumOrder": 100000,
+      "code": "LEBARAN10",
+      "status": true,
+      "startDate": "2026-04-01",
+      "endDate": "2026-04-30"
+    }
+  ]
+}
+```
+
+---
 
 ### GET `/discount/get-discount`
-Auth required. Query: `page`, `limit`, `search`, `store`.
+Auth required. **Query:** `page`, `limit`, `search`, `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [...],
+  "pagination": { "total": 10, "page": 1, "limit": 10, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/discount/get-discount/:id`
 Auth required.
@@ -475,8 +1204,20 @@ Auth required.
 ### GET `/discount/lookup-by-code/:code`
 No auth.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "id": 1, "name": "Diskon Lebaran", "type": "percent", "value": 10, "code": "LEBARAN10" }
+}
+```
+
+---
+
 ### POST `/discount/add-new-discount`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -494,6 +1235,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discount created",
+  "data": { "id": 1, "name": "Diskon Lebaran" }
+}
+```
+
+---
+
 ### PUT `/discount/edit-discount/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
@@ -508,13 +1260,38 @@ Auth required. Import uses multipart/form-data with `file` field.
 ## Shift
 
 ### GET `/shift/get-shift`
-Auth required. Query: `page`, `limit`, `search`.
+Auth required. **Query:** `page`, `limit`, `search`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "nama_shift": "Pagi", "jam_mulai": "08:00", "jam_selesai": "16:00", "status": "active" }
+  ],
+  "pagination": { "total": 5, "page": 1, "limit": 10, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/shift/dropdown`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": [{ "id": 1, "nama_shift": "Pagi" }]
+}
+```
+
+---
+
 ### POST `/shift/add-new-shift`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "nama_shift": "string (required)",
@@ -529,6 +1306,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Shift created",
+  "data": { "id": 1, "nama_shift": "Pagi" }
+}
+```
+
+---
+
 ### PUT `/shift/edit-shift/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
@@ -540,16 +1328,30 @@ Auth required (super_admin/admin).
 ## Type Payment
 
 ### GET `/type-payment/get-type-payment`
-Auth required. Returns active payment types.
+Auth required. Returns active payment types only.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "namePayment": "Cash", "icon": "money", "isActive": true, "isShowInCashier": true }
+  ]
+}
+```
+
+---
 
 ### GET `/type-payment/get-list-type-payment`
-Auth required. Returns all payment types.
+Auth required. Returns all payment types (active + inactive).
 
 ### GET `/type-payment/get-by-id/:id`
 Auth required.
 
 ### POST `/type-payment/add-new-type-payment`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "namePayment": "string (required)",
@@ -560,6 +1362,17 @@ Auth required (super_admin/admin).
   "isShowInCashier": "boolean (default: true)"
 }
 ```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Payment type created",
+  "data": { "id": 1, "namePayment": "Cash" }
+}
+```
+
+---
 
 ### PUT `/type-payment/edit-type-payment/:id`
 Auth required (super_admin/admin). Same fields, all optional.
@@ -575,16 +1388,49 @@ Auth required (super_admin/admin). Import uses multipart/form-data.
 ## Supplier
 
 ### GET `/supplier/`
-Auth required. Query: `limit`, `store`, `search`.
+Auth required. **Query:** `limit` (number), `store` (number), `search` (string).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "PT Sumber Rejeki", "phone": "021-1234", "email": "info@sumber.com", "status": "active", "store": [1, 2] }
+  ]
+}
+```
+
+---
 
 ### GET `/supplier/detail/:id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "PT Sumber Rejeki",
+    "phone": "021-1234",
+    "email": "info@sumber.com",
+    "contactPerson": "Budi",
+    "address": "Jl. Industri 10",
+    "status": "active",
+    "store": [1, 2]
+  }
+}
+```
+
+---
+
 ### GET `/supplier/:id`
-Auth required.
+Auth required. Same as detail.
 
 ### POST `/supplier/`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -597,6 +1443,17 @@ Auth required (super_admin/admin).
   "status": "active | inactive | draft (default: active)"
 }
 ```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Supplier created",
+  "data": { "id": 1, "name": "PT Sumber Rejeki" }
+}
+```
+
+---
 
 ### PUT `/supplier/:id`
 Auth required (super_admin/admin). Same fields, all optional.
@@ -612,13 +1469,50 @@ Auth required (super_admin/admin). Import uses multipart/form-data.
 ## Ingredient
 
 ### GET `/ingredient/get-all`
-Auth required. Query: `store`, `limit`, `search`.
+Auth required. **Query:** `store` (number), `limit` (number), `search` (string).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Beras Premium", "stock": 500, "minStock": 50, "unit": "kg", "costPrice": 12000, "status": "active" }
+  ]
+}
+```
+
+---
 
 ### GET `/ingredient/get-by-id/:id`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "Beras Premium",
+    "stock": 500,
+    "minStock": 50,
+    "unit": "kg",
+    "baseUnit": "kg",
+    "conversionFactor": "1",
+    "costPrice": 12000,
+    "store": 1,
+    "category": 1,
+    "supplier": 1,
+    "status": "active"
+  }
+}
+```
+
+---
+
 ### POST `/ingredient/add`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -635,16 +1529,26 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Ingredient created",
+  "data": { "id": 1, "name": "Beras Premium" }
+}
+```
+
+---
+
 ### PUT `/ingredient/edit/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
 ### PUT `/ingredient/adjust-stock/:id`
 Auth required.
+
+**Request:**
 ```json
-{
-  "stock": "number (required)",
-  "notes": "string (optional)"
-}
+{ "stock": "number (required)", "notes": "string (optional)" }
 ```
 
 ### DELETE `/ingredient/delete/:id`
@@ -660,16 +1564,25 @@ Auth required (super_admin/admin). Import uses multipart/form-data.
 ### GET `/ingredient-category/get-all`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": [{ "id": 1, "name": "Bahan Pokok", "description": "" }]
+}
+```
+
+---
+
 ### GET `/ingredient-category/get-by-id/:id`
 Auth required.
 
 ### POST `/ingredient-category/add`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
-{
-  "name": "string (required)",
-  "description": "string (default: '')"
-}
+{ "name": "string (required)", "description": "string (default: '')" }
 ```
 
 ### PUT `/ingredient-category/edit/:id`
@@ -686,13 +1599,47 @@ Auth required (super_admin/admin). Import uses multipart/form-data.
 ## Stock History
 
 ### GET `/stock-history/get-all`
-Auth required. Query: `page`, `limit`, `product`, `referenceType`, `startDate`, `endDate`, `store`.
+Auth required.
+
+**Query:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `page` | number | Page number |
+| `limit` | number | Items per page |
+| `product` | number | Product ID |
+| `referenceType` | string | Filter by type (e.g. `sale`, `purchase`, `adjustment`) |
+| `startDate` | string | ISO date |
+| `endDate` | string | ISO date |
+| `store` | number | Store ID |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "product": 1,
+      "productName": "Nasi Goreng",
+      "type": "out",
+      "quantity": 5,
+      "referenceType": "sale",
+      "referenceId": 100,
+      "notes": "Order #100",
+      "createdAt": "2026-07-11T10:30:00Z"
+    }
+  ],
+  "pagination": { "total": 500, "page": 1, "limit": 20, "totalPages": 25 }
+}
+```
+
+---
 
 ### GET `/stock-history/get-by-product/:productId`
 Auth required.
 
 ### GET `/stock-history/low-stock`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
 
 ### GET `/stock-history/low-stock-all`
 No auth. Returns low stock across all stores.
@@ -702,19 +1649,44 @@ No auth. Returns low stock across all stores.
 ## Stock Opname
 
 ### GET `/stock-opname/get-all`
-Auth required. Query: `page`, `limit`, `search`, `warehouse`, `status`.
+Auth required.
+
+**Query:** `page`, `limit`, `search`, `warehouse` (store ID), `status`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "auditDate": "2026-07-11",
+      "auditor": "Budi",
+      "status": "completed",
+      "store": 1,
+      "items": [...]
+    }
+  ],
+  "pagination": { "total": 10, "page": 1, "limit": 10, "totalPages": 1 },
+  "stats": { "total": 10, "draft": 2, "completed": 7, "cancelled": 1, "totalItems": 150 }
+}
+```
+
+---
 
 ### GET `/stock-opname/get-by-id/:id`
 Auth required.
 
 ### GET `/stock-opname/check-exists`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
 
 ### GET `/stock-opname/composition-items`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
 
 ### POST `/stock-opname/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "auditDate": "string (optional, ISO date)",
@@ -734,10 +1706,10 @@ Auth required (super_admin/admin).
 
 ### PATCH `/stock-opname/status/:id`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
-{
-  "status": "active | inactive | draft (required)"
-}
+{ "status": "active | inactive | draft (required)" }
 ```
 
 ### GET `/stock-opname/download-excel`, POST `/stock-opname/export-selected`, POST `/stock-opname/upload-excel`
@@ -748,16 +1720,54 @@ Auth required (super_admin/admin).
 ## Expense
 
 ### GET `/expense/get-all`
-Auth required. Query: `page`, `limit`, `search`, `status`, `store`.
+Auth required.
+
+**Query:** `page`, `limit`, `search`, `status` (pending|approved|rejected), `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "categoryId": 1,
+      "categoryName": "Operasional",
+      "amount": 500000,
+      "description": "Listrik bulanan",
+      "date": "2026-07-11",
+      "status": "approved",
+      "store": 1
+    }
+  ],
+  "pagination": { "total": 30, "page": 1, "limit": 10, "totalPages": 3 },
+  "summary": { "total": 5000000, "count": 15 },
+  "stats": { "draft": 2, "pending": 5, "approved": 7, "rejected": 1 }
+}
+```
+
+---
 
 ### GET `/expense/get-by-id/:id`
 Auth required.
 
 ### GET `/expense/get-summary`
-Auth required. Query: `store`, `startDate`, `endDate`.
+Auth required. **Query:** `store`, `startDate`, `endDate`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "total": 5000000, "count": 15, "byCategory": [...] }
+}
+```
+
+---
 
 ### POST `/expense/add`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "categoryId": "number (required)",
@@ -769,6 +1779,17 @@ Auth required (super_admin/admin).
   "store": "number (optional)"
 }
 ```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Expense created",
+  "data": { "id": 1, "amount": 500000, "status": "pending" }
+}
+```
+
+---
 
 ### PUT `/expense/edit/:id`
 Auth required (super_admin/admin). Same fields, all optional.
@@ -789,13 +1810,22 @@ Auth required (super_admin/admin).
 ### GET `/expense-category/get-all`
 Auth required.
 
-### POST `/expense-category/add`
-Auth required (super_admin/admin).
+**Response:**
 ```json
 {
-  "name": "string (required)",
-  "description": "string (default: '')"
+  "success": true,
+  "data": [{ "id": 1, "name": "Operasional", "description": "" }]
 }
+```
+
+---
+
+### POST `/expense-category/add`
+Auth required (super_admin/admin).
+
+**Request:**
+```json
+{ "name": "string (required)", "description": "string (default: '')" }
 ```
 
 ### PUT `/expense-category/edit/:id`
@@ -810,6 +1840,8 @@ Auth required (super_admin/admin).
 
 ### POST `/cash-register/open`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "store": "number (required)",
@@ -819,8 +1851,21 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Cash register opened",
+  "data": { "id": 1, "store": 1, "initialBalance": 500000, "status": "open" }
+}
+```
+
+---
+
 ### PUT `/cash-register/close/:id`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "id": "number (required)",
@@ -829,24 +1874,74 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Cash register closed",
+  "data": { "id": 1, "finalBalance": 1500000, "status": "closed", "totalSales": 1000000 }
+}
+```
+
+---
+
 ### GET `/cash-register/current`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "id": 1, "store": 1, "initialBalance": 500000, "status": "open", "openedAt": "2026-07-11T08:00:00Z" }
+}
+```
+
+---
 
 ### GET `/cash-register/history`
-Auth required. Query: `page`, `limit`, `store`, `search`.
+Auth required. **Query:** `page`, `limit`, `store`, `search`.
 
 ---
 
 ## Purchase Order
 
 ### GET `/purchase-order/get-all`
-Auth required. Query: `page`, `limit`, `search`, `store`, `status`.
+Auth required.
+
+**Query:** `page`, `limit`, `search`, `store`, `status` (draft|pending|ordered|received|cancelled).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "poNumber": "PO-20260711-001",
+      "store": 1,
+      "supplier": { "id": 1, "name": "PT Sumber" },
+      "status": "ordered",
+      "total": 5000000,
+      "orderDate": "2026-07-11",
+      "dueDate": "2026-07-18",
+      "items": [...]
+    }
+  ],
+  "pagination": { "total": 20, "page": 1, "limit": 10, "totalPages": 2 },
+  "stats": { "draft": 3, "pending": 5, "ordered": 8, "received": 3, "cancelled": 1 },
+  "paymentStats": { "unpaid": 10, "partial": 3, "paid": 7 }
+}
+```
+
+---
 
 ### GET `/purchase-order/get-by-id/:id`
 Auth required.
 
 ### POST `/purchase-order/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "store": "number (required)",
@@ -871,6 +1966,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PO created",
+  "data": { "id": 1, "poNumber": "PO-20260711-001", "status": "draft" }
+}
+```
+
+---
+
 ### PUT `/purchase-order/update/:id`
 Auth required (super_admin/admin). Same fields, all optional.
 
@@ -878,7 +1984,7 @@ Auth required (super_admin/admin). Same fields, all optional.
 Auth required (super_admin/admin).
 
 ### PUT `/purchase-order/receive/:id`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Marks PO as received, updates stock.
 
 ### PUT `/purchase-order/cancel/:id`
 Auth required (super_admin/admin).
@@ -891,7 +1997,28 @@ Auth required. Import uses multipart/form-data.
 ## Purchase Payment
 
 ### GET `/purchase-payment/list`
-Auth required. Query: `page`, `limit`.
+Auth required. **Query:** `page`, `limit`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "purchaseOrderId": 1,
+      "poNumber": "PO-20260711-001",
+      "paymentMethod": "transfer",
+      "paymentAmount": 2500000,
+      "paymentDate": "2026-07-11",
+      "notes": ""
+    }
+  ],
+  "pagination": { "total": 15, "page": 1, "limit": 10, "totalPages": 2 }
+}
+```
+
+---
 
 ### GET `/purchase-payment/detail/:id`
 Auth required.
@@ -905,8 +2032,26 @@ Auth required.
 ### GET `/purchase-payment/ap-dashboard`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "totalAP": 50000000,
+    "paid": 30000000,
+    "unpaid": 20000000,
+    "overdue": 5000000,
+    "bySupplier": [...]
+  }
+}
+```
+
+---
+
 ### POST `/purchase-payment/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "purchaseOrderId": "number (required)",
@@ -917,6 +2062,17 @@ Auth required (super_admin/admin).
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Payment recorded",
+  "data": { "id": 1, "paymentAmount": 2500000 }
+}
+```
+
+---
+
 ### DELETE `/purchase-payment/delete/:id`
 Auth required (super_admin/admin).
 
@@ -925,7 +2081,7 @@ Auth required (super_admin/admin).
 ## Purchase Return
 
 ### GET `/purchase-return/get-all`
-Auth required. Query: `page`, `limit`, `search`, `store`, `status`.
+Auth required. **Query:** `page`, `limit`, `search`, `store`, `status`.
 
 ### GET `/purchase-return/get-by-id/:id`
 Auth required.
@@ -935,6 +2091,8 @@ Auth required.
 
 ### POST `/purchase-return/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "purchaseOrderId": "number (required)",
@@ -954,7 +2112,7 @@ Auth required (super_admin/admin).
 ## Goods Receipt
 
 ### GET `/goods-receipt/get-all`
-Auth required. Query: `page`, `limit`, `search`, `status`, `store`.
+Auth required. **Query:** `page`, `limit`, `search`, `status`, `store`.
 
 ### GET `/goods-receipt/get-by-id/:id`
 Auth required.
@@ -963,10 +2121,12 @@ Auth required.
 Auth required.
 
 ### GET `/goods-receipt/export`
-Auth required.
+Auth required. Returns Excel file.
 
 ### POST `/goods-receipt/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "store": "number (required)",
@@ -993,10 +2153,10 @@ Auth required (super_admin/admin).
 
 ### PATCH `/goods-receipt/status/:id`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
-{
-  "status": "active | inactive | draft (required)"
-}
+{ "status": "active | inactive | draft (required)" }
 ```
 
 ---
@@ -1006,11 +2166,34 @@ Auth required (super_admin/admin).
 ### GET `/bom/get-all`
 Auth required (super_admin/admin).
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "productId": 1,
+      "productName": "Nasi Goreng",
+      "name": "Resep Nasi Goreng",
+      "status": "active",
+      "lines": [
+        { "ingredientId": 1, "ingredientName": "Beras", "qty": 0.5, "unit": "kg" }
+      ]
+    }
+  ]
+}
+```
+
+---
+
 ### GET `/bom/get-by-id/:id`
 Auth required.
 
 ### POST `/bom/add`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "productId": "number (required)",
@@ -1039,13 +2222,35 @@ Auth required (super_admin/admin).
 ## Production Order
 
 ### GET `/production-order/get-all`
-Auth required. Query: `page`, `limit`, `search`, `status`.
+Auth required. **Query:** `page`, `limit`, `search`, `status`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "productItem": { "id": 1, "name": "Nasi Goreng" },
+      "plannedQty": 100,
+      "producedQty": 0,
+      "status": "planned",
+      "scheduledDate": "2026-07-12"
+    }
+  ],
+  "pagination": { "total": 10, "page": 1, "limit": 10, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/production-order/get-by-id/:id`
 Auth required.
 
 ### POST `/production-order/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "productItemId": "number (required)",
@@ -1065,24 +2270,24 @@ Auth required (super_admin/admin).
 
 ### PATCH `/production-order/status/:id`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
-{
-  "status": "planned | in_progress | completed | cancelled | draft (required)"
-}
+{ "status": "planned | in_progress | completed | cancelled | draft (required)" }
 ```
 
 ### POST `/production-order/start/:id`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Sets status to `in_progress`.
 
 ### POST `/production-order/complete/:id`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Sets status to `completed`, deducts ingredients, adds product stock.
 
 ---
 
 ## Sales Return
 
 ### GET `/sales-return/get-all`
-Auth required. Query: `page`, `limit`, `search`, `store`, `status`.
+Auth required. **Query:** `page`, `limit`, `search`, `store`, `status`.
 
 ### GET `/sales-return/get-by-id/:id`
 Auth required.
@@ -1098,7 +2303,28 @@ Auth required (super_admin/admin).
 ## Employee
 
 ### GET `/employee/get-employee`
-Auth required. Query: `search`, `store`.
+Auth required. **Query:** `search` (string), `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "employeeID": "EMP-2026-001",
+      "fullName": "Budi Santoso",
+      "userName": "budi",
+      "position": { "id": 1, "name": "Kasir" },
+      "department": { "id": 1, "name": "Front Office" },
+      "store": [1],
+      "status": "active"
+    }
+  ]
+}
+```
+
+---
 
 ### GET `/employee/get-employee/:id`
 Auth required. Get by DB ID.
@@ -1108,32 +2334,32 @@ Auth required. Get by employee ID string.
 
 ### POST `/employee/add-employee`
 Auth required (super_admin/admin). Content-Type: `multipart/form-data`.
-```json
-{
-  "userName": "string (required)",
-  "password": "string (required, min 6)",
-  "confirmPassword": "string (required)",
-  "fullName": "string (optional)",
-  "email": "string (optional)",
-  "phoneNumber": "string (optional)",
-  "gender": "string (optional)",
-  "address": "string (optional)",
-  "dateOfBirth": "string (optional)",
-  "placeOfBirth": "string (optional)",
-  "store": "number (optional)",
-  "shift": "number (optional)",
-  "position": "number (optional)",
-  "roleId": "number (optional)",
-  "department": "string (optional)",
-  "departmentId": "number (optional)",
-  "employmentType": "string (optional)",
-  "startDate": "string (optional)",
-  "status": "active | inactive | draft (default: active)",
-  "monthlySalary": "string (optional)",
-  "dailySalary": "string (optional)",
-  "avatar": "file (optional)"
-}
-```
+
+**Request:**
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `userName` | string | **YES** | - |
+| `password` | string | **YES** | - |
+| `confirmPassword` | string | **YES** | - |
+| `fullName` | string | No | `''` |
+| `email` | string | No | - |
+| `phoneNumber` | string | No | `''` |
+| `gender` | string | No | `''` |
+| `address` | string | No | `''` |
+| `dateOfBirth` | string | No | null |
+| `placeOfBirth` | string | No | `''` |
+| `store` | number | No | null |
+| `shift` | number | No | null |
+| `position` | number | No | null |
+| `roleId` | number | No | null |
+| `department` | string | No | null |
+| `departmentId` | number | No | null |
+| `employmentType` | string | No | null |
+| `startDate` | string | No | null |
+| `status` | string | No | `active` |
+| `monthlySalary` | string | No | null |
+| `dailySalary` | string | No | null |
+| `avatar` | file | No | null |
 
 ### PUT `/employee/edit-employee`
 Auth required (super_admin/admin). Same fields, all optional.
@@ -1146,16 +2372,28 @@ Auth required (super_admin/admin).
 ## Department
 
 ### GET `/department/get-department`
-Auth required.
+Auth required. Returns all departments (dropdown).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [{ "id": 1, "name": "Front Office", "status": "active" }]
+}
+```
+
+---
 
 ### GET `/department/get-department-all`
-Auth required. Query: `page`, `limit`, `search`.
+Auth required. **Query:** `page`, `limit`, `search`.
 
 ### GET `/department/get-department/:id`
 Auth required.
 
 ### POST `/department/add-new-department`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -1179,16 +2417,18 @@ Auth required (super_admin/admin). Import uses multipart/form-data.
 ## Position
 
 ### GET `/position/get-position`
-Auth required.
+Auth required. Returns all positions (dropdown).
 
 ### GET `/position/get-position/:id`
 Auth required.
 
 ### GET `/position/get-position-all`
-Auth required. Query: `page`, `limit`, `search`.
+Auth required. **Query:** `page`, `limit`, `search`.
 
 ### POST `/position/add-new-position`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -1212,16 +2452,31 @@ Auth required. Import uses multipart/form-data.
 ## Role
 
 ### GET `/role/get-role`
-No auth. Returns roles dropdown.
+No auth. Returns roles for dropdown.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Super Admin", "permissions": {} },
+    { "id": 2, "name": "Admin", "permissions": {} }
+  ]
+}
+```
+
+---
 
 ### GET `/role/get-role-all`
-Auth required (super_admin). Query: `page`.
+Auth required (super_admin). **Query:** `page` (number).
 
 ### GET `/role/get-role-by-id/:id`
 Auth required.
 
 ### POST `/role/add-new-role`
 Auth required (super_admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -1237,18 +2492,19 @@ Auth required (super_admin).
 
 ### PUT `/role/update-user-role`
 Auth required (super_admin).
+
+**Request:**
 ```json
-{
-  "userId": "number (required)",
-  "roleId": "number (required)"
-}
+{ "userId": "number (required)", "roleId": "number (required)" }
 ```
 
 ### GET `/role/get-users-by-role`
-Auth required. Query: `roleId`.
+Auth required. **Query:** `roleId` (number).
 
 ### PUT `/role/update-access-menu`
 Auth required (super_admin).
+
+**Request:**
 ```json
 {
   "roleId": "number (required)",
@@ -1261,100 +2517,162 @@ Auth required (super_admin).
 ## Report
 
 ### GET `/report/daily`
-Auth required. Query: `store`, `date`.
+Auth required. **Query:** `store` (number), `date` (ISO date).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "date": "2026-07-11",
+    "totalSales": 5000000,
+    "totalOrders": 50,
+    "avgOrderValue": 100000,
+    "items": [...]
+  }
+}
+```
+
+---
 
 ### GET `/report/profit-loss`
-Auth required. Query: `store`, `startDate`, `endDate`.
+Auth required. **Query:** `store`, `startDate`, `endDate`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "revenue": 50000000,
+    "cogs": 20000000,
+    "grossProfit": 30000000,
+    "expenses": 10000000,
+    "netProfit": 20000000,
+    "items": [...]
+  }
+}
+```
+
+---
 
 ### GET `/report/cash-flow`
-Auth required. Query: `store`, `startDate`, `endDate`.
+Auth required. **Query:** `store`, `startDate`, `endDate`.
 
 ### GET `/report/sales-summary`
-Auth required. Query: `store`, `period` (daily|weekly|monthly|yearly).
+Auth required. **Query:** `store`, `period` (daily|weekly|monthly|yearly).
 
 ### GET `/report/best-seller`
-Auth required. Query: `store`, `startDate`, `endDate`, `limit`.
+Auth required. **Query:** `store`, `startDate`, `endDate`, `limit`.
 
 ### GET `/report/profit-per-product`
-Auth required. Query: `store`, `startDate`, `endDate`.
+Auth required. **Query:** `store`, `startDate`, `endDate`.
 
 ---
 
 ## Best Selling
 
 ### GET `/best-selling/get-chart-by-year`
-Auth required (super_admin/admin). Query: `store`, `year`.
+Auth required (super_admin/admin). **Query:** `store`, `year`.
 
 ### GET `/best-selling/get-chart-by-month`
-Auth required (super_admin/admin). Query: `store`, `year`, `month`.
+Auth required (super_admin/admin). **Query:** `store`, `year`, `month`.
 
 ### GET `/best-selling/get-chart-current-and-two-days-before`
-Auth required. Query: `store`.
+Auth required. **Query:** `store`.
 
 ### GET `/best-selling/get-chart-current-and-seven-days-before`
-Auth required. Query: `store`.
+Auth required. **Query:** `store`.
 
 ### GET `/best-selling/get-earning-today`
-Auth required. Query: `store`.
+Auth required. **Query:** `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "total": 5000000, "orders": 50, "avgOrder": 100000 }
+}
+```
 
 ---
 
 ## Overview (Dashboard)
 
-All require auth. Query: `store`.
+All require auth. **Query:** `store` (number).
 
-| Endpoint | Description |
-|----------|-------------|
-| GET `/overview/product` | Product summary |
-| GET `/overview/category` | Category summary |
-| GET `/overview/location` | Location summary |
-| GET `/overview/member` | Member summary |
-| GET `/overview/user` | User summary |
-| GET `/overview/best-selling` | Best selling |
-| GET `/overview/members/latest` | Latest members |
-| GET `/overview/categories/latest` | Latest categories |
-| GET `/overview/locations/latest` | Latest locations |
-| GET `/overview/products/latest` | Latest products |
+| Endpoint | Response `data` |
+|----------|-----------------|
+| GET `/overview/product` | `{ total, active, inactive }` |
+| GET `/overview/category` | `{ total }` |
+| GET `/overview/location` | `{ total, active }` |
+| GET `/overview/member` | `{ total, active }` |
+| GET `/overview/user` | `{ total, active }` |
+| GET `/overview/best-selling` | Array of top products |
+| GET `/overview/members/latest` | Array of recent members |
+| GET `/overview/categories/latest` | Array of recent categories |
+| GET `/overview/locations/latest` | Array of recent locations |
+| GET `/overview/products/latest` | Array of recent products |
 
 ---
 
 ## POS Extended
 
 ### GET `/pos/lookup-barcode`
-Auth required. Query: `barcode`, `store`.
+Auth required. **Query:** `barcode` (string), `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "id": 1, "nameProduct": "Nasi Goreng", "price": 25000, "stock": 100 }
+}
+```
+
+---
 
 ### POST `/pos/transfer`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "fromStore": "number (required)",
   "toStore": "number (required)",
   "items": [
-    {
-      "product": "number (required)",
-      "quantity": "number (required)",
-      "notes": "string (default: '')"
-    }
+    { "product": "number (required)", "quantity": "number (required)", "notes": "string (default: '')" }
   ],
   "notes": "string (default: '')",
   "transferredBy": "number (optional)"
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Stock transfer created",
+  "data": { "id": 1, "transferNumber": "TRF-1717234567890", "status": "pending" }
+}
+```
+
+---
+
 ### GET `/pos/transfer-history`
-Auth required. Query: `page`, `limit`, `status`, `startDate`, `endDate`, `store`.
+Auth required. **Query:** `page`, `limit`, `status`, `startDate`, `endDate`, `store`.
 
 ### GET `/pos/transfer/:id`
 Auth required.
 
 ### PUT `/pos/transfer/:id/receive`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Confirms transfer, moves stock.
 
 ### PUT `/pos/transfer/:id/cancel`
 Auth required (super_admin/admin).
 
 ### POST `/pos/adjust`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "productId": "number (required)",
@@ -1368,9 +2686,11 @@ Auth required (super_admin/admin).
 
 ### POST `/pos/purchase-order/:id/return`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
-  "items": "array of objects (required, min 1)",
+  "items": "array of { productId, quantity, reason } (required, min 1)",
   "reason": "string (default: '')",
   "returnedBy": "number (optional)"
 }
@@ -1380,43 +2700,86 @@ Auth required (super_admin/admin).
 Auth required (super_admin/admin). Same structure as PO return.
 
 ### GET `/pos/member/:id/point-history`
-Auth required. Query: `page`, `limit`.
+Auth required. **Query:** `page`, `limit`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "type": "earn", "points": 100, "description": "Order #100", "createdAt": "2026-07-11" },
+    { "id": 2, "type": "redeem", "points": -50, "description": "Discount redemption", "createdAt": "2026-07-10" }
+  ],
+  "pagination": { "total": 20, "page": 1, "limit": 10, "totalPages": 2 }
+}
+```
+
+---
 
 ### GET `/pos/dashboard/summary`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "todaySales": 5000000,
+    "todayOrders": 50,
+    "monthSales": 150000000,
+    "activeMembers": 200,
+    "lowStockCount": 5
+  }
+}
+```
+
+---
 
 ### GET `/pos/product/price-by-store`
-Auth required (super_admin/admin). Query: `productId`.
+Auth required (super_admin/admin). **Query:** `productId` (number).
 
 ### PUT `/pos/product/update-price-by-store`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "productId": "number (required)",
-  "storePrices": "array of { storeId, price } (required)"
+  "storePrices": [
+    { "storeId": 1, "price": 25000 },
+    { "storeId": 2, "price": 27000 }
+  ]
 }
 ```
 
 ### POST `/pos/invoice/send-wa`
 Auth required.
+
+**Request:**
 ```json
-{
-  "orderId": "number (required)",
-  "phone": "string (required)"
-}
+{ "orderId": "number (required)", "phone": "string (required)" }
 ```
 
 ### POST `/pos/invoice/send-email`
 Auth required.
+
+**Request:**
 ```json
-{
-  "orderId": "number (required)",
-  "email": "string (required, valid email)"
-}
+{ "orderId": "number (required)", "email": "string (required, valid email)" }
 ```
 
 ### GET `/pos/whatsapp/status`
 Auth required.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "connected": true, "number": "6281234567890" }
+}
+```
+
+---
 
 ### POST `/pos/whatsapp/logout`
 Auth required (super_admin/admin).
@@ -1426,6 +2789,8 @@ Auth required (super_admin/admin).
 
 ### POST `/pos/product/add-batch`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "productId": "number (required)",
@@ -1437,23 +2802,63 @@ Auth required (super_admin/admin).
 ```
 
 ### GET `/pos/product/batches`
-Auth required. Query: `productId`, `store`.
+Auth required. **Query:** `productId`, `store`.
 
 ---
 
 ## Accounts Receivable
 
 ### GET `/accounts-receivable/list`
-Auth required. Query: `page`, `limit`, `status`, `store`.
+Auth required. **Query:** `page`, `limit`, `status` (pending|partial|paid), `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "orderId": 100,
+      "customerName": "PT Maju",
+      "totalAmount": 5000000,
+      "paidAmount": 2000000,
+      "remainingAmount": 3000000,
+      "dueDate": "2026-07-31",
+      "status": "partial"
+    }
+  ],
+  "pagination": { "total": 10, "page": 1, "limit": 10, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/accounts-receivable/aging`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "current": 10000000,
+    "days1To30": 5000000,
+    "days31To60": 2000000,
+    "days61To90": 1000000,
+    "over90": 500000
+  }
+}
+```
+
+---
 
 ### GET `/accounts-receivable/:id`
 Auth required.
 
 ### POST `/accounts-receivable/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "orderId": "number (required)",
@@ -1467,12 +2872,10 @@ Auth required (super_admin/admin).
 
 ### POST `/accounts-receivable/:id/pay`
 Auth required.
+
+**Request:**
 ```json
-{
-  "amount": "number (required)",
-  "paymentMethod": "string (optional)",
-  "notes": "string (optional)"
-}
+{ "amount": "number (required)", "paymentMethod": "string (optional)", "notes": "string (optional)" }
 ```
 
 ### PUT `/accounts-receivable/:id`
@@ -1486,13 +2889,28 @@ Auth required (super_admin/admin).
 ## Tax Config
 
 ### GET `/tax-config/`
-Auth required. Query: `page`, `limit`, `search`.
+Auth required. **Query:** `page`, `limit`, `search`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "PPN 11%", "rate": 11, "type": "ppn", "status": "active" }
+  ],
+  "pagination": { "total": 5, "page": 1, "limit": 10, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/tax-config/get-tax-config/:id`
 Auth required.
 
 ### POST `/tax-config/add-new-tax-config`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -1514,49 +2932,88 @@ Auth required (super_admin/admin).
 Auth required. Import uses multipart/form-data.
 
 ### POST `/tax-config/seed`
-Auth required. Seeds default PPh 2026.
+Auth required. Seeds default PPh 2026 tax configuration.
 
 ---
 
 ## Invoice
 
 ### GET `/invoice/setting`
-Auth required. Query: `store`.
+Auth required. **Query:** `store` (number).
 
-### PUT `/invoice/setting`
-Auth required (super_admin/admin). Content-Type: `multipart/form-data`.
+**Response:**
 ```json
 {
-  "store": "number (required)",
-  "showStoreName": "boolean (optional)",
-  "showAddress": "boolean (optional)",
-  "showMemberInfo": "boolean (optional)",
-  "showLogo": "boolean (optional)",
-  "showSocialMedia": "boolean (optional)",
-  "socialMediaVisibility": "JSON object (optional)",
-  "removeLogo": "boolean (optional)",
-  "logo": "file (optional)"
+  "success": true,
+  "data": {
+    "store": 1,
+    "showStoreName": true,
+    "showAddress": true,
+    "showMemberInfo": true,
+    "showLogo": true,
+    "showSocialMedia": true,
+    "socialMediaVisibility": { "instagram": true, "facebook": true },
+    "logo": "https://..."
+  }
 }
 ```
 
+---
+
+### PUT `/invoice/setting`
+Auth required (super_admin/admin). Content-Type: `multipart/form-data`.
+
+**Request:**
+| Field | Type | Required |
+|-------|------|----------|
+| `store` | number | **YES** |
+| `showStoreName` | boolean | No |
+| `showAddress` | boolean | No |
+| `showMemberInfo` | boolean | No |
+| `showLogo` | boolean | No |
+| `showSocialMedia` | boolean | No |
+| `socialMediaVisibility` | JSON object | No |
+| `removeLogo` | boolean | No |
+| `logo` | file | No |
+
 ### POST `/invoice/setting/reset`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Resets to defaults.
 
 ---
 
 ## Notification
 
 ### GET `/notification/`
-Auth required. Query: `page`.
+Auth required. **Query:** `page` (number).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "title": "Low Stock", "message": "Beras stock below minimum", "type": "warning", "isRead": false, "createdAt": "2026-07-11T10:00:00Z" }
+  ],
+  "pagination": { "total": 20, "page": 1, "limit": 20, "totalPages": 1 }
+}
+```
+
+---
 
 ### GET `/notification/unread`
 Auth required.
 
+**Response:**
+```json
+{ "success": true, "data": { "count": 5 } }
+```
+
+---
+
 ### PUT `/notification/:id/read`
-Auth required.
+Auth required. Marks single notification as read.
 
 ### PUT `/notification/read-all`
-Auth required.
+Auth required. Marks all notifications as read.
 
 ---
 
@@ -1565,11 +3022,25 @@ Auth required.
 ### GET `/currency/`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "code": "IDR", "name": "Indonesian Rupiah", "symbol": "Rp", "exchangeRate": 1, "isDefault": true }
+  ]
+}
+```
+
+---
+
 ### GET `/currency/:id`
 Auth required.
 
 ### POST `/currency/`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "code": "string (required, max 10)",
@@ -1587,17 +3058,39 @@ Auth required (super_admin/admin). Same fields, all optional.
 Auth required (super_admin/admin).
 
 ### PUT `/currency/:id/default`
-Auth required (super_admin/admin). Sets this currency as default.
+Auth required (super_admin/admin). Sets this currency as default, unsets others.
 
 ---
 
 ## Audit Log
 
 ### GET `/audit-log/`
-Auth required (super_admin). Query: `page`, `limit`.
+Auth required (super_admin). **Query:** `page`, `limit`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "entity": "product",
+      "entityId": 10,
+      "action": "update",
+      "userId": 1,
+      "userName": "admin",
+      "changes": { "price": { "old": 20000, "new": 25000 } },
+      "createdAt": "2026-07-11T10:30:00Z"
+    }
+  ],
+  "pagination": { "total": 500, "page": 1, "limit": 20, "totalPages": 25 }
+}
+```
+
+---
 
 ### GET `/audit-log/:entity/:entityId`
-Auth required (super_admin).
+Auth required (super_admin). Returns audit trail for specific entity.
 
 ---
 
@@ -1606,8 +3099,22 @@ Auth required (super_admin).
 ### GET `/social-media/get-social-media`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Instagram", "url": "https://instagram.com/mystore", "icon": "instagram", "isActive": true }
+  ]
+}
+```
+
+---
+
 ### POST `/social-media/add-social-media`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "name": "string (required)",
@@ -1628,16 +3135,41 @@ Auth required (super_admin/admin).
 ## Reservation
 
 ### GET `/reservation/`
-Auth required. Query: `page`, `limit`, `date`, `status`, `store`.
+Auth required. **Query:** `page`, `limit`, `date`, `status` (pending|confirmed|completed|cancelled|no_show), `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "customerName": "John",
+      "customerPhone": "08123456789",
+      "reservationDate": "2026-07-12",
+      "startTime": "19:00",
+      "endTime": "21:00",
+      "guestCount": 4,
+      "table": { "id": 1, "tableNumber": "T1" },
+      "status": "confirmed"
+    }
+  ],
+  "pagination": { "total": 15, "page": 1, "limit": 10, "totalPages": 2 }
+}
+```
+
+---
 
 ### GET `/reservation/available-tables/list`
-Auth required. Query: `store`, `date`, `time`, `guestCount`.
+Auth required. **Query:** `store`, `date`, `time`, `guestCount`.
 
 ### GET `/reservation/:id`
 Auth required.
 
 ### POST `/reservation/`
 Auth required.
+
+**Request:**
 ```json
 {
   "store": "number (required)",
@@ -1658,7 +3190,7 @@ Auth required.
 Auth required (super_admin/admin). Same fields, all optional.
 
 ### DELETE `/reservation/:id`
-Auth required (super_admin/admin).
+Auth required (super_admin/admin). Cancels reservation.
 
 ---
 
@@ -1666,17 +3198,27 @@ Auth required (super_admin/admin).
 
 ### POST `/split-bill/create`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
 {
   "orderId": "number (required)",
   "items": [
-    {
-      "idProduct": "number (required)",
-      "qty": "number (required)"
-    }
+    { "idProduct": "number (required)", "qty": "number (required)" }
   ]
 }
 ```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Split bill created",
+  "data": { "id": 1, "orderId": 100, "items": [...], "total": 25000 }
+}
+```
+
+---
 
 ### GET `/split-bill/get-by-order/:orderId`
 Auth required.
@@ -1689,10 +3231,10 @@ Auth required (super_admin/admin).
 
 ### POST `/split-bill/merge`
 Auth required (super_admin/admin).
+
+**Request:**
 ```json
-{
-  "orderId": "number (required)"
-}
+{ "orderId": "number (required)" }
 ```
 
 ---
@@ -1700,7 +3242,7 @@ Auth required (super_admin/admin).
 ## Export
 
 ### GET `/export/master-data`
-Auth required (super_admin/admin). Query: `store`.
+Auth required (super_admin/admin). **Query:** `store` (number). Returns Excel file with all master data.
 
 ---
 
@@ -1709,18 +3251,57 @@ Auth required (super_admin/admin). Query: `store`.
 ### GET `/receipt/order/:orderId`
 Auth required.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "orderNumber": "ORD-20260711-001",
+    "store": { "name": "Store Jakarta", "address": "Jl. Sudirman 123" },
+    "items": [...],
+    "subTotal": 50000,
+    "tax": 5500,
+    "total": 55500,
+    "paymentMethod": "cash",
+    "paymentAmount": 60000,
+    "change": 4500,
+    "createdAt": "2026-07-11T10:30:00Z"
+  }
+}
+```
+
 ---
 
 ## FAQ
 
 ### GET `/faq/faq`
-No auth. Query: `search`, `category`.
+No auth. **Query:** `search` (string), `category` (string).
 
-### POST `/faq/faq/ask`
-No auth.
+**Response:**
 ```json
 {
-  "question": "string (required)"
+  "success": true,
+  "data": [
+    { "id": 1, "question": "How to add product?", "answer": "Go to Product > Add...", "category": "product" }
+  ]
+}
+```
+
+---
+
+### POST `/faq/faq/ask`
+No auth. Ask Gemini AI assistant.
+
+**Request:**
+```json
+{ "question": "string (required)" }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "answer": "AI-generated answer here" }
 }
 ```
 
@@ -1731,8 +3312,13 @@ No auth.
 ### GET `/`
 No auth. Health check.
 
+**Response:**
+```
+POS API is running
+```
+
 ### POST `/print-thermal`
-No auth. ESC/POS thermal print.
+No auth. ESC/POS thermal print via Bluetooth.
 
 ---
 
