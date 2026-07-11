@@ -388,20 +388,25 @@ exports.updateMemberSchema = exports.createMemberSchema.partial()
 
 // ===================== Goods Receipt =====================
 const grItemSchema = z.object({
-  product: strToNum(),
+  product: strToNum().optional().nullable(),
   productName: z.string().optional(),
-  quantity: strToNum(),
-  price: strToNum().optional().default(0),
-  unit: z.string().optional().default('pcs')
+  ingredient: strToNum().optional().nullable(),
+  ingredientName: z.string().optional(),
+  qtyReceived: strToNum().optional().default(0),
+  quantity: strToNum().optional().default(0),
+  conditionNotes: z.string().optional().default(''),
+  unit: z.string().optional().default('pcs'),
+  price: strToNum().optional().default(0)
 })
 
 exports.createGoodsReceiptSchema = z.object({
-  store: strToNum(),
+  store: strToNum().optional().nullable(),
   purchaseOrderId: strToNum().optional().nullable(),
   supplier: strToNum().optional().nullable(),
   items: z.array(grItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
-  receiptDate: z.string().optional()
+  receivedDate: z.string().optional(),
+  status: z.string().optional().default('pending')
 })
 
 exports.updateGoodsReceiptSchema = exports.createGoodsReceiptSchema.partial()
@@ -456,6 +461,7 @@ exports.createDepartmentSchema = z.object({
 exports.createPositionSchema = z.object({
   store: strToNum().optional().nullable(),
   name: z.string().min(1, 'Position name is required'),
+  departmentId: strToNum().optional().nullable(),
   description: z.string().optional().nullable(),
   status: statusEnum
 })
@@ -499,11 +505,15 @@ exports.updateBomSchema = exports.createBomSchema.partial()
 exports.createStockTransferSchema = z.object({
   fromStore: strToNum(),
   toStore: strToNum(),
+  transferredBy: z.string().optional().default(''),
   items: z
     .array(
       z.object({
-        product: strToNum(),
-        quantity: strToNum(),
+        product: strToNum().optional(),
+        productId: strToNum().optional(),
+        quantity: strToNum().optional(),
+        qty: strToNum().optional(),
+        unit: z.string().optional().default('pcs'),
         notes: z.string().optional().default('')
       })
     )
@@ -532,19 +542,20 @@ exports.createCheckoutSchema = z.object({
 
 // ===================== Type Payment =====================
 exports.createTypePaymentSchema = z.object({
-  namePayment: z.string().min(1, 'namePayment is required'),
+  name: z.string().min(1, 'name is required'),
   icon: z.string().optional().default(''),
-  isActive: z.union([z.boolean(), z.string().transform(v => v === 'true' || v === '1')]).optional().default(true),
-  isEditable: z.union([z.boolean(), z.string().transform(v => v === 'true' || v === '1')]).optional().default(true),
-  paymentCategory: z.string().optional().default(''),
-  isShowInCashier: z.union([z.boolean(), z.string().transform(v => v === 'true' || v === '1')]).optional().default(true)
+  type: z.string().optional().default('cash'),
+  status: z.union([z.boolean(), z.string()]).optional().default('active'),
+  store: strToNum().optional().nullable()
 })
 exports.updateTypePaymentSchema = exports.createTypePaymentSchema.partial()
 
 // ===================== Expense Category =====================
 exports.createExpenseCategorySchema = z.object({
   name: z.string().min(1, 'name is required'),
-  description: z.string().optional().default('')
+  description: z.string().optional().default(''),
+  icon: z.string().optional().default(''),
+  status: statusEnum
 })
 exports.updateExpenseCategorySchema = exports.createExpenseCategorySchema.partial()
 
@@ -561,7 +572,10 @@ exports.createMemberTierSchema = z.object({
   minPoints: z.union([z.number(), strToNum()]).optional().default(0),
   maxPoints: z.union([z.number(), strToNum()]).nullable().optional(),
   discountPercent: z.union([z.number(), strToNum()]).optional().default(0),
-  benefits: z.string().optional().default('')
+  pointMultiplier: z.union([z.number(), strToNum()]).optional().default(1),
+  benefits: z.string().optional().default(''),
+  color: z.string().optional().default(''),
+  status: statusEnum
 })
 exports.updateMemberTierSchema = exports.createMemberTierSchema.partial()
 
