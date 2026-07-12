@@ -169,6 +169,7 @@ const expenseController = {
     try {
       const store = getStore(req)
       const {
+        categoryId,
         category,
         description,
         amount,
@@ -179,9 +180,10 @@ const expenseController = {
         status
       } = req.body
       const createdBy = req.user?.id || null
+      const resolvedCategory = categoryId || category
 
       const isDraft = status === 'draft'
-      if (!isDraft && (!category || !amount)) {
+      if (!isDraft && (!resolvedCategory || !amount)) {
         return res.status(400).json({
           success: false,
           message: 'Category and amount are required'
@@ -193,7 +195,7 @@ const expenseController = {
       const expense = await db.expense.create({
         store,
         expenseNumber,
-        category: category || null,
+        category: resolvedCategory || null,
         description,
         amount: amount ? amount : null,
         date: date || new Date(),
