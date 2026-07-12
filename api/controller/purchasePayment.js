@@ -229,7 +229,7 @@ const purchasePaymentController = {
       const { store } = req.cookies
       const userRole = req.user?.roleType
 
-      const poWhere = { status: { [Op.not]: 'cancelled' } }
+      const poWhere = { status: { [Op.notIn]: ['cancelled', 'draft'] } }
       if (store && userRole !== 'super_admin') poWhere.store = store
 
       const purchaseOrders = await db.purchase_order.findAll({

@@ -79,7 +79,7 @@ const purchaseOrderController = {
 
       // ponytail: JS-side aggregation, raw SQL was hard to maintain
       const allPOs = await db.purchase_order.findAll({
-        where: statsWhere,
+        where: { ...statsWhere, status: { [Op.ne]: 'draft' } },
         attributes: ['id', 'finalAmount']
       })
 
