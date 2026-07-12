@@ -268,6 +268,20 @@ const goodsReceiptController = {
                 transaction
               }
             )
+          } else if (item.ingredient && purchaseOrderId) {
+            const poItem = await db.purchase_order_item.findOne({
+              where: {
+                purchaseOrder: purchaseOrderId,
+                ingredient: item.ingredient
+              },
+              transaction
+            })
+            if (poItem) {
+              await poItem.update(
+                { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`) },
+                { transaction }
+              )
+            }
           }
 
           if (item.product) {
