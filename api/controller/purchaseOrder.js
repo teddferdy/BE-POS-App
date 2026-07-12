@@ -444,21 +444,34 @@ const purchaseOrderController = {
 
       let totalAmount = purchaseOrder.totalAmount
       if (items) {
+        // Preserve receivedQuantity from existing items before destroying
+        const existingItems = await db.purchase_order_item.findAll({
+          where: { purchaseOrder: id }
+        })
+        const receivedMap = {}
+        existingItems.forEach((ei) => {
+          const key = ei.ingredient ? `ing-${ei.ingredient}` : ei.product ? `prod-${ei.product}` : `id-${ei.id}`
+          receivedMap[key] = Number(ei.receivedQuantity) || 0
+        })
+
         await db.purchase_order_item.destroy({
           where: { purchaseOrder: id }
         })
 
-        const orderItems = items.map((item) => ({
-          purchaseOrder: id,
-          product: item.product || null,
-          ingredient: item.ingredient || null,
-          ingredientName: item.ingredientName || null,
-          quantity: item.quantity,
-          unit: item.unit || 'pcs',
-          price: item.price,
-          total: item.quantity * item.price,
-          receivedQuantity: 0
-        }))
+        const orderItems = items.map((item) => {
+          const key = item.ingredient ? `ing-${item.ingredient}` : item.product ? `prod-${item.product}` : null
+          return {
+            purchaseOrder: id,
+            product: item.product || null,
+            ingredient: item.ingredient || null,
+            ingredientName: item.ingredientName || null,
+            quantity: item.quantity,
+            unit: item.unit || 'pcs',
+            price: item.price,
+            total: item.quantity * item.price,
+            receivedQuantity: key && receivedMap[key] !== undefined ? receivedMap[key] : 0
+          }
+        })
 
         await db.purchase_order_item.bulkCreate(orderItems)
 
@@ -763,6 +776,7 @@ const purchaseOrderController = {
               const qty = parseInt(grItem.qtyReceived) || 0
               if (qty <= 0) continue
 
+              // Reverse receivedQuantity on PO item
               if (grItem.purchaseOrderItem) {
                 await db.purchase_order_item.update(
                   {
@@ -775,8 +789,21 @@ const purchaseOrderController = {
                     transaction: t
                   }
                 )
+              } else if (grItem.ingredientName) {
+                // Match PO item by ingredient name and reverse receivedQuantity
+                const poItem = await db.purchase_order_item.findOne({
+                  where: { purchaseOrder: id, ingredientName: grItem.ingredientName },
+                  transaction: t
+                })
+                if (poItem) {
+                  await poItem.update(
+                    { receivedQuantity: db.sequelize.literal(`GREATEST(receivedQuantity - ${qty}, 0)`) },
+                    { transaction: t }
+                  )
+                }
               }
 
+              // Reverse product stock
               if (grItem.product) {
                 const product = await db.product.findByPk(grItem.product, {
                   transaction: t
@@ -790,6 +817,35 @@ const purchaseOrderController = {
                   await db.stock_history.create(
                     {
                       product: grItem.product,
+                      store: purchaseOrder.store,
+                      referenceType: 'adjustment',
+                      quantityBefore: qtyBefore,
+                      quantityChange: -qty,
+                      quantityAfter: Math.max(qtyBefore - qty, 0),
+                      unit: grItem.unit || 'pcs',
+                      notes: `PO cancel: ${purchaseOrder.orderNumber}`,
+                      createdBy: req.user?.id || null
+                    },
+                    { transaction: t }
+                  )
+                }
+              }
+
+              // Reverse ingredient stock
+              if (grItem.ingredientName) {
+                const ingredient = await db.ingredient.findOne({
+                  where: { name: grItem.ingredientName, store: purchaseOrder.store },
+                  transaction: t
+                })
+                if (ingredient) {
+                  const qtyBefore = Number(ingredient.stock) || 0
+                  await ingredient.update(
+                    { stock: Math.max(qtyBefore - qty, 0) },
+                    { transaction: t }
+                  )
+                  await db.stock_history.create(
+                    {
+                      ingredientName: ingredient.name,
                       store: purchaseOrder.store,
                       referenceType: 'adjustment',
                       quantityBefore: qtyBefore,

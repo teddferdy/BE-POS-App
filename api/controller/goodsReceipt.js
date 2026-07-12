@@ -243,9 +243,34 @@ const goodsReceiptController = {
           const qty = parseInt(item.qtyReceived) || 0
           if (qty <= 0) continue
 
+          // Over-receive validation
+          let poItem = null
+          if (item.purchaseOrderItem) {
+            poItem = await db.purchase_order_item.findOne({
+              where: { id: item.purchaseOrderItem, purchaseOrder: purchaseOrderId },
+              transaction
+            })
+          } else if (item.ingredient && purchaseOrderId) {
+            poItem = await db.purchase_order_item.findOne({
+              where: { purchaseOrder: purchaseOrderId, ingredient: item.ingredient },
+              transaction
+            })
+          }
+
+          if (poItem) {
+            const remaining = Number(poItem.quantity) - Number(poItem.receivedQuantity)
+            if (qty > remaining) {
+              await transaction.rollback()
+              return res.status(400).json({
+                success: false,
+                message: `Over-receiving not allowed for ${item.ingredientName || poItem.ingredientName || 'item'}: max ${remaining} remaining (ordered ${poItem.quantity}, already received ${poItem.receivedQuantity})`
+              })
+            }
+          }
+
           receiptItems.push({
             goodsReceipt: receipt.id,
-            purchaseOrderItem: item.purchaseOrderItem || null,
+            purchaseOrderItem: item.purchaseOrderItem || poItem?.id || null,
             product: item.product || null,
             qtyReceived: qty,
             unit: item.unit || 'pcs',
@@ -253,35 +278,11 @@ const goodsReceiptController = {
             ingredientName: item.ingredientName || null
           })
 
-          if (item.purchaseOrderItem) {
-            await db.purchase_order_item.update(
-              {
-                receivedQuantity: db.sequelize.literal(
-                  `receivedQuantity + ${qty}`
-                )
-              },
-              {
-                where: {
-                  id: item.purchaseOrderItem,
-                  purchaseOrder: purchaseOrderId
-                },
-                transaction
-              }
+          if (poItem) {
+            await poItem.update(
+              { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`) },
+              { transaction }
             )
-          } else if (item.ingredient && purchaseOrderId) {
-            const poItem = await db.purchase_order_item.findOne({
-              where: {
-                purchaseOrder: purchaseOrderId,
-                ingredient: item.ingredient
-              },
-              transaction
-            })
-            if (poItem) {
-              await poItem.update(
-                { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`) },
-                { transaction }
-              )
-            }
           }
 
           if (item.product) {

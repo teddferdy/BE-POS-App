@@ -60,14 +60,61 @@ exports.addNewTransaction = async (id, order) => {
         transaction: t
       })
       if (prod) {
-        const oldStock = Number(prod.stock) || 0
-        const newStock = oldStock - Number(order[index].count)
-        if (newStock < 0) {
-          throw new Error(
-            `Stok tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldStock}, dibutuhkan ${order[index].count}`
-          )
+        // Check BOM — if exists, deduct ingredient stock instead of product stock
+        const bom = await db.bom_header.findOne({
+          where: { productId: order[index].idProduct, status: 'active' },
+          include: [{ model: db.bom_line, as: 'lines' }],
+          transaction: t
+        })
+
+        if (bom) {
+          for (const line of bom.lines) {
+            const ing = await db.ingredient.findByPk(line.ingredientId, { transaction: t })
+            if (!ing) continue
+            const deductQty = line.qty * Number(order[index].count)
+            const oldIngStock = Number(ing.stock) || 0
+            if (oldIngStock < deductQty) {
+              throw new Error(
+                `Stok bahan "${ing.name}" tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldIngStock}, dibutuhkan ${deductQty}`
+              )
+            }
+            const newIngStock = Math.max(0, oldIngStock - deductQty)
+            await ing.update({ stock: newIngStock }, { transaction: t })
+            await db.stock_history.create({
+              ingredientName: ing.name,
+              store: order[index].store,
+              referenceType: 'sale',
+              referenceId: id,
+              quantityBefore: oldIngStock,
+              quantityChange: -(oldIngStock - newIngStock),
+              quantityAfter: newIngStock,
+              unit: line.unit || ing.unit || 'pcs',
+              notes: `Penjualan: ${prod.nameProduct || 'produk'}`,
+              createdBy: order[index].createdBy || null
+            }, { transaction: t })
+          }
+        } else {
+          const oldStock = Number(prod.stock) || 0
+          const newStock = oldStock - Number(order[index].count)
+          if (newStock < 0) {
+            throw new Error(
+              `Stok tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldStock}, dibutuhkan ${order[index].count}`
+            )
+          }
+          await prod.update({ stock: newStock }, { transaction: t })
+          await db.stock_history.create({
+            product: order[index].idProduct,
+            store: order[index].store,
+            referenceType: 'sale',
+            referenceId: id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(order[index].count),
+            quantityAfter: newStock,
+            unit: prod.unit || 'pcs',
+            notes: `Penjualan: ${prod.nameProduct || 'produk'}`,
+            createdBy: order[index].createdBy || null
+          }, { transaction: t })
         }
-        await prod.update({ stock: newStock }, { transaction: t })
       }
     }
     await t.commit()
