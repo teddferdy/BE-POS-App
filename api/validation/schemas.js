@@ -98,7 +98,7 @@ exports.createProductSchema = z.object({
   tipeProduk: z.string().optional().default('menu'),
   composition: jsonField().optional().default([]),
   redeemPoints: strToNum().optional().default(0),
-  createdBy: z.string().optional(),
+  createdBy: z.union([z.number(), strToNum()]).optional().nullable(),
   image: z.string().optional().nullable()
 })
 
@@ -305,7 +305,7 @@ exports.createPurchaseOrderSchema = z.object({
   notes: z.string().optional().default(''),
   discount: strToNum().optional().default(0),
   pic: strToNum().optional().nullable(),
-  createdBy: z.string().optional(),
+  createdBy: z.union([z.number(), strToNum()]).optional().nullable(),
   status: z.enum(['draft', 'pending', 'ordered', 'received', 'cancelled']).optional().default('draft'),
   orderDate: z.string().optional(),
   dueDate: z.string().optional().nullable()
