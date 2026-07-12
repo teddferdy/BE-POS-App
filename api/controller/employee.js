@@ -11,6 +11,7 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const parseAccessMenu = (menu) => {
   if (Array.isArray(menu)) return menu
@@ -264,6 +265,12 @@ exports.getAllEmployee = async (req, res) => {
 
     const totalPages = Math.ceil(total / limit)
 
+    await enrichAuditFields(db, employees)
+    employees.forEach(e => {
+      if (e.createdByUser) e.createdBy = e.createdByUser.fullName
+      if (e.modifiedByUser) e.modifiedBy = e.modifiedByUser.fullName
+    })
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -311,6 +318,10 @@ exports.getEmployeeById = async (req, res) => {
       })
     }
 
+    await enrichAuditFields(db, [employee])
+    if (employee.createdByUser) employee.createdBy = employee.createdByUser.fullName
+    if (employee.modifiedByUser) employee.modifiedBy = employee.modifiedByUser.fullName
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -345,6 +356,10 @@ exports.getEmployeeByEmployeeID = async (req, res) => {
         message: 'Karyawan tidak ditemukan'
       })
     }
+
+    await enrichAuditFields(db, [employee])
+    if (employee.createdByUser) employee.createdBy = employee.createdByUser.fullName
+    if (employee.modifiedByUser) employee.modifiedBy = employee.modifiedByUser.fullName
 
     return res.status(200).json({
       success: true,
