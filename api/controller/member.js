@@ -236,6 +236,13 @@ exports.addNewMember = async (req, res) => {
     }
   } catch (error) {
     console.error('Error =>', error)
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      const field = error.errors?.[0]?.path || 'field'
+      return res.status(409).json({
+        success: false,
+        message: `${field} sudah digunakan`
+      })
+    }
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
