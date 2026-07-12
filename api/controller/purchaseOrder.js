@@ -618,6 +618,7 @@ const purchaseOrderController = {
                 await db.stock_history.create(
                   {
                     store,
+                    ingredient: ingredient.id,
                     ingredientName: ingredient.name,
                     referenceType: 'purchase',
                     referenceId: id,
@@ -845,6 +846,7 @@ const purchaseOrderController = {
                   )
                   await db.stock_history.create(
                     {
+                      ingredient: ingredient.id,
                       ingredientName: ingredient.name,
                       store: purchaseOrder.store,
                       referenceType: 'adjustment',

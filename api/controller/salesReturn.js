@@ -208,8 +208,9 @@ const salesReturnController = {
 
           if (!bom) {
             const oldStock = Number(product.stock) || 0
+            const qty = Math.floor(Number(item.qty)) || 0
             await product.update(
-              { stock: Math.floor(Math.max(0, oldStock - item.qty)) },
+              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
               { transaction }
             )
 
@@ -250,11 +251,13 @@ const salesReturnController = {
               if (!ing) continue
               const deductQty = line.qty * Number(item.qty)
               const oldIngStock = Number(ing.stock)
-              const newIngStock = Math.max(0, oldIngStock - deductQty)
-              await ing.update({ stock: newIngStock }, { transaction })
+              const qty = Math.floor(Number(deductQty)) || 0
+              const newIngStock = Math.max(oldIngStock - qty, 0)
+              await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction })
               await db.stock_history.create(
                 {
                   product: product.id,
+                  ingredient: ing.id,
                   ingredientName: ing.name,
                   store: ret.store,
                   referenceType: 'sale_return_reversal',

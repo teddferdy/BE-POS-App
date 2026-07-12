@@ -372,6 +372,7 @@ const purchaseReturnController = {
 
             await db.stock_history.create(
               {
+                ingredient: ingredient.id,
                 ingredientName: ingredient.name,
                 store: ret.store,
                 referenceType: 'adjustment',
@@ -619,8 +620,9 @@ const purchaseReturnController = {
             const product = await db.product.findByPk(item.productId, { transaction: t })
             if (product) {
               const oldStock = Number(product.stock) || 0
-              const newStock = Math.floor(Math.max(0, oldStock - item.qty))
-              await product.update({ stock: newStock }, { transaction: t })
+              const qty = Math.floor(Number(item.qty)) || 0
+              const newStock = Math.max(oldStock - qty, 0)
+              await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
               await db.stock_history.create({
                 product: item.productId,
                 store,
@@ -638,9 +640,11 @@ const purchaseReturnController = {
             const ingredient = await db.ingredient.findByPk(item.ingredient, { transaction: t })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
-              const newStock = Math.floor(Math.max(0, oldStock - item.qty))
-              await ingredient.update({ stock: newStock }, { transaction: t })
+              const qty = Math.floor(Number(item.qty)) || 0
+              const newStock = Math.max(oldStock - qty, 0)
+              await ingredient.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
               await db.stock_history.create({
+                ingredient: ingredient.id,
                 ingredientName: ingredient.name,
                 store,
                 referenceType: 'purchase_return',

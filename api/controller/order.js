@@ -471,8 +471,9 @@ exports.createOrder = async (req, res) => {
 
       if (!bom) {
         const oldStock = Number(product.stock) || 0
-        const newStock = oldStock - Number(item.quantity)
-        await product.update({ stock: newStock >= 0 ? newStock : 0 })
+        const qty = Math.floor(Number(item.quantity)) || 0
+        const newStock = Math.max(oldStock - qty, 0)
+        await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) })
 
         let pss = await db.product_store_stock.findOne({
           where: { product: product.id, store }
@@ -520,10 +521,11 @@ exports.createOrder = async (req, res) => {
           if (!ing) continue
           const deductQty = line.qty * Number(item.quantity)
           const oldIngStock = Number(ing.stock)
-          const newIngStock = Math.max(0, oldIngStock - deductQty)
-          await ing.update({ stock: newIngStock })
+          const qty = Math.floor(Number(deductQty)) || 0
+          const newIngStock = Math.max(oldIngStock - qty, 0)
+          await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) })
           await db.stock_history.create({
-            product: product.id, ingredientName: ing.name, store,
+            product: product.id, ingredient: ing.id, ingredientName: ing.name, store,
             referenceType: 'sale', referenceId: order.id,
             quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
             quantityAfter: newIngStock, unit: line.unit || ing.unit,
@@ -811,8 +813,9 @@ exports.updateOrderStatus = async (req, res) => {
 
         if (!bom) {
           const oldStock = Number(product.stock) || 0
-          const newStock = Math.max(0, oldStock - Number(item.quantity))
-          await product.update({ stock: newStock })
+          const qty = Math.floor(Number(item.quantity)) || 0
+          const newStock = Math.max(oldStock - qty, 0)
+          await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) })
 
           await db.stock_history.create({
             product: product.id, store,
@@ -845,10 +848,11 @@ exports.updateOrderStatus = async (req, res) => {
             if (!ing) continue
             const deductQty = line.qty * Number(item.quantity)
             const oldIngStock = Number(ing.stock)
-            const newIngStock = Math.max(0, oldIngStock - deductQty)
-            await ing.update({ stock: newIngStock })
+            const qty = Math.floor(Number(deductQty)) || 0
+            const newIngStock = Math.max(oldIngStock - qty, 0)
+            await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) })
             await db.stock_history.create({
-              product: product.id, ingredientName: ing.name, store,
+              product: product.id, ingredient: ing.id, ingredientName: ing.name, store,
               referenceType: 'sale', referenceId: order.id,
               quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
               quantityAfter: newIngStock, unit: line.unit || ing.unit,
@@ -874,8 +878,9 @@ exports.updateOrderStatus = async (req, res) => {
 
         if (!bom) {
           const oldStock = Number(product.stock) || 0
-          const newStock = oldStock + Number(item.quantity)
-          await product.update({ stock: newStock })
+          const qty = Math.floor(Number(item.quantity)) || 0
+          const newStock = oldStock + qty
+          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) })
 
           await db.stock_history.create({
             product: product.id, store,
@@ -903,9 +908,10 @@ exports.updateOrderStatus = async (req, res) => {
             if (!ing) continue
             const restoreQty = line.qty * Number(item.quantity)
             const oldIngStock = Number(ing.stock)
-            await ing.update({ stock: oldIngStock + restoreQty })
+            const qty = Math.floor(Number(restoreQty)) || 0
+            await ing.update({ stock: db.sequelize.literal(`stock + ${qty}`) })
             await db.stock_history.create({
-              product: product.id, ingredientName: ing.name, store,
+              product: product.id, ingredient: ing.id, ingredientName: ing.name, store,
               referenceType: 'sale_reversal', referenceId: order.id,
               quantityBefore: oldIngStock, quantityChange: restoreQty,
               quantityAfter: oldIngStock + restoreQty, unit: line.unit || ing.unit,

@@ -78,9 +78,11 @@ exports.addNewTransaction = async (id, order) => {
                 `Stok bahan "${ing.name}" tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldIngStock}, dibutuhkan ${deductQty}`
               )
             }
-            const newIngStock = Math.max(0, oldIngStock - deductQty)
-            await ing.update({ stock: newIngStock }, { transaction: t })
+            const qty = Math.floor(Number(deductQty)) || 0
+            const newIngStock = Math.max(oldIngStock - qty, 0)
+            await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
             await db.stock_history.create({
+              ingredient: ing.id,
               ingredientName: ing.name,
               store: order[index].store,
               referenceType: 'sale',
@@ -95,13 +97,14 @@ exports.addNewTransaction = async (id, order) => {
           }
         } else {
           const oldStock = Number(prod.stock) || 0
-          const newStock = oldStock - Number(order[index].count)
+          const qty = Math.floor(Number(order[index].count)) || 0
+          const newStock = oldStock - qty
           if (newStock < 0) {
             throw new Error(
               `Stok tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldStock}, dibutuhkan ${order[index].count}`
             )
           }
-          await prod.update({ stock: newStock }, { transaction: t })
+          await prod.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
           await db.stock_history.create({
             product: order[index].idProduct,
             store: order[index].store,

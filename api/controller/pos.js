@@ -144,8 +144,9 @@ const posController = {
           await pss.update({ stock: newPssStock }, { transaction: t })
 
           const oldStock = Number(product.stock) || 0
-          const newStock = oldStock - Number(item.qty)
-          await product.update({ stock: newStock }, { transaction: t })
+          const qty = Math.floor(Number(item.qty)) || 0
+          const newStock = oldStock - qty
+          await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
 
           await db.stock_history.create(
             {
@@ -237,8 +238,9 @@ const posController = {
           await pss.update({ stock: newPssStock }, { transaction: t })
 
           const oldStock = Number(product.stock) || 0
-          const newStock = oldStock + Number(item.qty)
-          await product.update({ stock: newStock }, { transaction: t })
+          const qty = Math.floor(Number(item.qty)) || 0
+          const newStock = oldStock + qty
+          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction: t })
 
           await db.stock_history.create(
             {
@@ -361,8 +363,9 @@ const posController = {
           await pss.update({ stock: newPssStock }, { transaction: t })
 
           const oldStock = Number(product.stock) || 0
-          const newStock = oldStock + Number(item.qty)
-          await product.update({ stock: newStock }, { transaction: t })
+          const qty = Math.floor(Number(item.qty)) || 0
+          const newStock = oldStock + qty
+          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction: t })
 
           await db.stock_history.create(
             {
@@ -587,7 +590,7 @@ const posController = {
       }
 
       const result = await db.sequelize.transaction(async (t) => {
-        await product.update({ stock: newStock }, { transaction: t })
+        await product.update({ stock: db.sequelize.literal(`GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`) }, { transaction: t })
 
         // Update per-store stock
         const adjStore = storeId || store
@@ -760,6 +763,7 @@ const posController = {
               await db.stock_history.create(
                 {
                   product: product.id,
+                  ingredient: ing.id,
                   ingredientName: ing.name,
                   store,
                   referenceType: 'sale_return',
@@ -1366,7 +1370,7 @@ const posController = {
       const newStock = oldStock + Number(qty)
 
       const result = await db.sequelize.transaction(async (t) => {
-        await product.update({ stock: newStock }, { transaction: t })
+        await product.update({ stock: db.sequelize.literal(`stock + ${Math.floor(Number(qty)) || 0}`) }, { transaction: t })
 
         await db.product_batch.create(
           {

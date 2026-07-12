@@ -356,16 +356,23 @@ const stockOpnameController = {
             await item.update({ product: product.id }, { transaction: t })
           }
 
-          if (item.ingredientName) {
+if (item.ingredientName) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+              where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: effectiveStore },
+              transaction: t
+            })
+          }
+
+          if (!ingredient && item.namaBarang) {
+            ingredient = await db.ingredient.findOne({
+              where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: effectiveStore },
               transaction: t
             })
           }
 
           if (!ingredient && !product && item.namaBarang) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+              where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: effectiveStore },
               transaction: t
             })
           }
@@ -413,6 +420,7 @@ const stockOpnameController = {
             await ingredient.update({ stock: newStock }, { transaction: t })
             await db.stock_history.create(
               {
+                ingredient: ingredient.id,
                 ingredientName: ingredient.name,
                 store: opname.store,
                 referenceType: 'opname',
@@ -448,14 +456,14 @@ const stockOpnameController = {
             item.ingredientName
           ) {
             const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+              where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: effectiveStore },
               transaction: t
             })
             if (ing) minStock = Number(ing.minStock) || Infinity
           }
           if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
             const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+              where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: effectiveStore },
               transaction: t
             })
             if (ing) minStock = Number(ing.minStock) || Infinity
@@ -745,14 +753,14 @@ const stockOpnameController = {
 
             if (item.ingredientName) {
               ingredient = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+                where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: opname.store },
                 transaction: t
               })
             }
 
             if (!ingredient && !product && item.namaBarang) {
               ingredient = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+                where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: opname.store },
                 transaction: t
               })
             }
@@ -800,6 +808,7 @@ const stockOpnameController = {
               await ingredient.update({ stock: newStock }, { transaction: t })
               await db.stock_history.create(
                 {
+                  ingredient: ingredient.id,
                   ingredientName: ingredient.name,
                   store: opname.store,
                   referenceType: 'opname',
@@ -835,14 +844,14 @@ const stockOpnameController = {
               item.ingredientName
             ) {
               const ing = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+                where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: opname.store },
                 transaction: t
               })
               if (ing) minStock = Number(ing.minStock) || Infinity
             }
             if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
               const ing = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.namaBarang.trim() } },
+                where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: opname.store },
                 transaction: t
               })
               if (ing) minStock = Number(ing.minStock) || Infinity

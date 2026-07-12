@@ -377,6 +377,7 @@ const productionOrderController = {
               await db.stock_history.create(
                 {
                   product: order.productItemId,
+                  ingredient: ing.id,
                   ingredientName: ing.name,
                   store: order.store,
                   referenceType: 'production_reversal',
@@ -508,12 +509,12 @@ const productionOrderController = {
 
           if (!productComp && ingredientName) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: ingredientName.trim() } },
+              where: { name: { [Op.iLike]: ingredientName.trim() }, store: effectiveStore },
               transaction
             })
             if (!ingredient) {
               productComp = await db.product.findOne({
-                where: { nameProduct: { [Op.iLike]: ingredientName.trim() } },
+                where: { nameProduct: { [Op.iLike]: ingredientName.trim() }, store: effectiveStore },
                 transaction
               })
             }
@@ -532,6 +533,7 @@ const productionOrderController = {
             )
             await db.stock_history.create(
               {
+                ingredient: ingredient.id,
                 ingredientName: ingredient.name,
                 store: effectiveStore,
                 referenceType: 'production',
@@ -645,7 +647,7 @@ const productionOrderController = {
 
       try {
         const qtyBefore = Number(product.stock) || 0
-        await product.update({ stock: qtyBefore + finalQty }, { transaction })
+        await product.update({ stock: db.sequelize.literal(`stock + ${Math.floor(Number(finalQty)) || 0}`) }, { transaction })
 
         await db.stock_history.create(
           {

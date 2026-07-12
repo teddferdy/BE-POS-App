@@ -15,6 +15,9 @@ module.exports = (sequelize, DataTypes) => {
       product: {
         type: DataTypes.INTEGER
       },
+      ingredient: {
+        type: DataTypes.INTEGER
+      },
       ingredientName: {
         type: DataTypes.STRING
       },
@@ -72,6 +75,10 @@ module.exports = (sequelize, DataTypes) => {
     stock_history.belongsTo(models.product, {
       foreignKey: 'product',
       as: 'productData'
+    })
+    stock_history.belongsTo(models.ingredient, {
+      foreignKey: 'ingredient',
+      as: 'ingredientData'
     })
   }
 

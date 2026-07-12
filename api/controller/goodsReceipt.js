@@ -291,7 +291,7 @@ const goodsReceiptController = {
             })
             if (product) {
               const qtyBefore = Number(product.stock) || 0
-              await product.update({ stock: qtyBefore + qty }, { transaction })
+              await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
 
               await db.stock_history.create(
                 {
@@ -312,19 +312,20 @@ const goodsReceiptController = {
 
           if (item.ingredientName) {
             const ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() } },
+              where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: effectiveStore },
               transaction
             })
 
             if (ingredient) {
               const qtyBefore = Number(ingredient.stock) || 0
               await ingredient.update(
-                { stock: qtyBefore + qty },
+                { stock: db.sequelize.literal(`stock + ${qty}`) },
                 { transaction }
               )
 
               await db.stock_history.create(
                 {
+                  ingredient: ingredient.id,
                   ingredientName: ingredient.name,
                   store: effectiveStore,
                   referenceType: 'purchase',
@@ -486,7 +487,7 @@ const goodsReceiptController = {
         grItem.poItemData?.ingredientData?.name
       if (ingName) {
         const ingredient = await db.ingredient.findOne({
-          where: { name: { [Op.iLike]: ingName.trim() } },
+          where: { name: { [Op.iLike]: ingName.trim() }, store: grItem.store || receipt.store },
           transaction
         })
         if (ingredient) {
@@ -497,6 +498,7 @@ const goodsReceiptController = {
           )
           await db.stock_history.create(
             {
+              ingredient: ingredient.id,
               ingredientName: ingredient.name,
               store: grItem.store || null,
               referenceType: 'adjustment',
@@ -538,7 +540,7 @@ const goodsReceiptController = {
         const product = await db.product.findByPk(item.product, { transaction })
         if (product) {
           const qtyBefore = Number(product.stock) || 0
-          await product.update({ stock: qtyBefore + qty }, { transaction })
+          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
           await db.stock_history.create(
             {
               product: item.product,
@@ -562,14 +564,15 @@ const goodsReceiptController = {
         item.poItemData?.ingredientData?.name
       if (ingName) {
         const ingredient = await db.ingredient.findOne({
-          where: { name: { [Op.iLike]: ingName.trim() } },
+          where: { name: { [Op.iLike]: ingName.trim() }, store: receipt.store },
           transaction
         })
         if (ingredient) {
           const qtyBefore = Number(ingredient.stock) || 0
-          await ingredient.update({ stock: qtyBefore + qty }, { transaction })
+          await ingredient.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
           await db.stock_history.create(
             {
+              ingredient: ingredient.id,
               ingredientName: ingredient.name,
               store: receipt.store,
               referenceType: 'purchase',
