@@ -520,10 +520,10 @@ const purchaseReturnController = {
         })
       }
 
-      if (po.status !== 'received') {
+      if (po.status !== 'received' && po.status !== 'ordered') {
         return res.status(400).json({
           success: false,
-          message: 'Only received purchase orders can be returned'
+          message: 'Only received or ordered purchase orders can be returned'
         })
       }
 
