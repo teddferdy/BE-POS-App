@@ -664,6 +664,58 @@ const posController = {
 
       const store = req.cookies.store || req.body.store || po.store
 
+      // Fetch PO items to validate return qty against receivedQty
+      const poItems = await db.purchase_order_item.findAll({
+        where: { purchaseOrder: id }
+      })
+
+      // Fetch existing return items to compute already-returned qty
+      const existingReturns = await db.purchase_return.findAll({
+        where: { purchaseOrder: id },
+        include: [{ model: db.purchase_return_item, as: 'items' }]
+      })
+
+      const poItemMap = {}
+      poItems.forEach((pi) => {
+        const key = pi.ingredient ? `ing-${pi.ingredient}` : pi.product ? `prod-${pi.product}` : null
+        if (key) {
+          poItemMap[key] = {
+            receivedQty: Number(pi.receivedQuantity) || 0,
+            alreadyReturned: 0
+          }
+        }
+      })
+
+      existingReturns.forEach((ret) => {
+        ;(ret.items || []).forEach((ri) => {
+          const key = ri.ingredient ? `ing-${ri.ingredient}` : ri.product ? `prod-${ri.product}` : null
+          if (key && poItemMap[key]) {
+            poItemMap[key].alreadyReturned += Number(ri.qty) || 0
+          }
+        })
+      })
+
+      // Validate each return item
+      const errors = []
+      for (const item of items) {
+        const key = item.ingredient ? `ing-${item.ingredient}` : item.productId ? `prod-${item.productId}` : null
+        if (key && poItemMap[key]) {
+          const info = poItemMap[key]
+          const available = info.receivedQty - info.alreadyReturned
+          if (Number(item.qty) > available) {
+            const name = item.ingredient ? `ingredient #${item.ingredient}` : `product #${item.productId}`
+            errors.push(`${name}: max ${available} (received ${info.receivedQty}, already returned ${info.alreadyReturned})`)
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Return quantity exceeds available: ${errors.join('; ')}`
+        })
+      }
+
       const result = await db.sequelize.transaction(async (t) => {
         const returnOrder = await db.purchase_return.create(
           {
