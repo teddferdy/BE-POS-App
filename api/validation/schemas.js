@@ -588,10 +588,12 @@ exports.updateRoleSchema = exports.createRoleSchema.partial()
 
 // ===================== Purchase Payment =====================
 exports.createPurchasePaymentSchema = z.object({
-  purchaseOrderId: z.union([z.number(), strToNum()]),
+  purchaseOrder: z.union([z.number(), strToNum()]),
+  supplier: z.union([z.number(), strToNum()]).optional(),
+  amount: z.union([z.number(), strToNum()]),
   paymentMethod: z.string().min(1),
-  paymentAmount: z.union([z.number(), strToNum()]),
   paymentDate: z.string().optional(),
+  reference: z.string().optional().default(''),
   notes: z.string().optional().default('')
 })
 exports.updatePurchasePaymentSchema = exports.createPurchasePaymentSchema.partial()
