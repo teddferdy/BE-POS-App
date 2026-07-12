@@ -193,7 +193,7 @@ const expenseController = {
       const expenseNumber = generateExpenseNumber()
 
       const expense = await db.expense.create({
-        store,
+        store: store || null,
         expenseNumber,
         category: resolvedCategory || null,
         description,
