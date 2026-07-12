@@ -209,7 +209,7 @@ const salesReturnController = {
           if (!bom) {
             const oldStock = Number(product.stock) || 0
             await product.update(
-              { stock: Math.max(0, oldStock - item.qty) },
+              { stock: Math.floor(Math.max(0, oldStock - item.qty)) },
               { transaction }
             )
 
@@ -235,7 +235,7 @@ const salesReturnController = {
                 referenceType: 'sale_return_reversal',
                 quantityBefore: oldStock,
                 quantityChange: -item.qty,
-                quantityAfter: Math.max(0, oldStock - item.qty),
+                quantityAfter: Math.floor(Math.max(0, oldStock - item.qty)),
                 unit: item.unit || 'pcs',
                 notes: `Sales return rejected: ${ret.reason}`,
                 createdBy: req.user?.id || null

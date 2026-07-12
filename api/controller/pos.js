@@ -699,7 +699,7 @@ const posController = {
             })
             if (product) {
               const oldStock = Number(product.stock) || 0
-              const newStock = Math.max(0, oldStock - item.qty)
+              const newStock = Math.floor(Math.max(0, oldStock - item.qty))
               await product.update(
                 { stock: newStock },
                 { transaction: t }
@@ -728,7 +728,7 @@ const posController = {
             })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
-              const newStock = Math.max(0, oldStock - item.qty)
+              const newStock = Math.floor(Math.max(0, oldStock - item.qty))
               await ingredient.update(
                 { stock: newStock },
                 { transaction: t }
