@@ -359,12 +359,12 @@ exports.updateTaxConfigSchema = exports.createTaxConfigSchema.partial()
 // ===================== Expense =====================
 exports.createExpenseSchema = z.object({
   store: strToNum().optional().nullable(),
-  categoryId: strToNum(),
-  amount: strToNum(),
+  categoryId: strToNum().optional().nullable(),
+  amount: strToNum().optional().nullable(),
   description: z.string().optional().nullable(),
   date: z.string().optional(),
   notes: z.string().optional().default(''),
-  status: z.enum(['pending', 'approved', 'rejected']).optional().default('pending')
+  status: z.enum(['draft', 'pending', 'approved', 'rejected']).optional().default('pending')
 })
 
 exports.updateExpenseSchema = exports.createExpenseSchema.partial()
