@@ -2,8 +2,11 @@ const { z } = require('zod')
 
 // --- Helpers ---
 const strToNum = () =>
-  z.any()
-    .refine((v) => v !== '' && v !== null && v !== undefined, { message: 'required' })
+  z
+    .any()
+    .refine((v) => v !== '' && v !== null && v !== undefined, {
+      message: 'required'
+    })
     .transform((v) => Number(v))
     .refine((v) => !isNaN(v), { message: 'must be a number' })
 
@@ -42,26 +45,28 @@ exports.loginSchema = z.object({
   password: z.string().min(1, 'Password is required')
 })
 
-exports.registerSchema = z.object({
-  userName: z.string().min(1, 'Username is required'),
-  password: z.string().min(6, 'Password min 6 characters'),
-  confirmPassword: z.string().min(1, 'Confirm password is required'),
-  email: z.string().email('Invalid email').optional().or(z.literal('')),
-  userType: z.enum(['admin', 'user']).default('user'),
-  fullName: z.string().optional().default(''),
-  phoneNumber: z.string().optional().default(''),
-  gender: z.string().optional().default(''),
-  address: z.string().optional().default(''),
-  dateOfBirth: z.string().optional().nullable(),
-  placeOfBirth: z.string().optional().default(''),
-  store: strToNum().optional().nullable(),
-  shift: strToNum().optional().default(0),
-  position: strToNum().optional().default(0),
-  accessMenu: jsonField().optional().nullable()
-}).refine((d) => d.password === d.confirmPassword, {
-  message: 'Password and confirm password do not match',
-  path: ['confirmPassword']
-})
+exports.registerSchema = z
+  .object({
+    userName: z.string().min(1, 'Username is required'),
+    password: z.string().min(6, 'Password min 6 characters'),
+    confirmPassword: z.string().min(1, 'Confirm password is required'),
+    email: z.string().email('Invalid email').optional().or(z.literal('')),
+    userType: z.enum(['admin', 'user']).default('user'),
+    fullName: z.string().optional().default(''),
+    phoneNumber: z.string().optional().default(''),
+    gender: z.string().optional().default(''),
+    address: z.string().optional().default(''),
+    dateOfBirth: z.string().optional().nullable(),
+    placeOfBirth: z.string().optional().default(''),
+    store: strToNum().optional().nullable(),
+    shift: strToNum().optional().default(0),
+    position: strToNum().optional().default(0),
+    accessMenu: jsonField().optional().nullable()
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    message: 'Password and confirm password do not match',
+    path: ['confirmPassword']
+  })
 
 exports.resetPasswordSchema = z.object({
   email: z.string().email('Invalid email').optional(),
@@ -119,16 +124,18 @@ exports.createCategorySchema = z.object({
 exports.updateCategorySchema = exports.createCategorySchema.partial()
 
 // ===================== Order =====================
-const orderItemSchema = z.object({
-  product: strToNum(),
-  productId: strToNum().optional(),
-  productName: z.string().optional(),
-  quantity: strToNum(),
-  price: strToNum().optional().default(0),
-  notes: z.string().optional().default(''),
-  modifiers: z.array(z.any()).optional().default([]),
-  variant: z.string().optional()
-}).passthrough()
+const orderItemSchema = z
+  .object({
+    product: strToNum(),
+    productId: strToNum().optional(),
+    productName: z.string().optional(),
+    quantity: strToNum(),
+    price: strToNum().optional().default(0),
+    notes: z.string().optional().default(''),
+    modifiers: z.array(z.any()).optional().default([]),
+    variant: z.string().optional()
+  })
+  .passthrough()
 
 exports.createOrderSchema = z.object({
   store: strToNum(),
@@ -139,7 +146,10 @@ exports.createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1, 'At least one item is required'),
   discountId: strToNum().optional().nullable(),
   promoCode: z.string().optional().nullable(),
-  discountType: z.enum(['none', 'percent', 'nominal']).optional().default('none'),
+  discountType: z
+    .enum(['none', 'percent', 'nominal'])
+    .optional()
+    .default('none'),
   discountValue: strToNum().optional().default(0),
   notes: z.string().optional().default(''),
   source: z.enum(['pos', 'online', 'qr', 'waiter']).optional().default('pos'),
@@ -153,7 +163,9 @@ exports.createOrderSchema = z.object({
   subTotal: strToNum().optional().default(0),
   taxRate: z.string().optional().default('0'),
   serviceChargeRate: z.string().optional().default('0'),
-  paymentMethod: z.enum(['cash', 'qris', 'debit', 'credit', 'other', 'points', 'transfer']).optional(),
+  paymentMethod: z
+    .enum(['cash', 'qris', 'debit', 'credit', 'other', 'points', 'transfer'])
+    .optional(),
   appliedDiscountId: strToNum().optional().nullable(),
   pointDiscountAmount: strToNum().optional().default(0),
   redeemedPoints: strToNum().optional().default(0)
@@ -162,7 +174,16 @@ exports.createOrderSchema = z.object({
 exports.updateOrderStatusSchema = z.object({
   id: strToNum(),
   store: strToNum().optional(),
-  status: z.enum(['pending', 'confirmed', 'preparing', 'ready', 'served', 'paid', 'cancelled', 'void']),
+  status: z.enum([
+    'pending',
+    'confirmed',
+    'preparing',
+    'ready',
+    'served',
+    'paid',
+    'cancelled',
+    'void'
+  ]),
   changedBy: strToNum().optional().nullable(),
   changedByName: z.string().optional().nullable(),
   notes: z.string().optional().default('')
@@ -263,10 +284,13 @@ const userBaseSchema = z.object({
   monthlySalary: z.string().optional().nullable(),
   dailySalary: z.string().optional().nullable()
 })
-exports.createUserSchema = userBaseSchema.refine((d) => d.password === d.confirmPassword, {
-  message: 'Passwords do not match',
-  path: ['confirmPassword']
-})
+exports.createUserSchema = userBaseSchema.refine(
+  (d) => d.password === d.confirmPassword,
+  {
+    message: 'Passwords do not match',
+    path: ['confirmPassword']
+  }
+)
 exports.updateUserSchema = userBaseSchema.partial()
 
 // ===================== Discount =====================
@@ -306,7 +330,10 @@ exports.createPurchaseOrderSchema = z.object({
   discount: strToNum().optional().default(0),
   pic: strToNum().optional().nullable(),
   createdBy: z.union([z.number(), strToNum()]).optional().nullable(),
-  status: z.enum(['draft', 'pending', 'ordered', 'received', 'cancelled']).optional().default('draft'),
+  status: z
+    .enum(['draft', 'pending', 'ordered', 'received', 'cancelled'])
+    .optional()
+    .default('draft'),
   orderDate: z.string().optional(),
   dueDate: z.string().optional().nullable()
 })
@@ -325,7 +352,10 @@ exports.createReservationSchema = z.object({
   guestCount: strToNum().optional().default(1),
   tableId: strToNum().optional().nullable(),
   notes: z.string().optional().default(''),
-  status: z.enum(['pending', 'confirmed', 'completed', 'cancelled', 'no_show']).optional().default('pending')
+  status: z
+    .enum(['pending', 'confirmed', 'completed', 'cancelled', 'no_show'])
+    .optional()
+    .default('pending')
 })
 
 exports.updateReservationSchema = exports.createReservationSchema.partial()
@@ -335,7 +365,10 @@ exports.createTableSchema = z.object({
   store: strToNum().optional().nullable(),
   name: z.string().min(1, 'Table name is required'),
   capacity: strToNum().optional().default(4),
-  status: z.enum(['available', 'occupied', 'reserved', 'maintenance']).optional().default('available'),
+  status: z
+    .enum(['available', 'occupied', 'reserved', 'maintenance'])
+    .optional()
+    .default('available'),
   description: z.string().optional().nullable()
 })
 
@@ -364,7 +397,10 @@ exports.createExpenseSchema = z.object({
   description: z.string().optional().nullable(),
   date: z.string().optional(),
   notes: z.string().optional().default(''),
-  status: z.enum(['draft', 'pending', 'approved', 'rejected']).optional().default('pending')
+  status: z
+    .enum(['draft', 'pending', 'approved', 'rejected'])
+    .optional()
+    .default('pending')
 })
 
 exports.updateExpenseSchema = exports.createExpenseSchema.partial()
@@ -418,10 +454,14 @@ exports.createProductionOrderSchema = z.object({
   plannedQty: strToNum(),
   scheduledDate: z.string().optional().nullable(),
   notes: z.string().optional().default(''),
-  status: z.enum(['planned', 'in_progress', 'completed', 'cancelled', 'draft']).optional().default('planned')
+  status: z
+    .enum(['planned', 'in_progress', 'completed', 'cancelled', 'draft'])
+    .optional()
+    .default('planned')
 })
 
-exports.updateProductionOrderSchema = exports.createProductionOrderSchema.partial()
+exports.updateProductionOrderSchema =
+  exports.createProductionOrderSchema.partial()
 
 // ===================== Stock Opname =====================
 exports.createStockOpnameSchema = z.object({
@@ -557,14 +597,17 @@ exports.createExpenseCategorySchema = z.object({
   icon: z.string().optional().default(''),
   status: statusEnum
 })
-exports.updateExpenseCategorySchema = exports.createExpenseCategorySchema.partial()
+exports.updateExpenseCategorySchema =
+  exports.createExpenseCategorySchema.partial()
 
 // ===================== Ingredient Category =====================
 exports.createIngredientCategorySchema = z.object({
   name: z.string().min(1, 'name is required'),
-  description: z.string().optional().default('')
+  description: z.string().optional().default(''),
+  status: z.enum(['active', 'inactive', 'draft']).optional().default('active')
 })
-exports.updateIngredientCategorySchema = exports.createIngredientCategorySchema.partial()
+exports.updateIngredientCategorySchema =
+  exports.createIngredientCategorySchema.partial()
 
 // ===================== Member Tier =====================
 exports.createMemberTierSchema = z.object({
@@ -582,7 +625,10 @@ exports.updateMemberTierSchema = exports.createMemberTierSchema.partial()
 // ===================== Role =====================
 exports.createRoleSchema = z.object({
   name: z.string().min(1, 'name is required'),
-  permissions: z.union([z.string(), z.array(z.any()), z.record(z.any())]).optional().default({})
+  permissions: z
+    .union([z.string(), z.array(z.any()), z.record(z.any())])
+    .optional()
+    .default({})
 })
 exports.updateRoleSchema = exports.createRoleSchema.partial()
 
@@ -596,7 +642,8 @@ exports.createPurchasePaymentSchema = z.object({
   reference: z.string().optional().default(''),
   notes: z.string().optional().default('')
 })
-exports.updatePurchasePaymentSchema = exports.createPurchasePaymentSchema.partial()
+exports.updatePurchasePaymentSchema =
+  exports.createPurchasePaymentSchema.partial()
 
 // ===================== Purchase Return =====================
 exports.createPurchaseReturnSchema = z.object({
@@ -604,7 +651,8 @@ exports.createPurchaseReturnSchema = z.object({
   items: z.array(z.record(z.any())).min(1, 'At least one item is required'),
   notes: z.string().optional().default('')
 })
-exports.updatePurchaseReturnSchema = exports.createPurchaseReturnSchema.partial()
+exports.updatePurchaseReturnSchema =
+  exports.createPurchaseReturnSchema.partial()
 
 // ===================== Split Bill =====================
 exports.createSplitBillSchema = z.object({
@@ -625,7 +673,13 @@ exports.createCurrencySchema = z.object({
   name: z.string().min(1, 'name is required'),
   symbol: z.string().optional().default(''),
   exchangeRate: z.union([z.number(), strToNum()]).optional().default(1),
-  isDefault: z.union([z.boolean(), z.string().transform(v => v === 'true' || v === '1')]).optional().default(false)
+  isDefault: z
+    .union([
+      z.boolean(),
+      z.string().transform((v) => v === 'true' || v === '1')
+    ])
+    .optional()
+    .default(false)
 })
 exports.updateCurrencySchema = exports.createCurrencySchema.partial()
 
@@ -634,7 +688,13 @@ exports.createSocialMediaSchema = z.object({
   name: z.string().min(1, 'name is required'),
   url: z.string().min(1, 'url is required'),
   icon: z.string().optional().default(''),
-  isActive: z.union([z.boolean(), z.string().transform(v => v === 'true' || v === '1')]).optional().default(true)
+  isActive: z
+    .union([
+      z.boolean(),
+      z.string().transform((v) => v === 'true' || v === '1')
+    ])
+    .optional()
+    .default(true)
 })
 exports.updateSocialMediaSchema = exports.createSocialMediaSchema.partial()
 
@@ -644,7 +704,13 @@ exports.createFaqSchema = z.object({
   answer: z.string().min(1, 'answer is required'),
   category: z.string().optional().default(''),
   order: z.union([z.number(), strToNum()]).optional().default(0),
-  isActive: z.union([z.boolean(), z.string().transform(v => v === 'true' || v === '1')]).optional().default(true)
+  isActive: z
+    .union([
+      z.boolean(),
+      z.string().transform((v) => v === 'true' || v === '1')
+    ])
+    .optional()
+    .default(true)
 })
 exports.updateFaqSchema = exports.createFaqSchema.partial()
 
@@ -665,7 +731,8 @@ exports.createAccountsReceivableSchema = z.object({
   dueDate: z.string().optional(),
   notes: z.string().optional().default('')
 })
-exports.updateAccountsReceivableSchema = exports.createAccountsReceivableSchema.partial()
+exports.updateAccountsReceivableSchema =
+  exports.createAccountsReceivableSchema.partial()
 
 // ===================== Invoice =====================
 exports.createInvoiceSchema = z.object({
@@ -692,11 +759,15 @@ exports.updateInvoiceSettingSchema = z.object({
 exports.createPosTransferSchema = z.object({
   fromStore: strToNum(),
   toStore: strToNum(),
-  items: z.array(z.object({
-    product: strToNum(),
-    quantity: strToNum(),
-    notes: z.string().optional().default('')
-  })).min(1, 'At least one item'),
+  items: z
+    .array(
+      z.object({
+        product: strToNum(),
+        quantity: strToNum(),
+        notes: z.string().optional().default('')
+      })
+    )
+    .min(1, 'At least one item'),
   notes: z.string().optional().default(''),
   transferredBy: strToNum().optional()
 })
