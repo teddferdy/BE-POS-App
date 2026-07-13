@@ -41,6 +41,11 @@ const ingredientController = {
               model: db.ingredientCategory,
               as: 'categoryData',
               attributes: ['id', 'name']
+            },
+            {
+              model: db.location,
+              as: 'storeData',
+              attributes: ['id', 'name']
             }
           ],
           limit: parseInt(limit),

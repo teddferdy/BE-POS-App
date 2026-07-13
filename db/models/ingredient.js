@@ -68,6 +68,7 @@ module.exports = (sequelize, DataTypes) => {
   Ingredient.associate = (models) => {
     Ingredient.belongsTo(models.supplier, { as: 'supplierData', foreignKey: 'supplier' })
     Ingredient.belongsTo(models.ingredientCategory, { as: 'categoryData', foreignKey: 'category' })
+    Ingredient.belongsTo(models.location, { as: 'storeData', foreignKey: 'store' })
     Ingredient.hasMany(models.bom_line, { foreignKey: 'ingredientId', as: 'bomLines' })
   }
 
