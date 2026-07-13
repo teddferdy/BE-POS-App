@@ -61,7 +61,8 @@ exports.getAllLocationPublic = async (req, res) => {
         'province',
         'detailLocation',
         'latitude',
-        'longitude'
+        'longitude',
+        'status'
       ]
     })
     return res
