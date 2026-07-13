@@ -91,12 +91,7 @@ const purchaseReturnController = {
               }
             ]
           },
-          { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          {
-            model: db.user,
-            as: 'createdByUser',
-            attributes: ['id', 'fullName']
-          }
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -113,7 +108,6 @@ const purchaseReturnController = {
         } else if (json.returnedBy) {
           json.returnedBy = { name: json.returnedBy }
         }
-        delete json.createdByUser
         if (json.items) {
           json.items = json.items.map((item) => {
             if (item.productData) {
@@ -188,12 +182,7 @@ const purchaseReturnController = {
               }
             ]
           },
-          { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          {
-            model: db.user,
-            as: 'createdByUser',
-            attributes: ['id', 'fullName']
-          }
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ]
       })
 
@@ -212,7 +201,6 @@ const purchaseReturnController = {
       } else if (result.returnedBy) {
         result.returnedBy = { name: result.returnedBy }
       }
-      delete result.createdByUser
       if (result.items) {
         result.items = result.items.map((item) => {
           if (item.productData) {
@@ -441,12 +429,7 @@ const purchaseReturnController = {
               }
             ]
           },
-          { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          {
-            model: db.user,
-            as: 'createdByUser',
-            attributes: ['id', 'fullName']
-          }
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
         order: [['createdAt', 'DESC']]
       })
@@ -461,7 +444,6 @@ const purchaseReturnController = {
         } else if (json.returnedBy) {
           json.returnedBy = { name: json.returnedBy }
         }
-        delete json.createdByUser
         if (json.items) {
           json.items = json.items.map((item) => {
             if (item.productData) {

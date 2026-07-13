@@ -266,10 +266,6 @@ exports.getAllEmployee = async (req, res) => {
     const totalPages = Math.ceil(total / limit)
 
     await enrichAuditFields(db, employees)
-    employees.forEach(e => {
-      if (e.createdByUser) e.createdBy = e.createdByUser.fullName
-      if (e.modifiedByUser) e.modifiedBy = e.modifiedByUser.fullName
-    })
 
     return res.status(200).json({
       success: true,
@@ -319,8 +315,6 @@ exports.getEmployeeById = async (req, res) => {
     }
 
     await enrichAuditFields(db, [employee])
-    if (employee.createdByUser) employee.createdBy = employee.createdByUser.fullName
-    if (employee.modifiedByUser) employee.modifiedBy = employee.modifiedByUser.fullName
 
     return res.status(200).json({
       success: true,
@@ -358,8 +352,6 @@ exports.getEmployeeByEmployeeID = async (req, res) => {
     }
 
     await enrichAuditFields(db, [employee])
-    if (employee.createdByUser) employee.createdBy = employee.createdByUser.fullName
-    if (employee.modifiedByUser) employee.modifiedBy = employee.modifiedByUser.fullName
 
     return res.status(200).json({
       success: true,

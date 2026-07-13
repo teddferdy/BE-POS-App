@@ -17,11 +17,6 @@ const purchasePaymentController = {
             model: db.supplier,
             as: 'supplierData',
             attributes: ['id', 'name', 'phone']
-          },
-          {
-            model: db.user,
-            as: 'createdByUser',
-            attributes: ['id', 'userName', 'fullName']
           }
         ]
       })

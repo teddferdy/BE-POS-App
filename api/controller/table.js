@@ -28,7 +28,16 @@ exports.getTablesByStore = async (req, res) => {
       Location.findAll({ attributes: ['id', 'name'], paranoid: false }),
       Reservation.findAll({
         where: { store, status: ['pending', 'confirmed'] },
-        attributes: ['id', 'tableId', 'customerName', 'customerPhone', 'startTime', 'endTime', 'reservationDate', 'status']
+        attributes: [
+          'id',
+          'tableId',
+          'customerName',
+          'customerPhone',
+          'startTime',
+          'endTime',
+          'reservationDate',
+          'status'
+        ]
       })
     ])
     const locMap = {}

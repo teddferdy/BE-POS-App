@@ -19,12 +19,6 @@ const StockOpname = db.stockOpname
 const StockHistory = db.stock_history
 const PurchaseOrder = db.purchase_order
 
-const USER_NAMES = {
-  1: 'Super Admin',
-  2: 'Angga',
-  3: 'Febi',
-  4: 'Surya'
-}
 const Order = db.order
 const Expense = db.expense
 const Table = db.table
@@ -168,8 +162,10 @@ exports.getAllLocationInTable = async (req, res) => {
       socialMedia: loc.socialMedia || [],
       createdAt: loc.createdAt,
       updatedAt: loc.updatedAt,
-      createdBy: USER_NAMES[loc.createdBy] || loc.createdBy || null,
-      modifiedBy: USER_NAMES[loc.modifiedBy] || loc.modifiedBy || null
+      createdBy: loc.createdBy,
+      createdByUser: loc.dataValues?.createdByUser || null,
+      modifiedBy: loc.modifiedBy,
+      modifiedByUser: loc.dataValues?.modifiedByUser || null
     }))
 
     return res.status(200).json({
@@ -690,6 +686,8 @@ exports.getLocationById = async (req, res) => {
         .json({ success: false, message: 'Location not found' })
     }
 
+    await enrichAuditFields(db, [location])
+
     const data = {
       id: `loc-${String(location.id).padStart(3, '0')}`,
       storeId: `ST-${String(location.id).padStart(3, '0')}`,
@@ -714,8 +712,10 @@ exports.getLocationById = async (req, res) => {
       dailyTarget: location.dailyTarget,
       createdAt: location.createdAt,
       updatedAt: location.updatedAt,
-      createdBy: USER_NAMES[location.createdBy] || location.createdBy || null,
-      modifiedBy: USER_NAMES[location.modifiedBy] || location.modifiedBy || null,
+      createdBy: location.createdBy,
+      createdByUser: location.dataValues?.createdByUser || null,
+      modifiedBy: location.modifiedBy,
+      modifiedByUser: location.dataValues?.modifiedByUser || null,
       openingHours: location.openingHours || [
         { day: 'Monday', open: null, close: null },
         { day: 'Tuesday', open: null, close: null },

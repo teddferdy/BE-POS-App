@@ -60,6 +60,8 @@ exports.getCategoryById = async (req, res) => {
 
     const productCount = await Product.count({ where: { category: id } })
 
+    await enrichAuditFields(db, [category])
+
     return res.status(200).json({
       success: true,
       message: 'Success',
@@ -74,7 +76,9 @@ exports.getCategoryById = async (req, res) => {
         productCount,
         store: stores,
         createdBy: category.createdBy,
+        createdByUser: category.dataValues?.createdByUser || null,
         modifiedBy: category.modifiedBy,
+        modifiedByUser: category.dataValues?.modifiedByUser || null,
         createdAt: category.createdAt,
         updatedAt: category.updatedAt
       }
@@ -303,7 +307,7 @@ exports.addNewCategory = async (req, res) => {
       value: body?.value || body?.name?.toLowerCase(),
       status: status,
       store: store,
-      createdBy: req.user?.userName || req.user?.id || 'system'
+      createdBy: req.user?.id || null
     })
 
     if (createdCategory.getDataValue) {
@@ -411,7 +415,7 @@ exports.editCategoryById = async (req, res) => {
         value: body?.value || body?.name?.toLowerCase(),
         status: status,
         store: store,
-        modifiedBy: req.user?.userName || req.user?.id || 'system'
+        modifiedBy: req.user?.id || null
       },
       {
         returning: true,
@@ -800,7 +804,7 @@ exports.importCategory = async (req, res) => {
         description,
         store: storeId ? [storeId] : null,
         status,
-        createdBy: req.user?.userName || req.user?.id || 'system'
+        createdBy: req.user?.id || null
       })
     })
 
