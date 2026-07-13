@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const taxConfigController = {
   async getAll(req, res) {
@@ -38,6 +39,7 @@ const taxConfigController = {
         }),
         db.taxConfig.count({ where })
       ])
+      await enrichAuditFields(db, taxes)
 
       const [active, draft, inactive] = await Promise.all([
         db.taxConfig.count({ where: { status: 'active' } }),

@@ -623,6 +623,21 @@ const purchaseReturnController = {
               const qty = Math.floor(Number(item.qty)) || 0
               const newStock = Math.max(oldStock - qty, 0)
               await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
+
+              // ponytail: atomic upsert + deduct per-store stock
+              if (store) {
+                await db.sequelize.query(
+                  `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+                   VALUES ($1, $2, 0, NOW(), NOW())
+                   ON CONFLICT (product, store) DO NOTHING`,
+                  { bind: [item.productId, store], transaction: t }
+                )
+                await db.product_store_stock.update(
+                  { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                  { where: { product: item.productId, store }, transaction: t }
+                )
+              }
+
               await db.stock_history.create({
                 product: item.productId,
                 store,

@@ -3,6 +3,7 @@ const { Op } = db.Sequelize
 const Position = db.position
 const User = db.user
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const positionInclude = [
   {
@@ -70,6 +71,7 @@ exports.getAllPositionInTable = async (req, res) => {
         limit: parseInt(limit),
         order: [['createdAt', 'DESC']]
       })
+    await enrichAuditFields(db, getAllPosition)
 
     const totalPages = Math.ceil(totalItems / limit)
 

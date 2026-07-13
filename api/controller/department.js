@@ -4,6 +4,7 @@ const Department = db.department
 const Position = db.position
 const User = db.user
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 exports.getAllDepartment = async (req, res) => {
   try {
@@ -53,6 +54,7 @@ exports.getAllDepartmentInTable = async (req, res) => {
         limit: parseInt(limit),
         order: [['createdAt', 'DESC']]
       })
+    await enrichAuditFields(db, getAllDepartment)
 
     const totalPages = Math.ceil(totalItems / limit)
 

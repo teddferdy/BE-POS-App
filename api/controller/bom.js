@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const bomController = {
   async getAll(req, res) {
@@ -36,6 +37,7 @@ const bomController = {
         limit: parseInt(limit),
         offset
       })
+      await enrichAuditFields(db, rows)
 
       return res.status(200).json({
         success: true,

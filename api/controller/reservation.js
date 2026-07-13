@@ -4,6 +4,7 @@ const Reservation = db.reservation
 const Table = db.table
 const Location = db.location
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 exports.getAll = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -29,6 +30,7 @@ exports.getAll = async (req, res) => {
       offset,
       order: [['createdAt', 'DESC']]
     })
+    await enrichAuditFields(db, rows)
 
     const statsWhere = store ? { store } : {}
     const stats = {}

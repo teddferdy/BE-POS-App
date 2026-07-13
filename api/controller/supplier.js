@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 const ExcelJS = require('exceljs')
 const Location = db.location
 
@@ -142,6 +143,8 @@ const supplierController = {
           db.supplier.count({ where: { ...where, status: 'inactive' } }),
           db.supplier.count({ where: { ...where, status: 'draft' } })
         ])
+
+      await enrichAuditFields(db, suppliers)
 
       const allStoreIds = [
         ...new Set(

@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const getStore = (req) =>
   req.body.storeId ||
@@ -307,6 +308,8 @@ const cashRegisterController = {
         limit: parseInt(limit),
         offset
       })
+
+      await enrichAuditFields(db, rows)
 
       // ponytail: compute live totals for open registers since DB stores 0 until close
       const enriched = await Promise.all(

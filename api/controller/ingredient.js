@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 const excelJS = require('exceljs')
 
 const ingredientController = {
@@ -46,6 +47,8 @@ const ingredientController = {
           offset,
           order: [['createdAt', 'DESC']]
         })
+
+      await enrichAuditFields(db, ingredients)
 
       if (lowStock === 'true') {
         ingredients = ingredients.filter((ing) => ing.stock <= ing.minStock)

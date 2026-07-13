@@ -4,6 +4,7 @@ const Order = db.order
 const Reservation = db.reservation
 const Location = db.location
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 exports.getTablesByStore = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -20,6 +21,8 @@ exports.getTablesByStore = async (req, res) => {
       limit,
       offset
     })
+
+    await enrichAuditFields(db, rows)
 
     const [locations, activeReservations] = await Promise.all([
       Location.findAll({ attributes: ['id', 'name'], paranoid: false }),

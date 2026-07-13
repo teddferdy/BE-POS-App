@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 const ExcelJS = require('exceljs')
 
 const ingredientCategoryController = {
@@ -27,6 +28,7 @@ const ingredientCategoryController = {
         }),
         db.ingredientCategory.count({ where })
       ])
+      await enrichAuditFields(db, categories)
 
       const totalPages = Math.ceil(total / limit)
 

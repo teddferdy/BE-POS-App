@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { createNotification } = require('../../utils/createNotification')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const generateProductionNo = () => {
   const date = new Date()
@@ -61,6 +62,8 @@ const productionOrderController = {
         limit: parseInt(limit),
         offset
       })
+
+      await enrichAuditFields(db, rows)
 
       const stats = await Promise.all([
         db.productionOrder.count({ where: { ...where, status: 'draft' } }),
@@ -647,7 +650,22 @@ const productionOrderController = {
 
       try {
         const qtyBefore = Number(product.stock) || 0
-        await product.update({ stock: db.sequelize.literal(`stock + ${Math.floor(Number(finalQty)) || 0}`) }, { transaction })
+        const finalQtyInt = Math.floor(Number(finalQty)) || 0
+        await product.update({ stock: db.sequelize.literal(`stock + ${finalQtyInt}`) }, { transaction })
+
+        // ponytail: atomic upsert + add per-store stock
+        if (effectiveStore) {
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [product.id, effectiveStore], transaction }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`stock + ${finalQtyInt}`) },
+            { where: { product: product.id, store: effectiveStore }, transaction }
+          )
+        }
 
         await db.stock_history.create(
           {

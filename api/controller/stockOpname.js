@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const excelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const generateOpnameNumber = () => {
   const date = new Date()
@@ -89,6 +90,8 @@ const stockOpnameController = {
           }
         ]
       })
+
+      await enrichAuditFields(db, opnames)
 
       const data = opnames.map((opname) => {
         const items = opname.items || []
@@ -781,6 +784,17 @@ if (item.ingredientName) {
               const newStock = Number(item.stokFisikJumlah) || 0
               const diff = newStock - oldStock
               await product.update({ stock: newStock }, { transaction: t })
+
+              // ponytail: atomic upsert + set per-store stock to physical count
+              if (opname.store) {
+                await db.sequelize.query(
+                  `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+                   VALUES ($1, $2, $3, NOW(), NOW())
+                   ON CONFLICT (product, store) DO UPDATE SET stock = $3, "updatedAt" = NOW()`,
+                  { bind: [product.id, opname.store, newStock], transaction: t }
+                )
+              }
+
               await db.stock_history.create(
                 {
                   product: product.id,

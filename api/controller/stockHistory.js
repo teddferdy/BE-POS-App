@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const stockHistoryController = {
   async getAll(req, res) {
@@ -47,13 +48,16 @@ const stockHistoryController = {
           {
             model: db.product,
             as: 'productData',
-            attributes: ['id', 'nameProduct']
+            attributes: ['id', 'nameProduct'],
+            required: false
           }
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
         offset
       })
+
+      await enrichAuditFields(db, rows)
 
       return res.status(200).json({
         success: true,

@@ -321,6 +321,16 @@ const purchaseOrderController = {
             message: 'Tanggal jatuh tempo wajib diisi'
           })
         }
+
+        // ponytail: reject duplicate ingredients/products in same PO
+        const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+        const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
+        if (dupes.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Duplicate item(s) in purchase order: ${[...new Set(dupes)].join(', ')}`
+          })
+        }
       }
 
       const orderNumber = generateOrderNumber('PO')
@@ -440,6 +450,18 @@ const purchaseOrderController = {
           success: false,
           message: 'Tanggal jatuh tempo wajib diisi'
         })
+      }
+
+      // ponytail: reject duplicate ingredients/products in same PO
+      if (items) {
+        const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+        const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
+        if (dupes.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Duplicate item(s) in purchase order: ${[...new Set(dupes)].join(', ')}`
+          })
+        }
       }
 
       let totalAmount = purchaseOrder.totalAmount

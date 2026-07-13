@@ -41,6 +41,7 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 const {
   downloadLocationTemplate,
   parseLocationTemplate
@@ -128,12 +129,14 @@ exports.getAllLocationInTable = async (req, res) => {
       .filter(Boolean)
       .sort()
 
-    const { rows: locations } = await Location.findAndCountAll({
-      where: whereClause,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'DESC']]
-    })
+      const { rows: locations } = await Location.findAndCountAll({
+        where: whereClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        order: [['createdAt', 'DESC']]
+      })
+
+      await enrichAuditFields(db, locations)
 
     const data = locations.map((loc) => ({
       id: `loc-${String(loc.id).padStart(3, '0')}`,

@@ -10,6 +10,7 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
@@ -160,6 +161,8 @@ exports.getAllCategoryInTable = async (req, res) => {
       Category.count({ where: { ...statsWhere, status: 'inactive' } }),
       Category.count({ where: { ...statsWhere, status: 'draft' } })
     ])
+
+    await enrichAuditFields(db, categories)
 
     const countMap = {}
     if (Array.isArray(productCounts)) {

@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op, fn, col, literal } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const memberTierController = {
   async getAll(req, res) {
@@ -31,6 +32,7 @@ const memberTierController = {
         },
         order: [['createdAt', 'DESC']]
       })
+      await enrichAuditFields(db, tiers)
 
       const normalizeStatus = (s) => {
         const v = String(s ?? '').toLowerCase()

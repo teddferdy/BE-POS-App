@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const generateReceiptNo = () => {
   const date = new Date()
@@ -62,6 +63,8 @@ const goodsReceiptController = {
         limit: parseInt(limit),
         offset
       })
+
+      await enrichAuditFields(db, rows)
 
       const stats = {
         total: count,
@@ -200,6 +203,16 @@ const goodsReceiptController = {
         })
       }
 
+      // ponytail: reject duplicate ingredients/products in same GR
+      const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+      const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
+      if (dupes.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Duplicate item(s) in goods receipt: ${[...new Set(dupes)].join(', ')}`
+        })
+      }
+
       const poWhere = { id: purchaseOrderId }
       if (store) poWhere.store = store
 
@@ -292,6 +305,20 @@ const goodsReceiptController = {
             if (product) {
               const qtyBefore = Number(product.stock) || 0
               await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
+
+              // ponytail: atomic upsert + add per-store stock
+              if (effectiveStore) {
+                await db.sequelize.query(
+                  `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+                   VALUES ($1, $2, 0, NOW(), NOW())
+                   ON CONFLICT (product, store) DO NOTHING`,
+                  { bind: [item.product, effectiveStore], transaction }
+                )
+                await db.product_store_stock.update(
+                  { stock: db.sequelize.literal(`stock + ${qty}`) },
+                  { where: { product: item.product, store: effectiveStore }, transaction }
+                )
+              }
 
               await db.stock_history.create(
                 {
@@ -541,6 +568,21 @@ const goodsReceiptController = {
         if (product) {
           const qtyBefore = Number(product.stock) || 0
           await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
+
+          // ponytail: atomic upsert + add per-store stock
+          if (receipt.store) {
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [item.product, receipt.store], transaction }
+            )
+            await db.product_store_stock.update(
+              { stock: db.sequelize.literal(`stock + ${qty}`) },
+              { where: { product: item.product, store: receipt.store }, transaction }
+            )
+          }
+
           await db.stock_history.create(
             {
               product: item.product,
@@ -634,6 +676,18 @@ const goodsReceiptController = {
           success: false,
           message: 'Only draft receipt can be updated'
         })
+      }
+
+      // ponytail: reject duplicate ingredients/products in same GR
+      if (items) {
+        const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+        const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
+        if (dupes.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Duplicate item(s) in goods receipt: ${[...new Set(dupes)].join(', ')}`
+          })
+        }
       }
 
       const oldItems = receipt.items || []

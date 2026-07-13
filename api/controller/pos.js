@@ -114,34 +114,32 @@ const posController = {
           })
           if (!product) continue
 
-          let pss = await db.product_store_stock.findOne({
+          // Check stock before atomic deduct
+          const pssRow = await db.product_store_stock.findOne({
             where: { product: item.productId, store: fromStore },
             transaction: t
           })
-          if (!pss) {
-            const [rawPss] = await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
-              {
-                bind: [item.productId, fromStore],
-                type: db.sequelize.QueryTypes.SELECT,
-                transaction: t
-              }
-            )
-            pss = await db.product_store_stock.findByPk(rawPss.id, {
-              transaction: t
-            })
-          }
-
-          const oldPssStock = Number(pss.stock) || 0
-          const newPssStock = oldPssStock - Number(item.qty)
-
-          if (newPssStock < 0) {
+          const availPss = Number(pssRow?.stock) || 0
+          if (availPss < Number(item.qty)) {
             throw new Error(
               `Insufficient stock at source store for product "${product.nameProduct}" (SKU: ${product.sku || '-'})`
             )
           }
 
-          await pss.update({ stock: newPssStock }, { transaction: t })
+          // ponytail: atomic upsert + deduct
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [item.productId, fromStore], transaction: t }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${Math.floor(Number(item.qty)) || 0}, 0)`) },
+            { where: { product: item.productId, store: fromStore }, transaction: t }
+          )
+
+          const oldPssStock = availPss
+          const newPssStock = availPss - Number(item.qty)
 
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
@@ -215,27 +213,20 @@ const posController = {
           })
           if (!product) continue
 
-          let pss = await db.product_store_stock.findOne({
-            where: { product: item.product, store: toStore },
-            transaction: t
-          })
-          if (!pss) {
-            const [rawPss] = await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
-              {
-                bind: [item.product, toStore],
-                type: db.sequelize.QueryTypes.SELECT,
-                transaction: t
-              }
-            )
-            pss = await db.product_store_stock.findByPk(rawPss.id, {
-              transaction: t
-            })
-          }
+          // ponytail: atomic upsert + add
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [item.product, toStore], transaction: t }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`stock + ${Math.floor(Number(item.qty)) || 0}`) },
+            { where: { product: item.product, store: toStore }, transaction: t }
+          )
 
-          const oldPssStock = Number(pss.stock) || 0
-          const newPssStock = oldPssStock + Number(item.qty)
-          await pss.update({ stock: newPssStock }, { transaction: t })
+          const oldPssStock = 0
+          const newPssStock = Number(item.qty)
 
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
@@ -340,27 +331,20 @@ const posController = {
           })
           if (!product) continue
 
-          let pss = await db.product_store_stock.findOne({
-            where: { product: item.product, store: transfer.fromStore },
-            transaction: t
-          })
-          if (!pss) {
-            const [rawPss] = await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt") VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id`,
-              {
-                bind: [item.product, transfer.fromStore],
-                type: db.sequelize.QueryTypes.SELECT,
-                transaction: t
-              }
-            )
-            pss = await db.product_store_stock.findByPk(rawPss.id, {
-              transaction: t
-            })
-          }
+          // ponytail: atomic upsert + add
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [item.product, transfer.fromStore], transaction: t }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`stock + ${Math.floor(Number(item.qty)) || 0}`) },
+            { where: { product: item.product, store: transfer.fromStore }, transaction: t }
+          )
 
-          const oldPssStock = Number(pss.stock) || 0
-          const newPssStock = oldPssStock + Number(item.qty)
-          await pss.update({ stock: newPssStock }, { transaction: t })
+          const oldPssStock = 0
+          const newPssStock = Number(item.qty)
 
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
@@ -592,23 +576,18 @@ const posController = {
       const result = await db.sequelize.transaction(async (t) => {
         await product.update({ stock: db.sequelize.literal(`GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`) }, { transaction: t })
 
-        // Update per-store stock
+        // Update per-store stock — ponytail: atomic upsert + adjust
         const adjStore = storeId || store
         if (adjStore) {
-          let pss = await db.product_store_stock.findOne({
-            where: { product: productId, store: adjStore },
-            transaction: t
-          })
-          if (!pss) {
-            pss = await db.product_store_stock.create({
-              product: productId, store: adjStore, stock: 0, updatedAt: new Date()
-            }, { transaction: t })
-          }
-          const oldPssStock = Number(pss.stock) || 0
-          const newPssStock = oldPssStock + Number(qty)
-          await pss.update(
-            { stock: newPssStock >= 0 ? newPssStock : 0 },
-            { transaction: t }
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [productId, adjStore], transaction: t }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`) },
+            { where: { product: productId, store: adjStore }, transaction: t }
           )
         }
 
@@ -714,24 +693,22 @@ const posController = {
 
           if (!bom) {
             const oldStock = Number(product.stock) || 0
+            const qty = Math.floor(Number(item.qty)) || 0
             await product.update(
-              { stock: oldStock + item.qty },
+              { stock: db.sequelize.literal(`stock + ${qty}`) },
               { transaction: t }
             )
 
-            let pss = await db.product_store_stock.findOne({
-              where: { product: item.productId, store },
-              transaction: t
-            })
-            if (!pss) {
-              pss = await db.product_store_stock.create({
-                product: item.productId, store, stock: 0, updatedAt: new Date()
-              }, { transaction: t })
-            }
-            const oldPssStock = Number(pss.stock) || 0
-            await pss.update(
-              { stock: oldPssStock + item.qty },
-              { transaction: t }
+            // ponytail: atomic upsert + add per-store stock
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [item.productId, store], transaction: t }
+            )
+            await db.product_store_stock.update(
+              { stock: db.sequelize.literal(`stock + ${qty}`) },
+              { where: { product: item.productId, store }, transaction: t }
             )
 
             await db.stock_history.create(

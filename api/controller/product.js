@@ -11,6 +11,7 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 const {
   downloadProductTemplate,
   parseProductTemplate
@@ -250,6 +251,8 @@ exports.getAllProductInTable = async (req, res) => {
       include: includeOpts,
       order
     })
+
+    await enrichAuditFields(db, getAllProduct)
 
     // Resolve store IDs to names
     const allStoreIds = [
@@ -730,19 +733,20 @@ exports.editProductByLocationAndId = async (req, res) => {
     })
     const editLocation = editRows[0]
 
-    // Update per-store stock for the current store
+    // Update per-store stock for the current store — ponytail: atomic upsert + adjust
     const storeId = req.cookies?.store || req.body?.storeId
     if (storeId && stockDiff !== 0) {
-      let pss = await db.product_store_stock.findOne({
-        where: { product: id, store: storeId }
-      })
-      if (!pss) {
-        pss = await db.product_store_stock.create({
-          product: id, store: storeId, stock: 0, updatedAt: new Date()
-        })
-      }
-      const newPssStock = Math.max(0, Number(pss.stock) + stockDiff)
-      await pss.update({ stock: newPssStock })
+      const diff = Math.floor(Number(stockDiff)) || 0
+      await db.sequelize.query(
+        `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+         VALUES ($1, $2, 0, NOW(), NOW())
+         ON CONFLICT (product, store) DO NOTHING`,
+        { bind: [id, storeId] }
+      )
+      await db.product_store_stock.update(
+        { stock: db.sequelize.literal(`GREATEST(stock + ${diff}, 0)`) },
+        { where: { product: id, store: storeId } }
+      )
     }
 
     if (stockDiff !== 0) {

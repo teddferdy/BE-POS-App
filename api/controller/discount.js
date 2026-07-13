@@ -4,6 +4,7 @@ const Discount = db.discount
 const Order = db.order
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const resolveStoreNames = async (storeIds) => {
   if (!storeIds || storeIds.length === 0) return []
@@ -131,6 +132,8 @@ exports.getAllDiscount = async (req, res) => {
       offset,
       order: [['createdAt', 'DESC']]
     })
+
+    await enrichAuditFields(db, rows)
 
     const storeFilter = store
       ? { [db.Sequelize.Op.or]: [{ store }, { store: null }] }

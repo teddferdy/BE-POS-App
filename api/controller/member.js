@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const Member = db.member
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 exports.getAllMember = async (req, res) => {
   try {
@@ -44,6 +45,7 @@ exports.getAllMember = async (req, res) => {
       limit: parseInt(limit),
       order: [['createdAt', 'DESC']]
     })
+    await enrichAuditFields(db, rows)
 
     const totalMembers = await Member.count({ where: filters })
     const activeCount = await Member.count({ where: { ...filters, status: 'active' } })
