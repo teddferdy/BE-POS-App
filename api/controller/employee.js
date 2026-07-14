@@ -128,32 +128,29 @@ exports.addEmployee = async (req, res) => {
     const employeeId =
       body?.employeeID || String(Math.floor(100000 + Math.random() * 900000))
 
+    const isDraft = (body?.status || 'active') === 'draft'
+    const draftSuffix = isDraft ? `draft-${employeeId}` : null
+
     const createUser = await User.create({
       image: imageUrl,
       roleType: role?.roleType || 'user',
       roleId: role?.id || null,
       userType: 'user',
-      fullName: body?.fullName,
-      userName,
-      password,
-      email: body?.email || `draft-${employeeId}@placeholder.local`,
-      address: body?.address,
+      fullName: body?.fullName || draftSuffix || '',
+      userName: userName || draftSuffix || '',
+      password: password || (isDraft ? 'Draft!12345' : ''),
+      email: body?.email || (isDraft ? `${draftSuffix}@placeholder.local` : ''),
+      address: body?.address || '',
       gender: body?.gender || '',
       phoneNumber: body?.phoneNumber || '',
       employeeID: employeeId,
-      department: body?.department,
+      department: body?.department || '',
       departmentId: body?.departmentId || null,
-      employmentType: body?.employmentType,
+      employmentType: body?.employmentType || '',
       startDate: body?.startDate || null,
       dateOfBirth: body?.dateOfBirth || null,
-      placeOfBirth: body?.placeOfBirth,
-      status:
-        body?.status ||
-        (body?.isActive !== undefined
-          ? body.isActive
-            ? 'active'
-            : 'inactive'
-          : 'active'),
+      placeOfBirth: body?.placeOfBirth || '',
+      status: isDraft ? 'draft' : (body?.status || 'active'),
       store: body?.store || null,
       shift: body?.shift || null,
       position: body?.position || null,
