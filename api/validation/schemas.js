@@ -292,6 +292,43 @@ exports.createUserSchema = userBaseSchema.refine(
     path: ['confirmPassword']
   }
 )
+
+const employeeBaseSchema = z.object({
+  userName: z.string().optional().nullable(),
+  password: z.string().optional().nullable(),
+  confirmPassword: z.string().optional().nullable(),
+  email: z.string().email().optional().or(z.literal('')),
+  userType: z.enum(['admin', 'user', 'kasir']).default('user'),
+  fullName: z.string().optional().default(''),
+  phoneNumber: z.string().optional().default(''),
+  gender: z.string().optional().default(''),
+  address: z.string().optional().default(''),
+  dateOfBirth: z.string().optional().nullable(),
+  placeOfBirth: z.string().optional().default(''),
+  employeeId: z.string().optional().nullable(),
+  store: strToNum().optional().nullable(),
+  shift: strToNum().optional().nullable(),
+  position: strToNum().optional().nullable(),
+  roleId: strToNum().optional().nullable(),
+  department: z.string().optional().nullable(),
+  departmentId: strToNum().optional().nullable(),
+  employmentType: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
+  contractDuration: z.string().optional().nullable(),
+  status: statusEnum,
+  accessMenu: jsonField().optional().nullable(),
+  monthlySalary: z.string().optional().nullable(),
+  dailySalary: z.string().optional().nullable()
+})
+exports.createEmployeeSchema = employeeBaseSchema.superRefine((d, ctx) => {
+  if (d.status !== 'draft') {
+    if (!d.userName) ctx.addIssue({ code: 'custom', message: 'Username is required', path: ['userName'] })
+    if (!d.password || d.password.length < 6) ctx.addIssue({ code: 'custom', message: 'Password min 6 characters', path: ['password'] })
+    if (!d.confirmPassword) ctx.addIssue({ code: 'custom', message: 'Confirm password is required', path: ['confirmPassword'] })
+    if (d.password !== d.confirmPassword) ctx.addIssue({ code: 'custom', message: 'Passwords do not match', path: ['confirmPassword'] })
+  }
+})
 exports.updateUserSchema = userBaseSchema.partial()
 
 // ===================== Discount =====================

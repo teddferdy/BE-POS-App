@@ -5,7 +5,7 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createUserSchema, updateUserSchema } = require('../validation/schemas')
+const { createEmployeeSchema, createUserSchema, updateUserSchema } = require('../validation/schemas')
 const fs = require('fs')
 const multer = require('multer')
 
@@ -38,7 +38,7 @@ router.post(
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
   upload,
-  validate(createUserSchema),
+  validate(createEmployeeSchema),
   employeeController.addEmployee
 )
 
