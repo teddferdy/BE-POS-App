@@ -97,6 +97,10 @@ exports.getAllLocationInTable = async (req, res) => {
       ]
     }
 
+    if (category && category !== 'all') {
+      whereClause.category = category
+    }
+
     const [total, activeCount, inactiveCount, draftCount, citiesResult] =
       await Promise.all([
         Location.count({ where: whereClause }),
