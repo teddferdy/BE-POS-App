@@ -10,6 +10,13 @@ const strToNum = () =>
     .transform((v) => Number(v))
     .refine((v) => !isNaN(v), { message: 'must be a number' })
 
+const optionalStrToNum = () =>
+  z.any().transform((v) => {
+    if (v === '' || v === null || v === undefined) return null
+    const n = Number(v)
+    return isNaN(n) ? null : n
+  })
+
 const jsonField = () =>
   z.union([z.string(), z.array(z.any()), z.record(z.any())]).transform((v) => {
     if (typeof v === 'string') {
@@ -306,12 +313,12 @@ const employeeBaseSchema = z.object({
   dateOfBirth: z.string().optional().nullable(),
   placeOfBirth: z.string().optional().default(''),
   employeeId: z.string().optional().nullable(),
-  store: strToNum().optional().nullable(),
-  shift: strToNum().optional().nullable(),
-  position: strToNum().optional().nullable(),
-  roleId: strToNum().optional().nullable(),
+  store: optionalStrToNum().nullable(),
+  shift: optionalStrToNum().nullable(),
+  position: optionalStrToNum().nullable(),
+  roleId: optionalStrToNum().nullable(),
   department: z.string().optional().nullable(),
-  departmentId: strToNum().optional().nullable(),
+  departmentId: optionalStrToNum().nullable(),
   employmentType: z.string().optional().nullable(),
   startDate: z.string().optional().nullable(),
   endDate: z.string().optional().nullable(),
