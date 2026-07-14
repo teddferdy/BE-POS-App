@@ -59,10 +59,8 @@ exports.getAllTypePayment = async (req, res) => {
 
     const queryConditions = store ? { store } : {}
 
-    if (status === 'active' || status === 'true') {
-      queryConditions.status = 'active'
-    } else if (status === 'inactive' || status === 'false') {
-      queryConditions.status = 'inactive'
+    if (status && status !== 'all') {
+      queryConditions.status = status
     }
 
     if (search) queryConditions.name = { [Op.iLike]: `%${search}%` }

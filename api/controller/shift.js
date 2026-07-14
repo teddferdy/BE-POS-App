@@ -13,10 +13,8 @@ exports.getAllShift = async (req, res) => {
     const offset = (page - 1) * pageSize
 
     let statusCondition = {}
-    if (status === 'true') {
-      statusCondition = { status: 'active' }
-    } else if (status === 'false') {
-      statusCondition = { status: 'inactive' }
+    if (status && status !== 'all') {
+      statusCondition = { status }
     }
 
     const where = { ...statusCondition }

@@ -37,10 +37,8 @@ exports.getAllDepartmentInTable = async (req, res) => {
     const offset = (page - 1) * limit
 
     let whereCondition = {}
-    if (status === 'true') {
-      whereCondition = { status: 'active' }
-    } else if (status === 'false') {
-      whereCondition = { status: 'inactive' }
+    if (status && status !== 'all') {
+      whereCondition = { status }
     }
 
     if (search) {
@@ -484,10 +482,8 @@ exports.downloadData = async (req, res) => {
     const { status = 'all' } = req.query
 
     let whereCondition = {}
-    if (status === 'true') {
-      whereCondition = { status: 'active' }
-    } else if (status === 'false') {
-      whereCondition = { status: 'inactive' }
+    if (status && status !== 'all') {
+      whereCondition = { status }
     }
 
     const departments = await Department.findAll({

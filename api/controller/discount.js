@@ -122,8 +122,7 @@ exports.getAllDiscount = async (req, res) => {
       ]
     }
     if (status && status !== 'all')
-      whereDiscount.status =
-        status === 'true' || status === 'active' ? 'active' : 'inactive'
+      whereDiscount.status = status
     if (search) whereDiscount.name = { [Op.iLike]: `%${search}%` }
 
     const { count, rows } = await Discount.findAndCountAll({

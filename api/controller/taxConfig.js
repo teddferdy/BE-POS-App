@@ -23,9 +23,8 @@ const taxConfigController = {
       if (search) {
         where.name = { [Op.iLike]: `%${search}%` }
       }
-      if (status !== undefined) {
-        where.status =
-          status === 'true' || status === 'active' ? 'active' : 'inactive'
+      if (status !== undefined && status !== 'all') {
+        where.status = status
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)

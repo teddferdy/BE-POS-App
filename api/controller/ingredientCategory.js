@@ -13,7 +13,7 @@ const ingredientCategoryController = {
       if (search) {
         where.name = { [Op.iLike]: `%${search}%` }
       }
-      if (status === 'active' || status === 'inactive') {
+      if (status && status !== 'all') {
         where.status = status
       }
 

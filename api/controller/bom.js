@@ -10,6 +10,7 @@ const bomController = {
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const where = { ...(store ? { store } : {}) }
+      if (status && status !== 'all') where.status = status
       if (search)
         where['$productData.nameProduct$'] = { [Op.iLike]: `%${search}%` }
 

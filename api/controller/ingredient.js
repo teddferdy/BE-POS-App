@@ -19,9 +19,9 @@ const ingredientController = {
       if (search) {
         andConditions.push({ name: { [Op.iLike]: `%${search}%` } })
       }
-      if (status !== undefined) {
+      if (status !== undefined && status !== 'all') {
         andConditions.push({
-          status: status === 'true' || status === 'active' ? 'active' : 'inactive'
+          status
         })
       }
       if (andConditions.length > 0) {
