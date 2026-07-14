@@ -38,6 +38,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: true
       },
+      addressFieldsVisibility: {
+        type: DataTypes.TEXT,
+        allowNull: true
+      },
+      memberFieldsVisibility: {
+        type: DataTypes.TEXT,
+        allowNull: true
+      },
       logo: {
         type: DataTypes.STRING,
         allowNull: true

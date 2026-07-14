@@ -12,6 +12,8 @@ const DEFAULT_TEMPLATE = {
   showLogo: true,
   showSocialMedia: true,
   socialMediaVisibility: null,
+  addressFieldsVisibility: null,
+  memberFieldsVisibility: null,
   logo: null
 }
 
@@ -55,6 +57,8 @@ const invoiceController = {
         showLogo,
         showSocialMedia,
         socialMediaVisibility,
+        addressFieldsVisibility,
+        memberFieldsVisibility,
         removeLogo
       } = req.body
 
@@ -103,6 +107,10 @@ const invoiceController = {
             : (existing?.showSocialMedia ?? true),
         socialMediaVisibility:
           socialMediaVisibility !== undefined ? socialMediaVisibility : (existing?.socialMediaVisibility ?? null),
+        addressFieldsVisibility:
+          addressFieldsVisibility !== undefined ? addressFieldsVisibility : (existing?.addressFieldsVisibility ?? null),
+        memberFieldsVisibility:
+          memberFieldsVisibility !== undefined ? memberFieldsVisibility : (existing?.memberFieldsVisibility ?? null),
         logo: logoUrl,
         modifiedBy: req.user?.id
       }

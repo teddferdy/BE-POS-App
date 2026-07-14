@@ -751,6 +751,8 @@ exports.updateInvoiceSettingSchema = z.object({
   showLogo: z.union([z.boolean(), z.string()]).optional(),
   showSocialMedia: z.union([z.boolean(), z.string()]).optional(),
   socialMediaVisibility: z.union([z.string(), z.record(z.any())]).optional(),
+  addressFieldsVisibility: z.union([z.string(), z.record(z.any())]).optional(),
+  memberFieldsVisibility: z.union([z.string(), z.record(z.any())]).optional(),
   removeLogo: z.union([z.boolean(), z.string()]).optional(),
   logo: z.any().optional()
 })
