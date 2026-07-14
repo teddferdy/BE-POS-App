@@ -136,7 +136,7 @@ exports.addEmployee = async (req, res) => {
       fullName: body?.fullName,
       userName,
       password,
-      email: body?.email || null,
+      email: body?.email || `draft-${employeeId}@placeholder.local`,
       address: body?.address,
       gender: body?.gender || '',
       phoneNumber: body?.phoneNumber || '',
