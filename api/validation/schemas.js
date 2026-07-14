@@ -13,6 +13,7 @@ const strToNum = () =>
 const jsonField = () =>
   z.union([z.string(), z.array(z.any()), z.record(z.any())]).transform((v) => {
     if (typeof v === 'string') {
+      if (v === '' || v === 'null' || v === 'undefined') return null
       try {
         return JSON.parse(v)
       } catch {
