@@ -1,16 +1,23 @@
-# POS Backend API
+# Bisa Nota - Backend API
 
-Point of Sale (POS) Backend Application built with Node.js, Express, and PostgreSQL.
+Point of Sale (POS) backend API built with Node.js, Express, and PostgreSQL.
 
 ## Tech Stack
 
-- **Runtime**: Node.js
-- **Framework**: Express.js
-- **Database**: PostgreSQL with Sequelize ORM
-- **Real-time**: Socket.IO
-- **Authentication**: JWT with bcrypt
-- **File Storage**: AWS S3 & Cloudinary
-- **Deployment**: Vercel
+| Category | Technology |
+|----------|-----------|
+| **Runtime** | Node.js v18+ |
+| **Framework** | Express.js |
+| **Database** | PostgreSQL with Sequelize ORM |
+| **Real-time** | Socket.IO |
+| **Auth** | JWT + bcrypt |
+| **Validation** | Zod |
+| **File Storage** | AWS S3, Cloudinary |
+| **PDF Generation** | Puppeteer, PDFKit |
+| **Excel** | ExcelJS |
+| **WhatsApp** | whatsapp-web.js |
+| **Security** | Helmet, CORS, express-rate-limit |
+| **Deployment** | Vercel |
 
 ---
 
@@ -25,51 +32,129 @@ Point of Sale (POS) Backend Application built with Node.js, Express, and Postgre
 ### Installation
 
 ```bash
-# Clone repository
 git clone <repository-url>
-cd BE-POS-App
-
-# Install dependencies
+cd BE-POS-APP
 npm install
+```
 
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your database and service credentials
+### Environment Variables
+
+Create `.env` file:
+
+```env
+# Server
+PORT=5001
+NODE_ENV=development
+
+# Database (Development)
+DB_DEV_HOST=127.0.0.1
+DB_DEV_PORT=5432
+DB_DEV_DATABASE=cashier_app
+DB_DEV_USERNAME=postgres
+DB_DEV_PASSWORD=your_password
+
+# Database (Production)
+POSTGRES_USER=your_user
+POSTGRES_PASSWORD=your_password
+POSTGRES_DATABASE=your_database
+POSTGRES_HOST=your_host
+
+# Auth
+JWT_SECRET=your_jwt_secret
+
+# CORS
+FRONTEND_URL=http://localhost:3000
+
+# AWS S3
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+AWS_REGION=your_region
+AWS_BUCKET_NAME=your_bucket
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your_cloud
+CLOUDINARY_API_KEY=your_key
+CLOUDINARY_API_SECRET=your_secret
+
+# AI (Optional - for FAQ assistant)
+GEMINI_API_KEY=your_gemini_key
 ```
 
 ### Database Setup
 
 ```bash
-# Run database migrations
-npm run sync
+npm run sync              # Run all migrations
+npm run sync:inventory    # Inventory-specific migrations
 ```
 
-### Running the Server
+### Development
 
 ```bash
-# Development mode
-npm run dev
+npm run dev               # Start server with nodemon
+```
 
-# Production mode
-npm start
+### Production
+
+```bash
+npm start                 # Start server
+```
+
+---
+
+## Project Structure
+
+```
+BE-POS-APP/
+├── api/
+│   ├── index.js              # Express app entry + thermal print endpoint
+│   ├── controller/           # Route controllers (46 files)
+│   ├── routes/               # API routes (47 modules)
+│   ├── middleware/
+│   │   └── validate.js       # Zod validation middleware
+│   ├── service/
+│   │   └── socket.js         # Socket.IO service
+│   └── validation/
+│       └── schemas.js        # Zod schemas (875 lines)
+├── config/
+│   ├── config.js             # Sequelize DB config
+│   └── database.js           # Database connection
+├── db/
+│   ├── models/               # Sequelize models (60 files)
+│   ├── migrations/           # Database migrations
+│   └── seeders/              # Database seeders
+├── utils/
+│   ├── authorization.js      # Auth middleware + RBAC
+│   ├── jwtConvert.js         # JWT helpers
+│   ├── cloudinaryStorage.js  # Cloud storage
+│   ├── excelTemplate.js      # Excel import/export
+│   ├── generateInvoicePdf.js # PDF generation
+│   ├── auditLog.js           # Audit logging
+│   ├── auditFields.js        # Audit field enrichment
+│   ├── constants.js          # App constants
+│   ├── createNotification.js # Notification helper
+│   ├── storeValidation.js    # Store access validation
+│   ├── userContext.js        # AsyncLocalStorage user context
+│   └── whatsappClient.js     # WhatsApp client
+├── scripts/                  # Migration & utility scripts
+├── docs/                     # Documentation
+├── API_DOCUMENTATION.md      # Full API reference (~210 endpoints)
+└── vercel.json               # Vercel deployment config
 ```
 
 ---
 
 ## API Response Format
 
-All API responses follow a consistent format:
-
-### Success Response
+### Success
 ```json
 {
   "success": true,
-  "message": "Success message",
+  "message": "Success",
   "data": { ... }
 }
 ```
 
-### Error Response
+### Error
 ```json
 {
   "success": false,
@@ -77,7 +162,7 @@ All API responses follow a consistent format:
 }
 ```
 
-### Pagination Response
+### Paginated
 ```json
 {
   "success": true,
@@ -94,101 +179,62 @@ All API responses follow a consistent format:
 
 ---
 
-## Authentication
+## API Endpoints
 
-### Login
-```
-POST /auth/login
-Body: { "email": "...", "password": "..." }
-```
+### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/login` | Login |
+| POST | `/auth/register` | Register |
+| GET | `/auth/get-user` | Get current user |
+| PUT | `/auth/edit-user` | Update user |
 
-### Register
-```
-POST /auth/register
-Body: { "email": "...", "password": "...", "userName": "..." }
-```
+### Roles & Permissions
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/role/get-role` | Get all roles (dropdown) |
+| GET | `/role/get-role-all` | Get roles (paginated) |
+| POST | `/role/add-new-role` | Create role |
+| PUT | `/role/edit-role/:id` | Update role |
+| DELETE | `/role/delete-role/:id` | Delete role |
+| PUT | `/role/update-user-role` | Change user role |
+| GET | `/role/get-users-by-role` | Get users by role |
+| PUT | `/role/update-access-menu` | Update role permissions |
 
-### Get Current User
-```
-GET /auth/get-user
-Headers: Authorization: Bearer <token>
-```
-
-### Update User
-```
-PUT /auth/edit-user
-Headers: Authorization: Bearer <token>
-Body: { "userName": "...", "phoneNumber": "...", "position": "..." }
-```
-
----
-
-## Roles & Permissions
-
-| Role | Description | Access |
-|------|-------------|--------|
-| **super_admin** | Owner - manage all stores | Full access |
-| **admin** | Store manager | Store-level access |
-| **user** | Staff/Cashier | Limited access |
-
-### Role Management Endpoints
-```
-GET    /role/get-role              # Get all roles (dropdown)
-GET    /role/get-role-all          # Get roles with pagination
-POST   /role/add-new-role          # Create new role
-PUT    /role/edit-role/:id         # Update role
-DELETE /role/delete-role/:id      # Delete role
-PUT    /role/update-user-role      # Change user role
-GET    /role/get-users-by-role    # Get users by role
-PUT    /role/update-access-menu   # Update role permissions
-```
-
----
-
-## Store Management (Locations)
-
+### Store / Location
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/location/get-location` | Get all stores (dropdown) |
-| GET | `/location/get-location-all` | Get stores with pagination |
-| POST | `/location/add-new-location` | Create new store |
+| GET | `/location/get-location-all` | Get stores (paginated) |
+| POST | `/location/add-new-location` | Create store |
 | PUT | `/location/edit-location` | Update store |
 | DELETE | `/location/delete-location/:id` | Delete store |
 | GET | `/location/template/:storeId` | Download Excel template |
 | POST | `/location/import` | Import from Excel |
 
----
-
-## Product Management
-
+### Products
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/product/get-product` | Get products for cashier |
 | GET | `/product/get-product-by-super-admin` | Get by store (superadmin) |
-| GET | `/product/get-product-all` | Get products with pagination |
+| GET | `/product/get-product-all` | Get products (paginated) |
 | POST | `/product/add-product` | Create product |
 | PUT | `/product/edit-product` | Update product |
 | DELETE | `/product/delete-product/:id` | Delete product |
 | GET | `/product/template/:storeId` | Download template |
 | POST | `/product/import` | Import from Excel |
 
----
-
-## Category Management
-
+### Categories
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/category/get-category` | Get categories (dropdown) |
-| GET | `/category/get-category-all` | Get with pagination |
+| GET | `/category/get-category-all` | Get categories (paginated) |
 | POST | `/category/add-new-category` | Create category |
 | PUT | `/category/edit-category/:id` | Update category |
 | DELETE | `/category/delete-category/:id` | Delete category |
 | GET | `/category/download-excel` | Export to Excel |
 
----
-
-## Sub-Category Management
-
+### Sub-Categories
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/sub-category/get-all-sub-category` | Get all sub-categories |
@@ -197,74 +243,36 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/sub-category/edit-sub-category/:id` | Update sub-category |
 | DELETE | `/sub-category/delete-sub-category/:id` | Delete sub-category |
 
----
-
-## Table Management
-
+### Employees
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/table/get-table` | Get tables by store |
-| GET | `/table/availability` | Get table availability |
-| GET | `/table/active-orders` | Get tables with active orders |
-| POST | `/table/add-new-table` | Create table |
-| PUT | `/table/edit-table/:id` | Update table |
-| PUT | `/table/edit-status/:id` | Update status |
-| DELETE | `/table/delete-table/:id` | Delete table |
+| GET | `/employee/get-employee` | Get employees (paginated) |
+| POST | `/employee/add-new-employee` | Create employee |
+| PUT | `/employee/edit-employee/:id` | Update employee |
+| DELETE | `/employee/delete-employee/:id` | Delete employee |
 
----
-
-## Order Management
-
+### Departments
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/order/create-order` | Create new order |
-| GET | `/order/get-order-by-store` | Get orders by store |
-| GET | `/order/get-order-by-id/:id` | Get order by ID |
-| PUT | `/order/edit-order/:id` | Update order |
-| PUT | `/order/update-status/:id` | Update order status |
-| PUT | `/order/edit-item/:id` | Update order item |
-| DELETE | `/order/delete-order/:id` | Delete order |
-| POST | `/order/apply-discount/:id` | Apply discount |
+| GET | `/department/get-department` | Get departments (dropdown) |
+| GET | `/department/get-department-all` | Get departments (paginated) |
+| POST | `/department/add-new-department` | Create department |
+| PUT | `/department/edit-department/:id` | Update department |
+| DELETE | `/department/delete-department/:id` | Delete department |
 
----
-
-## Checkout & Transaction
-
+### Positions
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/checkout/checkout-item` | Process checkout |
-| PUT | `/checkout/edit-checkout/:id` | Update checkout |
-| DELETE | `/checkout/delete-checkout/:id` | Delete checkout |
+| GET | `/position/get-position` | Get positions (dropdown) |
+| GET | `/position/get-position-all` | Get positions (paginated) |
+| POST | `/position/add-new-position` | Create position |
+| PUT | `/position/edit-position/:id` | Update position |
+| DELETE | `/position/delete-position/:id` | Delete position |
 
----
-
-## Best Selling & Analytics
-
+### Members & Loyalty
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/best-selling/get-best-selling` | Get best selling products |
-| GET | `/best-selling/get-chart-by-month` | Monthly chart |
-| GET | `/best-selling/get-chart-current-and-seven-days-before` | 7 days chart |
-| GET | `/best-selling/get-chart-current-and-two-days-before` | 2 days chart |
-| GET | `/best-selling/get-earning-today` | Today's earnings |
-
----
-
-## Reports
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/report/sales` | Sales report |
-| GET | `/report/daily-summary` | Daily summary |
-| GET | `/report/profit-loss` | Profit & loss |
-
----
-
-## Member & Loyalty
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/member/get-member` | Get all members |
+| GET | `/member/get-member` | Get members |
 | POST | `/member/add-new-member` | Create member |
 | PUT | `/member/edit-member/:id` | Update member |
 | DELETE | `/member/delete-member/:id` | Delete member |
@@ -277,22 +285,26 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/member-tier/edit-member-tier/:id` | Update tier |
 | DELETE | `/member-tier/delete-member-tier/:id` | Delete tier |
 
----
-
-## Discount Management
-
+### Orders
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/discount/get-discount-by-location` | Get active discounts |
-| GET | `/discount/get-discount` | Get all discounts |
-| POST | `/discount/add-new-discount` | Create discount |
-| PUT | `/discount/edit-discount/:id` | Update discount |
-| DELETE | `/discount/delete-discount/:id` | Delete discount |
+| POST | `/order/create-order` | Create order |
+| GET | `/order/get-order-by-store` | Get orders by store |
+| GET | `/order/get-order-by-id/:id` | Get order by ID |
+| PUT | `/order/edit-order/:id` | Update order |
+| PUT | `/order/update-status/:id` | Update order status |
+| PUT | `/order/edit-item/:id` | Update order item |
+| DELETE | `/order/delete-order/:id` | Delete order |
+| POST | `/order/apply-discount/:id` | Apply discount |
 
----
+### Checkout & Transactions
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/checkout/checkout-item` | Process checkout |
+| PUT | `/checkout/edit-checkout/:id` | Update checkout |
+| DELETE | `/checkout/delete-checkout/:id` | Delete checkout |
 
-## Payment Types
-
+### Payment Types
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/type-payment/get-type-payment-by-location` | Get active payment types |
@@ -301,10 +313,27 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/type-payment/edit-type-payment/:id` | Update payment type |
 | DELETE | `/type-payment/delete-type-payment/:id` | Delete payment type |
 
----
+### Discounts
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/discount/get-discount-by-location` | Get active discounts |
+| GET | `/discount/get-discount` | Get all discounts |
+| POST | `/discount/add-new-discount` | Create discount |
+| PUT | `/discount/edit-discount/:id` | Update discount |
+| DELETE | `/discount/delete-discount/:id` | Delete discount |
 
-## Shift Management
+### Tables
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/table/get-table` | Get tables by store |
+| GET | `/table/availability` | Get table availability |
+| GET | `/table/active-orders` | Get tables with active orders |
+| POST | `/table/add-new-table` | Create table |
+| PUT | `/table/edit-table/:id` | Update table |
+| PUT | `/table/edit-status/:id` | Update status |
+| DELETE | `/table/delete-table/:id` | Delete table |
 
+### Shifts
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/shift/get-shift` | Get all shifts |
@@ -312,9 +341,13 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/shift/edit-shift/:id` | Update shift |
 | DELETE | `/shift/delete-shift/:id` | Delete shift |
 
----
-
-## Inventory Management
+### Cash Register
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/cash-register/open` | Open cash register |
+| POST | `/cash-register/:id/close` | Close cash register |
+| GET | `/cash-register/current` | Get current register |
+| GET | `/cash-register/history` | Get register history |
 
 ### Suppliers
 | Method | Endpoint | Description |
@@ -332,17 +365,75 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/purchase-order/:id` | Update purchase order |
 | POST | `/purchase-order/:id/receive` | Receive order |
 
-### Stock
+### Purchase Payments
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/purchase-payment` | Get purchase payments |
+| POST | `/purchase-payment` | Create purchase payment |
+| GET | `/purchase-payment/dashboard` | AP dashboard |
+
+### Goods Receipt
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/goods-receipt` | Get all goods receipts |
+| POST | `/goods-receipt` | Create goods receipt |
+| PUT | `/goods-receipt/:id` | Update goods receipt |
+
+### Ingredients
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/ingredient` | Get all ingredients |
+| POST | `/ingredient` | Create ingredient |
+| PUT | `/ingredient/:id` | Update ingredient |
+| DELETE | `/ingredient/:id` | Delete ingredient |
+
+### Ingredient Categories
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/ingredient-category` | Get all categories |
+| POST | `/ingredient-category` | Create category |
+| PUT | `/ingredient-category/:id` | Update category |
+| DELETE | `/ingredient-category/:id` | Delete category |
+
+### BOM (Bill of Materials)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/bom` | Get all BOMs |
+| POST | `/bom` | Create BOM |
+| PUT | `/bom/:id` | Update BOM |
+| DELETE | `/bom/:id` | Delete BOM |
+
+### Production Orders
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/production-order` | Get all production orders |
+| POST | `/production-order` | Create production order |
+| PUT | `/production-order/:id/start` | Start production |
+| PUT | `/production-order/:id/complete` | Complete production |
+| PUT | `/production-order/:id/cancel` | Cancel production |
+
+### Stock Management
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/stock-history` | Get stock history |
 | GET | `/stock-opname` | Get stock opname |
 | POST | `/stock-opname` | Create stock opname |
+| POST | `/pos/adjust` | Stock adjustment |
+| POST | `/pos/transfer` | Inter-store stock transfer |
+| GET | `/pos/transfer-history` | Transfer history |
+| GET | `/pos/transfer/:id` | Transfer detail |
+| PUT | `/pos/transfer/:id/receive` | Confirm receipt |
+| PUT | `/pos/transfer/:id/cancel` | Cancel transfer |
 
----
+### Returns
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/sales-return` | Get sales returns |
+| POST | `/sales-return` | Create sales return |
+| GET | `/purchase-return` | Get purchase returns |
+| POST | `/purchase-return` | Create purchase return |
 
-## Expense Management
-
+### Expense Management
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/expense-category` | Get expense categories |
@@ -352,21 +443,72 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/expense/:id` | Update expense |
 | POST | `/expense/:id/approve` | Approve expense |
 
----
-
-## Cash Register
-
+### Tax Configuration
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/cash-register/open` | Open cash register |
-| POST | `/cash-register/:id/close` | Close cash register |
-| GET | `/cash-register/current` | Get current register |
-| GET | `/cash-register/history` | Get register history |
+| GET | `/tax-config` | Get tax configs |
+| POST | `/tax-config` | Create tax config |
+| PUT | `/tax-config/:id` | Update tax config |
 
----
+### Accounts Receivable
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/accounts-receivable` | Get AR list |
+| GET | `/accounts-receivable/aging` | AR aging report |
+| POST | `/accounts-receivable/:id/payment` | Record AR payment |
 
-## Invoice Settings
+### Reservations
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/reservation` | Get all reservations |
+| POST | `/reservation` | Create reservation |
+| PUT | `/reservation/:id` | Update reservation |
+| DELETE | `/reservation/:id` | Cancel reservation |
 
+### Split Bill
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/split-bill` | Create split bill |
+| POST | `/split-bill/:id/pay` | Pay split bill |
+| POST | `/split-bill/:id/cancel` | Cancel split bill |
+| POST | `/split-bill/merge` | Merge split bills |
+
+### Notifications
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/notification` | Get notifications |
+| GET | `/notification/unread-count` | Get unread count |
+| PUT | `/notification/:id/read` | Mark as read |
+| PUT | `/notification/read-all` | Mark all as read |
+
+### Reports
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/report/sales` | Sales report |
+| GET | `/report/daily-summary` | Daily summary |
+| GET | `/report/profit-loss` | Profit & loss |
+| GET | `/best-selling/get-best-selling` | Best selling products |
+| GET | `/best-selling/get-chart-by-month` | Monthly chart |
+| GET | `/best-selling/get-chart-current-and-seven-days-before` | 7-day chart |
+
+### Dashboard & Analytics
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/overview/dashboard-summary` | Dashboard summary |
+| GET | `/pos/dashboard/summary` | POS dashboard data |
+| GET | `/best-selling/get-earning-today` | Today's earnings |
+
+### POS Operations
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/pos/lookup-barcode` | Barcode scan lookup |
+| GET | `/pos/product/price-by-store` | Multi-store pricing |
+| PUT | `/pos/product/update-price-by-store` | Update store prices |
+| POST | `/pos/product/add-batch` | Add product batch |
+| GET | `/pos/product/batches` | Get product batches |
+| GET | `/pos/member/:id/point-history` | Member point history |
+
+### Invoice & Receipt
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/invoice/logo` | Get logos |
@@ -374,92 +516,115 @@ PUT    /role/update-access-menu   # Update role permissions
 | PUT | `/invoice/logo/:id` | Update logo |
 | GET | `/invoice/footer` | Get footers |
 | POST | `/invoice/footer` | Create footer |
-| GET | `/invoice/social-media` | Get social media |
+| GET | `/receipt/:orderId` | Get order receipt |
+| POST | `/pos/invoice/send-wa` | Send receipt via WhatsApp |
+| POST | `/pos/invoice/send-email` | Send receipt via email |
+
+### WhatsApp Integration
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/pos/whatsapp/status` | WhatsApp connection status |
+| POST | `/pos/whatsapp/logout` | Logout WhatsApp |
+| POST | `/pos/whatsapp/restart` | Restart WhatsApp |
+
+### Social Media
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/social-media` | Get social media links |
+| POST | `/social-media` | Create social media link |
+| PUT | `/social-media/:id` | Update social media link |
+
+### Currency
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/currency` | Get currencies |
+| POST | `/currency` | Create currency |
+| PUT | `/currency/default/:id` | Set default currency |
+
+### Audit Log
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/audit-log` | Get audit logs (super_admin only) |
+
+### FAQ
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/faq` | Search static FAQ |
+| POST | `/faq/ask` | Ask AI-powered FAQ assistant |
+
+### Export
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/export/master` | Export all master data to Excel |
+
+### Thermal Printing
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/print-thermal` | ESC/POS thermal Bluetooth print |
 
 ---
 
-## Environment Variables
+## Roles & Permissions
 
-```env
-# Server
-PORT=5001
+| Role | Description | Access |
+|------|-------------|--------|
+| **super_admin** | Owner | All stores, all features |
+| **admin** | Store Manager | Store-level access |
+| **user** | General Staff | Limited access |
+| **cashier** | POS Staff | POS + Membership |
+| **kitchen** | Kitchen Staff | KDS only |
 
-# Database Development
-DB_DEV_HOST=127.0.0.1
-DB_DEV_PORT=5432
-DB_DEV_DATABASE=cashier_app
-DB_DEV_USERNAME=postgres
-DB_DEV_PASSWORD=your_password
-
-# Database Production
-POSTGRES_USER=your_user
-POSTGRES_PASSWORD=your_password
-POSTGRES_DATABASE=your_database
-POSTGRES_HOST=your_host
-
-# JWT
-JWT_SECRET=your_jwt_secret
-
-# Frontend
-FRONTEND_URL=http://localhost:3000
-
-# AWS S3
-AWS_ACCESS_KEY_ID=your_key
-AWS_SECRET_ACCESS_KEY=your_secret
-AWS_REGION=your_region
-AWS_BUCKET_NAME=your_bucket
-
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=your_cloud
-CLOUDINARY_API_KEY=your_key
-CLOUDINARY_API_SECRET=your_secret
-```
+RBAC is enforced via `requireRole` middleware in `utils/authorization.js`. Granular per-menu permissions are stored in the `role` model.
 
 ---
 
-## Project Structure
+## Database Models
 
-```
-BE-POS-App/
-├── api/
-│   ├── controller/     # Route controllers (business logic)
-│   ├── routes/         # API routes (endpoints)
-│   ├── service/        # Services (Socket.IO)
-│   └── index.js        # Express app entry point
-├── config/
-│   ├── config.js       # Database configuration
-│   └── database.js     # Database connection
-├── db/
-│   ├── models/         # Sequelize models (data schemas)
-│   └── seeders/        # Database seeders
-├── scripts/
-│   └── migrate.js      # Migration scripts
-├── utils/
-│   ├── authorization.js # Auth & RBAC utilities
-│   ├── jwtConvert.js   # JWT helpers
-│   ├── cloudinaryStorage.js # Cloud storage
-│   └── excelTemplate.js # Excel import/export
-├── files/              # Temp file storage
-├── docs/               # Documentation
-├── package.json
-├── eslint.config.mjs
-├── .prettierrc
-└── vercel.json
-```
+60 Sequelize models covering:
+
+| Domain | Models |
+|--------|--------|
+| **Users & Auth** | user, role |
+| **Store** | location |
+| **Products** | product, category, product_batch, product_store_price, product_store_stock |
+| **Orders** | order, order_item, order_status, checkout, transaction |
+| **Tables** | table, reservation |
+| **Members** | member, memberTier, member_point_history |
+| **Finance** | type_payment, discount, taxConfig, cashRegister, expense, expenseCategory, accounts_receivable, ar_payment |
+| **Inventory** | stockHistory, stockOpname, stockOpnameItem, stock_transfer, stock_transfer_item |
+| **Procurement** | supplier, purchaseOrder, purchaseOrderItem, purchasePayment, purchase_return, purchase_return_item |
+| **Returns** | sales_return, sales_return_item |
+| **Production** | bom_header, bom_line, productionOrder, goodsReceipt, goodsReceiptItem, ingredient, ingredientCategory |
+| **People** | employee, department, position |
+| **Settings** | shift, invoice_setting, social_media, currency, taxConfig |
+| **System** | notification, auditLog, best_selling, daily_report, dailySummary, splitBill, station_dapur |
 
 ---
 
 ## Socket.IO Events
 
-The server supports real-time communication at `/socket.io`.
+Real-time events at `/socket.io`:
 
-### Events
-- `order:created` - New order created
-- `order:updated` - Order status changed
-- `table:updated` - Table status changed
+| Event | Description |
+|-------|-------------|
+| `order:created` | New order created |
+| `order:updated` | Order status changed |
+| `table:updated` | Table status changed |
 
 ---
 
-## License
+## Deployment
 
-ISC
+Deployed on **Vercel** with serverless functions.
+
+- **API Base URL**: https://api-bisa-nota.vercel.app
+- **Frontend**: https://bisa-nota-demo.vercel.app
+
+---
+
+## Related
+
+- [Frontend App](../FE-POS-App/README.md)
+- [API Documentation](./API_DOCUMENTATION.md) (~210 endpoints with request/response examples)
+- [Dashboard Flow](./docs/DASHBOARD_FLOW.md)
+- [Endpoint Audit](./ENDPOINT_AUDIT.md)
