@@ -99,7 +99,7 @@ const taxConfigController = {
 
   async create(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.body.store || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -144,12 +144,12 @@ const taxConfigController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.body.store || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const tax = await db.taxConfig.findOne({
-        where: { id, ...(store ? { store } : {}) }
+        where: { id }
       })
 
       if (!tax) {
@@ -160,6 +160,7 @@ const taxConfigController = {
       }
 
       await tax.update({
+        store: store !== undefined ? (store || null) : tax.store,
         name: name || tax.name,
         rate: rate !== undefined ? parseInt(rate) : tax.rate,
         type: type || tax.type,
