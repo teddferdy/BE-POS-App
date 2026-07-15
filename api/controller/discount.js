@@ -26,7 +26,9 @@ const attachStoreData = async (rows) => {
       where: { id: allStoreIds },
       attributes: ['id', 'name']
     })
-    locations.forEach((l) => { locationMap[l.id] = l.name })
+    locations.forEach((l) => {
+      locationMap[l.id] = l.name
+    })
   }
   return rows.map((r) => ({
     ...r,
@@ -56,10 +58,7 @@ exports.getAllDiscountByLocationAndActive = async (req, res) => {
 
     const whereDiscount = { status: 'active' }
     if (store) {
-      whereDiscount[db.Sequelize.Op.or] = [
-        { store },
-        { store: null }
-      ]
+      whereDiscount[db.Sequelize.Op.or] = [{ store }, { store: null }]
     }
     if (search) whereDiscount.name = { [Op.iLike]: `%${search}%` }
 
@@ -116,13 +115,9 @@ exports.getAllDiscount = async (req, res) => {
 
     const whereDiscount = {}
     if (store) {
-      whereDiscount[db.Sequelize.Op.or] = [
-        { store },
-        { store: null }
-      ]
+      whereDiscount[db.Sequelize.Op.or] = [{ store }, { store: null }]
     }
-    if (status && status !== 'all')
-      whereDiscount.status = status
+    if (status && status !== 'all') whereDiscount.status = status
     if (search) whereDiscount.name = { [Op.iLike]: `%${search}%` }
 
     const { count, rows } = await Discount.findAndCountAll({
@@ -623,6 +618,7 @@ exports.editDiscountById = async (req, res) => {
           maximumDiscount: body.maximumDiscount,
           startDate: body.startDate,
           endDate: body.endDate,
+          store: body.store,
           code: body.code || null,
           conditions: body.conditions || null,
           modifiedBy: req.user?.id,
@@ -672,7 +668,7 @@ exports.deleteDiscountById = async (req, res) => {
   const body = req.body
 
   try {
-  const store = body.store !== undefined ? body.store : req.user?.store
+    const store = body.store !== undefined ? body.store : req.user?.store
     const getId = await Discount.destroy({
       where: { id: req.params.id }
     })
