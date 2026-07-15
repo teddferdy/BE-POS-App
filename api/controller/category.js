@@ -94,7 +94,13 @@ exports.getCategoryById = async (req, res) => {
 
 // Get All List To Table Cashier List
 exports.getAllCategoryInTable = async (req, res) => {
-  let { page = 1, pageSize = req.query.limit || 10, status = 'all', store, search } = req.query
+  let {
+    page = 1,
+    pageSize = req.query.limit || 10,
+    status = 'all',
+    store,
+    search
+  } = req.query
 
   if (!store && req.user?.roleType !== 'super_admin' && req.user?.store) {
     store = req.user.store
@@ -131,7 +137,10 @@ exports.getAllCategoryInTable = async (req, res) => {
         { idCategory: { [Op.iLike]: `%${search}%` } }
       ]
       if (existingOr) {
-        whereClause[Op.and] = [{ [Op.or]: existingOr }, { [Op.or]: searchClause }]
+        whereClause[Op.and] = [
+          { [Op.or]: existingOr },
+          { [Op.or]: searchClause }
+        ]
         delete whereClause[Op.or]
       } else {
         whereClause[Op.or] = searchClause
@@ -177,7 +186,9 @@ exports.getAllCategoryInTable = async (req, res) => {
 
     const allStoreIds = [
       ...new Set(
-        categories.flatMap((c) => (Array.isArray(c.store) ? normalizeStores(c.store) : []))
+        categories.flatMap((c) =>
+          Array.isArray(c.store) ? normalizeStores(c.store) : []
+        )
       )
     ]
     const locationMap = {}
@@ -201,7 +212,10 @@ exports.getAllCategoryInTable = async (req, res) => {
       status: item.status,
       productCount: countMap[item.id] || 0,
       store: Array.isArray(item.store)
-        ? normalizeStores(item.store).map((id) => ({ id, name: locationMap[id] || null }))
+        ? normalizeStores(item.store).map((id) => ({
+            id,
+            name: locationMap[id] || null
+          }))
         : [],
       createdBy: item.createdBy,
       createdByUser: item.dataValues?.createdByUser || null,

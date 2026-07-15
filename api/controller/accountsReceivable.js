@@ -17,7 +17,8 @@ const accountsReceivableController = {
         store: queryStore
       } = req.query
 
-      const store = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const store =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
 
       const where = {}
       if (store && userRole !== 'super_admin') where.store = store
