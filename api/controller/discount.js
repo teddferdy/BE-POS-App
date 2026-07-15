@@ -592,6 +592,7 @@ exports.editDiscountById = async (req, res) => {
     const getDuplicate = await Discount.findOne({
       where: {
         name: body.name,
+        id: { [Op.ne]: req.params.id },
         ...(store ? { store } : {})
       }
     })
