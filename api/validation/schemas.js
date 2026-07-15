@@ -83,12 +83,12 @@ exports.resetPasswordSchema = z.object({
 
 // ===================== Product =====================
 exports.createProductSchema = z.object({
-  nameProduct: z.string().min(1, 'Product name is required'),
-  category: strToNum(),
+  nameProduct: z.string().optional().default(''),
+  category: optionalStrToNum(),
   status: statusEnum,
   description: z.string().optional().default(''),
-  price: strToNum().optional().default(0),
-  costPrice: strToNum().optional().default(0),
+  price: optionalStrToNum().default(0),
+  costPrice: optionalStrToNum().default(0),
   stock: strToNum().optional().default(0),
   minStock: strToNum().optional().default(0),
   unit: z.string().optional().default('pcs'),
