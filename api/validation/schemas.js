@@ -342,7 +342,10 @@ exports.updateUserSchema = userBaseSchema.partial()
 exports.createDiscountSchema = z.object({
   name: z.string().min(1, 'Discount name is required'),
   store: strToNum().nullable().optional(),
-  type: z.enum(['percent', 'nominal']).optional().default('percent'),
+  type: z.preprocess(
+    (val) => (val === '' || val === undefined ? 'percent' : val),
+    z.enum(['percent', 'nominal'])
+  ),
   value: strToNum().optional().default(0),
   maximumDiscount: strToNum().optional().default(0),
   minimumOrder: strToNum().optional().default(0),
