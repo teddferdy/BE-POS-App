@@ -478,6 +478,8 @@ exports.postNewDiscount = async (req, res) => {
     conditions
   } = req.body
   const store = req.body.store !== undefined ? req.body.store : req.user?.store
+  const safeStartDate = startDate && !isNaN(Date.parse(startDate)) ? startDate : null
+  const safeEndDate = endDate && !isNaN(Date.parse(endDate)) ? endDate : null
   try {
     const discountType = type === 'percentage' ? 'percent' : type
 
@@ -495,8 +497,8 @@ exports.postNewDiscount = async (req, res) => {
         value: parseInt(value),
         minimumOrder: minimumOrder || 0,
         maximumDiscount: maximumDiscount || 0,
-        startDate,
-        endDate,
+        startDate: safeStartDate,
+        endDate: safeEndDate,
         store,
         code: code || null,
         conditions: conditions || null,
@@ -588,6 +590,8 @@ exports.lookupByCode = async (req, res) => {
 exports.editDiscountById = async (req, res) => {
   const body = req.body
   const store = body.store || req.user?.store
+  const safeStartDate = body.startDate && !isNaN(Date.parse(body.startDate)) ? body.startDate : null
+  const safeEndDate = body.endDate && !isNaN(Date.parse(body.endDate)) ? body.endDate : null
   try {
     const getDuplicate = await Discount.findOne({
       where: {
@@ -617,8 +621,8 @@ exports.editDiscountById = async (req, res) => {
           value: parseInt(body.value),
           minimumOrder: body.minimumOrder,
           maximumDiscount: body.maximumDiscount,
-          startDate: body.startDate,
-          endDate: body.endDate,
+          startDate: safeStartDate,
+          endDate: safeEndDate,
           store: body.store,
           code: body.code || null,
           conditions: body.conditions || null,
