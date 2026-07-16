@@ -11,11 +11,14 @@ const strToNum = () =>
     .refine((v) => !isNaN(v), { message: 'must be a number' })
 
 const optionalStrToNum = () =>
-  z.any().optional().transform((v) => {
-    if (v === '' || v === null || v === undefined) return null
-    const n = Number(v)
-    return isNaN(n) ? null : n
-  })
+  z
+    .any()
+    .optional()
+    .transform((v) => {
+      if (v === '' || v === null || v === undefined) return null
+      const n = Number(v)
+      return isNaN(n) ? null : n
+    })
 
 const jsonField = () =>
   z.union([z.string(), z.array(z.any()), z.record(z.any())]).transform((v) => {
@@ -330,10 +333,30 @@ const employeeBaseSchema = z.object({
 })
 exports.createEmployeeSchema = employeeBaseSchema.superRefine((d, ctx) => {
   if (d.status !== 'draft') {
-    if (!d.userName) ctx.addIssue({ code: 'custom', message: 'Username is required', path: ['userName'] })
-    if (!d.password || d.password.length < 6) ctx.addIssue({ code: 'custom', message: 'Password min 6 characters', path: ['password'] })
-    if (!d.confirmPassword) ctx.addIssue({ code: 'custom', message: 'Confirm password is required', path: ['confirmPassword'] })
-    if (d.password !== d.confirmPassword) ctx.addIssue({ code: 'custom', message: 'Passwords do not match', path: ['confirmPassword'] })
+    if (!d.userName)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Username is required',
+        path: ['userName']
+      })
+    if (!d.password || d.password.length < 6)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Password min 6 characters',
+        path: ['password']
+      })
+    if (!d.confirmPassword)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Confirm password is required',
+        path: ['confirmPassword']
+      })
+    if (d.password !== d.confirmPassword)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Passwords do not match',
+        path: ['confirmPassword']
+      })
   }
 })
 exports.updateUserSchema = userBaseSchema.partial()
@@ -860,9 +883,281 @@ exports.addBatchSchema = z.object({
   store: strToNum()
 })
 
+// ===================== DELIVERY =====================
+exports.createDriverSchema = z.object({
+  name: z.string().min(1, 'Driver name is required'),
+  store: storeArray().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  email: z.string().email().optional().or(z.literal('')),
+  vehicleType: z.string().optional().nullable(),
+  vehiclePlate: z.string().optional().nullable(),
+  status: statusEnum,
+  notes: z.string().optional().nullable()
+})
+exports.updateDriverSchema = exports.createDriverSchema.partial()
+
+exports.createDeliveryOrderSchema = z.object({
+  order: optionalStrToNum(),
+  store: strToNum(),
+  customerName: z.string().min(1, 'Customer name is required'),
+  customerPhone: z.string().optional().nullable(),
+  deliveryAddress: z.string().min(1, 'Delivery address is required'),
+  deliveryNotes: z.string().optional().nullable(),
+  destinationLat: optionalStrToNum(),
+  destinationLng: optionalStrToNum(),
+  deliveryFee: optionalStrToNum().default(0),
+  totalDistance: optionalStrToNum(),
+  source: z.string().optional().default('pos')
+})
+
+exports.updateDeliveryStatusSchema = z.object({
+  id: strToNum(),
+  status: z.enum([
+    'pending',
+    'assigned',
+    'picked_up',
+    'in_transit',
+    'delivered',
+    'cancelled'
+  ]),
+  note: z.string().optional().nullable(),
+  changedBy: optionalStrToNum(),
+  changedByName: z.string().optional().nullable()
+})
+
+exports.assignDriverSchema = z.object({
+  driverId: strToNum(),
+  driverName: z.string().optional().nullable()
+})
+
+exports.cancelDeliverySchema = z.object({
+  reason: z.string().min(1, 'Cancellation reason is required')
+})
+
+exports.updateDriverStatusSchema = z.object({
+  status: z.enum(['active', 'inactive', 'busy', 'offline', 'draft'])
+})
+
+exports.marketplaceConfigSchema = z.object({
+  store: strToNum(),
+  gofood: z
+    .object({
+      enabled: z.boolean().optional().default(false),
+      merchantId: z.string().optional().nullable(),
+      apiKey: z.string().optional().nullable()
+    })
+    .optional()
+    .nullable(),
+  grabfood: z
+    .object({
+      enabled: z.boolean().optional().default(false),
+      merchantId: z.string().optional().nullable(),
+      apiKey: z.string().optional().nullable()
+    })
+    .optional()
+    .nullable(),
+  shopeefood: z
+    .object({
+      enabled: z.boolean().optional().default(false),
+      merchantId: z.string().optional().nullable(),
+      apiKey: z.string().optional().nullable()
+    })
+    .optional()
+    .nullable()
+})
+
 // ===================== FAQ =====================
 exports.askFaqSchema = z.object({
   question: z.string().min(1, 'Question is required')
+})
+
+// ===================== Queue / Waitlist =====================
+exports.createQueueSchema = z.object({
+  store: strToNum(),
+  customerName: z.string().min(1, 'Customer name is required'),
+  customerPhone: z.string().optional().nullable(),
+  partySize: z
+    .number()
+    .int()
+    .min(1, 'Party size must be at least 1')
+    .default(1),
+  priority: z
+    .enum(['normal', 'vip', 'elderly', 'pregnant', 'disabled'])
+    .default('normal'),
+  estimatedWaitMinutes: z.number().int().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  assignedTo: strToNum().optional().nullable()
+})
+
+exports.updateQueueSchema = z.object({
+  customerName: z.string().min(1).optional(),
+  customerPhone: z.string().optional().nullable(),
+  partySize: z.number().int().min(1).optional(),
+  priority: z
+    .enum(['normal', 'vip', 'elderly', 'pregnant', 'disabled'])
+    .optional(),
+  estimatedWaitMinutes: z.number().int().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  assignedTo: strToNum().optional().nullable()
+})
+
+exports.updateQueueStatusSchema = z.object({
+  status: z.enum(['waiting', 'seated', 'cancelled', 'no_show', 'expired']),
+  tableId: strToNum().optional().nullable(),
+  notes: z.string().optional().nullable()
+})
+
+// ===================== Supplier Performance =====================
+exports.calculateSupplierScoreSchema = z.object({
+  store: strToNum(),
+  supplierId: strToNum(),
+  period: z.enum(['monthly', 'quarterly', 'yearly', 'all_time']),
+  periodStart: z.string().optional().nullable(),
+  periodEnd: z.string().optional().nullable()
+})
+
+exports.updateSupplierScoreNoteSchema = z.object({
+  notes: z.string().optional().nullable()
+})
+
+// ===================== Automated Promotions =====================
+exports.createPromoCampaignSchema = z.object({
+  store: strToNum(),
+  name: z.string().min(1, 'Campaign name is required'),
+  description: z.string().optional().nullable(),
+  code: z.string().optional().nullable(),
+  type: z.enum([
+    'happy_hour',
+    'birthday',
+    'buy_x_get_y',
+    'spend_get',
+    'manual',
+    'automatic'
+  ]),
+  discountType: z
+    .enum(['percentage', 'fixed', 'free_item', 'buy_x_get_y'])
+    .default('percentage'),
+  discountValue: z.number().int().min(0).default(0),
+  maxDiscount: z.number().int().optional().nullable(),
+  minPurchase: z.number().int().min(0).default(0),
+  startDate: z.string().min(1, 'Start date is required'),
+  endDate: z.string().min(1, 'End date is required'),
+  startTime: z.string().optional().nullable(),
+  endTime: z.string().optional().nullable(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).optional().nullable(),
+  applicableTo: z
+    .enum([
+      'all',
+      'specific_products',
+      'specific_categories',
+      'specific_members'
+    ])
+    .default('all'),
+  applicableIds: z.array(z.number().int()).optional().nullable(),
+  maxUsageTotal: z.number().int().optional().nullable(),
+  maxUsagePerMember: z.number().int().optional().nullable(),
+  priority: z.number().int().min(0).default(0),
+  isCombinable: z.boolean().default(false),
+  autoActivate: z.boolean().default(false),
+  rules: z
+    .array(
+      z.object({
+        ruleType: z.enum([
+          'time',
+          'birthday',
+          'buy_x_get_y',
+          'spend_threshold',
+          'member_tier',
+          'first_purchase',
+          'custom'
+        ]),
+        condition: z.record(z.any()),
+        priority: z.number().int().min(0).default(0)
+      })
+    )
+    .optional(),
+  rewards: z
+    .array(
+      z.object({
+        rewardType: z.enum([
+          'discount_percentage',
+          'discount_fixed',
+          'free_item',
+          'buy_x_get_y',
+          'points_multiplier',
+          'cashback'
+        ]),
+        rewardValue: z.number().int().min(0),
+        maxRewardValue: z.number().int().optional().nullable(),
+        productId: z.number().int().optional().nullable(),
+        productIds: z.array(z.number().int()).optional().nullable(),
+        quantity: z.number().int().min(1).default(1),
+        condition: z.record(z.any()).optional().nullable(),
+        priority: z.number().int().min(0).default(0)
+      })
+    )
+    .optional()
+})
+
+exports.updatePromoCampaignSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  code: z.string().optional().nullable(),
+  type: z
+    .enum([
+      'happy_hour',
+      'birthday',
+      'buy_x_get_y',
+      'spend_get',
+      'manual',
+      'automatic'
+    ])
+    .optional(),
+  discountType: z
+    .enum(['percentage', 'fixed', 'free_item', 'buy_x_get_y'])
+    .optional(),
+  discountValue: z.number().int().min(0).optional(),
+  maxDiscount: z.number().int().optional().nullable(),
+  minPurchase: z.number().int().min(0).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  startTime: z.string().optional().nullable(),
+  endTime: z.string().optional().nullable(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).optional().nullable(),
+  applicableTo: z
+    .enum([
+      'all',
+      'specific_products',
+      'specific_categories',
+      'specific_members'
+    ])
+    .optional(),
+  applicableIds: z.array(z.number().int()).optional().nullable(),
+  maxUsageTotal: z.number().int().optional().nullable(),
+  maxUsagePerMember: z.number().int().optional().nullable(),
+  priority: z.number().int().min(0).optional(),
+  isCombinable: z.boolean().optional(),
+  autoActivate: z.boolean().optional(),
+  status: z
+    .enum(['draft', 'active', 'paused', 'expired', 'cancelled'])
+    .optional()
+})
+
+exports.applyPromoSchema = z.object({
+  store: strToNum(),
+  orderId: strToNum().optional().nullable(),
+  memberId: strToNum().optional().nullable(),
+  code: z.string().optional(),
+  cartItems: z
+    .array(
+      z.object({
+        productId: z.number().int(),
+        quantity: z.number().int().min(1),
+        price: z.number().int().min(0)
+      })
+    )
+    .optional(),
+  subtotal: z.number().int().min(0).optional()
 })
 
 // ===================== Query param helpers =====================

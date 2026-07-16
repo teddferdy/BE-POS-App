@@ -58,6 +58,11 @@ const purchasePaymentRoutes = require('./routes/purchasePayment')
 const accountsReceivableRoutes = require('./routes/accountsReceivable')
 const exportMasterRoutes = require('./routes/exportMaster')
 const faq = require('./routes/faq')
+const deliveryRoutes = require('./routes/delivery')
+const queueRoutes = require('./routes/queue')
+const supplierPerformanceRoutes = require('./routes/supplierPerformance')
+const promoRoutes = require('./routes/promo')
+const productBundleRoutes = require('./routes/productBundle')
 
 const app = express()
 const server = http.createServer(app)
@@ -150,7 +155,12 @@ const routes = [
   { path: '/purchase-payment', route: purchasePaymentRoutes },
   { path: '/accounts-receivable', route: accountsReceivableRoutes },
   { path: '/export', route: exportMasterRoutes },
-  { path: '/faq', route: faq }
+  { path: '/faq', route: faq },
+  { path: '/delivery', route: deliveryRoutes },
+  { path: '/queue', route: queueRoutes },
+  { path: '/supplier-performance', route: supplierPerformanceRoutes },
+  { path: '/promo', route: promoRoutes },
+  { path: '/product-bundle', route: productBundleRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))

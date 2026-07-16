@@ -27,5 +27,10 @@ router.get(
   authorization,
   stockHistoryController.getLowStockAll
 )
+router.post(
+  '/auto-generate-po',
+  authorization,
+  stockHistoryController.autoGeneratePOFromLowStock
+)
 
 module.exports = router

@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { createAudit } = require('../../utils/auditLog')
 
 const stockHistoryController = {
   async getAll(req, res) {
@@ -290,6 +291,217 @@ const stockHistoryController = {
             total,
             totalPages
           }
+        }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async autoGeneratePOFromLowStock(req, res) {
+    try {
+      const store = req.cookies?.store || req.query?.store || req.body?.store
+      const userRole = req.user?.roleType
+      const createdBy = req.user?.id || null
+
+      const ingredientWhere = { status: 'active' }
+      if (store) {
+        ingredientWhere.store = store
+      }
+
+      const ingredients = await db.ingredient.findAll({
+        where: ingredientWhere,
+        attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'supplier', 'costPrice', 'store'],
+        include: [
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name']
+          }
+        ]
+      })
+
+      const lowStockIngredients = ingredients.filter((i) => i.stock <= i.minStock)
+
+      if (lowStockIngredients.length === 0) {
+        return res.status(200).json({
+          success: true,
+          message: 'Tidak ada bahan baku yang stoknya menipis',
+          data: { purchaseOrders: [], totalItems: 0 }
+        })
+      }
+
+      const groupedBySupplier = {}
+      const noSupplier = []
+
+      for (const ing of lowStockIngredients) {
+        const supplierId = ing.supplier
+        if (supplierId) {
+          if (!groupedBySupplier[supplierId]) {
+            groupedBySupplier[supplierId] = {
+              supplierName: ing.supplierData?.name || `Supplier #${supplierId}`,
+              store: ing.store,
+              items: []
+            }
+          }
+          groupedBySupplier[supplierId].items.push(ing)
+        } else {
+          noSupplier.push(ing)
+        }
+      }
+
+      const generateOrderNumber = (prefix) => {
+        const date = new Date()
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
+        return `${prefix}-${year}${month}${day}-${random}`
+      }
+
+      const createdPOs = []
+
+      for (const [supplierId, group] of Object.entries(groupedBySupplier)) {
+        const orderNumber = generateOrderNumber('PO')
+        const items = group.items.map((ing) => ({
+          ingredient: ing.id,
+          ingredientName: ing.name,
+          quantity: Math.max(ing.minStock - ing.stock, 1),
+          price: ing.costPrice || 0,
+          unit: ing.unit || 'pcs'
+        }))
+
+        const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+
+        const purchaseOrder = await db.purchase_order.create({
+          store: group.store || store || null,
+          orderNumber,
+          supplier: parseInt(supplierId),
+          totalAmount,
+          discount: 0,
+          finalAmount: totalAmount,
+          status: 'draft',
+          orderDate: new Date(),
+          notes: 'Auto-generated dari low stock alert',
+          createdBy,
+          pic: null,
+          dueDate: null
+        })
+
+        const orderItems = items.map((item) => ({
+          purchaseOrder: purchaseOrder.id,
+          product: null,
+          ingredient: item.ingredient,
+          ingredientName: item.ingredientName,
+          quantity: item.quantity,
+          unit: item.unit,
+          price: item.price,
+          total: item.quantity * item.price,
+          receivedQuantity: 0
+        }))
+
+        await db.purchase_order_item.bulkCreate(orderItems)
+
+        const createdPO = await db.purchase_order.findOne({
+          where: { id: purchaseOrder.id },
+          include: [
+            {
+              model: db.purchase_order_item,
+              as: 'items'
+            },
+            {
+              model: db.supplier,
+              as: 'supplierData',
+              attributes: ['id', 'name']
+            }
+          ]
+        })
+
+        await createAudit(
+          req,
+          'create',
+          'purchase_order',
+          purchaseOrder.id,
+          'Auto-generated PO from low stock alert'
+        )
+
+        createdPOs.push(createdPO)
+      }
+
+      if (noSupplier.length > 0) {
+        const orderNumber = generateOrderNumber('PO')
+        const items = noSupplier.map((ing) => ({
+          ingredient: ing.id,
+          ingredientName: ing.name,
+          quantity: Math.max(ing.minStock - ing.stock, 1),
+          price: ing.costPrice || 0,
+          unit: ing.unit || 'pcs'
+        }))
+
+        const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+
+        const purchaseOrder = await db.purchase_order.create({
+          store: noSupplier[0]?.store || store || null,
+          orderNumber,
+          supplier: null,
+          totalAmount,
+          discount: 0,
+          finalAmount: totalAmount,
+          status: 'draft',
+          orderDate: new Date(),
+          notes: `Auto-generated dari low stock alert. Items tanpa supplier: ${noSupplier.map((i) => i.name).join(', ')}`,
+          createdBy,
+          pic: null,
+          dueDate: null
+        })
+
+        const orderItems = items.map((item) => ({
+          purchaseOrder: purchaseOrder.id,
+          product: null,
+          ingredient: item.ingredient,
+          ingredientName: item.ingredientName,
+          quantity: item.quantity,
+          unit: item.unit,
+          price: item.price,
+          total: item.quantity * item.price,
+          receivedQuantity: 0
+        }))
+
+        await db.purchase_order_item.bulkCreate(orderItems)
+
+        const createdPO = await db.purchase_order.findOne({
+          where: { id: purchaseOrder.id },
+          include: [
+            {
+              model: db.purchase_order_item,
+              as: 'items'
+            }
+          ]
+        })
+
+        await createAudit(
+          req,
+          'create',
+          'purchase_order',
+          purchaseOrder.id,
+          'Auto-generated PO from low stock alert (no supplier)'
+        )
+
+        createdPOs.push(createdPO)
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: `Berhasil generate ${createdPOs.length} PO draft dari ${lowStockIngredients.length} bahan baku low stock`,
+        data: {
+          purchaseOrders: createdPOs,
+          totalItems: lowStockIngredients.length,
+          withSupplier: Object.keys(groupedBySupplier).length,
+          withoutSupplier: noSupplier.length
         }
       })
     } catch (error) {
