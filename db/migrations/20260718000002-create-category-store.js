@@ -57,17 +57,17 @@ module.exports = {
       INSERT INTO category_store ("category", "store", "createdAt", "updatedAt")
       SELECT
         c.id AS category,
-        value::int AS store,
+        sv::int AS store,
         NOW(),
         NOW()
       FROM category c,
-           jsonb_array_elements_text(c.store) AS value
+           jsonb_array_elements_text(c.store) AS sv
       WHERE c.store IS NOT NULL
         AND jsonb_array_length(c.store) > 0
         AND c."deletedAt" IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM category_store cs
-          WHERE cs.category = c.id AND cs.store = value::int
+          WHERE cs.category = c.id AND cs.store = sv::int
         )
     `)
 
