@@ -132,27 +132,27 @@ exports.getProfitLoss = async (req, res) => {
   try {
     const { store, startDate, endDate } = req.query
     const replacements = {}
-    let orderConditions = `"paymentStatus" = 'paid'`
+    let orderConditions = `o."paymentStatus" = 'paid'`
 
     if (store) {
-      orderConditions += ` AND "store" = :store`
+      orderConditions += ` AND o."store" = :store`
       replacements.store = store
     }
     if (startDate) {
-      orderConditions += ` AND "createdAt" >= :startDate`
+      orderConditions += ` AND o."createdAt" >= :startDate`
       replacements.startDate = new Date(startDate)
     }
     if (endDate) {
       const end = new Date(endDate)
       end.setHours(23, 59, 59, 999)
-      orderConditions += ` AND "createdAt" <= :endDate`
+      orderConditions += ` AND o."createdAt" <= :endDate`
       replacements.endDate = end
     }
 
     const [orderAgg] = await db.sequelize.query(
-      `SELECT COALESCE(SUM("totalPrice"), 0) as "totalRevenue",
-              COALESCE(SUM("discountAmount"), 0) as "totalDiscount"
-       FROM "order"
+      `SELECT COALESCE(SUM(o."totalPrice"), 0) as "totalRevenue",
+              COALESCE(SUM(o."discountAmount"), 0) as "totalDiscount"
+       FROM "order" o
        WHERE ${orderConditions}`,
       { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
