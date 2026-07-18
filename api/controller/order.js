@@ -402,6 +402,26 @@ exports.createOrder = async (req, res) => {
       item._origSubtotal = item.subtotal
     })
 
+    // ===== SERVER-SIDE PRICE VALIDATION =====
+    // Re-calculate all subtotals from DB prices. Never trust FE-sent subtotals.
+    for (const item of items) {
+      if (item.bundleId) {
+        // Bundle: subtotal = bundlePrice × quantity (validated below when bundle is loaded)
+        continue
+      }
+      const prod = await Product.findByPk(item.product || item.productId)
+      if (!prod) {
+        return res.status(400).json({
+          message: `Product not found: ${item.productName || item.product || item.productId}`
+        })
+      }
+      const serverPrice = Number(prod.price) || 0
+      item.price = serverPrice
+      item.basePrice = serverPrice
+      item.subtotal = serverPrice * Number(item.quantity)
+      item.unitPrice = serverPrice
+    }
+
     // Pre-load bundles for stock validation
     const bundleMap = {}
     for (const item of items) {
@@ -426,6 +446,12 @@ exports.createOrder = async (req, res) => {
           })
         }
         bundleMap[item.bundleId] = bundle
+        // Override subtotal from server-side bundle price
+        const serverPrice = Number(bundle.bundlePrice) || 0
+        item.price = serverPrice
+        item.basePrice = serverPrice
+        item.subtotal = serverPrice * Number(item.quantity)
+        item.unitPrice = serverPrice
       }
     }
 
@@ -1624,6 +1650,27 @@ exports.createCustomerOrder = async (req, res) => {
           })
         }
         bundleMap[item.bundleId] = bundle
+      }
+    }
+
+    // ===== SERVER-SIDE PRICE VALIDATION =====
+    // Re-calculate all prices from DB. Never trust FE-sent prices.
+    for (const item of items) {
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        const bundle = bundleMap[item.bundleId]
+        const serverPrice = Number(bundle.bundlePrice) || 0
+        item.price = serverPrice
+        item.subtotal = serverPrice * Number(item.quantity)
+      } else if (item.productId) {
+        const prod = await Product.findByPk(item.productId)
+        if (!prod) {
+          return res.status(400).json({
+            message: `Product not found: ${item.productName || item.productId}`
+          })
+        }
+        const serverPrice = Number(prod.price) || 0
+        item.price = serverPrice
+        item.subtotal = serverPrice * Number(item.quantity)
       }
     }
 
