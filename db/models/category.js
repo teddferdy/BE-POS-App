@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const category = sequelize.define(
     'category',
     {
       id: {
@@ -8,9 +8,6 @@ module.exports = (sequelize, DataTypes) => {
         autoIncrement: true,
         primaryKey: true,
         type: DataTypes.INTEGER
-      },
-      store: {
-        type: DataTypes.JSONB
       },
       name: {
         allowNull: false,
@@ -44,4 +41,13 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'category'
     }
   )
+
+  category.associate = (models) => {
+    category.hasMany(models.category_store, {
+      foreignKey: 'category',
+      as: 'storeAssignments'
+    })
+  }
+
+  return category
 }

@@ -1547,13 +1547,22 @@ exports.getCustomerMenu = async (req, res) => {
     const Op = require('sequelize').Op
     const storeId = Number(store)
 
+    const productStoreSub = db.sequelize.literal(
+      `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+    )
+    const productUnassignedSub = db.sequelize.literal(
+      `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
+    )
+    const categoryStoreSub = db.sequelize.literal(
+      `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+    )
+    const categoryUnassignedSub = db.sequelize.literal(
+      `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
+    )
+
     const products = await db.product.findAll({
       where: {
-        [Op.or]: [
-          { store: { [Op.contains]: [storeId] } },
-          { store: null },
-          db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
-        ],
+        [Op.or]: [productStoreSub, productUnassignedSub],
         status: 'active'
       },
       include: [
@@ -1567,11 +1576,7 @@ exports.getCustomerMenu = async (req, res) => {
 
     const categories = await db.category.findAll({
       where: {
-        [Op.or]: [
-          { store: { [Op.contains]: [storeId] } },
-          { store: null },
-          db.sequelize.literal('"category"."store" = \'[]\'::jsonb')
-        ],
+        [Op.or]: [categoryStoreSub, categoryUnassignedSub],
         status: 'active'
       },
       order: [['name', 'ASC']]

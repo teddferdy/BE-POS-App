@@ -173,15 +173,56 @@ async function seedTestData() {
     const categories = []
     for (let i = 1; i <= 2; i++) {
       const categoryResult = await client.query(
-        `INSERT INTO category ("name", "description", "value", "status", "store", "createdBy", "createdAt")
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        `INSERT INTO category ("name", "description", "value", "status", "createdBy", "createdAt")
+         VALUES ($1, $2, $3, $4, $5, NOW())
          RETURNING id`,
         [
           `Test Category ${i}`,
           `Test category description ${i}`,
           `test-category-${i}`,
           'active',
-          [1],
+          'system'
+        ]
+      )
+      const catId = categoryResult.rows[0].id
+      await client.query(
+        `INSERT INTO category_store ("category", "store", "createdAt", "updatedAt")
+         VALUES ($1, 1, NOW(), NOW())`,
+        [catId]
+      )
+      categories.push(categoryResult.rows[0])
+    }
+    for (let i = 1; i <= 2; i++) {
+      const categoryResult = await client.query(
+        `INSERT INTO category ("name", "description", "value", "status", "createdBy", "createdAt")
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         RETURNING id`,
+        [
+          `Test Category Inactive ${i}`,
+          `Inactive test category ${i}`,
+          `test-category-inactive-${i}`,
+          'inactive',
+          'system'
+        ]
+      )
+      const catId = categoryResult.rows[0].id
+      await client.query(
+        `INSERT INTO category_store ("category", "store", "createdAt", "updatedAt")
+         VALUES ($1, 1, NOW(), NOW())`,
+        [catId]
+      )
+      categories.push(categoryResult.rows[0])
+    }
+    for (let i = 1; i <= 2; i++) {
+      const categoryResult = await client.query(
+        `INSERT INTO category ("name", "description", "value", "status", "createdBy", "createdAt")
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         RETURNING id`,
+        [
+          `Test Category Draft ${i}`,
+          `Draft test category ${i} (can be completed later)`,
+          `test-category-draft-${i}`,
+          'draft',
           'system'
         ]
       )

@@ -25,24 +25,55 @@ const normalizeStores = (stores) => {
   })
 }
 
+const syncProductStores = async (productId, storeIds, transaction) => {
+  const existing = await db.product_store.findAll({
+    where: { product: productId },
+    attributes: ['store'],
+    raw: true,
+    transaction
+  })
+  const existingIds = existing.map((r) => r.store)
+  const toAdd = storeIds.filter((id) => !existingIds.includes(id))
+  const toRemove = existingIds.filter((id) => !storeIds.includes(id))
+
+  if (toAdd.length > 0) {
+    await db.product_store.bulkCreate(
+      toAdd.map((storeId) => ({ product: productId, store: storeId })),
+      { transaction }
+    )
+  }
+  if (toRemove.length > 0) {
+    await db.product_store.destroy({
+      where: { product: productId, store: { [Op.in]: toRemove } },
+      transaction
+    })
+  }
+}
+
+const getProductStoreSubQuery = (storeId) => {
+  return db.sequelize.literal(
+    `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${Number(storeId)} AND "deletedAt" IS NULL)`
+  )
+}
+
+const getUnassignedProductSubQuery = () => {
+  return db.sequelize.literal(
+    `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
+  )
+}
+
 exports.getProductByLocationSuperAdmin = async (req, res) => {
   const { store, search } = req.query
 
   try {
     const whereCondition = { status: 'active' }
+
     if (store) {
       const storeId = Number(store)
-      // ponytail: NaN storeId silently returns all active products
       if (!isNaN(storeId)) {
-        whereCondition[Op.and] = [
-          { status: 'active' },
-          {
-            [Op.or]: [
-              { store: { [Op.contains]: [storeId] } },
-              { store: null },
-              db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
-            ]
-          }
+        whereCondition[Op.or] = [
+          getProductStoreSubQuery(storeId),
+          getUnassignedProductSubQuery()
         ]
       }
     }
@@ -52,8 +83,8 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
         { nameProduct: { [Op.iLike]: `%${search}%` } },
         { sku: { [Op.iLike]: `%${search}%` } }
       ]
-      if (whereCondition[Op.and]) {
-        whereCondition[Op.and].push({ [Op.or]: searchOr })
+      if (whereCondition[Op.or]) {
+        whereCondition[Op.and] = [{ [Op.or]: searchOr }]
       } else {
         whereCondition[Op.or] = searchOr
       }
@@ -69,7 +100,6 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
     ]
     if (store) {
       const storeId = Number(store)
-      // ponytail: same NaN guard — skip per-store stock join if invalid
       if (!isNaN(storeId)) {
         includes.push({
           model: db.product_store_stock,
@@ -87,7 +117,6 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
       res.map((items) => {
         const getData = {
           ...items.dataValues,
-          // ponytail: use per-store stock if available, fall back to global stock
           stock: items.storeStocks?.[0]?.stock ?? items.stock
         }
         delete getData.storeStocks
@@ -119,11 +148,6 @@ exports.getAllProduct = async (req, res) => {
     const userRole = req.user?.roleType
     const filters = {}
 
-    // Store filtering - only for non-super-admin
-    if (store && userRole !== 'super_admin') {
-      filters.store = store
-    }
-
     if (nameProduct) {
       filters.nameProduct = {
         [Op.like]: `${nameProduct}%`
@@ -143,6 +167,11 @@ exports.getAllProduct = async (req, res) => {
     const includeOpts = [
       { model: Category, as: 'categoryData', attributes: ['value', 'name'] }
     ]
+
+    if (store && userRole !== 'super_admin') {
+      filters[Op.and] = [getProductStoreSubQuery(store)]
+    }
+
     if (store) {
       includeOpts.push({
         model: db.product_store_stock,
@@ -152,6 +181,7 @@ exports.getAllProduct = async (req, res) => {
         attributes: ['store', 'stock']
       })
     }
+
     const getAllProduct = await Product.findAll({
       where: filters,
       include: includeOpts
@@ -207,9 +237,8 @@ exports.getAllProductInTable = async (req, res) => {
       const storeId = Number(store)
       if (!isNaN(storeId)) {
         whereCondition[Op.or] = [
-          { store: { [Op.contains]: [storeId] } },
-          { store: null },
-          db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
+          getProductStoreSubQuery(storeId),
+          getUnassignedProductSubQuery()
         ]
       }
     }
@@ -260,35 +289,41 @@ exports.getAllProductInTable = async (req, res) => {
 
     await enrichAuditFields(db, getAllProduct)
 
-    // Resolve store IDs to names
-    const allStoreIds = [
-      ...new Set(
-        getAllProduct.flatMap((p) =>
-          Array.isArray(p.store) ? normalizeStores(p.store) : []
-        )
-      )
-    ]
+    // Resolve store IDs to names via junction table
+    const productIds = getAllProduct.map((p) => p.id)
+    const storeRows =
+      productIds.length > 0
+        ? await db.product_store.findAll({
+            where: { product: { [Op.in]: productIds } },
+            attributes: ['product', 'store'],
+            raw: true
+          })
+        : []
+    const storeIdSet = [...new Set(storeRows.map((r) => r.store))]
     const locationMap = {}
-    if (allStoreIds.length > 0) {
+    if (storeIdSet.length > 0) {
       const locations = await db.location.findAll({
-        where: { id: allStoreIds },
+        where: { id: storeIdSet },
         attributes: ['id', 'name']
       })
       locations.forEach((l) => {
         locationMap[l.id] = l.name
       })
     }
+    const productStoreMap = {}
+    storeRows.forEach((r) => {
+      if (!productStoreMap[r.product]) productStoreMap[r.product] = []
+      productStoreMap[r.product].push(r.store)
+    })
 
     const resolvedCategories = getAllProduct.map((items) => ({
       ...items.dataValues,
       stock: items.storeStocks?.[0]?.stock ?? items.stock,
       nameCategory: items.categoryData ? items.categoryData.name : null,
-      storeList: Array.isArray(items.store)
-        ? normalizeStores(items.store).map((id) => ({
-            id,
-            name: locationMap[id] || null
-          }))
-        : []
+      storeList: (productStoreMap[items.id] || []).map((id) => ({
+        id,
+        name: locationMap[id] || null
+      }))
     }))
 
     // Get total count for pagination
@@ -313,9 +348,8 @@ exports.getAllProductInTable = async (req, res) => {
     const statsWhere = store
       ? {
           [Op.or]: [
-            { store: { [Op.contains]: [Number(store)] } },
-            { store: null },
-            db.sequelize.literal('"product"."store" = \'[]\'::jsonb')
+            getProductStoreSubQuery(Number(store)),
+            getUnassignedProductSubQuery()
           ]
         }
       : {}
@@ -397,17 +431,6 @@ exports.postAddProduct = async (req, res) => {
     if (val === '' || val === null || val === undefined) return null
     const n = Number(val)
     return Number.isNaN(n) ? null : n
-  }
-  const toJsonOrNull = (val) => {
-    if (val === '' || val === null || val === undefined) return null
-    if (typeof val === 'string') {
-      try {
-        return JSON.parse(val)
-      } catch {
-        return null
-      }
-    }
-    return val
   }
 
   try {
@@ -510,7 +533,6 @@ exports.postAddProduct = async (req, res) => {
       createdBy,
       tipeProduk,
       image: imageUrl || image,
-      store: parsedStores,
       supplier: normalizedSupplier,
       tax: normalizedTax,
       priceTiers: parsedPriceTiers,
@@ -522,6 +544,11 @@ exports.postAddProduct = async (req, res) => {
     const sku = `PRD-${String(postData.id).padStart(5, '0')}`
     await Product.update({ sku }, { where: { id: postData.id } })
     postData.sku = sku
+
+    // Sync junction table
+    if (parsedStores.length > 0) {
+      await syncProductStores(postData.id, parsedStores)
+    }
 
     const initialStock = Number(stock) || 0
     if (parsedStores.length > 0) {
@@ -625,17 +652,6 @@ exports.editProductByLocationAndId = async (req, res) => {
     const n = Number(val)
     return Number.isNaN(n) ? null : n
   }
-  const toJsonOrNull = (val) => {
-    if (val === '' || val === null || val === undefined) return null
-    if (typeof val === 'string') {
-      try {
-        return JSON.parse(val)
-      } catch {
-        return null
-      }
-    }
-    return val
-  }
 
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
@@ -731,7 +747,6 @@ exports.editProductByLocationAndId = async (req, res) => {
         : [],
       isAvailable,
       status: status !== undefined ? normalizeStatus(status) : undefined,
-      store: parsedStores,
       supplier: toIntOrNull(supplier),
       tax: normalizedTax,
       priceTiers: parsedPriceTiers,
@@ -752,6 +767,18 @@ exports.editProductByLocationAndId = async (req, res) => {
       }
     })
     const editLocation = editRows[0]
+
+    // Sync junction table
+    if (stores !== undefined) {
+      await syncProductStores(id, parsedStores)
+    }
+
+    // Get first store for notification
+    const firstStoreRow = await db.product_store.findOne({
+      where: { product: id },
+      attributes: ['store'],
+      raw: true
+    })
 
     // Update per-store stock for the current store — ponytail: atomic upsert + adjust
     const storeId = req.cookies?.store || req.body?.storeId
@@ -786,7 +813,7 @@ exports.editProductByLocationAndId = async (req, res) => {
 
     createNotification({
       type: 'product_updated',
-      store: getAllProductByIdAndLocation.store?.[0] || req.user?.store,
+      store: firstStoreRow?.store || req.user?.store,
       referenceId: id,
       referenceType: 'product',
       params: [nameProduct],
@@ -820,13 +847,20 @@ exports.deleteProductByIdAndLocation = async (req, res) => {
       })
     }
 
+    // Get first store for notification before soft-delete
+    const firstStoreRow = await db.product_store.findOne({
+      where: { product: id },
+      attributes: ['store'],
+      raw: true
+    })
+
     await Product.destroy({
       where: { id }
     })
 
     createNotification({
       type: 'product_deleted',
-      store: product.store?.[0] || req.user?.store,
+      store: firstStoreRow?.store || req.user?.store,
       referenceId: id,
       referenceType: 'product',
       params: [product.nameProduct || 'Unknown'],
@@ -873,10 +907,27 @@ exports.exportProduct = async (req, res) => {
   worksheet.getRow(1).font = { bold: true }
 
   try {
-    const categories = await Category.findAll({
-      where: { store: storeId },
-      attributes: ['name']
-    })
+    const storeIdNum = Number(storeId)
+    let categories
+    if (storeIdNum) {
+      // Use junction table to find categories assigned to this store
+      const categoryIds = await db.category_store.findAll({
+        where: { store: storeIdNum },
+        attributes: ['category'],
+        raw: true
+      }).then((rows) => rows.map((r) => r.category))
+      categories = categoryIds.length > 0
+        ? await Category.findAll({
+            where: { id: { [Op.in]: categoryIds }, status: 'active' },
+            attributes: ['name']
+          })
+        : []
+    } else {
+      categories = await Category.findAll({
+        where: { status: 'active' },
+        attributes: ['name']
+      })
+    }
 
     if (!categories.length) {
       return res
@@ -932,7 +983,13 @@ exports.downloadData = async (req, res) => {
   ]
 
   try {
-    const where = store ? { store } : {}
+    const where = {}
+    if (store) {
+      where[Op.or] = [
+        getProductStoreSubQuery(Number(store)),
+        getUnassignedProductSubQuery()
+      ]
+    }
     const products = await Product.findAll({
       where,
       include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
@@ -1019,6 +1076,22 @@ exports.downloadTemplate = async (req, res) => {
       taxMap[t.id] = `${t.name} (${t.rate}%)`
     })
 
+    // Resolve store assignments via junction table
+    const productIds = existingProducts.map((p) => p.id)
+    const storeRows =
+      productIds.length > 0
+        ? await db.product_store.findAll({
+            where: { product: { [Op.in]: productIds } },
+            attributes: ['product', 'store'],
+            raw: true
+          })
+        : []
+    const productStoreMap = {}
+    storeRows.forEach((r) => {
+      if (!productStoreMap[r.product]) productStoreMap[r.product] = []
+      productStoreMap[r.product].push(r.store)
+    })
+
     const productsWithData = existingProducts.map((p) => {
       let taxName = ''
       if (p.tax) {
@@ -1035,7 +1108,7 @@ exports.downloadTemplate = async (req, res) => {
         description: p.description || '',
         categoryName: p.categoryData?.name || '',
         tipeProduk: p.tipeProduk || 'menu',
-        store: p.store,
+        store: productStoreMap[p.id] || [],
         unit: p.unit || 'pcs',
         baseUnit: p.baseUnit || 'pcs',
         conversionFactor: p.conversionFactor || 1,
@@ -1260,7 +1333,6 @@ exports.importProduct = async (req, res) => {
             description: product.description || null,
             category: categoryId,
             tipeProduk: product.tipeProduk || 'menu',
-            store: storeId ? [storeId] : null,
             unit: product.unit || 'pcs',
             baseUnit: product.baseUnit || 'pcs',
             conversionFactor: product.conversionFactor || 1,
@@ -1315,6 +1387,11 @@ exports.importProduct = async (req, res) => {
               { transaction: t }
             )
 
+            // Sync junction table
+            if (storeId) {
+              await syncProductStores(existingProduct.id, [storeId], t)
+            }
+
             results.updated.push({
               id: existingProduct.id,
               nameProduct: existingProduct.nameProduct
@@ -1328,6 +1405,11 @@ exports.importProduct = async (req, res) => {
               },
               { transaction: t }
             )
+
+            // Create junction rows
+            if (storeId) {
+              await syncProductStores(newProduct.id, [storeId], t)
+            }
 
             if (productData.stock > 0) {
               await StockHistory.create(
@@ -1449,13 +1531,6 @@ exports.getProductById = async (req, res) => {
         data.priceTiers = []
       }
     }
-    if (typeof data.store === 'string') {
-      try {
-        data.store = JSON.parse(data.store)
-      } catch {
-        data.store = []
-      }
-    }
     if (typeof data.composition === 'string') {
       try {
         data.composition = JSON.parse(data.composition)
@@ -1463,6 +1538,29 @@ exports.getProductById = async (req, res) => {
         data.composition = []
       }
     }
+
+    // Resolve store assignments from junction table
+    const storeRows = await db.product_store.findAll({
+      where: { product: Number(id) },
+      attributes: ['store'],
+      raw: true
+    })
+    const storeIds = storeRows.map((r) => r.store)
+    const locations =
+      storeIds.length > 0
+        ? await db.location.findAll({
+            where: { id: storeIds },
+            attributes: ['id', 'name']
+          })
+        : []
+    const locationMap = {}
+    locations.forEach((l) => {
+      locationMap[l.id] = l.name
+    })
+    data.store = storeIds.map((storeId) => ({
+      id: storeId,
+      name: locationMap[storeId] || null
+    }))
 
     return res.status(200).json({
       success: true,

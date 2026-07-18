@@ -9,9 +9,6 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         type: DataTypes.INTEGER
       },
-      store: {
-        type: DataTypes.JSONB
-      },
       nameProduct: {
         allowNull: false,
         type: DataTypes.STRING
@@ -198,6 +195,10 @@ module.exports = (sequelize, DataTypes) => {
     product.hasMany(models.product_bundle_item, {
       foreignKey: 'product',
       as: 'bundleItems'
+    })
+    product.hasMany(models.product_store, {
+      foreignKey: 'product',
+      as: 'storeAssignments'
     })
   }
 

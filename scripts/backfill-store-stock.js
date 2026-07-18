@@ -2,6 +2,18 @@ const { sequelize } = require('../db/models')
 
 async function backfill() {
   console.log('Backfilling product_store_stock...')
+
+  const [cols] = await sequelize.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'product' AND column_name = 'store' AND table_schema = 'public'`
+  )
+  if (cols.length === 0) {
+    console.log(
+      'product.store column no longer exists (migrated to product_store junction). Skipping.'
+    )
+    process.exit(0)
+  }
+
   const [products] = await sequelize.query(
     `SELECT id, store, stock FROM "product" WHERE store IS NOT NULL AND store != '[]'::jsonb AND "deletedAt" IS NULL`
   )

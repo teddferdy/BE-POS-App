@@ -21,7 +21,7 @@ const normalizeStores = (stores) => {
 }
 
 const parseStoreField = (val) => {
-  if (!val || val === '') return null
+  if (!val || val === '') return []
   try {
     const parsed = JSON.parse(val)
     return Array.isArray(parsed) ? normalizeStores(parsed) : [parseInt(val, 10)]
@@ -40,6 +40,43 @@ const resolveStoreNames = async (storeIds) => {
   return locations.map((l) => ({ id: l.id, name: l.name }))
 }
 
+const syncCategoryStores = async (categoryId, storeIds, transaction) => {
+  const existing = await db.category_store.findAll({
+    where: { category: categoryId },
+    attributes: ['store'],
+    raw: true,
+    transaction
+  })
+  const existingIds = existing.map((r) => r.store)
+  const toAdd = storeIds.filter((id) => !existingIds.includes(id))
+  const toRemove = existingIds.filter((id) => !storeIds.includes(id))
+
+  if (toAdd.length > 0) {
+    await db.category_store.bulkCreate(
+      toAdd.map((storeId) => ({ category: categoryId, store: storeId })),
+      { transaction }
+    )
+  }
+  if (toRemove.length > 0) {
+    await db.category_store.destroy({
+      where: { category: categoryId, store: { [Op.in]: toRemove } },
+      transaction
+    })
+  }
+}
+
+const getCategoryStoreSubQuery = (storeId) => {
+  return db.sequelize.literal(
+    `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${Number(storeId)} AND "deletedAt" IS NULL)`
+  )
+}
+
+const getUnassignedCategorySubQuery = () => {
+  return db.sequelize.literal(
+    `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
+  )
+}
+
 // Get Category By Id
 exports.getCategoryById = async (req, res) => {
   try {
@@ -54,9 +91,14 @@ exports.getCategoryById = async (req, res) => {
       })
     }
 
-    const stores = Array.isArray(category.store)
-      ? await resolveStoreNames(category.store)
-      : []
+    // Resolve stores from junction table
+    const storeRows = await db.category_store.findAll({
+      where: { category: Number(id) },
+      attributes: ['store'],
+      raw: true
+    })
+    const storeIds = storeRows.map((r) => r.store)
+    const stores = await resolveStoreNames(storeIds)
 
     const productCount = await Product.count({ where: { category: id } })
 
@@ -119,29 +161,35 @@ exports.getAllCategoryInTable = async (req, res) => {
 
     if (store) {
       const storeId = parseInt(store)
-      const storeOr = [
-        { store: null },
-        { store: { [Op.contains]: [storeId] } },
-        db.sequelize.literal('"category"."store" = \'[]\'::jsonb')
-      ]
-      whereClause[Op.or] = storeOr
-      statsWhere = { [Op.or]: storeOr }
-    } else {
-      statsWhere = {}
+      // SuperAdmin: show assigned to store OR unassigned
+      // Admin/Cashier: show assigned to store only
+      const isSuperAdmin = req.user?.roleType === 'super_admin'
+      if (isSuperAdmin) {
+        const storeOr = [
+          getCategoryStoreSubQuery(storeId),
+          getUnassignedCategorySubQuery()
+        ]
+        whereClause[Op.or] = storeOr
+        statsWhere = { [Op.or]: storeOr }
+      } else {
+        whereClause[Op.and] = [getCategoryStoreSubQuery(storeId)]
+        statsWhere = { [Op.and]: [getCategoryStoreSubQuery(storeId)] }
+      }
     }
 
     if (search) {
-      const existingOr = whereClause[Op.or]
       const searchClause = [
         { name: { [Op.iLike]: `%${search}%` } },
         { idCategory: { [Op.iLike]: `%${search}%` } }
       ]
-      if (existingOr) {
+      if (whereClause[Op.or]) {
         whereClause[Op.and] = [
-          { [Op.or]: existingOr },
+          { [Op.or]: whereClause[Op.or] },
           { [Op.or]: searchClause }
         ]
         delete whereClause[Op.or]
+      } else if (whereClause[Op.and]) {
+        whereClause[Op.and].push({ [Op.or]: searchClause })
       } else {
         whereClause[Op.or] = searchClause
       }
@@ -184,23 +232,32 @@ exports.getAllCategoryInTable = async (req, res) => {
       })
     }
 
-    const allStoreIds = [
-      ...new Set(
-        categories.flatMap((c) =>
-          Array.isArray(c.store) ? normalizeStores(c.store) : []
-        )
-      )
-    ]
+    // Resolve store assignments via junction table
+    const categoryIds = categories.map((c) => c.id)
+    const storeRows =
+      categoryIds.length > 0
+        ? await db.category_store.findAll({
+            where: { category: { [Op.in]: categoryIds } },
+            attributes: ['category', 'store'],
+            raw: true
+          })
+        : []
+    const storeIdSet = [...new Set(storeRows.map((r) => r.store))]
     const locationMap = {}
-    if (allStoreIds.length > 0) {
+    if (storeIdSet.length > 0) {
       const locations = await Location.findAll({
-        where: { id: allStoreIds },
+        where: { id: storeIdSet },
         attributes: ['id', 'name']
       })
       locations.forEach((l) => {
         locationMap[l.id] = l.name
       })
     }
+    const categoryStoreMap = {}
+    storeRows.forEach((r) => {
+      if (!categoryStoreMap[r.category]) categoryStoreMap[r.category] = []
+      categoryStoreMap[r.category].push(r.store)
+    })
 
     const data = categories.map((item) => ({
       id: item.id,
@@ -211,12 +268,10 @@ exports.getAllCategoryInTable = async (req, res) => {
       image: item.image,
       status: item.status,
       productCount: countMap[item.id] || 0,
-      store: Array.isArray(item.store)
-        ? normalizeStores(item.store).map((id) => ({
-            id,
-            name: locationMap[id] || null
-          }))
-        : [],
+      store: (categoryStoreMap[item.id] || []).map((id) => ({
+        id,
+        name: locationMap[id] || null
+      })),
       createdBy: item.createdBy,
       createdByUser: item.dataValues?.createdByUser || null,
       modifiedBy: item.modifiedBy,
@@ -306,13 +361,13 @@ exports.addNewCategory = async (req, res) => {
             : 'inactive'
           : 'active'
 
-    const store =
-      parseStoreField(body.store) ||
-      (req.cookies.store
+    const parsedStores = body.store
+      ? parseStoreField(body.store)
+      : req.cookies.store
         ? [parseInt(req.cookies.store, 10)]
         : req.user?.store
           ? [parseInt(req.user.store, 10)]
-          : null)
+          : []
 
     const createdCategory = await Category.create({
       name: body?.name,
@@ -320,11 +375,15 @@ exports.addNewCategory = async (req, res) => {
       image: imageUrl,
       value: body?.value || body?.name?.toLowerCase(),
       status: status,
-      store: store,
       createdBy: req.user?.id || null
     })
 
     if (createdCategory.getDataValue) {
+      // Sync junction table
+      if (parsedStores.length > 0) {
+        await syncCategoryStores(createdCategory.id, parsedStores)
+      }
+
       createAudit(
         req,
         'create',
@@ -415,12 +474,6 @@ exports.editCategoryById = async (req, res) => {
             : 'inactive'
           : 'active'
 
-    const store = body.store
-      ? parseStoreField(body.store)
-      : Array.isArray(category.store)
-        ? normalizeStores(category.store)
-        : null
-
     const [affectedCount, updatedRows] = await Category.update(
       {
         name: body?.name,
@@ -428,7 +481,6 @@ exports.editCategoryById = async (req, res) => {
         image: imageUrl,
         value: body?.value || body?.name?.toLowerCase(),
         status: status,
-        store: store,
         modifiedBy: req.user?.id || null
       },
       {
@@ -442,6 +494,12 @@ exports.editCategoryById = async (req, res) => {
         success: false,
         message: 'Gagal Ubah Kategori'
       })
+    }
+
+    // Sync junction table
+    if (body.store !== undefined) {
+      const parsedStores = parseStoreField(body.store)
+      await syncCategoryStores(Number(req.params.id), parsedStores)
     }
 
     createAudit(
@@ -565,10 +623,26 @@ exports.exportCategory = async (req, res) => {
       storeNameById[s.id] = s.name
     })
 
-    const formatStores = (storeVal) => {
-      if (!storeVal || !Array.isArray(storeVal) || storeVal.length === 0)
-        return 'All Stores'
-      return normalizeStores(storeVal)
+    // Resolve store assignments via junction table
+    const categoryIds = categories.map((c) => c.id)
+    const storeRows =
+      categoryIds.length > 0
+        ? await db.category_store.findAll({
+            where: { category: { [Op.in]: categoryIds } },
+            attributes: ['category', 'store'],
+            raw: true
+          })
+        : []
+    const categoryStoreMap = {}
+    storeRows.forEach((r) => {
+      if (!categoryStoreMap[r.category]) categoryStoreMap[r.category] = []
+      categoryStoreMap[r.category].push(r.store)
+    })
+
+    const formatStores = (categoryId) => {
+      const storeIds = categoryStoreMap[categoryId] || []
+      if (storeIds.length === 0) return 'All Stores'
+      return storeIds
         .map((id) => storeNameById[id] || `Store #${id}`)
         .join(', ')
     }
@@ -586,7 +660,7 @@ exports.exportCategory = async (req, res) => {
       worksheet.getCell(`C${rowIndex}`).value = cat.description || ''
       worksheet.getCell(`C${rowIndex}`).protection = { locked: false }
 
-      worksheet.getCell(`D${rowIndex}`).value = formatStores(cat.store)
+      worksheet.getCell(`D${rowIndex}`).value = formatStores(cat.id)
       worksheet.getCell(`D${rowIndex}`).protection = { locked: false }
       worksheet.getCell(`D${rowIndex}`).dataValidation = {
         type: 'list',
@@ -816,7 +890,7 @@ exports.importCategory = async (req, res) => {
       categories.push({
         name: nameStr,
         description,
-        store: storeId ? [storeId] : null,
+        storeId,
         status,
         createdBy: req.user?.id || null
       })
@@ -850,7 +924,21 @@ exports.importCategory = async (req, res) => {
         continue
       }
 
-      await Category.create(cat)
+      const newCategory = await Category.create({
+        name: cat.name,
+        description: cat.description,
+        status: cat.status,
+        createdBy: cat.createdBy
+      })
+
+      // Create junction rows
+      if (cat.storeId) {
+        await db.category_store.create({
+          category: newCategory.id,
+          store: cat.storeId
+        })
+      }
+
       insertedCount++
     }
 

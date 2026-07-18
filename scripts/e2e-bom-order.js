@@ -52,12 +52,13 @@ async function main() {
   console.log(`✓ Ingredient category id=${icId}`)
 
   // 3. Ensure product category
-  found = await sql(`SELECT id FROM category WHERE name = 'Minuman' AND store IS NOT NULL AND store @> '[${STORE}]'::jsonb LIMIT 1`, { type: db.Sequelize.QueryTypes.SELECT })
+  found = await sql(`SELECT c.id FROM category c WHERE c.name = 'Minuman' AND EXISTS (SELECT 1 FROM category_store cs WHERE cs.category = c.id AND cs.store = ${STORE} AND cs."deletedAt" IS NULL) LIMIT 1`, { type: db.Sequelize.QueryTypes.SELECT })
   let pcId
   if (found.length) pcId = found[0].id
   else {
-    const r = await sql(`INSERT INTO category (name, value, store, status, "createdBy", "createdAt", "updatedAt") VALUES ('Minuman', 'minuman', '[${STORE}]'::jsonb, 'active', ${USER_ID}, NOW(), NOW()) RETURNING id`, { type: db.Sequelize.QueryTypes.INSERT })
+    const r = await sql(`INSERT INTO category (name, value, status, "createdBy", "createdAt", "updatedAt") VALUES ('Minuman', 'minuman', 'active', ${USER_ID}, NOW(), NOW()) RETURNING id`, { type: db.Sequelize.QueryTypes.INSERT })
     pcId = r[0]?.id || r[0]?.[0]?.id
+    await sql(`INSERT INTO category_store ("category", "store", "createdAt", "updatedAt") VALUES (${pcId}, ${STORE}, NOW(), NOW())`)
     console.log(`  + Created product category id=${pcId}`)
   }
   console.log(`✓ Product category id=${pcId}`)
@@ -101,8 +102,9 @@ async function main() {
       pid = rows[0].id
       await sql(`UPDATE product SET stock = ${s.stock}, price = ${s.price}, "costPrice" = ${s.costPrice} WHERE id = ${pid}`)
     } else {
-      const r = await sql(`INSERT INTO product ("nameProduct", price, "costPrice", category, status, "createdBy", store, unit, "createdAt", "updatedAt", stock) VALUES ('${s.name.replace(/'/g, "''")}', ${s.price}, ${s.costPrice}, ${pcId}, 'active', ${USER_ID}, '[]'::jsonb, 'pcs', NOW(), NOW(), ${s.stock}) RETURNING id`, { type: db.Sequelize.QueryTypes.INSERT })
+      const r = await sql(`INSERT INTO product ("nameProduct", price, "costPrice", category, status, "createdBy", unit, "createdAt", "updatedAt", stock) VALUES ('${s.name.replace(/'/g, "''")}', ${s.price}, ${s.costPrice}, ${pcId}, 'active', ${USER_ID}, 'pcs', NOW(), NOW(), ${s.stock}) RETURNING id`, { type: db.Sequelize.QueryTypes.INSERT })
       pid = r[0]?.id || r[0]?.[0]?.id
+      await sql(`INSERT INTO product_store ("product", "store", "createdAt", "updatedAt") VALUES (${pid}, ${STORE}, NOW(), NOW())`)
       console.log(`  + Created product: ${s.name} (id=${pid})`)
     }
     // upsert store stock

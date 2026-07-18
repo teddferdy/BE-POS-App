@@ -266,35 +266,33 @@ const posController = {
             { transaction: t }
           )
 
-          // Add destination store to product's store list if product is store-specific
-          const prodStore = product.store
-          if (prodStore && Array.isArray(prodStore) && prodStore.length > 0) {
-            const toStoreNum = Number(toStore)
-            if (!prodStore.includes(toStoreNum)) {
-              prodStore.push(toStoreNum)
-              await product.update({ store: prodStore }, { transaction: t })
-            }
+          // Add destination store to product's store list via junction table
+          const existingProdStore = await db.product_store.findOne({
+            where: { product: item.product, store: Number(toStore) },
+            transaction: t
+          })
+          if (!existingProdStore) {
+            await db.product_store.create(
+              { product: item.product, store: Number(toStore) },
+              { transaction: t }
+            )
           }
 
-          // Add destination store to category's store list if category is store-specific
+          // Add destination store to category's store list via junction table
           if (product.category) {
             const category = await db.category.findByPk(product.category, {
               transaction: t
             })
             if (category) {
-              const catStore = category.store
-              if (catStore && Array.isArray(catStore) && catStore.length > 0) {
-                if (!catStore.some((s) => Number(s.id) === Number(toStore))) {
-                  const location = await db.location.findByPk(toStore, {
-                    attributes: ['id', 'name'],
-                    transaction: t
-                  })
-                  catStore.push({
-                    id: Number(toStore),
-                    name: location?.name || ''
-                  })
-                  await category.update({ store: catStore }, { transaction: t })
-                }
+              const existingCatStore = await db.category_store.findOne({
+                where: { category: category.id, store: Number(toStore) },
+                transaction: t
+              })
+              if (!existingCatStore) {
+                await db.category_store.create(
+                  { category: category.id, store: Number(toStore) },
+                  { transaction: t }
+                )
               }
             }
           }

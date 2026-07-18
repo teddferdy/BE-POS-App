@@ -1,7 +1,13 @@
+const { Op } = require('sequelize')
 const db = require('../../db/models')
 const ExcelJS = require('exceljs')
 
 const EXCLUDED_ATTRS = new Set(['createdAt', 'updatedAt', 'deletedAt'])
+
+const JUNCTION_TABLE_MODELS = {
+  category: { table: 'category_store', fk: 'category' },
+  product: { table: 'product_store', fk: 'product' }
+}
 
 function getSerializedValue(value) {
   if (value === null || value === undefined) return ''
@@ -50,7 +56,21 @@ const exportMasterController = {
 
         const where = {}
         if (store && entity.filterable) {
-          where.store = store
+          const junction = JUNCTION_TABLE_MODELS[entity.model]
+          if (junction) {
+            const rows = await db.sequelize.query(
+              `SELECT "${junction.fk}" AS id FROM "${junction.table}" WHERE store = ${Number(store)} AND "deletedAt" IS NULL`,
+              { type: db.sequelize.QueryTypes.SELECT }
+            )
+            const ids = rows.map((r) => r.id)
+            if (ids.length === 0) {
+              where.id = { [Op.in]: [-1] }
+            } else {
+              where.id = { [Op.in]: ids }
+            }
+          } else {
+            where.store = store
+          }
         }
 
         const records = await Model.findAll({

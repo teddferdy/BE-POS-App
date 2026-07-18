@@ -5,20 +5,33 @@ const overviewController = {
   async getProductSummary(req, res) {
     try {
       const { store } = req.query
+      let sql
       const replacements = {}
-      let conditions = '1=1'
-      if (store) {
-        conditions += ` AND "store" = :store`
-        replacements.store = store
-      }
 
-      const [result] = await db.sequelize.query(
-        `SELECT COUNT(*) as total,
+      if (store) {
+        const storeId = Number(store)
+        sql = `SELECT COUNT(*) as total,
                 COUNT(*) FILTER (WHERE "status" = 'active') as active,
                 COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
-         FROM "product" WHERE ${conditions}`,
-        { replacements, type: db.sequelize.QueryTypes.SELECT }
-      )
+         FROM "product"
+         WHERE ("product"."deletedAt" IS NULL)
+           AND (
+             EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = :store AND "deletedAt" IS NULL)
+             OR NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)
+           )`
+        replacements.store = storeId
+      } else {
+        sql = `SELECT COUNT(*) as total,
+                COUNT(*) FILTER (WHERE "status" = 'active') as active,
+                COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
+         FROM "product"
+         WHERE ("product"."deletedAt" IS NULL)`
+      }
+
+      const [result] = await db.sequelize.query(sql, {
+        replacements,
+        type: db.sequelize.QueryTypes.SELECT
+      })
 
       return res.status(200).json({
         success: true,
@@ -40,20 +53,33 @@ const overviewController = {
   async getCategorySummary(req, res) {
     try {
       const { store } = req.query
+      let sql
       const replacements = {}
-      let conditions = '1=1'
-      if (store) {
-        conditions += ` AND "store" = :store`
-        replacements.store = store
-      }
 
-      const [result] = await db.sequelize.query(
-        `SELECT COUNT(*) as total,
+      if (store) {
+        const storeId = Number(store)
+        sql = `SELECT COUNT(*) as total,
                 COUNT(*) FILTER (WHERE "status" = 'active') as active,
                 COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
-         FROM "category" WHERE ${conditions}`,
-        { replacements, type: db.sequelize.QueryTypes.SELECT }
-      )
+         FROM "category"
+         WHERE ("category"."deletedAt" IS NULL)
+           AND (
+             EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = :store AND "deletedAt" IS NULL)
+             OR NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)
+           )`
+        replacements.store = storeId
+      } else {
+        sql = `SELECT COUNT(*) as total,
+                COUNT(*) FILTER (WHERE "status" = 'active') as active,
+                COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
+         FROM "category"
+         WHERE ("category"."deletedAt" IS NULL)`
+      }
+
+      const [result] = await db.sequelize.query(sql, {
+        replacements,
+        type: db.sequelize.QueryTypes.SELECT
+      })
 
       return res.status(200).json({
         success: true,
@@ -201,8 +227,23 @@ const overviewController = {
     try {
       const { store, limit = 5 } = req.query
 
+      let where = {}
+      if (store) {
+        const storeId = Number(store)
+        where = {
+          [Op.or]: [
+            db.sequelize.literal(
+              `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+            ),
+            db.sequelize.literal(
+              `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
+            )
+          ]
+        }
+      }
+
       const categories = await db.category.findAll({
-        where: { store },
+        where,
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit)
       })
@@ -248,8 +289,23 @@ const overviewController = {
     try {
       const { store, limit = 5 } = req.query
 
+      let where = {}
+      if (store) {
+        const storeId = Number(store)
+        where = {
+          [Op.or]: [
+            db.sequelize.literal(
+              `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+            ),
+            db.sequelize.literal(
+              `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
+            )
+          ]
+        }
+      }
+
       const products = await db.product.findAll({
-        where: { store },
+        where,
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit)
       })
