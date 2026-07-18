@@ -137,7 +137,13 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       shiftId: {
-        type: DataTypes.INTEGER
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      promoCampaignId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'promo_campaign', key: 'id' }
       }
     },
     {

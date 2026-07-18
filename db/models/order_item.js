@@ -77,6 +77,15 @@ module.exports = (sequelize, DataTypes) => {
       stationDapur: {
         type: DataTypes.INTEGER,
         allowNull: true
+      },
+      bundleId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'product_bundle', key: 'id' }
+      },
+      bundleName: {
+        type: DataTypes.STRING,
+        allowNull: true
       }
     },
     {

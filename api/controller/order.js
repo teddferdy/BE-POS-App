@@ -7,6 +7,7 @@ const Product = db.product
 const Discount = db.discount
 const Transaction = db.transaction
 const BestSelling = db.best_selling
+const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
@@ -38,82 +39,212 @@ const getServiceChargeRate = async (store) => {
   return 5
 }
 
-const applyAdvancedPromo = async (items, discount) => {
-  if (!discount || !discount.conditions || !discount.conditions.promoType)
-    return 0
-  const { promoType } = discount.conditions
-  let totalDiscount = 0
+const evaluatePromoCampaign = async (items, store, customerId, subtotal) => {
+  const now = new Date()
+  const currentDay = now.getDay()
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
 
-  // ponytail: normalise field names from different payload formats
-  items.forEach((item) => {
-    item.productId = item.productId || item.product
-    item.unitPrice = item.unitPrice ?? item.price ?? item.basePrice ?? 0
+  const campaigns = await db.promo_campaign.findAll({
+    where: {
+      status: 'active',
+      startDate: { [Op.lte]: now },
+      endDate: { [Op.gte]: now }
+    },
+    include: [
+      {
+        model: db.promo_rule,
+        as: 'rules',
+        where: { isActive: true },
+        required: false
+      },
+      {
+        model: db.promo_reward,
+        as: 'rewards',
+        where: { isActive: true },
+        required: false
+      }
+    ],
+    order: [['priority', 'DESC']]
   })
 
-  switch (promoType) {
-    case 'bogo': {
-      const {
-        buyQty = 2,
-        freeQty = 1,
-        freeProductId = null
-      } = discount.conditions
-      let targetItem
-      if (freeProductId) {
-        targetItem = items.find(
-          (i) => Number(i.productId) === Number(freeProductId)
-        )
-      } else {
-        targetItem = items.reduce((a, b) =>
-          (a.unitPrice || 0) < (b.unitPrice || 0) ? a : b
-        )
-      }
-      if (targetItem && targetItem.quantity >= buyQty) {
-        const freeCount = Math.floor(targetItem.quantity / buyQty) * freeQty
-        const freeAmount = (targetItem.unitPrice || 0) * freeCount
-        targetItem.subtotal = Math.max(
-          0,
-          (targetItem.unitPrice || 0) * targetItem.quantity - freeAmount
-        )
-        totalDiscount += freeAmount
-      }
-      break
+  let bestDiscount = 0
+  let bestCampaignId = null
+  let bestReward = null
+
+  for (const campaign of campaigns) {
+    if (store && campaign.store) {
+      const storeArr = Array.isArray(campaign.store)
+        ? campaign.store
+        : [campaign.store]
+      if (!storeArr.includes(Number(store))) continue
     }
-    case 'bundling': {
-      const { bundlePrice, productIds } = discount.conditions
-      const pidSet = new Set((productIds || []).map(Number))
-      const bundleItems = items.filter((i) => pidSet.has(Number(i.productId)))
-      if (bundleItems.length === (productIds || []).length) {
-        const origTotal = bundleItems.reduce((s, i) => s + i.subtotal, 0)
-        const ratio = bundlePrice / origTotal
-        bundleItems.forEach((item) => {
-          const orig = item.subtotal
-          item.subtotal = Math.round(orig * ratio)
-          totalDiscount += orig - item.subtotal
-        })
-      }
-      break
+
+    if (
+      campaign.maxUsageTotal &&
+      campaign.currentUsage >= campaign.maxUsageTotal
+    )
+      continue
+
+    if (
+      campaign.daysOfWeek &&
+      campaign.daysOfWeek.length > 0 &&
+      !campaign.daysOfWeek.includes(currentDay)
+    )
+      continue
+
+    if (campaign.startTime && campaign.endTime) {
+      if (currentTime < campaign.startTime || currentTime > campaign.endTime)
+        continue
     }
-    case 'category': {
-      const { discountPercent, categoryIds } = discount.conditions
-      const catSet = new Set((categoryIds || []).map(Number))
-      for (const item of items) {
-        let catId = Number(item.categoryId)
-        if (!catId) {
-          const prod = await Product.findByPk(item.productId, {
-            attributes: ['category']
-          })
-          if (prod) catId = Number(prod.category)
+
+    if (campaign.minPurchase && subtotal < campaign.minPurchase) continue
+
+    if (campaign.maxUsagePerMember && customerId) {
+      const memberUsage = await db.promo_usage.count({
+        where: { campaignId: campaign.id, memberId: customerId }
+      })
+      if (memberUsage >= campaign.maxUsagePerMember) continue
+    }
+
+    let isEligible = true
+
+    for (const rule of campaign.rules || []) {
+      if (!rule.isActive) continue
+
+      switch (rule.ruleType) {
+        case 'buy_x_get_y': {
+          const { buyProductId, buyQuantity } = rule.condition || {}
+          const cartItem = items.find(
+            (item) => (item.product || item.productId) === buyProductId
+          )
+          if (!cartItem || cartItem.quantity < buyQuantity) {
+            isEligible = false
+          }
+          break
         }
-        if (catSet.has(catId)) {
-          const disc = Math.round(item.subtotal * (discountPercent / 100))
-          item.subtotal -= disc
-          totalDiscount += disc
+        case 'spend_threshold': {
+          if (subtotal < ((rule.condition && rule.condition.minSpend) || 0)) {
+            isEligible = false
+          }
+          break
+        }
+        case 'member_tier': {
+          if (customerId) {
+            const member = await db.member.findByPk(customerId)
+            if (
+              !member ||
+              member.tier !== (rule.condition && rule.condition.tierId)
+            ) {
+              isEligible = false
+            }
+          } else {
+            isEligible = false
+          }
+          break
+        }
+        case 'birthday': {
+          if (customerId) {
+            const member = await db.member.findByPk(customerId)
+            if (member) {
+              const dob = new Date(member.dateOfBirth)
+              if (
+                now.getMonth() !== dob.getMonth() ||
+                now.getDate() !== dob.getDate()
+              ) {
+                isEligible = false
+              }
+            } else {
+              isEligible = false
+            }
+          } else {
+            isEligible = false
+          }
+          break
+        }
+        case 'first_purchase': {
+          if (customerId) {
+            const orderCount = await Order.count({
+              where: { customerId, status: { [Op.ne]: 'void' } }
+            })
+            if (orderCount > 0) {
+              isEligible = false
+            }
+          } else {
+            isEligible = false
+          }
+          break
+        }
+        case 'time': {
+          if (campaign.startTime && campaign.endTime) {
+            if (
+              currentTime < campaign.startTime ||
+              currentTime > campaign.endTime
+            ) {
+              isEligible = false
+            }
+          }
+          break
         }
       }
-      break
+      if (!isEligible) break
+    }
+
+    if (!isEligible) continue
+
+    const reward = (campaign.rewards && campaign.rewards[0]) || null
+    if (!reward) continue
+
+    let discountAmount = 0
+
+    switch (reward.rewardType) {
+      case 'discount_percentage': {
+        discountAmount = Math.round(subtotal * (reward.rewardValue / 100))
+        if (reward.maxRewardValue && discountAmount > reward.maxRewardValue) {
+          discountAmount = reward.maxRewardValue
+        }
+        break
+      }
+      case 'discount_fixed': {
+        discountAmount = reward.rewardValue
+        break
+      }
+      case 'buy_x_get_y': {
+        const freeProductId = reward.productId
+        const freeQty = reward.quantity || 1
+        const targetItem = items.find(
+          (item) => (item.product || item.productId) === freeProductId
+        )
+        if (targetItem) {
+          discountAmount =
+            (targetItem.unitPrice || targetItem.price || 0) * freeQty
+        }
+        break
+      }
+      case 'free_item': {
+        const freeProductId = reward.productId
+        const freeQty = reward.quantity || 1
+        const freeProduct = freeProductId
+          ? await Product.findByPk(freeProductId)
+          : null
+        if (freeProduct) {
+          discountAmount = (freeProduct.price || 0) * freeQty
+        }
+        break
+      }
+    }
+
+    if (discountAmount > bestDiscount) {
+      bestDiscount = discountAmount
+      bestCampaignId = campaign.id
+      bestReward = reward
     }
   }
-  return totalDiscount
+
+  return {
+    discountAmount: bestDiscount,
+    campaignId: bestCampaignId,
+    reward: bestReward
+  }
 }
 
 const calculateOrderTotals = (
@@ -234,35 +365,6 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // Priority 2.5: Happy hour auto-discount
-    if (!appliedDiscountId) {
-      const now = new Date()
-      const dayOfWeek = now.getDay()
-      const timeStr = now.toTimeString().slice(0, 5)
-      const allActive = await Discount.findAll({
-        where: { store, status: 'active' }
-      })
-      const happyHourDiscount = allActive.find(
-        (d) => d.conditions && d.conditions.promoType === 'happyHour'
-      )
-      if (happyHourDiscount) {
-        const { daysOfWeek, startTime, endTime, discountPercent } =
-          happyHourDiscount.conditions
-        if (
-          (!daysOfWeek ||
-            daysOfWeek.length === 0 ||
-            daysOfWeek.includes(dayOfWeek)) &&
-          (!startTime || timeStr >= startTime) &&
-          (!endTime || timeStr <= endTime)
-        ) {
-          discountValue = discountPercent || 10
-          discountType = 'percent'
-          appliedDiscountId = happyHourDiscount.id
-          appliedDiscountMeta = happyHourDiscount
-        }
-      }
-    }
-
     // Priority 3: Member tier auto-discount
     if (!appliedDiscountId && customerId) {
       try {
@@ -280,7 +382,7 @@ exports.createOrder = async (req, res) => {
     }
 
     // Priority 4: Redeem points
-    const POINT_VALUE = 1 // ponytail: 1 point = Rp 1; make configurable per tier if needed
+    const POINT_VALUE = 1
     let redeemedPointsUsed = 0
     let pointDiscountAmount = 0
     if (redeemedPoints > 0 && customerId) {
@@ -300,19 +402,96 @@ exports.createOrder = async (req, res) => {
       item._origSubtotal = item.subtotal
     })
 
+    // Pre-load bundles for stock validation
+    const bundleMap = {}
+    for (const item of items) {
+      if (item.bundleId) {
+        const bundle = await db.product_bundle.findByPk(item.bundleId, {
+          include: [
+            {
+              model: db.product_bundle_item,
+              as: 'items',
+              include: [{ model: Product, as: 'productData' }]
+            }
+          ]
+        })
+        if (!bundle) {
+          return res.status(400).json({
+            message: `Bundle not found: ${item.bundleName || item.bundleId}`
+          })
+        }
+        if (!bundle.isAvailable || bundle.status !== 'active') {
+          return res.status(400).json({
+            message: `Bundle "${bundle.name}" is not available`
+          })
+        }
+        bundleMap[item.bundleId] = bundle
+      }
+    }
+
+    // Validate bundle component stock
+    for (const item of items) {
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        const bundle = bundleMap[item.bundleId]
+        const bundleQty = Number(item.quantity) || 1
+        for (const bi of bundle.items) {
+          const prod = bi.productData
+          if (!prod) {
+            return res.status(400).json({
+              message: `Product in bundle "${bundle.name}" not found`
+            })
+          }
+          const needed = bi.quantity * bundleQty
+          if (prod.stock !== null && Number(prod.stock) < needed) {
+            return res.status(400).json({
+              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${prod.stock}, dibutuhkan: ${needed}`
+            })
+          }
+        }
+      }
+    }
+
     const taxRate = await getActiveTaxRate(store)
     const serviceChargeRate = await getServiceChargeRate(store)
 
     let totals
     let promoDiscountAmount = 0
+    let appliedCampaignId = null
 
-    // Check if discount has advanced promo type (bogo/bundling/category)
-    if (
-      appliedDiscountMeta &&
-      appliedDiscountMeta.conditions &&
-      appliedDiscountMeta.conditions.promoType
-    ) {
-      promoDiscountAmount = await applyAdvancedPromo(items, appliedDiscountMeta)
+    // Priority 5: Evaluate promo campaigns (replaces old applyAdvancedPromo)
+    const campaignResult = await evaluatePromoCampaign(
+      items.map((item) => ({
+        ...item,
+        productId: item.product || item.productId,
+        unitPrice: item.unitPrice ?? item.price ?? item.basePrice ?? 0
+      })),
+      store,
+      customerId,
+      0 // initial subtotal before discount
+    )
+
+    // Calculate subtotal first for campaign evaluation
+    let rawSubTotal = 0
+    items.forEach((item) => {
+      rawSubTotal += item.subtotal
+    })
+
+    // Re-evaluate campaign with actual subtotal
+    const campaignWithSubtotal = await evaluatePromoCampaign(
+      items.map((item) => ({
+        ...item,
+        productId: item.product || item.productId,
+        unitPrice: item.unitPrice ?? item.price ?? item.basePrice ?? 0
+      })),
+      store,
+      customerId,
+      rawSubTotal
+    )
+
+    // Use campaign discount if no manual discount applied and campaign gives a better deal
+    if (!appliedDiscountId && campaignWithSubtotal.discountAmount > 0) {
+      promoDiscountAmount = campaignWithSubtotal.discountAmount
+      appliedCampaignId = campaignWithSubtotal.campaignId
       totals = calculateOrderTotals(
         items,
         0,
@@ -321,6 +500,22 @@ exports.createOrder = async (req, res) => {
         serviceChargeRate
       )
       totals.discountAmount = promoDiscountAmount
+    } else if (
+      appliedDiscountMeta &&
+      appliedDiscountMeta.conditions &&
+      appliedDiscountMeta.conditions.promoType
+    ) {
+      // Legacy: still support old discount.conditions for backward compat, but log deprecation
+      console.warn(
+        'DEPRECATED: discount.conditions.promoType detected. Migrate to promo_campaign.'
+      )
+      totals = calculateOrderTotals(
+        items,
+        0,
+        'none',
+        taxRate,
+        serviceChargeRate
+      )
     } else {
       totals = calculateOrderTotals(
         items,
@@ -364,8 +559,9 @@ exports.createOrder = async (req, res) => {
       )
     }
 
-    // Stock validation — products
+    // Stock validation — products (non-bundle items)
     for (const item of items) {
+      if (item.bundleId) continue
       const prod = await Product.findByPk(item.product || item.productId)
       if (!prod) {
         return res.status(400).json({
@@ -379,8 +575,9 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // Stock validation — ingredients via BOM
+    // Stock validation — ingredients via BOM (non-bundle items)
     for (const item of items) {
+      if (item.bundleId) continue
       const bom = await db.bom_header.findOne({
         where: { productId: item.product || item.productId, status: 'active' },
         include: [{ model: db.bom_line, as: 'lines' }]
@@ -419,6 +616,7 @@ exports.createOrder = async (req, res) => {
       discountAmount: totals.discountAmount,
       discountId: appliedDiscountId,
       promoCode: promoCode || null,
+      promoCampaignId: appliedCampaignId,
       taxRate,
       taxAmount: totals.taxAmount,
       serviceChargeRate,
@@ -430,41 +628,201 @@ exports.createOrder = async (req, res) => {
       createdBy: req.user?.id
     })
 
+    // Create order items
     for (const item of items) {
-      const product = await Product.findByPk(item.product || item.productId)
-      const costPrice = product
-        ? Number(product.costPrice || product.price || 0)
-        : 0
-      const itemDiscountAmount = Math.max(
-        0,
-        (item._origSubtotal || 0) - (item.subtotal || 0)
-      )
-      await OrderItem.create({
-        order: order.id,
-        product: item.product || item.productId,
-        productName: item.productName,
-        quantity: item.quantity,
-        price: item.basePrice || item.price,
-        discountType,
-        discountValue,
-        discountAmount: itemDiscountAmount,
-        totalPrice: item.subtotal || item.totalPrice,
-        options: item.options || [],
-        modifiers: item.modifiers || [],
-        notes: item.notes,
-        hppSnapshot: costPrice,
-        status: 'pending'
-      })
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        // Bundle item: create one order_item for the bundle
+        const bundle = bundleMap[item.bundleId]
+        const itemDiscountAmount = Math.max(
+          0,
+          (item._origSubtotal || 0) - (item.subtotal || 0)
+        )
+        await OrderItem.create({
+          order: order.id,
+          product: bundle.items[0]?.product || 0,
+          productName: bundle.name,
+          quantity: item.quantity,
+          price: bundle.bundlePrice,
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          discountType,
+          discountValue,
+          discountAmount: itemDiscountAmount,
+          totalPrice: item.subtotal || bundle.bundlePrice * item.quantity,
+          options: item.options || [],
+          modifiers: item.modifiers || [],
+          notes: item.notes,
+          status: 'pending'
+        })
+      } else {
+        // Regular product item
+        const product = await Product.findByPk(item.product || item.productId)
+        const costPrice = product
+          ? Number(product.costPrice || product.price || 0)
+          : 0
+        const itemDiscountAmount = Math.max(
+          0,
+          (item._origSubtotal || 0) - (item.subtotal || 0)
+        )
+        await OrderItem.create({
+          order: order.id,
+          product: item.product || item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          price: item.basePrice || item.price,
+          discountType,
+          discountValue,
+          discountAmount: itemDiscountAmount,
+          totalPrice: item.subtotal || item.totalPrice,
+          options: item.options || [],
+          modifiers: item.modifiers || [],
+          notes: item.notes,
+          hppSnapshot: costPrice,
+          status: 'pending'
+        })
+      }
     }
 
     // Reduce stock & create stock history — wrapped in transaction for atomicity
     await db.sequelize.transaction(async (t) => {
       for (const item of items) {
-        const product = await Product.findByPk(item.product || item.productId, { transaction: t })
+        if (item.bundleId && bundleMap[item.bundleId]) {
+          // Bundle: deduct stock for each component product
+          const bundle = bundleMap[item.bundleId]
+          const bundleQty = Number(item.quantity) || 1
+          for (const bi of bundle.items) {
+            const product = await Product.findByPk(bi.product, {
+              transaction: t
+            })
+            if (!product) continue
+            const deductQty = bi.quantity * bundleQty
+            const oldStock = Number(product.stock) || 0
+            const newStock = Math.max(oldStock - deductQty, 0)
+            await product.update(
+              {
+                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
+              },
+              { transaction: t }
+            )
+
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [product.id, store], transaction: t }
+            )
+            await db.product_store_stock.update(
+              {
+                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
+              },
+              { where: { product: product.id, store }, transaction: t }
+            )
+
+            await db.stock_history.create(
+              {
+                product: product.id,
+                store,
+                referenceType: 'sale',
+                referenceId: order.id,
+                quantityBefore: oldStock,
+                quantityChange: -deductQty,
+                quantityAfter: newStock >= 0 ? newStock : 0,
+                unit: product.unit || 'pcs',
+                notes: `Penjualan bundle: ${bundle.name} (${orderNumber})`,
+                createdBy: req.user?.id
+              },
+              { transaction: t }
+            )
+
+            // BOM ingredient deduction for bundle components
+            const bom = await db.bom_header.findOne({
+              where: { productId: product.id, status: 'active' },
+              include: [{ model: db.bom_line, as: 'lines' }],
+              transaction: t
+            })
+            if (bom) {
+              for (const line of bom.lines) {
+                const ing = await db.ingredient.findByPk(line.ingredientId, {
+                  transaction: t
+                })
+                if (!ing) continue
+                const ingDeductQty = line.qty * deductQty
+                const oldIngStock = Number(ing.stock)
+                const ingNewStock = Math.max(oldIngStock - ingDeductQty, 0)
+                await ing.update(
+                  {
+                    stock: db.sequelize.literal(
+                      `GREATEST(stock - ${ingDeductQty}, 0)`
+                    )
+                  },
+                  { transaction: t }
+                )
+                await db.stock_history.create(
+                  {
+                    product: product.id,
+                    ingredient: ing.id,
+                    ingredientName: ing.name,
+                    store,
+                    referenceType: 'sale',
+                    referenceId: order.id,
+                    quantityBefore: oldIngStock,
+                    quantityChange: -(oldIngStock - ingNewStock),
+                    quantityAfter: ingNewStock,
+                    unit: line.unit || ing.unit,
+                    createdBy: req.user?.id
+                  },
+                  { transaction: t }
+                )
+              }
+            }
+
+            // Best-selling tracking for bundle components
+            const findBs = await db.best_selling.findOne({
+              where: {
+                productId: product.id,
+                nameProduct: product.nameProduct,
+                store
+              },
+              transaction: t
+            })
+            if (findBs) {
+              await db.best_selling.update(
+                { totalSelling: Number(findBs.totalSelling) + deductQty },
+                {
+                  where: {
+                    productId: product.id,
+                    nameProduct: product.nameProduct
+                  },
+                  transaction: t
+                }
+              )
+            } else {
+              await db.best_selling.create(
+                {
+                  productId: product.id,
+                  nameProduct: product.nameProduct,
+                  image: product.image || null,
+                  totalSelling: deductQty,
+                  store
+                },
+                { transaction: t }
+              )
+            }
+          }
+          continue
+        }
+
+        // Regular product item
+        const product = await Product.findByPk(item.product || item.productId, {
+          transaction: t
+        })
         if (!product) continue
 
         const bom = await db.bom_header.findOne({
-          where: { productId: item.product || item.productId, status: 'active' },
+          where: {
+            productId: item.product || item.productId,
+            status: 'active'
+          },
           include: [{ model: db.bom_line, as: 'lines' }],
           transaction: t
         })
@@ -473,9 +831,11 @@ exports.createOrder = async (req, res) => {
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.quantity)) || 0
           const newStock = Math.max(oldStock - qty, 0)
-          await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
+          await product.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+            { transaction: t }
+          )
 
-          // ponytail: atomic upsert for per-store stock — insert if missing, then atomically deduct
           await db.sequelize.query(
             `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
              VALUES ($1, $2, 0, NOW(), NOW())
@@ -487,49 +847,84 @@ exports.createOrder = async (req, res) => {
             { where: { product: product.id, store }, transaction: t }
           )
 
-          await db.stock_history.create({
-            product: product.id, store,
-            referenceType: 'sale', referenceId: order.id,
-            quantityBefore: oldStock, quantityChange: -Number(item.quantity),
-            quantityAfter: newStock >= 0 ? newStock : 0,
-            unit: product.unit || 'pcs',
-            notes: `Penjualan: ${orderNumber}`,
-            createdBy: req.user?.id
-          }, { transaction: t })
+          await db.stock_history.create(
+            {
+              product: product.id,
+              store,
+              referenceType: 'sale',
+              referenceId: order.id,
+              quantityBefore: oldStock,
+              quantityChange: -Number(item.quantity),
+              quantityAfter: newStock >= 0 ? newStock : 0,
+              unit: product.unit || 'pcs',
+              notes: `Penjualan: ${orderNumber}`,
+              createdBy: req.user?.id
+            },
+            { transaction: t }
+          )
         }
 
         const findBs = await db.best_selling.findOne({
-          where: { productId: product.id, nameProduct: item.productName, store },
+          where: {
+            productId: product.id,
+            nameProduct: item.productName,
+            store
+          },
           transaction: t
         })
         if (findBs) {
           await db.best_selling.update(
-            { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
-            { where: { productId: product.id, nameProduct: item.productName }, transaction: t }
+            {
+              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
+            },
+            {
+              where: { productId: product.id, nameProduct: item.productName },
+              transaction: t
+            }
           )
         } else {
-          await db.best_selling.create({
-            productId: product.id, nameProduct: item.productName,
-            image: product.image || null, totalSelling: Number(item.quantity), store
-          }, { transaction: t })
+          await db.best_selling.create(
+            {
+              productId: product.id,
+              nameProduct: item.productName,
+              image: product.image || null,
+              totalSelling: Number(item.quantity),
+              store
+            },
+            { transaction: t }
+          )
         }
 
         if (bom) {
           for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId, { transaction: t })
+            const ing = await db.ingredient.findByPk(line.ingredientId, {
+              transaction: t
+            })
             if (!ing) continue
             const deductQty = line.qty * Number(item.quantity)
             const oldIngStock = Number(ing.stock)
             const qty = Math.floor(Number(deductQty)) || 0
             const newIngStock = Math.max(oldIngStock - qty, 0)
-            await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
-            await db.stock_history.create({
-              product: product.id, ingredient: ing.id, ingredientName: ing.name, store,
-              referenceType: 'sale', referenceId: order.id,
-              quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
-              quantityAfter: newIngStock, unit: line.unit || ing.unit,
-              createdBy: req.user?.id
-            }, { transaction: t })
+            await ing.update(
+              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+              { transaction: t }
+            )
+            await db.stock_history.create(
+              {
+                product: product.id,
+                ingredient: ing.id,
+                ingredientName: ing.name,
+                store,
+                referenceType: 'sale',
+                referenceId: order.id,
+                quantityBefore: oldIngStock,
+                quantityChange: -(oldIngStock - newIngStock),
+                quantityAfter: newIngStock,
+                unit: line.unit || ing.unit,
+                createdBy: req.user?.id
+              },
+              { transaction: t }
+            )
           }
         }
       }
@@ -642,6 +1037,37 @@ exports.createOrder = async (req, res) => {
         }
       } catch (e) {
         console.error('Point earning error:', e.message)
+      }
+    }
+
+    // Record promo campaign usage
+    if (appliedCampaignId) {
+      try {
+        const campaign = await db.promo_campaign.findByPk(appliedCampaignId)
+        if (campaign) {
+          await db.promo_usage.create({
+            store: campaign.store,
+            campaignId: appliedCampaignId,
+            orderId: order.id,
+            memberId: customerId || null,
+            discountApplied: promoDiscountAmount,
+            freeItemsGiven: campaignWithSubtotal.reward
+              ? [
+                  {
+                    productId: campaignWithSubtotal.reward.productId,
+                    quantity: campaignWithSubtotal.reward.quantity
+                  }
+                ]
+              : null,
+            appliedAt: new Date(),
+            createdBy: req.user?.id
+          })
+          await campaign.update({
+            currentUsage: (campaign.currentUsage || 0) + 1
+          })
+        }
+      } catch (e) {
+        console.error('Promo usage recording error:', e.message)
       }
     }
 
@@ -815,7 +1241,9 @@ exports.updateOrderStatus = async (req, res) => {
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.quantity)) || 0
           const newStock = Math.max(oldStock - qty, 0)
-          await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) })
+          await product.update({
+            stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+          })
 
           // ponytail: atomic upsert + deduct per-store stock
           await db.sequelize.query(
@@ -830,10 +1258,14 @@ exports.updateOrderStatus = async (req, res) => {
           )
 
           await db.stock_history.create({
-            product: product.id, store,
-            referenceType: 'sale', referenceId: order.id,
-            quantityBefore: oldStock, quantityChange: -Number(item.quantity),
-            quantityAfter: newStock, unit: product.unit || 'pcs',
+            product: product.id,
+            store,
+            referenceType: 'sale',
+            referenceId: order.id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(item.quantity),
+            quantityAfter: newStock,
+            unit: product.unit || 'pcs',
             notes: `Penjualan: ${order.orderNumber}`,
             createdBy: changedBy
           })
@@ -844,13 +1276,18 @@ exports.updateOrderStatus = async (req, res) => {
         })
         if (findBs) {
           await db.best_selling.update(
-            { totalSelling: Number(findBs.totalSelling) + Number(item.quantity) },
+            {
+              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
+            },
             { where: { productId: product.id, nameProduct: item.productName } }
           )
         } else {
           await db.best_selling.create({
-            productId: product.id, nameProduct: item.productName,
-            image: product.image || null, totalSelling: Number(item.quantity), store
+            productId: product.id,
+            nameProduct: item.productName,
+            image: product.image || null,
+            totalSelling: Number(item.quantity),
+            store
           })
         }
 
@@ -862,12 +1299,20 @@ exports.updateOrderStatus = async (req, res) => {
             const oldIngStock = Number(ing.stock)
             const qty = Math.floor(Number(deductQty)) || 0
             const newIngStock = Math.max(oldIngStock - qty, 0)
-            await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) })
+            await ing.update({
+              stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+            })
             await db.stock_history.create({
-              product: product.id, ingredient: ing.id, ingredientName: ing.name, store,
-              referenceType: 'sale', referenceId: order.id,
-              quantityBefore: oldIngStock, quantityChange: -(oldIngStock - newIngStock),
-              quantityAfter: newIngStock, unit: line.unit || ing.unit,
+              product: product.id,
+              ingredient: ing.id,
+              ingredientName: ing.name,
+              store,
+              referenceType: 'sale',
+              referenceId: order.id,
+              quantityBefore: oldIngStock,
+              quantityChange: -(oldIngStock - newIngStock),
+              quantityAfter: newIngStock,
+              unit: line.unit || ing.unit,
               createdBy: changedBy
             })
           }
@@ -876,7 +1321,10 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     // If transitioning to cancelled/void, reverse stock
-    if (['cancelled', 'void'].includes(status) && !['cancelled', 'void'].includes(oldStatus)) {
+    if (
+      ['cancelled', 'void'].includes(status) &&
+      !['cancelled', 'void'].includes(oldStatus)
+    ) {
       const items = await OrderItem.findAll({ where: { order: id } })
 
       for (const item of items) {
@@ -892,7 +1340,9 @@ exports.updateOrderStatus = async (req, res) => {
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.quantity)) || 0
           const newStock = oldStock + qty
-          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) })
+          await product.update({
+            stock: db.sequelize.literal(`stock + ${qty}`)
+          })
 
           // ponytail: atomic restore per-store stock
           await db.sequelize.query(
@@ -907,10 +1357,14 @@ exports.updateOrderStatus = async (req, res) => {
           )
 
           await db.stock_history.create({
-            product: product.id, store,
-            referenceType: 'sale_reversal', referenceId: order.id,
-            quantityBefore: oldStock, quantityChange: Number(item.quantity),
-            quantityAfter: newStock, unit: product.unit || 'pcs',
+            product: product.id,
+            store,
+            referenceType: 'sale_reversal',
+            referenceId: order.id,
+            quantityBefore: oldStock,
+            quantityChange: Number(item.quantity),
+            quantityAfter: newStock,
+            unit: product.unit || 'pcs',
             notes: `Pembatalan: ${order.orderNumber}`,
             createdBy: changedBy
           })
@@ -921,7 +1375,12 @@ exports.updateOrderStatus = async (req, res) => {
         })
         if (findBs) {
           await db.best_selling.update(
-            { totalSelling: Math.max(0, Number(findBs.totalSelling) - Number(item.quantity)) },
+            {
+              totalSelling: Math.max(
+                0,
+                Number(findBs.totalSelling) - Number(item.quantity)
+              )
+            },
             { where: { productId: product.id, nameProduct: item.productName } }
           )
         }
@@ -935,10 +1394,16 @@ exports.updateOrderStatus = async (req, res) => {
             const qty = Math.floor(Number(restoreQty)) || 0
             await ing.update({ stock: db.sequelize.literal(`stock + ${qty}`) })
             await db.stock_history.create({
-              product: product.id, ingredient: ing.id, ingredientName: ing.name, store,
-              referenceType: 'sale_reversal', referenceId: order.id,
-              quantityBefore: oldIngStock, quantityChange: restoreQty,
-              quantityAfter: oldIngStock + restoreQty, unit: line.unit || ing.unit,
+              product: product.id,
+              ingredient: ing.id,
+              ingredientName: ing.name,
+              store,
+              referenceType: 'sale_reversal',
+              referenceId: order.id,
+              quantityBefore: oldIngStock,
+              quantityChange: restoreQty,
+              quantityAfter: oldIngStock + restoreQty,
+              unit: line.unit || ing.unit,
               createdBy: changedBy
             })
           }
@@ -1116,12 +1581,10 @@ exports.createCustomerOrder = async (req, res) => {
       return res.status(400).json({ message: 'Table not found' })
     }
 
-    // ——— Member lookup by customerId or name ———
     let member = null
     if (customerId) {
       member = await db.member.findByPk(customerId)
     } else if (customerName) {
-      const Op = require('sequelize').Op
       member = await db.member.findOne({
         where: {
           name: { [Op.iLike]: customerName.trim() },
@@ -1129,56 +1592,152 @@ exports.createCustomerOrder = async (req, res) => {
           status: 'active'
         }
       })
-      // ponytail: exact iLike match only; fuzzy search across stores if needed
     }
 
     let discountValue = 0
     let discountType = 'none'
-    let appliedDiscountMeta = null
 
-    // ——— Auto tier discount ———
     if (member && member.tier) {
       const tier = await db.member_tier.findByPk(member.tier)
       if (tier && tier.discountPercent > 0) {
         discountValue = tier.discountPercent
         discountType = 'percent'
-        appliedDiscountMeta = tier
       }
     }
 
-    // ——— Build items ———
+    // Pre-load bundles
+    const bundleMap = {}
+    for (const item of items) {
+      if (item.bundleId) {
+        const bundle = await db.product_bundle.findByPk(item.bundleId, {
+          include: [
+            {
+              model: db.product_bundle_item,
+              as: 'items',
+              include: [{ model: Product, as: 'productData' }]
+            }
+          ]
+        })
+        if (!bundle || !bundle.isAvailable || bundle.status !== 'active') {
+          return res.status(400).json({
+            message: `Bundle not available: ${item.bundleName || item.bundleId}`
+          })
+        }
+        bundleMap[item.bundleId] = bundle
+      }
+    }
+
+    // Validate bundle component stock
+    for (const item of items) {
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        const bundle = bundleMap[item.bundleId]
+        const bundleQty = Number(item.quantity) || 1
+        for (const bi of bundle.items) {
+          const prod = bi.productData
+          if (!prod) {
+            return res
+              .status(400)
+              .json({ message: `Product in bundle "${bundle.name}" not found` })
+          }
+          const needed = bi.quantity * bundleQty
+          if (prod.stock !== null && Number(prod.stock) < needed) {
+            return res.status(400).json({
+              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${prod.stock}, dibutuhkan: ${needed}`
+            })
+          }
+        }
+      }
+    }
+
+    // Validate regular product stock
+    for (const item of items) {
+      if (item.bundleId) continue
+      const prod = item.productId
+        ? await Product.findByPk(item.productId)
+        : null
+      if (!prod) {
+        return res.status(400).json({
+          message: `Product not found: ${item.productName || item.productId}`
+        })
+      }
+      if (prod.stock !== null && Number(prod.stock) < Number(item.quantity)) {
+        return res.status(400).json({
+          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${prod.stock}, diminta: ${item.quantity}`
+        })
+      }
+    }
+
+    // Build items & subtotal
     let subTotal = 0
     let totalQuantity = 0
     const orderItems = []
     for (const item of items) {
-      const subtotal = item.price * item.quantity
-      subTotal += subtotal
-      totalQuantity += item.quantity
-      const prod = item.productId
-        ? await db.product.findByPk(item.productId)
-        : null
-      const costPrice = prod ? Number(prod.costPrice || prod.price || 0) : 0
-      orderItems.push({
-        product: item.productId,
-        productName: item.productName,
-        quantity: item.quantity,
-        price: item.price,
-        totalPrice: subtotal,
-        hppSnapshot: costPrice,
-        notes: item.notes || null,
-        options: item.options || [],
-        modifiers: item.modifiers || [],
-        status: 'pending'
-      })
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        const bundle = bundleMap[item.bundleId]
+        const subtotal = bundle.bundlePrice * item.quantity
+        subTotal += subtotal
+        totalQuantity += item.quantity
+        orderItems.push({
+          product: bundle.items[0]?.product || 0,
+          productName: bundle.name,
+          quantity: item.quantity,
+          price: bundle.bundlePrice,
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          totalPrice: subtotal,
+          notes: item.notes || null,
+          options: item.options || [],
+          modifiers: item.modifiers || [],
+          status: 'pending'
+        })
+      } else {
+        const subtotal = item.price * item.quantity
+        subTotal += subtotal
+        totalQuantity += item.quantity
+        const prod = item.productId
+          ? await Product.findByPk(item.productId)
+          : null
+        const costPrice = prod ? Number(prod.costPrice || prod.price || 0) : 0
+        orderItems.push({
+          product: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          price: item.price,
+          totalPrice: subtotal,
+          hppSnapshot: costPrice,
+          notes: item.notes || null,
+          options: item.options || [],
+          modifiers: item.modifiers || [],
+          status: 'pending'
+        })
+      }
     }
 
-    // ——— Calculate totals ———
-    const taxRate = await getActiveTaxRate(store)
+    // Evaluate promo campaigns
+    const campaignResult = await evaluatePromoCampaign(
+      items.map((item) => ({
+        ...item,
+        productId: item.productId || item.product,
+        unitPrice: item.price ?? 0,
+        subtotal: item.price * item.quantity
+      })),
+      store,
+      member ? member.id : null,
+      subTotal
+    )
+
     let discountAmount = 0
-    if (discountType === 'percent') {
+    let appliedCampaignId = null
+    if (campaignResult.discountAmount > 0) {
+      discountAmount = campaignResult.discountAmount
+      appliedCampaignId = campaignResult.campaignId
+      discountType = 'nominal'
+    } else if (discountType === 'percent') {
       discountAmount = Math.round(subTotal * (discountValue / 100))
     }
+
     const afterDiscount = subTotal - discountAmount
+    const taxRate = await getActiveTaxRate(store)
     const taxAmount = Math.round(afterDiscount * (taxRate / 100))
     const totalPrice = afterDiscount + taxAmount
 
@@ -1198,6 +1757,7 @@ exports.createCustomerOrder = async (req, res) => {
       discountType,
       discountValue,
       discountAmount,
+      promoCampaignId: appliedCampaignId,
       taxRate,
       taxAmount,
       serviceChargeAmount: 0,
@@ -1208,7 +1768,214 @@ exports.createCustomerOrder = async (req, res) => {
       await db.order_item.create({ ...item, order: order.id })
     }
 
-    // ——— Award points to member ———
+    // Deduct stock
+    await db.sequelize.transaction(async (t) => {
+      for (const item of items) {
+        if (item.bundleId && bundleMap[item.bundleId]) {
+          const bundle = bundleMap[item.bundleId]
+          const bundleQty = Number(item.quantity) || 1
+          for (const bi of bundle.items) {
+            const product = await Product.findByPk(bi.product, {
+              transaction: t
+            })
+            if (!product) continue
+            const deductQty = bi.quantity * bundleQty
+            const oldStock = Number(product.stock) || 0
+            const newStock = Math.max(oldStock - deductQty, 0)
+            await product.update(
+              {
+                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
+              },
+              { transaction: t }
+            )
+
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [product.id, store], transaction: t }
+            )
+            await db.product_store_stock.update(
+              {
+                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
+              },
+              { where: { product: product.id, store }, transaction: t }
+            )
+
+            await db.stock_history.create(
+              {
+                product: product.id,
+                store,
+                referenceType: 'sale',
+                referenceId: order.id,
+                quantityBefore: oldStock,
+                quantityChange: -deductQty,
+                quantityAfter: newStock >= 0 ? newStock : 0,
+                unit: product.unit || 'pcs',
+                notes: `Penjualan bundle: ${bundle.name} (${orderNumber})`,
+                createdBy: req.user?.id
+              },
+              { transaction: t }
+            )
+
+            const bom = await db.bom_header.findOne({
+              where: { productId: product.id, status: 'active' },
+              include: [{ model: db.bom_line, as: 'lines' }],
+              transaction: t
+            })
+            if (bom) {
+              for (const line of bom.lines) {
+                const ing = await db.ingredient.findByPk(line.ingredientId, {
+                  transaction: t
+                })
+                if (!ing) continue
+                const ingDeductQty = line.qty * deductQty
+                const oldIngStock = Number(ing.stock)
+                const ingNewStock = Math.max(oldIngStock - ingDeductQty, 0)
+                await ing.update(
+                  {
+                    stock: db.sequelize.literal(
+                      `GREATEST(stock - ${ingDeductQty}, 0)`
+                    )
+                  },
+                  { transaction: t }
+                )
+                await db.stock_history.create(
+                  {
+                    product: product.id,
+                    ingredient: ing.id,
+                    ingredientName: ing.name,
+                    store,
+                    referenceType: 'sale',
+                    referenceId: order.id,
+                    quantityBefore: oldIngStock,
+                    quantityChange: -(oldIngStock - ingNewStock),
+                    quantityAfter: ingNewStock,
+                    unit: line.unit || ing.unit,
+                    createdBy: req.user?.id
+                  },
+                  { transaction: t }
+                )
+              }
+            }
+          }
+          continue
+        }
+
+        const product = item.productId
+          ? await Product.findByPk(item.productId, { transaction: t })
+          : null
+        if (!product) continue
+
+        const bom = await db.bom_header.findOne({
+          where: { productId: item.productId, status: 'active' },
+          include: [{ model: db.bom_line, as: 'lines' }],
+          transaction: t
+        })
+
+        if (!bom) {
+          const oldStock = Number(product.stock) || 0
+          const qty = Math.floor(Number(item.quantity)) || 0
+          const newStock = Math.max(oldStock - qty, 0)
+          await product.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+            { transaction: t }
+          )
+
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [product.id, store], transaction: t }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+            { where: { product: product.id, store }, transaction: t }
+          )
+
+          await db.stock_history.create(
+            {
+              product: product.id,
+              store,
+              referenceType: 'sale',
+              referenceId: order.id,
+              quantityBefore: oldStock,
+              quantityChange: -Number(item.quantity),
+              quantityAfter: newStock >= 0 ? newStock : 0,
+              unit: product.unit || 'pcs',
+              notes: `Penjualan: ${orderNumber}`,
+              createdBy: req.user?.id
+            },
+            { transaction: t }
+          )
+        }
+
+        if (bom) {
+          for (const line of bom.lines) {
+            const ing = await db.ingredient.findByPk(line.ingredientId, {
+              transaction: t
+            })
+            if (!ing) continue
+            const deductQty = line.qty * Number(item.quantity)
+            const oldIngStock = Number(ing.stock)
+            const qty = Math.floor(Number(deductQty)) || 0
+            const newIngStock = Math.max(oldIngStock - qty, 0)
+            await ing.update(
+              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+              { transaction: t }
+            )
+            await db.stock_history.create(
+              {
+                product: product.id,
+                ingredient: ing.id,
+                ingredientName: ing.name,
+                store,
+                referenceType: 'sale',
+                referenceId: order.id,
+                quantityBefore: oldIngStock,
+                quantityChange: -(oldIngStock - newIngStock),
+                quantityAfter: newIngStock,
+                unit: line.unit || ing.unit,
+                createdBy: req.user?.id
+              },
+              { transaction: t }
+            )
+          }
+        }
+      }
+    })
+
+    // Record promo usage
+    if (appliedCampaignId) {
+      try {
+        const campaign = await db.promo_campaign.findByPk(appliedCampaignId)
+        if (campaign) {
+          await db.promo_usage.create({
+            store: campaign.store,
+            campaignId: appliedCampaignId,
+            orderId: order.id,
+            memberId: member ? member.id : null,
+            discountApplied: discountAmount,
+            freeItemsGiven: campaignResult.reward
+              ? [
+                  {
+                    productId: campaignResult.reward.productId,
+                    quantity: campaignResult.reward.quantity
+                  }
+                ]
+              : null,
+            appliedAt: new Date(),
+            createdBy: req.user?.id
+          })
+          await campaign.update({
+            currentUsage: (campaign.currentUsage || 0) + 1
+          })
+        }
+      } catch (e) {
+        console.error('Promo usage recording error:', e.message)
+      }
+    }
+
     if (member) {
       try {
         const productIds = [...new Set(items.map((i) => i.productId))]
@@ -1230,14 +1997,20 @@ exports.createCustomerOrder = async (req, res) => {
             totalPoints: oldTotal + pointsEarned,
             lifetimePoints: oldLifetime + pointsEarned
           })
-          const Op = require('sequelize').Op
           let targetTier = await db.member_tier.findOne({
-            where: { status: 'active', minPoints: { [Op.lte]: oldTotal + pointsEarned }, maxPoints: { [Op.gte]: oldTotal + pointsEarned } },
+            where: {
+              status: 'active',
+              minPoints: { [Op.lte]: oldTotal + pointsEarned },
+              maxPoints: { [Op.gte]: oldTotal + pointsEarned }
+            },
             order: [['minPoints', 'DESC']]
           })
           if (!targetTier) {
             targetTier = await db.member_tier.findOne({
-              where: { status: 'active', minPoints: { [Op.lte]: oldTotal + pointsEarned } },
+              where: {
+                status: 'active',
+                minPoints: { [Op.lte]: oldTotal + pointsEarned }
+              },
               order: [['minPoints', 'DESC']]
             })
           }
@@ -1307,10 +2080,7 @@ exports.getCustomerMember = async (req, res) => {
     const member = await db.member.findOne({
       where: {
         name: { [Op.iLike]: name.trim() },
-        [Op.or]: [
-          { store: Number(store) },
-          { store: null }
-        ],
+        [Op.or]: [{ store: Number(store) }, { store: null }],
         status: 'active'
       }
     })
@@ -1344,9 +2114,29 @@ exports.getCustomerOrder = async (req, res) => {
   try {
     const order = await db.order.findOne({
       where: { id },
-      attributes: ['id', 'orderNumber', 'status', 'totalPrice', 'totalQuantity', 'customerName', 'createdAt', 'tableId'],
+      attributes: [
+        'id',
+        'orderNumber',
+        'status',
+        'totalPrice',
+        'totalQuantity',
+        'customerName',
+        'createdAt',
+        'tableId'
+      ],
       include: [
-        { model: db.order_item, as: 'items', attributes: ['id', 'productName', 'quantity', 'price', 'totalPrice', 'status'] },
+        {
+          model: db.order_item,
+          as: 'items',
+          attributes: [
+            'id',
+            'productName',
+            'quantity',
+            'price',
+            'totalPrice',
+            'status'
+          ]
+        },
         { model: db.table, as: 'table', attributes: ['name'] }
       ]
     })
