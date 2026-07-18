@@ -132,23 +132,41 @@ exports.getTableAvailability = async (req, res) => {
   const store = req.query.store || req.user?.store
 
   try {
-    const tables = await Table.findAll({
-      where: store ? { store } : {},
-      attributes: ['id', 'name', 'status', 'capacity']
-    })
-
-    const summary = {
-      available: tables.filter((t) => t.status === 'available').length,
-      occupied: tables.filter((t) => t.status === 'occupied').length,
-      reserved: tables.filter((t) => t.status === 'reserved').length,
-      maintenance: tables.filter((t) => t.status === 'maintenance').length,
-      total: tables.length
+    const replacements = {}
+    let conditions = '1=1'
+    if (store) {
+      conditions += ` AND "store" = :store`
+      replacements.store = store
     }
+
+    const [tables, summary] = await Promise.all([
+      Table.findAll({
+        where: store ? { store } : {},
+        attributes: ['id', 'name', 'status', 'capacity']
+      }),
+      db.sequelize
+        .query(
+          `SELECT COUNT(*) FILTER (WHERE "status" = 'available') as available,
+                COUNT(*) FILTER (WHERE "status" = 'occupied') as occupied,
+                COUNT(*) FILTER (WHERE "status" = 'reserved') as reserved,
+                COUNT(*) FILTER (WHERE "status" = 'maintenance') as maintenance,
+                COUNT(*) as total
+         FROM "table" WHERE ${conditions}`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        )
+        .then((r) => r[0])
+    ])
 
     return res.status(200).json({
       message: 'Success',
       data: {
-        summary,
+        summary: {
+          available: Number(summary.available || 0),
+          occupied: Number(summary.occupied || 0),
+          reserved: Number(summary.reserved || 0),
+          maintenance: Number(summary.maintenance || 0),
+          total: Number(summary.total || 0)
+        },
         tables
       }
     })

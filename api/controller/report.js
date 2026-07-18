@@ -9,124 +9,119 @@ const Expense = db.expense
 exports.getDailyReport = async (req, res) => {
   try {
     const { store, startDate, endDate } = req.query
-    const orderWhere = { paymentStatus: 'paid' }
-    if (store) orderWhere.store = store
-    if (startDate || endDate) {
-      orderWhere.createdAt = {}
-      if (startDate) orderWhere.createdAt[Op.gte] = new Date(startDate)
-      if (endDate) {
-        const end = new Date(endDate)
-        end.setHours(23, 59, 59, 999)
-        orderWhere.createdAt[Op.lte] = end
-      }
+    const replacements = {}
+    let orderConditions = `"paymentStatus" = 'paid'`
+
+    if (store) {
+      orderConditions += ` AND o."store" = :store`
+      replacements.store = store
+    }
+    if (startDate) {
+      orderConditions += ` AND o."createdAt" >= :startDate`
+      replacements.startDate = new Date(startDate)
+    }
+    if (endDate) {
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
+      orderConditions += ` AND o."createdAt" <= :endDate`
+      replacements.endDate = end
     }
 
-    const orders = await Order.findAll({
-      where: orderWhere,
-      include: [
-        { model: OrderItem, as: 'items' },
-        { model: Transaction, as: 'transactions' }
-      ],
-      order: [['createdAt', 'DESC']]
-    })
-
-    const totalRevenue = orders.reduce(
-      (s, o) => s + Number(o.totalPrice || 0),
-      0
-    )
-    const totalDiscount = orders.reduce(
-      (s, o) => s + Number(o.discountAmount || 0),
-      0
-    )
-    const netRevenue = totalRevenue - totalDiscount
-    const totalOrders = orders.length
-    const totalQty = orders.reduce(
-      (s, o) => s + Number(o.totalQuantity || 0),
-      0
+    // Aggregate order-level metrics per day in SQL
+    const dailyOrders = await db.sequelize.query(
+      `SELECT DATE(o."createdAt") as tanggal,
+              COUNT(*) as "totalTransaksi",
+              COALESCE(SUM(o."totalPrice"), 0) as "totalPenjualan",
+              COALESCE(SUM(o."discountAmount"), 0) as "totalDiscount",
+              COALESCE(SUM(o."totalQuantity"), 0) as "totalQty",
+              COALESCE(SUM(o."totalCovers"), 0) as "totalCovers"
+       FROM "order" o
+       WHERE ${orderConditions}
+       GROUP BY DATE(o."createdAt")
+       ORDER BY tanggal DESC`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
 
-    let totalHpp = 0
-    const orderIds = orders.map((o) => o.id)
-    if (orderIds.length > 0) {
-      const items = await OrderItem.findAll({ where: { order: orderIds } })
-      totalHpp = items.reduce(
-        (s, i) => s + Number(i.hppSnapshot || i.price || 0),
-        0
+    if (dailyOrders.length === 0) {
+      return res.json({ success: true, data: [] })
+    }
+
+    // Aggregate HPP per day from order_items joined with orders
+    const dailyHpp = await db.sequelize.query(
+      `SELECT DATE(o."createdAt") as tanggal,
+              COALESCE(SUM(COALESCE(oi."hppSnapshot", oi."price", 0)), 0) as "totalHpp"
+       FROM order_item oi
+       JOIN "order" o ON o.id = oi."order"
+       WHERE ${orderConditions}
+       GROUP BY DATE(o."createdAt")`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+
+    const hppMap = {}
+    for (const row of dailyHpp) {
+      hppMap[row.tanggal] = Number(row.totalHpp || 0)
+    }
+
+    // Aggregate expenses per day
+    let expenseConditions = `"status" = 'approved'`
+    const expReplacements = {}
+    if (store) {
+      expenseConditions += ` AND "store" = :store`
+      expReplacements.store = store
+    }
+    if (startDate) {
+      expenseConditions += ` AND "date" >= :startDate`
+      expReplacements.startDate = replacements.startDate
+    }
+    if (endDate) {
+      expenseConditions += ` AND "date" <= :endDate`
+      expReplacements.endDate = replacements.endDate
+    }
+
+    let dailyExpenses = []
+    if (startDate || endDate || store) {
+      dailyExpenses = await db.sequelize.query(
+        `SELECT DATE("date") as tanggal, COALESCE(SUM("amount"), 0) as "totalExpense"
+         FROM expense
+         WHERE ${expenseConditions}
+         GROUP BY DATE("date")`,
+        { replacements: expReplacements, type: db.sequelize.QueryTypes.SELECT }
       )
     }
 
-    const grossProfit = netRevenue - totalHpp
-
-    const expenses = store
-      ? await Expense.sum('amount', {
-          where: {
-            store,
-            status: 'approved',
-            date: orderWhere.createdAt
-          }
-        })
-      : 0
-
-    const netProfit = grossProfit - (expenses || 0)
-
-    // Group by date with HPP from order items
-    const dateMap = {}
-    for (const o of orders) {
-      const d = new Date(o.createdAt).toISOString().slice(0, 10)
-      if (!dateMap[d]) {
-        dateMap[d] = {
-          tanggal: d,
-          totalTransaksi: 0,
-          totalPenjualanBersih: 0,
-          totalHpp: 0,
-          foodCostPersen: 0,
-          grossProfit: 0,
-          netProfit: 0,
-          totalCovers: 0,
-          orderIds: []
-        }
-      }
-      dateMap[d].totalTransaksi++
-      dateMap[d].totalPenjualanBersih += Number(o.totalPrice || 0)
-      dateMap[d].totalCovers += Number(o.totalCovers || o.totalQuantity || 1)
-      dateMap[d].orderIds.push(o.id)
+    const expenseMap = {}
+    for (const row of dailyExpenses) {
+      expenseMap[row.tanggal] = Number(row.totalExpense || 0)
     }
 
-    // Compute per-day HPP from order items
-    const allOrderItems =
-      orderIds.length > 0
-        ? await OrderItem.findAll({ where: { order: orderIds } })
-        : []
-    for (const item of allOrderItems) {
-      const orderObj = orders.find((o) => o.id === item.order)
-      if (orderObj) {
-        const d = new Date(orderObj.createdAt).toISOString().slice(0, 10)
-        if (dateMap[d]) {
-          dateMap[d].totalHpp += Number(item.hppSnapshot || item.price || 0)
-        }
-      }
-    }
-
-    // Compute derived fields per day
-    for (const d of Object.keys(dateMap)) {
-      const day = dateMap[d]
-      day.grossProfit = day.totalPenjualanBersih - day.totalHpp
-      day.netProfit = day.grossProfit
-      day.foodCostPersen =
-        day.totalPenjualanBersih > 0
-          ? Math.round((day.totalHpp / day.totalPenjualanBersih) * 10000) / 100
+    // Build final report
+    const reportData = dailyOrders.map((row) => {
+      const tanggal = row.tanggal
+      const totalPenjualan = Number(row.totalPenjualan || 0)
+      const totalDiscount = Number(row.totalDiscount || 0)
+      const netRevenue = totalPenjualan - totalDiscount
+      const totalHpp = hppMap[tanggal] || 0
+      const totalExpense = expenseMap[tanggal] || 0
+      const grossProfit = netRevenue - totalHpp
+      const netProfit = grossProfit - totalExpense
+      const foodCostPersen =
+        totalPenjualan > 0
+          ? Math.round((totalHpp / totalPenjualan) * 10000) / 100
           : 0
-      delete day.orderIds
-    }
 
-    const reportData = Object.values(dateMap).sort((a, b) =>
-      b.tanggal.localeCompare(a.tanggal)
-    )
-
-    res.json({
-      success: true,
-      data: reportData
+      return {
+        tanggal,
+        totalTransaksi: Number(row.totalTransaksi || 0),
+        totalPenjualanBersih: netRevenue,
+        totalHpp,
+        foodCostPersen,
+        grossProfit,
+        netProfit,
+        totalCovers: Number(row.totalCovers || 0) || Number(row.totalQty || 0)
+      }
     })
+
+    res.json({ success: true, data: reportData })
   } catch (err) {
     console.error('Daily report error:', err)
     res.status(500).json({ success: false, message: err.message })
@@ -136,36 +131,44 @@ exports.getDailyReport = async (req, res) => {
 exports.getProfitLoss = async (req, res) => {
   try {
     const { store, startDate, endDate } = req.query
-    const orderWhere = { paymentStatus: 'paid' }
-    if (store) orderWhere.store = store
-    if (startDate || endDate) {
-      orderWhere.createdAt = {}
-      if (startDate) orderWhere.createdAt[Op.gte] = new Date(startDate)
-      if (endDate) {
-        const end = new Date(endDate)
-        end.setHours(23, 59, 59, 999)
-        orderWhere.createdAt[Op.lte] = end
-      }
+    const replacements = {}
+    let orderConditions = `"paymentStatus" = 'paid'`
+
+    if (store) {
+      orderConditions += ` AND "store" = :store`
+      replacements.store = store
     }
-    const orders = await Order.findAll({ where: orderWhere })
-    const totalRevenue = orders.reduce(
-      (sum, o) => sum + Number(o.totalPrice || 0),
-      0
+    if (startDate) {
+      orderConditions += ` AND "createdAt" >= :startDate`
+      replacements.startDate = new Date(startDate)
+    }
+    if (endDate) {
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
+      orderConditions += ` AND "createdAt" <= :endDate`
+      replacements.endDate = end
+    }
+
+    const [orderAgg] = await db.sequelize.query(
+      `SELECT COALESCE(SUM("totalPrice"), 0) as "totalRevenue",
+              COALESCE(SUM("discountAmount"), 0) as "totalDiscount"
+       FROM "order"
+       WHERE ${orderConditions}`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
-    const totalDiscount = orders.reduce(
-      (sum, o) => sum + Number(o.discountAmount || 0),
-      0
+
+    const [hppAgg] = await db.sequelize.query(
+      `SELECT COALESCE(SUM(COALESCE(oi."hppSnapshot", oi."price", 0)), 0) as "totalHpp"
+       FROM order_item oi
+       JOIN "order" o ON o.id = oi."order"
+       WHERE ${orderConditions}`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
+
+    const totalRevenue = Number(orderAgg.totalRevenue || 0)
+    const totalDiscount = Number(orderAgg.totalDiscount || 0)
     const netRevenue = totalRevenue - totalDiscount
-    const orderIds = orders.map((o) => o.id)
-    const items =
-      orderIds.length > 0
-        ? await OrderItem.findAll({ where: { order: orderIds } })
-        : []
-    const totalHpp = items.reduce(
-      (sum, i) => sum + Number(i.hppSnapshot || i.price || 0),
-      0
-    )
+    const totalHpp = Number(hppAgg.totalHpp || 0)
     const grossProfit = netRevenue - totalHpp
     const marginPersen =
       netRevenue > 0 ? Math.round((grossProfit / netRevenue) * 10000) / 100 : 0
@@ -222,10 +225,7 @@ exports.getSalesSummary = async (req, res) => {
         59,
         999
       )
-      dateRange = {
-        [Op.gte]: monthStart,
-        [Op.lte]: monthEnd
-      }
+      dateRange = { [Op.gte]: monthStart, [Op.lte]: monthEnd }
     } else if (startDate && endDate) {
       dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
     }
@@ -249,7 +249,6 @@ exports.getSalesSummary = async (req, res) => {
     const avgTransaction =
       totalOrdersNum > 0 ? totalSalesNum / totalOrdersNum : 0
 
-    // Sales chart by date
     const chartReplacements = { ...(store && { store }) }
     let chartWhere = `WHERE "paymentStatus" = 'paid'`
     if (store) chartWhere += ` AND "store" = :store`
@@ -262,12 +261,10 @@ exports.getSalesSummary = async (req, res) => {
     let salesChart = await db.sequelize.query(
       `SELECT DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
        FROM "order" ${chartWhere}
-       GROUP BY DATE("createdAt")
-       ORDER BY date ASC`,
+       GROUP BY DATE("createdAt") ORDER BY date ASC`,
       { replacements: chartReplacements, type: db.sequelize.QueryTypes.SELECT }
     )
 
-    // Per-store sales chart (multi-store support)
     const storeChartReplacements = { ...(store && { store }) }
     let storeChartWhere = `WHERE "paymentStatus" = 'paid'`
     if (store) storeChartWhere += ` AND "store" = :store`
@@ -280,15 +277,13 @@ exports.getSalesSummary = async (req, res) => {
     const rawStoreChart = await db.sequelize.query(
       `SELECT "store", DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
        FROM "order" ${storeChartWhere}
-       GROUP BY "store", DATE("createdAt")
-       ORDER BY "store", date ASC`,
+       GROUP BY "store", DATE("createdAt") ORDER BY "store", date ASC`,
       {
         replacements: storeChartReplacements,
         type: db.sequelize.QueryTypes.SELECT
       }
     )
 
-    // Group by storeId and merge with store names
     const storeChartMap = {}
     for (const row of rawStoreChart) {
       const sid = Number(row.store)
@@ -299,10 +294,9 @@ exports.getSalesSummary = async (req, res) => {
       })
     }
 
-    // Store breakdown
     const storeWhere = store ? { id: store } : {}
     const locations = await db.location.findAll({
-      where: { ...storeWhere },
+      where: storeWhere,
       attributes: ['id', 'name', 'city']
     })
 
@@ -323,7 +317,6 @@ exports.getSalesSummary = async (req, res) => {
     })
     const stores = await Promise.all(storePromises)
 
-    // Merge store names into store chart
     const storeSalesChart = stores.map((s) => ({
       storeId: s.id,
       storeName: s.name,
@@ -333,7 +326,6 @@ exports.getSalesSummary = async (req, res) => {
       }))
     }))
 
-    // Fill in missing dates with 0 so chart shows continuous time axis
     const padChartData = (data, start, end) => {
       if (!data.length) return data
       const s = new Date(start)
@@ -343,10 +335,7 @@ exports.getSalesSummary = async (req, res) => {
       const result = []
       const cur = new Date(s)
       while (cur <= e) {
-        const y = cur.getFullYear()
-        const m = String(cur.getMonth() + 1).padStart(2, '0')
-        const d = String(cur.getDate()).padStart(2, '0')
-        const key = `${y}-${m}-${d}`
+        const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
         result.push(map[key] || { date: key, sales: 0, orders: 0 })
         cur.setDate(cur.getDate() + 1)
       }
@@ -358,9 +347,8 @@ exports.getSalesSummary = async (req, res) => {
         dateRange[Op.gte],
         dateRange[Op.lte]
       )
-      for (const s of storeSalesChart) {
+      for (const s of storeSalesChart)
         s.data = padChartData(s.data, dateRange[Op.gte], dateRange[Op.lte])
-      }
     }
 
     return res.status(200).json({
@@ -424,6 +412,7 @@ exports.getBestSellerReport = async (req, res) => {
       (s, p) => s + (revenueMap[Number(p.productId)] || 0),
       0
     )
+
     return res.status(200).json({
       success: true,
       data: {
@@ -450,45 +439,72 @@ exports.getBestSellerReport = async (req, res) => {
 exports.getCashFlow = async (req, res) => {
   try {
     const { store, startDate, endDate } = req.query
-    const txWhere = {}
-    if (store) txWhere.store = store
-    if (startDate || endDate) {
-      txWhere.createdAt = {}
-      if (startDate) txWhere.createdAt[Op.gte] = new Date(startDate)
-      if (endDate) {
-        const end = new Date(endDate)
-        end.setHours(23, 59, 59, 999)
-        txWhere.createdAt[Op.lte] = end
-      }
+    const replacements = {}
+    let txConditions = '1=1'
+
+    if (store) {
+      txConditions += ` AND t."store" = :store`
+      replacements.store = store
+    }
+    if (startDate) {
+      txConditions += ` AND t."createdAt" >= :startDate`
+      replacements.startDate = new Date(startDate)
+    }
+    if (endDate) {
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
+      txConditions += ` AND t."createdAt" <= :endDate`
+      replacements.endDate = end
     }
 
-    const payments = await Transaction.findAll({ where: txWhere })
+    // Aggregate payment breakdown by type in SQL
+    const paymentRows = await db.sequelize.query(
+      `SELECT t."typePayment",
+              COALESCE(SUM(t."amount"), 0) as total
+       FROM "transaction" t
+       WHERE ${txConditions}
+       GROUP BY t."typePayment"`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+
     let penerimaanTunai = 0
     let penerimaanQris = 0
     let penerimaanTransfer = 0
     let lainnya = 0
-    payments.forEach((p) => {
-      const type = (p.typePayment || '').toLowerCase()
-      if (type.includes('cash') || type === 'tunai')
-        penerimaanTunai += Number(p.amount || 0)
-      else if (type.includes('qris')) penerimaanQris += Number(p.amount || 0)
-      else if (type.includes('transfer'))
-        penerimaanTransfer += Number(p.amount || 0)
-      else lainnya += Number(p.amount || 0)
-    })
 
-    const expWhere = { status: 'approved' }
-    if (store) expWhere.store = store
-    if (startDate || endDate) {
-      expWhere.date = {}
-      if (startDate) expWhere.date[Op.gte] = startDate
-      if (endDate) expWhere.date[Op.lte] = endDate
+    for (const row of paymentRows) {
+      const type = (row.typePayment || '').toLowerCase()
+      const amount = Number(row.total || 0)
+      if (type.includes('cash') || type === 'tunai') penerimaanTunai += amount
+      else if (type.includes('qris')) penerimaanQris += amount
+      else if (type.includes('transfer')) penerimaanTransfer += amount
+      else lainnya += amount
     }
-    const expenses = await Expense.findAll({ where: expWhere })
-    const totalPengeluaran = expenses.reduce(
-      (s, e) => s + Number(e.amount || 0),
-      0
+
+    // Aggregate expenses in SQL
+    const expReplacements = {}
+    let expConditions = `"status" = 'approved'`
+    if (store) {
+      expConditions += ` AND "store" = :store`
+      expReplacements.store = store
+    }
+    if (startDate) {
+      expConditions += ` AND "date" >= :startDate`
+      expReplacements.startDate = replacements.startDate
+    }
+    if (endDate) {
+      expConditions += ` AND "date" <= :endDate`
+      expReplacements.endDate = replacements.endDate
+    }
+
+    const [expAgg] = await db.sequelize.query(
+      `SELECT COALESCE(SUM("amount"), 0) as total
+       FROM expense
+       WHERE ${expConditions}`,
+      { replacements: expReplacements, type: db.sequelize.QueryTypes.SELECT }
     )
+
+    const totalPengeluaran = Number(expAgg.total || 0)
     const totalKasMasuk =
       penerimaanTunai + penerimaanQris + penerimaanTransfer + lainnya
 
@@ -511,52 +527,55 @@ exports.getCashFlow = async (req, res) => {
 exports.getProfitPerProduct = async (req, res) => {
   try {
     const { store, startDate, endDate } = req.query
-    const orderWhere = { paymentStatus: 'paid' }
-    if (store) orderWhere.store = store
-    if (startDate || endDate) {
-      orderWhere.createdAt = {}
-      if (startDate) orderWhere.createdAt[Op.gte] = new Date(startDate)
-      if (endDate) {
-        const end = new Date(endDate)
-        end.setHours(23, 59, 59, 999)
-        orderWhere.createdAt[Op.lte] = end
-      }
+    const replacements = {}
+    let orderConditions = `o."paymentStatus" = 'paid'`
+
+    if (store) {
+      orderConditions += ` AND o."store" = :store`
+      replacements.store = store
     }
-    const orders = await Order.findAll({ where: orderWhere, attributes: ['id', 'createdAt'] })
-    const orderIds = orders.map((o) => o.id)
-    if (orderIds.length === 0) {
-      return res.json({ success: true, data: [] })
+    if (startDate) {
+      orderConditions += ` AND o."createdAt" >= :startDate`
+      replacements.startDate = new Date(startDate)
     }
-    const items = await OrderItem.findAll({
-      where: { order: orderIds },
-      attributes: ['product', 'productName', 'quantity', 'totalPrice', 'hppSnapshot']
-    })
-    const map = {}
-    for (const i of items) {
-      const pid = i.product
-      if (!map[pid]) {
-        map[pid] = {
-          productId: pid,
-          productName: i.productName || 'Unknown',
-          qtySold: 0,
-          totalSales: 0,
-          totalHpp: 0
-        }
-      }
-      map[pid].qtySold += Number(i.quantity || 0)
-      map[pid].totalSales += Number(i.totalPrice || 0)
-      map[pid].totalHpp += Number(i.hppSnapshot || 0)
+    if (endDate) {
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
+      orderConditions += ` AND o."createdAt" <= :endDate`
+      replacements.endDate = end
     }
-    const result = Object.values(map)
-      .map((p) => ({
-        ...p,
-        profit: p.totalSales - p.totalHpp,
+
+    // Single SQL query: GROUP BY product with SUM for qty, revenue, HPP
+    const rows = await db.sequelize.query(
+      `SELECT oi."product" as "productId",
+              COALESCE(MAX(oi."productName"), 'Unknown') as "productName",
+              COALESCE(SUM(oi."quantity"), 0) as "qtySold",
+              COALESCE(SUM(oi."totalPrice"), 0) as "totalSales",
+              COALESCE(SUM(COALESCE(oi."hppSnapshot", 0)), 0) as "totalHpp"
+       FROM order_item oi
+       JOIN "order" o ON o.id = oi."order"
+       WHERE ${orderConditions}
+       GROUP BY oi."product"
+       ORDER BY ("totalSales" - "totalHpp") DESC`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+
+    const result = rows.map((r) => {
+      const totalSales = Number(r.totalSales || 0)
+      const totalHpp = Number(r.totalHpp || 0)
+      const profit = totalSales - totalHpp
+      return {
+        productId: r.productId,
+        productName: r.productName,
+        qtySold: Number(r.qtySold || 0),
+        totalSales,
+        totalHpp,
+        profit,
         margin:
-          p.totalSales > 0
-            ? Math.round(((p.totalSales - p.totalHpp) / p.totalSales) * 10000) / 100
-            : 0
-      }))
-      .sort((a, b) => b.profit - a.profit)
+          totalSales > 0 ? Math.round((profit / totalSales) * 10000) / 100 : 0
+      }
+    })
+
     res.json({ success: true, data: result })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })

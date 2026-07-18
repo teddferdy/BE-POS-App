@@ -58,37 +58,45 @@ const expenseController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [rows, count, draftCount, pendingCount, approvedCount, rejectedCount] =
-        await Promise.all([
-          db.expense.findAll({
-            where,
-            include: [
-              {
-                model: db.expense_category,
-                as: 'categoryData',
-                attributes: ['id', 'name', 'icon']
-              },
-              {
-                model: db.user,
-                as: 'creator',
-                attributes: ['id', 'fullName']
-              }
-            ],
-            order: [
-              ['date', 'DESC'],
-              ['createdAt', 'DESC']
-            ],
-            limit: parseInt(limit),
-            offset
-          }),
-          db.expense.count({ where }),
-          db.expense.count({ where: { ...statsWhere, status: 'draft' } }),
-          db.expense.count({ where: { ...statsWhere, status: 'pending' } }),
-          db.expense.count({ where: { ...statsWhere, status: 'approved' } }),
-          db.expense.count({ where: { ...statsWhere, status: 'rejected' } })
-        ])
+      const [
+        rows,
+        count,
+        draftCount,
+        pendingCount,
+        approvedCount,
+        rejectedCount
+      ] = await Promise.all([
+        db.expense.findAll({
+          where,
+          include: [
+            {
+              model: db.expense_category,
+              as: 'categoryData',
+              attributes: ['id', 'name', 'icon']
+            },
+            {
+              model: db.user,
+              as: 'creator',
+              attributes: ['id', 'fullName']
+            }
+          ],
+          order: [
+            ['date', 'DESC'],
+            ['createdAt', 'DESC']
+          ],
+          limit: parseInt(limit),
+          offset
+        }),
+        db.expense.count({ where }),
+        db.expense.count({ where: { ...statsWhere, status: 'draft' } }),
+        db.expense.count({ where: { ...statsWhere, status: 'pending' } }),
+        db.expense.count({ where: { ...statsWhere, status: 'approved' } }),
+        db.expense.count({ where: { ...statsWhere, status: 'rejected' } })
+      ])
 
-      const totalAmount = await db.expense.sum('amount', { where: { ...statsWhere, status: 'approved' } })
+      const totalAmount = await db.expense.sum('amount', {
+        where: { ...statsWhere, status: 'approved' }
+      })
 
       return res.status(200).json({
         success: true,

@@ -52,7 +52,10 @@ const supplierPerformanceController = {
             {
               model: db.supplier,
               as: 'supplier',
-              where: Object.keys(supplierWhere).length > 0 ? supplierWhere : undefined,
+              where:
+                Object.keys(supplierWhere).length > 0
+                  ? supplierWhere
+                  : undefined,
               attributes: ['id', 'name', 'phone', 'email', 'contactPerson']
             }
           ]
@@ -63,7 +66,10 @@ const supplierPerformanceController = {
             {
               model: db.supplier,
               as: 'supplier',
-              where: Object.keys(supplierWhere).length > 0 ? supplierWhere : undefined,
+              where:
+                Object.keys(supplierWhere).length > 0
+                  ? supplierWhere
+                  : undefined,
               required: true
             }
           ]
@@ -85,7 +91,9 @@ const supplierPerformanceController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -98,13 +106,22 @@ const supplierPerformanceController = {
           {
             model: db.supplier,
             as: 'supplier',
-            attributes: ['id', 'name', 'phone', 'email', 'contactPerson', 'address']
+            attributes: [
+              'id',
+              'name',
+              'phone',
+              'email',
+              'contactPerson',
+              'address'
+            ]
           }
         ]
       })
 
       if (!score) {
-        return res.status(404).json({ success: false, message: 'Supplier score not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Supplier score not found' })
       }
 
       await enrichAuditFields(db, [score])
@@ -116,7 +133,9 @@ const supplierPerformanceController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -211,7 +230,7 @@ const supplierPerformanceController = {
 
           totalPurchaseAmount += po.finalAmount || po.totalAmount || 0
 
-          for (const item of (po.items || [])) {
+          for (const item of po.items || []) {
             totalReceivedQty += item.receivedQuantity || 0
             totalItems += item.quantity || 0
             totalPriceSum += (item.price || 0) * (item.quantity || 0)
@@ -224,7 +243,7 @@ const supplierPerformanceController = {
       const goodsReceipts = await db.goodsReceipt.findAll({
         where: {
           store: Number(store),
-          purchaseOrderId: { [Op.in]: purchaseOrders.map(po => po.id) },
+          purchaseOrderId: { [Op.in]: purchaseOrders.map((po) => po.id) },
           status: 'completed'
         },
         include: [
@@ -237,16 +256,26 @@ const supplierPerformanceController = {
       })
 
       for (const gr of goodsReceipts) {
-        for (const item of (gr.items || [])) {
-          if (item.conditionNotes && item.conditionNotes.toLowerCase().includes('defect')) {
+        for (const item of gr.items || []) {
+          if (
+            item.conditionNotes &&
+            item.conditionNotes.toLowerCase().includes('defect')
+          ) {
             defectiveQty += item.qtyReceived || 0
           }
         }
       }
 
-      const onTimeRate = totalOrders > 0 ? ((onTimeDeliveries / totalOrders) * 100).toFixed(2) : 0
-      const defectRate = totalReceivedQty > 0 ? ((defectiveQty / totalReceivedQty) * 100).toFixed(2) : 0
-      const avgPricePerItem = totalItems > 0 ? Math.round(totalPriceSum / totalItems) : 0
+      const onTimeRate =
+        totalOrders > 0
+          ? ((onTimeDeliveries / totalOrders) * 100).toFixed(2)
+          : 0
+      const defectRate =
+        totalReceivedQty > 0
+          ? ((defectiveQty / totalReceivedQty) * 100).toFixed(2)
+          : 0
+      const avgPricePerItem =
+        totalItems > 0 ? Math.round(totalPriceSum / totalItems) : 0
 
       const competingPrices = await db.purchase_order_item.findAll({
         attributes: [
@@ -262,7 +291,11 @@ const supplierPerformanceController = {
 
       let priceCompetitivenessScore = 100
       if (avgPricePerItem > 0 && competingPrices.length > 0) {
-        const overallAvg = competingPrices.reduce((sum, p) => sum + parseFloat(p.avgPrice || 0), 0) / competingPrices.length
+        const overallAvg =
+          competingPrices.reduce(
+            (sum, p) => sum + parseFloat(p.avgPrice || 0),
+            0
+          ) / competingPrices.length
         if (overallAvg > 0) {
           const ratio = avgPricePerItem / overallAvg
           if (ratio <= 0.9) priceCompetitivenessScore = 100
@@ -359,7 +392,9 @@ const supplierPerformanceController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -370,7 +405,9 @@ const supplierPerformanceController = {
 
       const score = await db.supplier_score.findByPk(id)
       if (!score) {
-        return res.status(404).json({ success: false, message: 'Supplier score not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Supplier score not found' })
       }
 
       await score.update({
@@ -387,7 +424,9 @@ const supplierPerformanceController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -420,9 +459,15 @@ const supplierPerformanceController = {
 
       await enrichAuditFields(db, scores)
 
-      const avgScore = scores.length > 0
-        ? (scores.reduce((sum, s) => sum + parseFloat(s.overallScore || 0), 0) / scores.length).toFixed(2)
-        : 0
+      const avgScore =
+        scores.length > 0
+          ? (
+              scores.reduce(
+                (sum, s) => sum + parseFloat(s.overallScore || 0),
+                0
+              ) / scores.length
+            ).toFixed(2)
+          : 0
 
       const latestScore = scores[0] || null
 
@@ -438,7 +483,9 @@ const supplierPerformanceController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -479,7 +526,9 @@ const supplierPerformanceController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

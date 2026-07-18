@@ -5,7 +5,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createAccountsReceivableSchema, updateAccountsReceivableSchema } = require('../validation/schemas')
+const {
+  createAccountsReceivableSchema,
+  updateAccountsReceivableSchema
+} = require('../validation/schemas')
 
 router.get('/list', authorization, validateStoreAccess, arController.list)
 router.get(

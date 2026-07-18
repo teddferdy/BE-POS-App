@@ -20,9 +20,15 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
     })
 
     const [active, draft, inactive] = await Promise.all([
-      TypePayment.count({ where: store ? { store, status: 'active' } : { status: 'active' } }),
-      TypePayment.count({ where: store ? { store, status: 'draft' } : { status: 'draft' } }),
-      TypePayment.count({ where: store ? { store, status: 'inactive' } : { status: 'inactive' } })
+      TypePayment.count({
+        where: store ? { store, status: 'active' } : { status: 'active' }
+      }),
+      TypePayment.count({
+        where: store ? { store, status: 'draft' } : { status: 'draft' }
+      }),
+      TypePayment.count({
+        where: store ? { store, status: 'inactive' } : { status: 'inactive' }
+      })
     ])
 
     return res.status(200).json({
@@ -52,7 +58,12 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
 
 exports.getAllTypePayment = async (req, res) => {
   const store = req.query.store || req.user?.store
-  const { page = 1, pageSize = req.query.limit || 10, status, search } = req.query
+  const {
+    page = 1,
+    pageSize = req.query.limit || 10,
+    status,
+    search
+  } = req.query
 
   try {
     const offset = (page - 1) * pageSize

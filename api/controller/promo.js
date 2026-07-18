@@ -37,12 +37,25 @@ const promoController = {
       const [campaigns, total] = await Promise.all([
         db.promo_campaign.findAll({
           where,
-          order: [['priority', 'DESC'], ['createdAt', 'DESC']],
+          order: [
+            ['priority', 'DESC'],
+            ['createdAt', 'DESC']
+          ],
           limit: parseInt(limit),
           offset,
           include: [
-            { model: db.promo_rule, as: 'rules', where: { isActive: true }, required: false },
-            { model: db.promo_reward, as: 'rewards', where: { isActive: true }, required: false }
+            {
+              model: db.promo_rule,
+              as: 'rules',
+              where: { isActive: true },
+              required: false
+            },
+            {
+              model: db.promo_reward,
+              as: 'rewards',
+              where: { isActive: true },
+              required: false
+            }
           ]
         }),
         db.promo_campaign.count({ where })
@@ -63,7 +76,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -79,7 +94,9 @@ const promoController = {
       })
 
       if (!campaign) {
-        return res.status(404).json({ success: false, message: 'Campaign not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Campaign not found' })
       }
 
       await enrichAuditFields(db, [campaign])
@@ -91,17 +108,38 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async createCampaign(req, res) {
     try {
       const {
-        store, name, description, code, type, discountType, discountValue,
-        maxDiscount, minPurchase, startDate, endDate, startTime, endTime,
-        daysOfWeek, applicableTo, applicableIds, maxUsageTotal, maxUsagePerMember,
-        priority, isCombinable, autoActivate, rules, rewards
+        store,
+        name,
+        description,
+        code,
+        type,
+        discountType,
+        discountValue,
+        maxDiscount,
+        minPurchase,
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        daysOfWeek,
+        applicableTo,
+        applicableIds,
+        maxUsageTotal,
+        maxUsagePerMember,
+        priority,
+        isCombinable,
+        autoActivate,
+        rules,
+        rewards
       } = req.body
 
       const campaign = await db.promo_campaign.create({
@@ -177,7 +215,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -188,10 +228,13 @@ const promoController = {
 
       const campaign = await db.promo_campaign.findByPk(id)
       if (!campaign) {
-        return res.status(404).json({ success: false, message: 'Campaign not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Campaign not found' })
       }
 
-      if (updateData.startDate) updateData.startDate = new Date(updateData.startDate)
+      if (updateData.startDate)
+        updateData.startDate = new Date(updateData.startDate)
       if (updateData.endDate) updateData.endDate = new Date(updateData.endDate)
 
       updateData.modifiedBy = req.user?.id
@@ -251,7 +294,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -262,7 +307,9 @@ const promoController = {
 
       const campaign = await db.promo_campaign.findByPk(id)
       if (!campaign) {
-        return res.status(404).json({ success: false, message: 'Campaign not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Campaign not found' })
       }
 
       await campaign.update({
@@ -279,7 +326,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -289,7 +338,9 @@ const promoController = {
 
       const campaign = await db.promo_campaign.findByPk(id)
       if (!campaign) {
-        return res.status(404).json({ success: false, message: 'Campaign not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Campaign not found' })
       }
 
       await campaign.update({ status: 'cancelled', modifiedBy: req.user?.id })
@@ -303,7 +354,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -345,7 +398,10 @@ const promoController = {
       const applicablePromos = []
 
       for (const campaign of campaigns) {
-        if (campaign.maxUsageTotal && campaign.currentUsage >= campaign.maxUsageTotal) {
+        if (
+          campaign.maxUsageTotal &&
+          campaign.currentUsage >= campaign.maxUsageTotal
+        ) {
           continue
         }
 
@@ -354,7 +410,10 @@ const promoController = {
         }
 
         if (campaign.startTime && campaign.endTime) {
-          if (currentTime < campaign.startTime || currentTime > campaign.endTime) {
+          if (
+            currentTime < campaign.startTime ||
+            currentTime > campaign.endTime
+          ) {
             continue
           }
         }
@@ -366,7 +425,10 @@ const promoController = {
           if (member) {
             const today = new Date()
             const memberDob = new Date(member.dateOfBirth)
-            if (today.getMonth() !== memberDob.getMonth() || today.getDate() !== memberDob.getDate()) {
+            if (
+              today.getMonth() !== memberDob.getMonth() ||
+              today.getDate() !== memberDob.getDate()
+            ) {
               isEligible = false
             }
           } else {
@@ -375,10 +437,12 @@ const promoController = {
         }
 
         if (campaign.type === 'buy_x_get_y' && cartItems) {
-          const rule = campaign.rules.find(r => r.ruleType === 'buy_x_get_y')
+          const rule = campaign.rules.find((r) => r.ruleType === 'buy_x_get_y')
           if (rule) {
             const { buyProductId, buyQuantity } = rule.condition
-            const cartItem = cartItems.find(item => item.productId === buyProductId)
+            const cartItem = cartItems.find(
+              (item) => item.productId === buyProductId
+            )
             if (!cartItem || cartItem.quantity < buyQuantity) {
               isEligible = false
             }
@@ -397,8 +461,13 @@ const promoController = {
 
           if (reward) {
             if (reward.rewardType === 'discount_percentage') {
-              discountAmount = Math.round((subtotal || 0) * (reward.rewardValue / 100))
-              if (reward.maxRewardValue && discountAmount > reward.maxRewardValue) {
+              discountAmount = Math.round(
+                (subtotal || 0) * (reward.rewardValue / 100)
+              )
+              if (
+                reward.maxRewardValue &&
+                discountAmount > reward.maxRewardValue
+              ) {
                 discountAmount = reward.maxRewardValue
               }
             } else if (reward.rewardType === 'discount_fixed') {
@@ -412,12 +481,14 @@ const promoController = {
             code: campaign.code,
             type: campaign.type,
             discountAmount,
-            reward: reward ? {
-              type: reward.rewardType,
-              value: reward.rewardValue,
-              productId: reward.productId,
-              quantity: reward.quantity
-            } : null
+            reward: reward
+              ? {
+                  type: reward.rewardType,
+                  value: reward.rewardValue,
+                  productId: reward.productId,
+                  quantity: reward.quantity
+                }
+              : null
           })
         }
       }
@@ -432,21 +503,38 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async recordPromoUsage(req, res) {
     try {
-      const { campaignId, orderId, memberId, discountApplied, freeItemsGiven, pointsMultiplier, cashbackAmount } = req.body
+      const {
+        campaignId,
+        orderId,
+        memberId,
+        discountApplied,
+        freeItemsGiven,
+        pointsMultiplier,
+        cashbackAmount
+      } = req.body
 
       const campaign = await db.promo_campaign.findByPk(campaignId)
       if (!campaign) {
-        return res.status(404).json({ success: false, message: 'Campaign not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Campaign not found' })
       }
 
-      if (campaign.maxUsageTotal && campaign.currentUsage >= campaign.maxUsageTotal) {
-        return res.status(400).json({ success: false, message: 'Campaign usage limit reached' })
+      if (
+        campaign.maxUsageTotal &&
+        campaign.currentUsage >= campaign.maxUsageTotal
+      ) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Campaign usage limit reached' })
       }
 
       if (campaign.maxUsagePerMember && memberId) {
@@ -454,7 +542,9 @@ const promoController = {
           where: { campaignId, memberId }
         })
         if (memberUsage >= campaign.maxUsagePerMember) {
-          return res.status(400).json({ success: false, message: 'Member usage limit reached' })
+          return res
+            .status(400)
+            .json({ success: false, message: 'Member usage limit reached' })
         }
       }
 
@@ -486,7 +576,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -503,12 +595,15 @@ const promoController = {
         where.store = { [Op.contains]: [Number(store)] }
       }
 
-      const [totalCampaigns, activeCampaigns, totalUsage, totalDiscountGiven] = await Promise.all([
-        db.promo_campaign.count({ where }),
-        db.promo_campaign.count({ where: { ...where, status: 'active' } }),
-        db.promo_usage.count({ where: { store: where.store } }),
-        db.promo_usage.sum('discountApplied', { where: { store: where.store } })
-      ])
+      const [totalCampaigns, activeCampaigns, totalUsage, totalDiscountGiven] =
+        await Promise.all([
+          db.promo_campaign.count({ where }),
+          db.promo_campaign.count({ where: { ...where, status: 'active' } }),
+          db.promo_usage.count({ where: { store: where.store } }),
+          db.promo_usage.sum('discountApplied', {
+            where: { store: where.store }
+          })
+        ])
 
       return res.status(200).json({
         success: true,
@@ -522,7 +617,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -570,7 +667,9 @@ const promoController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

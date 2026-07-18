@@ -90,46 +90,50 @@ const cashRegisterController = {
         })
       }
 
-      const orders = await db.order.findAll({
-        where: {
-          store,
-          createdBy: cashRegister.user,
-          createdAt: {
-            [Op.gte]: cashRegister.openedAt,
-            [Op.lte]: new Date()
-          },
-          paymentStatus: 'paid'
-        },
-        include: [{ model: db.transaction, as: 'transactions' }]
-      })
-
-      let totalSales = 0
-      let totalPayments = {}
-
-      for (const order of orders) {
-        totalSales += order.totalPrice || 0
-
-        if (order.transactions) {
-          for (const tx of order.transactions) {
-            const method = tx.typePayment || 'cash'
-            totalPayments[method] = (totalPayments[method] || 0) + tx.amount
-          }
-        }
+      const now = new Date()
+      const replacements = {
+        store,
+        user: cashRegister.user,
+        openedAt: cashRegister.openedAt,
+        now
       }
 
-      const expenses = await db.expense.findAll({
-        where: {
-          store,
-          createdBy: cashRegister.user,
-          date: {
-            [Op.gte]: cashRegister.openedAt,
-            [Op.lte]: new Date()
-          },
-          status: 'approved'
-        }
-      })
+      const [salesAgg] = await db.sequelize.query(
+        `SELECT COALESCE(SUM("totalPrice"), 0) as "totalSales"
+         FROM "order"
+         WHERE "store" = :store AND "createdBy" = :user
+           AND "createdAt" >= :openedAt AND "createdAt" <= :now
+           AND "paymentStatus" = 'paid'`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      )
 
-      const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
+      const paymentRows = await db.sequelize.query(
+        `SELECT t."typePayment", COALESCE(SUM(t."amount"), 0) as total
+         FROM "transaction" t
+         JOIN "order" o ON o.id = t."order"
+         WHERE o."store" = :store AND o."createdBy" = :user
+           AND o."createdAt" >= :openedAt AND o."createdAt" <= :now
+           AND o."paymentStatus" = 'paid'
+         GROUP BY t."typePayment"`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      )
+
+      let totalSales = Number(salesAgg.totalSales || 0)
+      let totalPayments = {}
+      for (const row of paymentRows) {
+        totalPayments[row.typePayment || 'cash'] = Number(row.total || 0)
+      }
+
+      const [expAgg] = await db.sequelize.query(
+        `SELECT COALESCE(SUM("amount"), 0) as "totalExpenses"
+         FROM expense
+         WHERE "store" = :store AND "createdBy" = :user
+           AND "date" >= :openedAt AND "date" <= :now
+           AND "status" = 'approved'`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      )
+
+      const totalExpenses = Number(expAgg.totalExpenses || 0)
 
       await cashRegister.update({
         closingBalance: closingBalance || 0,
@@ -205,37 +209,36 @@ const cashRegisterController = {
         })
       }
 
-      const orders = await db.order.findAll({
-        where: {
-          store,
-          createdBy: userId,
-          createdAt: {
-            [Op.gte]: cashRegister.openedAt
-          },
-          paymentStatus: 'paid'
-        },
-        attributes: ['id', 'totalPrice', 'createdAt']
-      })
+      const replacements = {
+        store,
+        user: userId,
+        openedAt: cashRegister.openedAt
+      }
 
-      const totalSales = orders.reduce(
-        (sum, order) => sum + (order.totalPrice || 0),
-        0
-      )
+      const [salesAgg, expAgg] = await Promise.all([
+        db.sequelize
+          .query(
+            `SELECT COUNT(*) as "totalTransactions",
+                  COALESCE(SUM("totalPrice"), 0) as "totalSales"
+           FROM "order"
+           WHERE "store" = :store AND "createdBy" = :user
+             AND "createdAt" >= :openedAt AND "paymentStatus" = 'paid'`,
+            { replacements, type: db.sequelize.QueryTypes.SELECT }
+          )
+          .then((r) => r[0]),
+        db.sequelize
+          .query(
+            `SELECT COALESCE(SUM("amount"), 0) as "totalExpenses"
+           FROM expense
+           WHERE "store" = :store AND "createdBy" = :user
+             AND "date" >= :openedAt AND "status" = 'approved'`,
+            { replacements, type: db.sequelize.QueryTypes.SELECT }
+          )
+          .then((r) => r[0])
+      ])
 
-      const expenses = await db.expense.findAll({
-        where: {
-          store,
-          createdBy: userId,
-          date: { [Op.gte]: cashRegister.openedAt },
-          status: 'approved'
-        },
-        attributes: ['id', 'amount', 'description', 'date']
-      })
-
-      const totalExpenses = expenses.reduce(
-        (sum, exp) => sum + Number(exp.amount || 0),
-        0
-      )
+      const totalSales = Number(salesAgg.totalSales || 0)
+      const totalExpenses = Number(expAgg.totalExpenses || 0)
 
       return res.status(200).json({
         success: true,
@@ -244,8 +247,7 @@ const cashRegisterController = {
           register: cashRegister,
           currentSales: totalSales,
           totalExpenses,
-          expenses,
-          totalTransactions: orders.length,
+          totalTransactions: Number(salesAgg.totalTransactions || 0),
           expectedCash: cashRegister.openingBalance + totalSales - totalExpenses
         }
       })
@@ -311,43 +313,69 @@ const cashRegisterController = {
 
       await enrichAuditFields(db, rows)
 
-      // ponytail: compute live totals for open registers since DB stores 0 until close
-      const enriched = await Promise.all(
-        rows.map(async (row) => {
-          if (row.status !== 'open') return row
-          const data = row.get({ plain: true })
-          const [orders, expenses] = await Promise.all([
-            db.order.findAll({
-              where: {
-                store: data.store,
-                createdBy: data.user,
-                createdAt: { [Op.gte]: data.openedAt },
-                paymentStatus: 'paid'
+      const openRegisters = rows.filter((r) => r.status === 'open')
+
+      let salesMap = {}
+      let expenseMap = {}
+      let transactionsMap = {}
+
+      if (openRegisters.length > 0) {
+        const salesQueries = openRegisters.map(async (row) => {
+          const d = row.get({ plain: true })
+          const [result] = await db.sequelize.query(
+            `SELECT COUNT(*) as "totalTransactions",
+                    COALESCE(SUM("totalPrice"), 0) as "totalSales"
+             FROM "order"
+             WHERE "store" = :store AND "createdBy" = :user
+               AND "createdAt" >= :openedAt AND "paymentStatus" = 'paid'`,
+            {
+              replacements: {
+                store: d.store,
+                user: d.user,
+                openedAt: d.openedAt
               },
-              attributes: ['totalPrice']
-            }),
-            db.expense.findAll({
-              where: {
-                store: data.store,
-                createdBy: data.user,
-                date: { [Op.gte]: data.openedAt },
-                status: 'approved'
-              },
-              attributes: ['amount']
-            })
-          ])
-          data.totalSales = orders.reduce(
-            (s, o) => s + Number(o.totalPrice || 0),
-            0
+              type: db.sequelize.QueryTypes.SELECT
+            }
           )
-          data.totalExpenses = expenses.reduce(
-            (s, e) => s + Number(e.amount || 0),
-            0
-          )
-          // ponytail: expectedCash is not stored in history but computed on detail page anyway
-          return data
+          salesMap[d.id] = {
+            totalSales: Number(result.totalSales || 0),
+            totalTransactions: Number(result.totalTransactions || 0)
+          }
         })
-      )
+
+        const expenseQueries = openRegisters.map(async (row) => {
+          const d = row.get({ plain: true })
+          const [result] = await db.sequelize.query(
+            `SELECT COALESCE(SUM("amount"), 0) as "totalExpenses"
+             FROM expense
+             WHERE "store" = :store AND "createdBy" = :user
+               AND "date" >= :openedAt AND "status" = 'approved'`,
+            {
+              replacements: {
+                store: d.store,
+                user: d.user,
+                openedAt: d.openedAt
+              },
+              type: db.sequelize.QueryTypes.SELECT
+            }
+          )
+          expenseMap[d.id] = Number(result.totalExpenses || 0)
+        })
+
+        await Promise.all([...salesQueries, ...expenseQueries])
+      }
+
+      const enriched = rows.map((row) => {
+        if (row.status !== 'open') return row
+        const data = row.get({ plain: true })
+        const sales = salesMap[data.id] || {
+          totalSales: 0,
+          totalTransactions: 0
+        }
+        data.totalSales = sales.totalSales
+        data.totalExpenses = expenseMap[data.id] || 0
+        return data
+      })
 
       return res.status(200).json({
         success: true,

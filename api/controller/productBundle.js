@@ -39,7 +39,9 @@ const bundleController = {
       const [activeCount, draftCount, inactiveCount] = await Promise.all([
         db.product_bundle.count({ where: { ...statsWhere, status: 'active' } }),
         db.product_bundle.count({ where: { ...statsWhere, status: 'draft' } }),
-        db.product_bundle.count({ where: { ...statsWhere, status: 'inactive' } })
+        db.product_bundle.count({
+          where: { ...statsWhere, status: 'inactive' }
+        })
       ])
 
       const stats = {
@@ -55,7 +57,13 @@ const bundleController = {
           {
             model: db.product_bundle_item,
             as: 'items',
-            include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'price', 'image', 'stock'] }]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct', 'price', 'image', 'stock']
+              }
+            ]
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -90,7 +98,20 @@ const bundleController = {
           {
             model: db.product_bundle_item,
             as: 'items',
-            include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'price', 'image', 'stock', 'unit'] }]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: [
+                  'id',
+                  'nameProduct',
+                  'price',
+                  'image',
+                  'stock',
+                  'unit'
+                ]
+              }
+            ]
           }
         ]
       })
@@ -123,7 +144,9 @@ const bundleController = {
       } = req.body
 
       if (!items || items.length === 0) {
-        return res.status(400).json({ message: 'Minimal harus ada 1 item dalam bundle' })
+        return res
+          .status(400)
+          .json({ message: 'Minimal harus ada 1 item dalam bundle' })
       }
 
       const sku = generateBundleSku()
@@ -132,16 +155,19 @@ const bundleController = {
       for (const item of items) {
         const product = await db.product.findByPk(item.product)
         if (!product) {
-          return res.status(400).json({ message: `Produk ID ${item.product} tidak ditemukan` })
+          return res
+            .status(400)
+            .json({ message: `Produk ID ${item.product} tidak ditemukan` })
         }
         const itemPrice = item.unitPrice || product.price
         originalPrice += itemPrice * (item.quantity || 1)
       }
 
       const discountAmount = originalPrice - (bundlePrice || 0)
-      const discountPercentage = originalPrice > 0
-        ? ((discountAmount / originalPrice) * 100).toFixed(2)
-        : 0
+      const discountPercentage =
+        originalPrice > 0
+          ? ((discountAmount / originalPrice) * 100).toFixed(2)
+          : 0
 
       const bundle = await db.product_bundle.create({
         store: req.cookies.store || null,
@@ -178,14 +204,29 @@ const bundleController = {
           {
             model: db.product_bundle_item,
             as: 'items',
-            include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'price', 'image', 'stock'] }]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct', 'price', 'image', 'stock']
+              }
+            ]
           }
         ]
       })
 
-      await createAudit('product_bundle', bundle.id, 'CREATE', null, result.toJSON(), req)
+      await createAudit(
+        'product_bundle',
+        bundle.id,
+        'CREATE',
+        null,
+        result.toJSON(),
+        req
+      )
 
-      return res.status(201).json({ message: 'Bundle berhasil dibuat', data: result })
+      return res
+        .status(201)
+        .json({ message: 'Bundle berhasil dibuat', data: result })
     } catch (error) {
       console.error('Bundle create error:', error)
       return res.status(500).json({ message: error.message })
@@ -226,7 +267,9 @@ const bundleController = {
         for (const item of items) {
           const product = await db.product.findByPk(item.product)
           if (!product) {
-            return res.status(400).json({ message: `Produk ID ${item.product} tidak ditemukan` })
+            return res
+              .status(400)
+              .json({ message: `Produk ID ${item.product} tidak ditemukan` })
           }
           const itemPrice = item.unitPrice || product.price
           originalPrice += itemPrice * (item.quantity || 1)
@@ -240,32 +283,40 @@ const bundleController = {
           })
         }
       } else {
-        const existingItems = await db.product_bundle_item.findAll({ where: { bundleId: bundle.id } })
+        const existingItems = await db.product_bundle_item.findAll({
+          where: { bundleId: bundle.id }
+        })
         for (const item of existingItems) {
           originalPrice += item.unitPrice * item.quantity
         }
       }
 
-      const finalBundlePrice = bundlePrice !== undefined ? bundlePrice : bundle.bundlePrice
+      const finalBundlePrice =
+        bundlePrice !== undefined ? bundlePrice : bundle.bundlePrice
       const discountAmount = originalPrice - finalBundlePrice
-      const discountPercentage = originalPrice > 0
-        ? ((discountAmount / originalPrice) * 100).toFixed(2)
-        : 0
+      const discountPercentage =
+        originalPrice > 0
+          ? ((discountAmount / originalPrice) * 100).toFixed(2)
+          : 0
 
       await bundle.update({
         name: name || bundle.name,
-        description: description !== undefined ? description : bundle.description,
+        description:
+          description !== undefined ? description : bundle.description,
         image: image !== undefined ? image : bundle.image,
         bundlePrice: finalBundlePrice,
         originalPrice,
         discountAmount: Math.max(discountAmount, 0),
         discountPercentage: parseFloat(discountPercentage),
-        isAvailable: isAvailable !== undefined ? isAvailable : bundle.isAvailable,
+        isAvailable:
+          isAvailable !== undefined ? isAvailable : bundle.isAvailable,
         status: status || bundle.status,
         validFrom: validFrom !== undefined ? validFrom : bundle.validFrom,
         validUntil: validUntil !== undefined ? validUntil : bundle.validUntil,
-        minQuantity: minQuantity !== undefined ? minQuantity : bundle.minQuantity,
-        maxQuantity: maxQuantity !== undefined ? maxQuantity : bundle.maxQuantity
+        minQuantity:
+          minQuantity !== undefined ? minQuantity : bundle.minQuantity,
+        maxQuantity:
+          maxQuantity !== undefined ? maxQuantity : bundle.maxQuantity
       })
 
       const result = await db.product_bundle.findByPk(bundle.id, {
@@ -273,14 +324,29 @@ const bundleController = {
           {
             model: db.product_bundle_item,
             as: 'items',
-            include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'price', 'image', 'stock'] }]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct', 'price', 'image', 'stock']
+              }
+            ]
           }
         ]
       })
 
-      await createAudit('product_bundle', bundle.id, 'UPDATE', oldData, result.toJSON(), req)
+      await createAudit(
+        'product_bundle',
+        bundle.id,
+        'UPDATE',
+        oldData,
+        result.toJSON(),
+        req
+      )
 
-      return res.status(200).json({ message: 'Bundle berhasil diupdate', data: result })
+      return res
+        .status(200)
+        .json({ message: 'Bundle berhasil diupdate', data: result })
     } catch (error) {
       console.error('Bundle update error:', error)
       return res.status(500).json({ message: error.message })
@@ -301,7 +367,14 @@ const bundleController = {
       await db.product_bundle_item.destroy({ where: { bundleId: bundle.id } })
       await bundle.destroy()
 
-      await createAudit('product_bundle', bundle.id, 'DELETE', oldData, null, req)
+      await createAudit(
+        'product_bundle',
+        bundle.id,
+        'DELETE',
+        oldData,
+        null,
+        req
+      )
 
       return res.status(200).json({ message: 'Bundle berhasil dihapus' })
     } catch (error) {
@@ -329,14 +402,29 @@ const bundleController = {
           {
             model: db.product_bundle_item,
             as: 'items',
-            include: [{ model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'price', 'image', 'stock'] }]
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct', 'price', 'image', 'stock']
+              }
+            ]
           }
         ]
       })
 
-      await createAudit('product_bundle', bundle.id, 'STATUS_CHANGE', oldData, result.toJSON(), req)
+      await createAudit(
+        'product_bundle',
+        bundle.id,
+        'STATUS_CHANGE',
+        oldData,
+        result.toJSON(),
+        req
+      )
 
-      return res.status(200).json({ message: 'Status bundle berhasil diubah', data: result })
+      return res
+        .status(200)
+        .json({ message: 'Status bundle berhasil diubah', data: result })
     } catch (error) {
       console.error('Bundle changeStatus error:', error)
       return res.status(500).json({ message: error.message })

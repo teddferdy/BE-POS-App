@@ -295,8 +295,7 @@ const purchasePaymentController = {
               ? Math.max(
                   0,
                   Math.floor(
-                    (new Date() - new Date(po.dueDate)) /
-                      (1000 * 60 * 60 * 24)
+                    (new Date() - new Date(po.dueDate)) / (1000 * 60 * 60 * 24)
                   )
                 )
               : 0
@@ -332,10 +331,19 @@ const purchasePaymentController = {
     try {
       const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 20, startDate, endDate, supplierId, store: queryStore, search } = req.query
+      const {
+        page = 1,
+        limit = 20,
+        startDate,
+        endDate,
+        supplierId,
+        store: queryStore,
+        search
+      } = req.query
 
       const where = {}
-      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const effectiveStore =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       if (effectiveStore) where.store = effectiveStore
       if (supplierId) where.supplier = supplierId
       if (search) {

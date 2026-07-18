@@ -44,24 +44,29 @@ const queueController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [queues, total, waitingCount, seatedCount, cancelledCount] = await Promise.all([
-        db.queue.findAll({
-          where,
-          order: [
-            ['priority', 'ASC'],
-            ['checkedInAt', 'ASC']
-          ],
-          limit: parseInt(limit),
-          offset,
-          include: [
-            { model: db.table, as: 'table', attributes: ['id', 'name', 'capacity'] }
-          ]
-        }),
-        db.queue.count({ where }),
-        db.queue.count({ where: { ...where, status: 'waiting' } }),
-        db.queue.count({ where: { ...where, status: 'seated' } }),
-        db.queue.count({ where: { ...where, status: 'cancelled' } })
-      ])
+      const [queues, total, waitingCount, seatedCount, cancelledCount] =
+        await Promise.all([
+          db.queue.findAll({
+            where,
+            order: [
+              ['priority', 'ASC'],
+              ['checkedInAt', 'ASC']
+            ],
+            limit: parseInt(limit),
+            offset,
+            include: [
+              {
+                model: db.table,
+                as: 'table',
+                attributes: ['id', 'name', 'capacity']
+              }
+            ]
+          }),
+          db.queue.count({ where }),
+          db.queue.count({ where: { ...where, status: 'waiting' } }),
+          db.queue.count({ where: { ...where, status: 'seated' } }),
+          db.queue.count({ where: { ...where, status: 'cancelled' } })
+        ])
 
       await enrichAuditFields(db, queues)
 
@@ -84,7 +89,9 @@ const queueController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -94,12 +101,18 @@ const queueController = {
 
       const queue = await db.queue.findByPk(id, {
         include: [
-          { model: db.table, as: 'table', attributes: ['id', 'name', 'capacity', 'status'] }
+          {
+            model: db.table,
+            as: 'table',
+            attributes: ['id', 'name', 'capacity', 'status']
+          }
         ]
       })
 
       if (!queue) {
-        return res.status(404).json({ success: false, message: 'Queue entry not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Queue entry not found' })
       }
 
       await enrichAuditFields(db, [queue])
@@ -111,7 +124,9 @@ const queueController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -156,7 +171,9 @@ const queueController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -175,15 +192,21 @@ const queueController = {
 
       const queue = await db.queue.findByPk(id)
       if (!queue) {
-        return res.status(404).json({ success: false, message: 'Queue entry not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Queue entry not found' })
       }
 
       await queue.update({
         customerName: customerName || queue.customerName,
-        customerPhone: customerPhone !== undefined ? customerPhone : queue.customerPhone,
+        customerPhone:
+          customerPhone !== undefined ? customerPhone : queue.customerPhone,
         partySize: partySize || queue.partySize,
         priority: priority || queue.priority,
-        estimatedWaitMinutes: estimatedWaitMinutes !== undefined ? estimatedWaitMinutes : queue.estimatedWaitMinutes,
+        estimatedWaitMinutes:
+          estimatedWaitMinutes !== undefined
+            ? estimatedWaitMinutes
+            : queue.estimatedWaitMinutes,
         notes: notes !== undefined ? notes : queue.notes,
         assignedTo: assignedTo !== undefined ? assignedTo : queue.assignedTo,
         modifiedBy: req.user?.id
@@ -200,7 +223,9 @@ const queueController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -211,7 +236,9 @@ const queueController = {
 
       const queue = await db.queue.findByPk(id)
       if (!queue) {
-        return res.status(404).json({ success: false, message: 'Queue entry not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Queue entry not found' })
       }
 
       const updates = {
@@ -223,7 +250,9 @@ const queueController = {
         updates.seatedAt = new Date()
         updates.tableId = tableId
         if (queue.checkedInAt) {
-          updates.actualWaitMinutes = Math.round((new Date() - new Date(queue.checkedInAt)) / 60000)
+          updates.actualWaitMinutes = Math.round(
+            (new Date() - new Date(queue.checkedInAt)) / 60000
+          )
         }
 
         if (tableId) {
@@ -253,7 +282,9 @@ const queueController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -263,7 +294,9 @@ const queueController = {
 
       const queue = await db.queue.findByPk(id)
       if (!queue) {
-        return res.status(404).json({ success: false, message: 'Queue entry not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Queue entry not found' })
       }
 
       await queue.destroy()
@@ -276,7 +309,9 @@ const queueController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -296,49 +331,47 @@ const queueController = {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
 
-      const [
-        totalToday,
-        waitingNow,
-        seatedToday,
-        cancelledToday,
-        avgWaitTime
-      ] = await Promise.all([
-        db.queue.count({
-          where: {
-            ...where,
-            createdAt: { [Op.gte]: today }
-          }
-        }),
-        db.queue.count({
-          where: { ...where, status: 'waiting' }
-        }),
-        db.queue.count({
-          where: {
-            ...where,
-            status: 'seated',
-            seatedAt: { [Op.gte]: today }
-          }
-        }),
-        db.queue.count({
-          where: {
-            ...where,
-            status: { [Op.in]: ['cancelled', 'no_show'] },
-            cancelledAt: { [Op.gte]: today }
-          }
-        }),
-        db.queue.findOne({
-          attributes: [
-            [db.sequelize.fn('AVG', db.sequelize.col('actualWaitMinutes')), 'avgWait']
-          ],
-          where: {
-            ...where,
-            status: 'seated',
-            actualWaitMinutes: { [Op.not]: null },
-            seatedAt: { [Op.gte]: today }
-          },
-          raw: true
-        })
-      ])
+      const [totalToday, waitingNow, seatedToday, cancelledToday, avgWaitTime] =
+        await Promise.all([
+          db.queue.count({
+            where: {
+              ...where,
+              createdAt: { [Op.gte]: today }
+            }
+          }),
+          db.queue.count({
+            where: { ...where, status: 'waiting' }
+          }),
+          db.queue.count({
+            where: {
+              ...where,
+              status: 'seated',
+              seatedAt: { [Op.gte]: today }
+            }
+          }),
+          db.queue.count({
+            where: {
+              ...where,
+              status: { [Op.in]: ['cancelled', 'no_show'] },
+              cancelledAt: { [Op.gte]: today }
+            }
+          }),
+          db.queue.findOne({
+            attributes: [
+              [
+                db.sequelize.fn('AVG', db.sequelize.col('actualWaitMinutes')),
+                'avgWait'
+              ]
+            ],
+            where: {
+              ...where,
+              status: 'seated',
+              actualWaitMinutes: { [Op.not]: null },
+              seatedAt: { [Op.gte]: today }
+            },
+            raw: true
+          })
+        ])
 
       return res.status(200).json({
         success: true,
@@ -348,12 +381,16 @@ const queueController = {
           waitingNow,
           seatedToday,
           cancelledToday,
-          avgWaitMinutes: avgWaitTime?.avgWait ? Math.round(parseFloat(avgWaitTime.avgWait)) : 0
+          avgWaitMinutes: avgWaitTime?.avgWait
+            ? Math.round(parseFloat(avgWaitTime.avgWait))
+            : 0
         }
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

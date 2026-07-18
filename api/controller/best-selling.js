@@ -246,44 +246,33 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res) => {
 }
 
 exports.getEarningToday = async (req, res) => {
-  const NOW = moment(new Date()).format('YYYY-MM-DD')
+  const NOW = new Date()
+  NOW.setHours(0, 0, 0, 0)
   const { store } = req.query
 
   try {
-    const whereClause = {
-      paymentStatus: 'paid',
-      createdAt: {
-        [Op.gt]: NOW
-      }
-    }
+    const replacements = { today: NOW }
+    let conditions = `"paymentStatus" = 'paid' AND "createdAt" >= :today`
 
     if (store) {
-      whereClause.store = store
+      conditions += ` AND "store" = :store`
+      replacements.store = store
     }
 
-    const datas = await Order.findAll({
-      where: whereClause
-    }).then((res) => {
-      return res.map((items) => {
-        const getData = {
-          ...items.dataValues,
-          totalPrice: Number(items.dataValues.totalPrice)
-        }
-        return getData
-      })
-    })
-
-    let totalEarningToday = 0
-    datas?.forEach((items) => {
-      totalEarningToday += items.totalPrice
-    })
+    const [result] = await db.sequelize.query(
+      `SELECT COUNT(*) as "totalSellingToday",
+              COALESCE(SUM(COALESCE("totalPrice", 0)), 0) as "totalEarningToday"
+       FROM "order"
+       WHERE ${conditions}`,
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
+    )
 
     return res.status(200).json({
       success: true,
       message: 'Success',
       data: {
-        totalEarningToday: totalEarningToday,
-        totalSellingToday: datas.length
+        totalEarningToday: Number(result.totalEarningToday || 0),
+        totalSellingToday: Number(result.totalSellingToday || 0)
       }
     })
   } catch (error) {

@@ -5,7 +5,12 @@ const User = db.user
 const { createAudit } = require('../../utils/auditLog')
 
 exports.getAllShift = async (req, res) => {
-  const { page: rawPage, pageSize: rawPageSize, status = 'all', search } = req.query
+  const {
+    page: rawPage,
+    pageSize: rawPageSize,
+    status = 'all',
+    search
+  } = req.query
   const page = Math.max(1, parseInt(rawPage) || 1)
   const pageSize = Math.max(1, parseInt(rawPageSize) || 10)
 

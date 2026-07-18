@@ -73,7 +73,14 @@ exports.getAllLocationPublic = async (req, res) => {
 exports.getAllLocationInTable = async (req, res) => {
   try {
     const userRole = req.user?.roleType
-    const { page = 1, limit = 10, status = 'all', category = 'all', search, store: queryStore } = req.query
+    const {
+      page = 1,
+      limit = 10,
+      status = 'all',
+      category = 'all',
+      search,
+      store: queryStore
+    } = req.query
     const offset = (page - 1) * limit
 
     let whereClause = {}
@@ -128,14 +135,14 @@ exports.getAllLocationInTable = async (req, res) => {
       .filter(Boolean)
       .sort()
 
-      const { rows: locations } = await Location.findAndCountAll({
-        where: whereClause,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        order: [['createdAt', 'DESC']]
-      })
+    const { rows: locations } = await Location.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['createdAt', 'DESC']]
+    })
 
-      await enrichAuditFields(db, locations)
+    await enrichAuditFields(db, locations)
 
     const data = locations.map((loc) => ({
       id: `loc-${String(loc.id).padStart(3, '0')}`,
@@ -345,7 +352,9 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status: status || (isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft'),
+      status:
+        status ||
+        (isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft'),
       category,
       managerName,
       latitude: finalLatitude,

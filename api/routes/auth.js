@@ -6,13 +6,20 @@ const authController = require('../controller/auth')
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: { success: false, message: 'Too many login attempts, try again later.' }
+  message: {
+    success: false,
+    message: 'Too many login attempts, try again later.'
+  }
 })
 
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
-const { loginSchema, registerSchema, resetPasswordSchema } = require('../validation/schemas')
+const {
+  loginSchema,
+  registerSchema,
+  resetPasswordSchema
+} = require('../validation/schemas')
 
 const fs = require('fs')
 const multer = require('multer')
@@ -43,7 +50,11 @@ const router = express.Router()
 router.post('/login', loginLimiter, validate(loginSchema), authController.login)
 
 // Register (public)
-router.post('/register', validate(registerSchema), authController.registerNewUser)
+router.post(
+  '/register',
+  validate(registerSchema),
+  authController.registerNewUser
+)
 
 // Get User By Location (all authenticated users)
 router.get('/get-user', authorization, authController.userByLocation)

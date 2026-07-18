@@ -5,7 +5,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createProductionOrderSchema, updateProductionOrderSchema } = require('../validation/schemas')
+const {
+  createProductionOrderSchema,
+  updateProductionOrderSchema
+} = require('../validation/schemas')
 
 router.get(
   '/get-all',

@@ -315,7 +315,16 @@ const stockHistoryController = {
 
       const ingredients = await db.ingredient.findAll({
         where: ingredientWhere,
-        attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'supplier', 'costPrice', 'store'],
+        attributes: [
+          'id',
+          'name',
+          'stock',
+          'minStock',
+          'unit',
+          'supplier',
+          'costPrice',
+          'store'
+        ],
         include: [
           {
             model: db.supplier,
@@ -325,7 +334,9 @@ const stockHistoryController = {
         ]
       })
 
-      const lowStockIngredients = ingredients.filter((i) => i.stock <= i.minStock)
+      const lowStockIngredients = ingredients.filter(
+        (i) => i.stock <= i.minStock
+      )
 
       if (lowStockIngredients.length === 0) {
         return res.status(200).json({
@@ -359,7 +370,9 @@ const stockHistoryController = {
         const year = date.getFullYear()
         const month = String(date.getMonth() + 1).padStart(2, '0')
         const day = String(date.getDate()).padStart(2, '0')
-        const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
+        const random = Math.floor(Math.random() * 10000)
+          .toString()
+          .padStart(4, '0')
         return `${prefix}-${year}${month}${day}-${random}`
       }
 
@@ -375,7 +388,10 @@ const stockHistoryController = {
           unit: ing.unit || 'pcs'
         }))
 
-        const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+        const totalAmount = items.reduce(
+          (sum, item) => sum + item.quantity * item.price,
+          0
+        )
 
         const purchaseOrder = await db.purchase_order.create({
           store: group.store || store || null,
@@ -442,7 +458,10 @@ const stockHistoryController = {
           unit: ing.unit || 'pcs'
         }))
 
-        const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+        const totalAmount = items.reduce(
+          (sum, item) => sum + item.quantity * item.price,
+          0
+        )
 
         const purchaseOrder = await db.purchase_order.create({
           store: noSupplier[0]?.store || store || null,

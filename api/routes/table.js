@@ -5,7 +5,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createTableSchema, updateTableSchema } = require('../validation/schemas')
+const {
+  createTableSchema,
+  updateTableSchema
+} = require('../validation/schemas')
 
 // Get tables - All authenticated users
 router.get(

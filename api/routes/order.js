@@ -5,7 +5,11 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createOrderSchema, updateOrderStatusSchema, updateOrderItemStatusSchema } = require('../validation/schemas')
+const {
+  createOrderSchema,
+  updateOrderStatusSchema,
+  updateOrderItemStatusSchema
+} = require('../validation/schemas')
 
 // Order CRUD - All authenticated users (POS operations)
 router.post(

@@ -7,7 +7,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createSocialMediaSchema, updateSocialMediaSchema } = require('../validation/schemas')
+const {
+  createSocialMediaSchema,
+  updateSocialMediaSchema
+} = require('../validation/schemas')
 
 // Get Social Media
 router.get(

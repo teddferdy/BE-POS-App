@@ -55,24 +55,38 @@ const deliveryController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [orders, total, pendingCount, assignedCount, inTransitCount, deliveredCount] =
-        await Promise.all([
-          db.delivery_order.findAll({
-            where,
-            order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset,
-            include: [
-              { model: db.order, as: 'orderData', attributes: ['id', 'orderNumber', 'totalPrice', 'status'] },
-              { model: db.driver, as: 'driver', attributes: ['id', 'name', 'phone', 'vehicleType', 'vehiclePlate'] }
-            ]
-          }),
-          db.delivery_order.count({ where }),
-          db.delivery_order.count({ where: { ...where, status: 'pending' } }),
-          db.delivery_order.count({ where: { ...where, status: 'assigned' } }),
-          db.delivery_order.count({ where: { ...where, status: 'in_transit' } }),
-          db.delivery_order.count({ where: { ...where, status: 'delivered' } })
-        ])
+      const [
+        orders,
+        total,
+        pendingCount,
+        assignedCount,
+        inTransitCount,
+        deliveredCount
+      ] = await Promise.all([
+        db.delivery_order.findAll({
+          where,
+          order: [['createdAt', 'DESC']],
+          limit: parseInt(limit),
+          offset,
+          include: [
+            {
+              model: db.order,
+              as: 'orderData',
+              attributes: ['id', 'orderNumber', 'totalPrice', 'status']
+            },
+            {
+              model: db.driver,
+              as: 'driver',
+              attributes: ['id', 'name', 'phone', 'vehicleType', 'vehiclePlate']
+            }
+          ]
+        }),
+        db.delivery_order.count({ where }),
+        db.delivery_order.count({ where: { ...where, status: 'pending' } }),
+        db.delivery_order.count({ where: { ...where, status: 'assigned' } }),
+        db.delivery_order.count({ where: { ...where, status: 'in_transit' } }),
+        db.delivery_order.count({ where: { ...where, status: 'delivered' } })
+      ])
 
       await enrichAuditFields(db, orders)
 
@@ -96,7 +110,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -106,15 +122,25 @@ const deliveryController = {
 
       const order = await db.delivery_order.findByPk(id, {
         include: [
-          { model: db.order, as: 'orderData', include: [{ model: db.order_item, as: 'items' }] },
+          {
+            model: db.order,
+            as: 'orderData',
+            include: [{ model: db.order_item, as: 'items' }]
+          },
           { model: db.driver, as: 'driver' },
-          { model: db.delivery_status_history, as: 'statusHistory', order: [['createdAt', 'DESC']] },
+          {
+            model: db.delivery_status_history,
+            as: 'statusHistory',
+            order: [['createdAt', 'DESC']]
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ]
       })
 
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Delivery order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Delivery order not found' })
       }
 
       await enrichAuditFields(db, [order])
@@ -126,16 +152,26 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async createDeliveryOrder(req, res) {
     try {
       const {
-        order: orderId, store, customerName, customerPhone,
-        deliveryAddress, deliveryNotes, destinationLat, destinationLng,
-        deliveryFee, totalDistance, source
+        order: orderId,
+        store,
+        customerName,
+        customerPhone,
+        deliveryAddress,
+        deliveryNotes,
+        destinationLat,
+        destinationLng,
+        deliveryFee,
+        totalDistance,
+        source
       } = req.body
 
       const orderNumber = generateDeliveryNumber()
@@ -176,7 +212,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -186,7 +224,9 @@ const deliveryController = {
 
       const deliveryOrder = await db.delivery_order.findByPk(id)
       if (!deliveryOrder) {
-        return res.status(404).json({ success: false, message: 'Delivery order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Delivery order not found' })
       }
 
       const previousStatus = deliveryOrder.status
@@ -217,7 +257,10 @@ const deliveryController = {
           }
         })
         if (activeDeliveries === 0) {
-          await db.driver.update({ status: 'active' }, { where: { id: deliveryOrder.driverId } })
+          await db.driver.update(
+            { status: 'active' },
+            { where: { id: deliveryOrder.driverId } }
+          )
         }
       }
 
@@ -237,7 +280,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -248,12 +293,16 @@ const deliveryController = {
 
       const deliveryOrder = await db.delivery_order.findByPk(orderId)
       if (!deliveryOrder) {
-        return res.status(404).json({ success: false, message: 'Delivery order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Delivery order not found' })
       }
 
       const driver = await db.driver.findByPk(driverId)
       if (!driver) {
-        return res.status(404).json({ success: false, message: 'Driver not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Driver not found' })
       }
 
       const finalName = driverName || driver.name
@@ -291,7 +340,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -302,11 +353,15 @@ const deliveryController = {
 
       const deliveryOrder = await db.delivery_order.findByPk(id)
       if (!deliveryOrder) {
-        return res.status(404).json({ success: false, message: 'Delivery order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Delivery order not found' })
       }
 
       if (deliveryOrder.status === 'delivered') {
-        return res.status(400).json({ success: false, message: 'Cannot cancel delivered order' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Cannot cancel delivered order' })
       }
 
       await deliveryOrder.update({
@@ -323,7 +378,10 @@ const deliveryController = {
           }
         })
         if (activeDeliveries === 0) {
-          await db.driver.update({ status: 'active' }, { where: { id: deliveryOrder.driverId } })
+          await db.driver.update(
+            { status: 'active' },
+            { where: { id: deliveryOrder.driverId } }
+          )
         }
       }
 
@@ -350,7 +408,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -399,21 +459,28 @@ const deliveryController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [drivers, total, activeCount, busyCount, inactiveCount, offlineCount, draftCount] =
-        await Promise.all([
-          db.driver.findAll({
-            where,
-            order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset
-          }),
-          db.driver.count({ where }),
-          db.driver.count({ where: { ...where, status: 'active' } }),
-          db.driver.count({ where: { ...where, status: 'busy' } }),
-          db.driver.count({ where: { ...where, status: 'inactive' } }),
-          db.driver.count({ where: { ...where, status: 'offline' } }),
-          db.driver.count({ where: { ...where, status: 'draft' } })
-        ])
+      const [
+        drivers,
+        total,
+        activeCount,
+        busyCount,
+        inactiveCount,
+        offlineCount,
+        draftCount
+      ] = await Promise.all([
+        db.driver.findAll({
+          where,
+          order: [['createdAt', 'DESC']],
+          limit: parseInt(limit),
+          offset
+        }),
+        db.driver.count({ where }),
+        db.driver.count({ where: { ...where, status: 'active' } }),
+        db.driver.count({ where: { ...where, status: 'busy' } }),
+        db.driver.count({ where: { ...where, status: 'inactive' } }),
+        db.driver.count({ where: { ...where, status: 'offline' } }),
+        db.driver.count({ where: { ...where, status: 'draft' } })
+      ])
 
       await enrichAuditFields(db, drivers)
 
@@ -438,7 +505,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -448,7 +517,9 @@ const deliveryController = {
 
       const driver = await db.driver.findByPk(id)
       if (!driver) {
-        return res.status(404).json({ success: false, message: 'Driver not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Driver not found' })
       }
 
       const activeDeliveries = await db.delivery_order.count({
@@ -475,13 +546,24 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async createDriver(req, res) {
     try {
-      const { name, store, phone, email, vehicleType, vehiclePlate, status, notes } = req.body
+      const {
+        name,
+        store,
+        phone,
+        email,
+        vehicleType,
+        vehiclePlate,
+        status,
+        notes
+      } = req.body
 
       const driver = await db.driver.create({
         name,
@@ -502,18 +584,31 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async updateDriver(req, res) {
     try {
       const { id } = req.params
-      const { name, store, phone, email, vehicleType, vehiclePlate, status, notes } = req.body
+      const {
+        name,
+        store,
+        phone,
+        email,
+        vehicleType,
+        vehiclePlate,
+        status,
+        notes
+      } = req.body
 
       const driver = await db.driver.findByPk(id)
       if (!driver) {
-        return res.status(404).json({ success: false, message: 'Driver not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Driver not found' })
       }
 
       await driver.update({
@@ -521,8 +616,10 @@ const deliveryController = {
         store: store !== undefined ? store : driver.store,
         phone: phone !== undefined ? phone : driver.phone,
         email: email !== undefined ? email : driver.email,
-        vehicleType: vehicleType !== undefined ? vehicleType : driver.vehicleType,
-        vehiclePlate: vehiclePlate !== undefined ? vehiclePlate : driver.vehiclePlate,
+        vehicleType:
+          vehicleType !== undefined ? vehicleType : driver.vehicleType,
+        vehiclePlate:
+          vehiclePlate !== undefined ? vehiclePlate : driver.vehiclePlate,
         status: status !== undefined ? status : driver.status,
         notes: notes !== undefined ? notes : driver.notes,
         modifiedBy: req.user?.id
@@ -535,7 +632,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -545,7 +644,9 @@ const deliveryController = {
 
       const driver = await db.driver.findByPk(id)
       if (!driver) {
-        return res.status(404).json({ success: false, message: 'Driver not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Driver not found' })
       }
 
       const activeDeliveries = await db.delivery_order.count({
@@ -569,7 +670,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -580,7 +683,9 @@ const deliveryController = {
 
       const driver = await db.driver.findByPk(id)
       if (!driver) {
-        return res.status(404).json({ success: false, message: 'Driver not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Driver not found' })
       }
 
       await driver.update({ status, modifiedBy: req.user?.id })
@@ -592,7 +697,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -602,7 +709,9 @@ const deliveryController = {
     try {
       const store = req.query.store
       if (!store) {
-        return res.status(400).json({ success: false, message: 'Store is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       }
 
       return res.status(200).json({
@@ -617,7 +726,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -630,7 +741,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -646,37 +759,49 @@ const deliveryController = {
         where.store = Number(req.user.store)
       }
 
-      const [total, pending, assigned, pickedUp, inTransit, delivered, cancelled] =
-        await Promise.all([
-          db.delivery_order.count({ where }),
-          db.delivery_order.count({ where: { ...where, status: 'pending' } }),
-          db.delivery_order.count({ where: { ...where, status: 'assigned' } }),
-          db.delivery_order.count({ where: { ...where, status: 'picked_up' } }),
-          db.delivery_order.count({ where: { ...where, status: 'in_transit' } }),
-          db.delivery_order.count({ where: { ...where, status: 'delivered' } }),
-          db.delivery_order.count({ where: { ...where, status: 'cancelled' } })
-        ])
+      const [
+        total,
+        pending,
+        assigned,
+        pickedUp,
+        inTransit,
+        delivered,
+        cancelled
+      ] = await Promise.all([
+        db.delivery_order.count({ where }),
+        db.delivery_order.count({ where: { ...where, status: 'pending' } }),
+        db.delivery_order.count({ where: { ...where, status: 'assigned' } }),
+        db.delivery_order.count({ where: { ...where, status: 'picked_up' } }),
+        db.delivery_order.count({ where: { ...where, status: 'in_transit' } }),
+        db.delivery_order.count({ where: { ...where, status: 'delivered' } }),
+        db.delivery_order.count({ where: { ...where, status: 'cancelled' } })
+      ])
 
       const totalDrivers = await db.driver.count({
-        where: store && store !== '' ? {
-          [Op.or]: [
-            { store: null },
-            { store: { [Op.contains]: [Number(store)] } },
-            db.sequelize.literal('"driver"."store" = \'[]\'::jsonb')
-          ]
-        } : {}
+        where:
+          store && store !== ''
+            ? {
+                [Op.or]: [
+                  { store: null },
+                  { store: { [Op.contains]: [Number(store)] } },
+                  db.sequelize.literal('"driver"."store" = \'[]\'::jsonb')
+                ]
+              }
+            : {}
       })
 
       const activeDrivers = await db.driver.count({
         where: {
           status: 'active',
-          ...(store && store !== '' ? {
-            [Op.or]: [
-              { store: null },
-              { store: { [Op.contains]: [Number(store)] } },
-              db.sequelize.literal('"driver"."store" = \'[]\'::jsonb')
-            ]
-          } : {})
+          ...(store && store !== ''
+            ? {
+                [Op.or]: [
+                  { store: null },
+                  { store: { [Op.contains]: [Number(store)] } },
+                  db.sequelize.literal('"driver"."store" = \'[]\'::jsonb')
+                ]
+              }
+            : {})
         }
       })
 
@@ -697,7 +822,9 @@ const deliveryController = {
       })
     } catch (error) {
       console.log(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

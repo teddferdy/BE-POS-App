@@ -33,10 +33,19 @@ const stockOpnameController = {
     try {
       const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate, store: queryStore, search } = req.query
+      const {
+        page = 1,
+        limit = 10,
+        status,
+        startDate,
+        endDate,
+        store: queryStore,
+        search
+      } = req.query
 
       const where = {}
-      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const effectiveStore =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       if (effectiveStore) where.store = effectiveStore
 
       if (status) {
@@ -359,23 +368,32 @@ const stockOpnameController = {
             await item.update({ product: product.id }, { transaction: t })
           }
 
-if (item.ingredientName) {
+          if (item.ingredientName) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: item.ingredientName.trim() },
+                store: effectiveStore
+              },
               transaction: t
             })
           }
 
           if (!ingredient && item.namaBarang) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: item.namaBarang.trim() },
+                store: effectiveStore
+              },
               transaction: t
             })
           }
 
           if (!ingredient && !product && item.namaBarang) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: item.namaBarang.trim() },
+                store: effectiveStore
+              },
               transaction: t
             })
           }
@@ -459,14 +477,20 @@ if (item.ingredientName) {
             item.ingredientName
           ) {
             const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: item.ingredientName.trim() },
+                store: effectiveStore
+              },
               transaction: t
             })
             if (ing) minStock = Number(ing.minStock) || Infinity
           }
           if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
             const ing = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: item.namaBarang.trim() },
+                store: effectiveStore
+              },
               transaction: t
             })
             if (ing) minStock = Number(ing.minStock) || Infinity
@@ -756,14 +780,20 @@ if (item.ingredientName) {
 
             if (item.ingredientName) {
               ingredient = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: opname.store },
+                where: {
+                  name: { [Op.iLike]: item.ingredientName.trim() },
+                  store: opname.store
+                },
                 transaction: t
               })
             }
 
             if (!ingredient && !product && item.namaBarang) {
               ingredient = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: opname.store },
+                where: {
+                  name: { [Op.iLike]: item.namaBarang.trim() },
+                  store: opname.store
+                },
                 transaction: t
               })
             }
@@ -858,14 +888,20 @@ if (item.ingredientName) {
               item.ingredientName
             ) {
               const ing = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: opname.store },
+                where: {
+                  name: { [Op.iLike]: item.ingredientName.trim() },
+                  store: opname.store
+                },
                 transaction: t
               })
               if (ing) minStock = Number(ing.minStock) || Infinity
             }
             if ((minStock === Infinity || minStock === 0) && item.namaBarang) {
               const ing = await db.ingredient.findOne({
-                where: { name: { [Op.iLike]: item.namaBarang.trim() }, store: opname.store },
+                where: {
+                  name: { [Op.iLike]: item.namaBarang.trim() },
+                  store: opname.store
+                },
                 transaction: t
               })
               if (ing) minStock = Number(ing.minStock) || Infinity

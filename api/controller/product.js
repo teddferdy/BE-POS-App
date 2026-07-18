@@ -181,7 +181,15 @@ exports.getAllProduct = async (req, res) => {
 
 // Get All In Table
 exports.getAllProductInTable = async (req, res) => {
-  const { page = 1, pageSize = req.query.limit || 10, status = 'all', store, search, category, sort } = req.query
+  const {
+    page = 1,
+    pageSize = req.query.limit || 10,
+    status = 'all',
+    store,
+    search,
+    category,
+    sort
+  } = req.query
 
   try {
     const offset = (page - 1) * pageSize
@@ -255,7 +263,9 @@ exports.getAllProductInTable = async (req, res) => {
     // Resolve store IDs to names
     const allStoreIds = [
       ...new Set(
-        getAllProduct.flatMap((p) => (Array.isArray(p.store) ? normalizeStores(p.store) : []))
+        getAllProduct.flatMap((p) =>
+          Array.isArray(p.store) ? normalizeStores(p.store) : []
+        )
       )
     ]
     const locationMap = {}
@@ -274,17 +284,29 @@ exports.getAllProductInTable = async (req, res) => {
       stock: items.storeStocks?.[0]?.stock ?? items.stock,
       nameCategory: items.categoryData ? items.categoryData.name : null,
       storeList: Array.isArray(items.store)
-        ? normalizeStores(items.store).map((id) => ({ id, name: locationMap[id] || null }))
+        ? normalizeStores(items.store).map((id) => ({
+            id,
+            name: locationMap[id] || null
+          }))
         : []
     }))
 
     // Get total count for pagination
     const countIncludeOpts = category
-      ? [{ model: Category, as: 'categoryData', where: { name: { [Op.iLike]: category } }, required: true }]
+      ? [
+          {
+            model: Category,
+            as: 'categoryData',
+            where: { name: { [Op.iLike]: category } },
+            required: true
+          }
+        ]
       : []
     const totalProducts = await Product.count({
       where: whereCondition,
-      ...(countIncludeOpts.length ? { include: countIncludeOpts, distinct: true } : {})
+      ...(countIncludeOpts.length
+        ? { include: countIncludeOpts, distinct: true }
+        : {})
     })
 
     // Calculate stats (based on store filter only, not status filter)

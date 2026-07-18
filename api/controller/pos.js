@@ -134,8 +134,15 @@ const posController = {
             { bind: [item.productId, fromStore], transaction: t }
           )
           await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${Math.floor(Number(item.qty)) || 0}, 0)`) },
-            { where: { product: item.productId, store: fromStore }, transaction: t }
+            {
+              stock: db.sequelize.literal(
+                `GREATEST(stock - ${Math.floor(Number(item.qty)) || 0}, 0)`
+              )
+            },
+            {
+              where: { product: item.productId, store: fromStore },
+              transaction: t
+            }
           )
 
           const oldPssStock = availPss
@@ -144,7 +151,10 @@ const posController = {
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
           const newStock = oldStock - qty
-          await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
+          await product.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+            { transaction: t }
+          )
 
           await db.stock_history.create(
             {
@@ -221,7 +231,11 @@ const posController = {
             { bind: [item.product, toStore], transaction: t }
           )
           await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`stock + ${Math.floor(Number(item.qty)) || 0}`) },
+            {
+              stock: db.sequelize.literal(
+                `stock + ${Math.floor(Number(item.qty)) || 0}`
+              )
+            },
             { where: { product: item.product, store: toStore }, transaction: t }
           )
 
@@ -231,7 +245,10 @@ const posController = {
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
           const newStock = oldStock + qty
-          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction: t })
+          await product.update(
+            { stock: db.sequelize.literal(`stock + ${qty}`) },
+            { transaction: t }
+          )
 
           await db.stock_history.create(
             {
@@ -339,8 +356,15 @@ const posController = {
             { bind: [item.product, transfer.fromStore], transaction: t }
           )
           await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`stock + ${Math.floor(Number(item.qty)) || 0}`) },
-            { where: { product: item.product, store: transfer.fromStore }, transaction: t }
+            {
+              stock: db.sequelize.literal(
+                `stock + ${Math.floor(Number(item.qty)) || 0}`
+              )
+            },
+            {
+              where: { product: item.product, store: transfer.fromStore },
+              transaction: t
+            }
           )
 
           const oldPssStock = 0
@@ -349,7 +373,10 @@ const posController = {
           const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
           const newStock = oldStock + qty
-          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction: t })
+          await product.update(
+            { stock: db.sequelize.literal(`stock + ${qty}`) },
+            { transaction: t }
+          )
 
           await db.stock_history.create(
             {
@@ -390,10 +417,19 @@ const posController = {
     try {
       const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 20, status, startDate, endDate, store: queryStore, search } = req.query
+      const {
+        page = 1,
+        limit = 20,
+        status,
+        startDate,
+        endDate,
+        store: queryStore,
+        search
+      } = req.query
 
       let where = {}
-      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const effectiveStore =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       const storeClause = effectiveStore
         ? [{ fromStore: effectiveStore }, { toStore: effectiveStore }]
         : null
@@ -574,7 +610,14 @@ const posController = {
       }
 
       const result = await db.sequelize.transaction(async (t) => {
-        await product.update({ stock: db.sequelize.literal(`GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`) }, { transaction: t })
+        await product.update(
+          {
+            stock: db.sequelize.literal(
+              `GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`
+            )
+          },
+          { transaction: t }
+        )
 
         // Update per-store stock — ponytail: atomic upsert + adjust
         const adjStore = storeId || store
@@ -586,7 +629,11 @@ const posController = {
             { bind: [productId, adjStore], transaction: t }
           )
           await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`) },
+            {
+              stock: db.sequelize.literal(
+                `GREATEST(stock + ${Math.floor(Number(qty)) || 0}, 0)`
+              )
+            },
             { where: { product: productId, store: adjStore }, transaction: t }
           )
         }
@@ -1003,8 +1050,22 @@ const posController = {
         data: {
           totalSales: totalSales || 0,
           dailyTarget: store
-            ? (await db.location.findByPk(store, { attributes: ['dailyTarget'] }))?.dailyTarget || 0
-            : (async () => { try { return await db.location.sum('dailyTarget', { where: { status: 'active' } }) || 0 } catch { return 0 } })(),
+            ? (
+                await db.location.findByPk(store, {
+                  attributes: ['dailyTarget']
+                })
+              )?.dailyTarget || 0
+            : (async () => {
+                try {
+                  return (
+                    (await db.location.sum('dailyTarget', {
+                      where: { status: 'active' }
+                    })) || 0
+                  )
+                } catch {
+                  return 0
+                }
+              })(),
           totalOrders: totalOrders || 0,
           totalProducts: totalProducts || 0,
           totalMembers: totalMembers || 0,
@@ -1347,7 +1408,14 @@ const posController = {
       const newStock = oldStock + Number(qty)
 
       const result = await db.sequelize.transaction(async (t) => {
-        await product.update({ stock: db.sequelize.literal(`stock + ${Math.floor(Number(qty)) || 0}`) }, { transaction: t })
+        await product.update(
+          {
+            stock: db.sequelize.literal(
+              `stock + ${Math.floor(Number(qty)) || 0}`
+            )
+          },
+          { transaction: t }
+        )
 
         await db.product_batch.create(
           {

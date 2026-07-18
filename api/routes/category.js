@@ -45,7 +45,10 @@ const categoryController = require('../controller/category')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
-const { createCategorySchema, updateCategorySchema } = require('../validation/schemas')
+const {
+  createCategorySchema,
+  updateCategorySchema
+} = require('../validation/schemas')
 
 // Get All List To Table
 router.get(

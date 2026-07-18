@@ -41,10 +41,19 @@ const memberTierController = {
         return 'draft'
       }
 
-      const activeCount = tiers.filter((t) => normalizeStatus(t.status) === 'active').length
-      const draftCount = tiers.filter((t) => normalizeStatus(t.status) === 'draft').length
-      const inactiveCount = tiers.filter((t) => normalizeStatus(t.status) === 'inactive').length
-      const totalMembers = tiers.reduce((sum, t) => sum + (Number(t.getDataValue('memberCount')) || 0), 0)
+      const activeCount = tiers.filter(
+        (t) => normalizeStatus(t.status) === 'active'
+      ).length
+      const draftCount = tiers.filter(
+        (t) => normalizeStatus(t.status) === 'draft'
+      ).length
+      const inactiveCount = tiers.filter(
+        (t) => normalizeStatus(t.status) === 'inactive'
+      ).length
+      const totalMembers = tiers.reduce(
+        (sum, t) => sum + (Number(t.getDataValue('memberCount')) || 0),
+        0
+      )
 
       return res.status(200).json({
         success: true,

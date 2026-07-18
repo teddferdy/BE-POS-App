@@ -106,11 +106,17 @@ const invoiceController = {
             ? toBool(showSocialMedia)
             : (existing?.showSocialMedia ?? true),
         socialMediaVisibility:
-          socialMediaVisibility !== undefined ? socialMediaVisibility : (existing?.socialMediaVisibility ?? null),
+          socialMediaVisibility !== undefined
+            ? socialMediaVisibility
+            : (existing?.socialMediaVisibility ?? null),
         addressFieldsVisibility:
-          addressFieldsVisibility !== undefined ? addressFieldsVisibility : (existing?.addressFieldsVisibility ?? null),
+          addressFieldsVisibility !== undefined
+            ? addressFieldsVisibility
+            : (existing?.addressFieldsVisibility ?? null),
         memberFieldsVisibility:
-          memberFieldsVisibility !== undefined ? memberFieldsVisibility : (existing?.memberFieldsVisibility ?? null),
+          memberFieldsVisibility !== undefined
+            ? memberFieldsVisibility
+            : (existing?.memberFieldsVisibility ?? null),
         logo: logoUrl,
         modifiedBy: req.user?.id
       }

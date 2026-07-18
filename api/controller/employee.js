@@ -150,7 +150,7 @@ exports.addEmployee = async (req, res) => {
       startDate: body?.startDate || null,
       dateOfBirth: body?.dateOfBirth || null,
       placeOfBirth: body?.placeOfBirth || '',
-      status: isDraft ? 'draft' : (body?.status || 'active'),
+      status: isDraft ? 'draft' : body?.status || 'active',
       store: body?.store || null,
       shift: body?.shift || null,
       position: body?.position || null,

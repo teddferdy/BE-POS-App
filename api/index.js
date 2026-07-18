@@ -70,7 +70,11 @@ const server = http.createServer(app)
 const corsOptions = {
   origin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
-    : ['https://bisa-nota-demo.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
+    : [
+        'https://bisa-nota-demo.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001'
+      ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
@@ -174,39 +178,70 @@ const escposPadBoth = (left, right, width) => {
   const space = Math.max(1, w - left.length - right.length)
   return left + ' '.repeat(space) + right
 }
-const escposLine = (char, width) => (char || '-').repeat(width || ESCPOS_RECEIPT_WIDTH)
+const escposLine = (char, width) =>
+  (char || '-').repeat(width || ESCPOS_RECEIPT_WIDTH)
 const escposPrice = (val) => `Rp${Number(val || 0).toLocaleString('id-ID')}`
 const fmtPrice = (val) => Number(val || 0).toLocaleString('id-ID')
 const escposCell = (txt, width, align) => {
-  const s = String(txt), w = Math.max(1, width)
+  const s = String(txt),
+    w = Math.max(1, width)
   if (align === 'right') return s.slice(0, w).padStart(w)
-  if (align === 'center') return s.slice(0, w).padStart(Math.ceil((w + s.length) / 2)).slice(0, w).padEnd(w)
+  if (align === 'center')
+    return s
+      .slice(0, w)
+      .padStart(Math.ceil((w + s.length) / 2))
+      .slice(0, w)
+      .padEnd(w)
   return s.slice(0, w).padEnd(w)
 }
 const escposDate = (date) => {
   const d = new Date(date)
-  return d.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toLowerCase()
+  return d
+    .toLocaleDateString('id-ID', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
+    .toLowerCase()
 }
 const escposTime = (date) => {
   const d = new Date(date)
-  return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace('.', ':')
+  return d
+    .toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+    .replace('.', ':')
 }
 
 function generateESCPOS(data) {
   const w = ESCPOS_RECEIPT_WIDTH
   const {
-    storeName = 'TOKO ANDA', storeAddress = '', storePhone = '', storeEmail = '',
-    memberName = '', memberTier = '', memberPoints = 0,
-    orderNumber = '', cashier = '', date = new Date().toISOString(),
-    items = [], subtotal = 0, discount = 0, serviceCharge = 0, tax = 0,
+    storeName = 'TOKO ANDA',
+    storeAddress = '',
+    storePhone = '',
+    storeEmail = '',
+    memberName = '',
+    memberTier = '',
+    memberPoints = 0,
+    orderNumber = '',
+    cashier = '',
+    date = new Date().toISOString(),
+    items = [],
+    subtotal = 0,
+    discount = 0,
+    serviceCharge = 0,
+    tax = 0,
     total = 0,
-    socialMedia = [], socialMediaVisible = {},
+    socialMedia = [],
+    socialMediaVisible = {},
     footer = 'Terima kasih atas kunjungan Anda'
   } = data
 
   let enc = ''
   enc += '\x1B\x40'
-  enc += '\x1B\x61\x01\x1B\x21\x20\x1B\x45\x01' + storeName + '\n\x1B\x45\x00\x1B\x21\x00'
+  enc +=
+    '\x1B\x61\x01\x1B\x21\x20\x1B\x45\x01' +
+    storeName +
+    '\n\x1B\x45\x00\x1B\x21\x00'
   enc += '\x1B\x61\x01'
   if (storeAddress) enc += storeAddress + '\n'
   if (storePhone) enc += 'Telp: ' + storePhone + '\n'
@@ -218,30 +253,48 @@ function generateESCPOS(data) {
   if (memberName) {
     enc += 'Member: ' + memberName + '\n'
     if (memberTier) enc += 'Tier: ' + memberTier + '\n'
-    if (memberPoints) enc += 'Poin: ' + Number(memberPoints).toLocaleString('id-ID') + '\n'
+    if (memberPoints)
+      enc += 'Poin: ' + Number(memberPoints).toLocaleString('id-ID') + '\n'
   }
   enc += escposLine('-', w) + '\n'
-  enc += escposCell('Item', 11) + escposCell('Qty', 3, 'center') + escposCell('Harga', 9, 'right') + escposCell('Total', 9, 'right') + '\n'
+  enc +=
+    escposCell('Item', 11) +
+    escposCell('Qty', 3, 'center') +
+    escposCell('Harga', 9, 'right') +
+    escposCell('Total', 9, 'right') +
+    '\n'
   enc += escposLine('-', w) + '\n'
   items.forEach((item) => {
     const name = item.name || item.productName || '-'
     const qty = item.qty || item.quantity || 0
     const price = item.price || 0
     const itemTotal = item.total || item.subtotal || qty * price
-    enc += escposCell(name, 11) + escposCell(String(qty), 3, 'center') + escposCell(fmtPrice(price), 9, 'right') + escposCell(fmtPrice(itemTotal), 9, 'right') + '\n'
+    enc +=
+      escposCell(name, 11) +
+      escposCell(String(qty), 3, 'center') +
+      escposCell(fmtPrice(price), 9, 'right') +
+      escposCell(fmtPrice(itemTotal), 9, 'right') +
+      '\n'
   })
   enc += escposLine('=', w) + '\n'
   enc += escposPadBoth('Subtotal', escposPrice(subtotal)) + '\n'
-  if (discount > 0) enc += escposPadBoth('Diskon', '-' + escposPrice(discount)) + '\n'
-  if (serviceCharge > 0) enc += escposPadBoth('Biaya Layanan', escposPrice(serviceCharge)) + '\n'
+  if (discount > 0)
+    enc += escposPadBoth('Diskon', '-' + escposPrice(discount)) + '\n'
+  if (serviceCharge > 0)
+    enc += escposPadBoth('Biaya Layanan', escposPrice(serviceCharge)) + '\n'
   enc += escposPadBoth('Pajak (10%)', escposPrice(tax)) + '\n'
   enc += escposLine('-', w) + '\n'
-  enc += '\x1B\x45\x01' + escposPadBoth('TOTAL', escposPrice(total)) + '\n\x1B\x45\x00'
+  enc +=
+    '\x1B\x45\x01' +
+    escposPadBoth('TOTAL', escposPrice(total)) +
+    '\n\x1B\x45\x00'
   enc += escposLine('-', w) + '\n'
   enc += '\x1B\x61\x01' + footer + '\n'
-  const vSocial = (socialMedia || []).filter((_, i) => socialMediaVisible && socialMediaVisible[i])
+  const vSocial = (socialMedia || []).filter(
+    (_, i) => socialMediaVisible && socialMediaVisible[i]
+  )
   if (vSocial.length > 0) {
-    vSocial.forEach(sm => {
+    vSocial.forEach((sm) => {
       enc += (sm.platform || '') + ': ' + (sm.account || '') + '\n'
     })
   }
@@ -251,21 +304,29 @@ function generateESCPOS(data) {
 
 app.post('/print-thermal', (req, res) => {
   const { data } = req.body
-  if (!data) return res.status(400).json({ success: false, message: 'No receipt data' })
+  if (!data)
+    return res.status(400).json({ success: false, message: 'No receipt data' })
 
   const script = `${__dirname}/thermal-bt.py`
   if (!fs.existsSync(script)) {
-    return res.status(500).json({ success: false, message: 'thermal-bt.py not found' })
+    return res
+      .status(500)
+      .json({ success: false, message: 'thermal-bt.py not found' })
   }
 
   try {
     const escpos = generateESCPOS(data)
     const proc = execSync(`python3 "${script}"`, {
-      input: escpos, maxBuffer: escpos.length + 1024, timeout: 15000
+      input: escpos,
+      maxBuffer: escpos.length + 1024,
+      timeout: 15000
     })
     res.json({ success: true, message: proc.toString().trim() || 'Printed' })
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message || e.stderr?.toString().trim() || 'Print failed' })
+    res.status(500).json({
+      success: false,
+      message: e.message || e.stderr?.toString().trim() || 'Print failed'
+    })
   }
 })
 

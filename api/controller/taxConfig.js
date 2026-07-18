@@ -160,7 +160,7 @@ const taxConfigController = {
       }
 
       await tax.update({
-        store: store !== undefined ? (store || null) : tax.store,
+        store: store !== undefined ? store || null : tax.store,
         name: name || tax.name,
         rate: rate !== undefined ? parseInt(rate) : tax.rate,
         type: type || tax.type,

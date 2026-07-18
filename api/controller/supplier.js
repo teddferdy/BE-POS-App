@@ -50,7 +50,11 @@ const supplierController = {
       }
 
       const supplierStores = normalizeStores(supplier.store)
-      if (req.user?.roleType !== 'super_admin' && supplierStores.length > 0 && !supplierStores.includes(Number(req.user?.store))) {
+      if (
+        req.user?.roleType !== 'super_admin' &&
+        supplierStores.length > 0 &&
+        !supplierStores.includes(Number(req.user?.store))
+      ) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk melihat supplier ini'
@@ -148,7 +152,9 @@ const supplierController = {
 
       const allStoreIds = [
         ...new Set(
-          suppliers.flatMap((s) => (Array.isArray(s.store) ? normalizeStores(s.store) : []))
+          suppliers.flatMap((s) =>
+            Array.isArray(s.store) ? normalizeStores(s.store) : []
+          )
         )
       ]
       const locationMap = {}
@@ -165,7 +171,10 @@ const supplierController = {
       const data = suppliers.map((item) => ({
         ...item.toJSON(),
         store: Array.isArray(item.store)
-          ? normalizeStores(item.store).map((id) => ({ id, name: locationMap[id] || null }))
+          ? normalizeStores(item.store).map((id) => ({
+              id,
+              name: locationMap[id] || null
+            }))
           : []
       }))
 
@@ -208,7 +217,11 @@ const supplierController = {
       }
 
       const supplierStores = normalizeStores(supplier.store)
-      if (req.user?.roleType !== 'super_admin' && supplierStores.length > 0 && !supplierStores.includes(Number(req.user?.store))) {
+      if (
+        req.user?.roleType !== 'super_admin' &&
+        supplierStores.length > 0 &&
+        !supplierStores.includes(Number(req.user?.store))
+      ) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk melihat supplier ini'
@@ -384,7 +397,11 @@ const supplierController = {
       }
 
       const supplierStores = normalizeStores(supplier.store)
-      if (req.user?.roleType !== 'super_admin' && supplierStores.length > 0 && !supplierStores.includes(Number(store))) {
+      if (
+        req.user?.roleType !== 'super_admin' &&
+        supplierStores.length > 0 &&
+        !supplierStores.includes(Number(store))
+      ) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk mengupdate supplier ini'
@@ -435,7 +452,9 @@ const supplierController = {
         }
       }
 
-      const newStore = Array.isArray(req.body.store) ? req.body.store : undefined
+      const newStore = Array.isArray(req.body.store)
+        ? req.body.store
+        : undefined
 
       await supplier.update({
         name: trimmedName ?? supplier.name,
@@ -501,7 +520,11 @@ const supplierController = {
       }
 
       const supplierStores = normalizeStores(supplier.store)
-      if (store && supplierStores.length > 0 && !supplierStores.includes(store)) {
+      if (
+        store &&
+        supplierStores.length > 0 &&
+        !supplierStores.includes(store)
+      ) {
         return res.status(403).json({
           success: false,
           message: 'Anda tidak memiliki akses untuk menghapus supplier ini'

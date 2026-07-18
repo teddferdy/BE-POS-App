@@ -5,7 +5,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createExpenseSchema, updateExpenseSchema } = require('../validation/schemas')
+const {
+  createExpenseSchema,
+  updateExpenseSchema
+} = require('../validation/schemas')
 
 // Get expenses - All authenticated users
 router.get(

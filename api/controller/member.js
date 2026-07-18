@@ -6,7 +6,14 @@ const { enrichAuditFields } = require('../../utils/auditFields')
 
 exports.getAllMember = async (req, res) => {
   try {
-    const { nameMember, phoneNumber, page = 1, limit = 10, tier, status } = req.query
+    const {
+      nameMember,
+      phoneNumber,
+      page = 1,
+      limit = 10,
+      tier,
+      status
+    } = req.query
     const filters = {}
 
     let store = req.query.store || req.user?.store
@@ -48,9 +55,15 @@ exports.getAllMember = async (req, res) => {
     await enrichAuditFields(db, rows)
 
     const totalMembers = await Member.count({ where: filters })
-    const activeCount = await Member.count({ where: { ...filters, status: 'active' } })
-    const draftCount = await Member.count({ where: { ...filters, status: 'draft' } })
-    const inactiveCount = await Member.count({ where: { ...filters, status: 'inactive' } })
+    const activeCount = await Member.count({
+      where: { ...filters, status: 'active' }
+    })
+    const draftCount = await Member.count({
+      where: { ...filters, status: 'draft' }
+    })
+    const inactiveCount = await Member.count({
+      where: { ...filters, status: 'inactive' }
+    })
 
     return res.status(200).json({
       success: true,
@@ -196,11 +209,15 @@ exports.addNewMember = async (req, res) => {
       }
     }
 
-    const phoneNumber = body.phoneNumber && body.phoneNumber.trim() !== ''
-      ? body.phoneNumber
-      : `GUEST-${Date.now()}`
+    const phoneNumber =
+      body.phoneNumber && body.phoneNumber.trim() !== ''
+        ? body.phoneNumber
+        : `GUEST-${Date.now()}`
 
-    const store = req.user?.roleType === 'super_admin' ? (body.store || null) : req.user?.store
+    const store =
+      req.user?.roleType === 'super_admin'
+        ? body.store || null
+        : req.user?.store
     const createdMember = await Member.create({
       store,
       name: body.nameMember,
@@ -276,7 +293,11 @@ exports.editMember = async (req, res) => {
       })
     }
 
-    if (req.user?.roleType !== 'super_admin' && member.store && member.store !== req.user?.store) {
+    if (
+      req.user?.roleType !== 'super_admin' &&
+      member.store &&
+      member.store !== req.user?.store
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Anda tidak memiliki akses untuk mengedit member ini'
@@ -372,7 +393,11 @@ exports.deleteMember = async (req, res) => {
       })
     }
 
-    if (req.user?.roleType !== 'super_admin' && member.store && member.store !== req.user?.store) {
+    if (
+      req.user?.roleType !== 'super_admin' &&
+      member.store &&
+      member.store !== req.user?.store
+    ) {
       return res.status(403).json({
         success: false,
         message: 'Anda tidak memiliki akses untuk menghapus member ini'

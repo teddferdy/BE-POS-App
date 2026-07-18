@@ -6,7 +6,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createTaxConfigSchema, updateTaxConfigSchema } = require('../validation/schemas')
+const {
+  createTaxConfigSchema,
+  updateTaxConfigSchema
+} = require('../validation/schemas')
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 

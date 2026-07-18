@@ -18,7 +18,10 @@ const purchaseOrderController = {
   async getAll(req, res) {
     try {
       const userRole = req.user?.roleType
-      const effectiveStore = userRole === 'super_admin' ? (req.query.store || req.cookies.store) : req.cookies.store
+      const effectiveStore =
+        userRole === 'super_admin'
+          ? req.query.store || req.cookies.store
+          : req.cookies.store
       const {
         status,
         supplier,
@@ -83,22 +86,32 @@ const purchaseOrderController = {
         attributes: ['id', 'finalAmount']
       })
 
-      const poIds = allPOs.map(p => p.id)
-      const paymentAggs = poIds.length > 0 ? await db.purchase_payment.findAll({
-        attributes: [
-          'purchaseOrder',
-          [db.sequelize.fn('SUM', db.sequelize.col('amount')), 'totalPaid']
-        ],
-        where: { deletedAt: null, purchaseOrder: poIds },
-        group: ['purchaseOrder'],
-        raw: true
-      }) : []
+      const poIds = allPOs.map((p) => p.id)
+      const paymentAggs =
+        poIds.length > 0
+          ? await db.purchase_payment.findAll({
+              attributes: [
+                'purchaseOrder',
+                [
+                  db.sequelize.fn('SUM', db.sequelize.col('amount')),
+                  'totalPaid'
+                ]
+              ],
+              where: { deletedAt: null, purchaseOrder: poIds },
+              group: ['purchaseOrder'],
+              raw: true
+            })
+          : []
 
       const paidMap = {}
-      paymentAggs.forEach(p => { paidMap[p.purchaseOrder] = Number(p.totalPaid) })
+      paymentAggs.forEach((p) => {
+        paidMap[p.purchaseOrder] = Number(p.totalPaid)
+      })
 
-      let unpaid = 0, partial = 0, paid = 0
-      allPOs.forEach(po => {
+      let unpaid = 0,
+        partial = 0,
+        paid = 0
+      allPOs.forEach((po) => {
         const tp = paidMap[po.id] || 0
         if (tp === 0) unpaid++
         else if (tp < Number(po.finalAmount)) partial++
@@ -292,7 +305,10 @@ const purchaseOrderController = {
     try {
       const { store: bodyStore } = req.body
       const userRole = req.user?.roleType
-      const store = userRole === 'super_admin' ? (bodyStore || req.cookies.store) : (req.cookies.store || bodyStore)
+      const store =
+        userRole === 'super_admin'
+          ? bodyStore || req.cookies.store
+          : req.cookies.store || bodyStore
       const {
         supplier,
         items,
@@ -323,7 +339,15 @@ const purchaseOrderController = {
         }
 
         // ponytail: reject duplicate ingredients/products in same PO
-        const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+        const keys = items
+          .map((i) =>
+            i.ingredient
+              ? `ing-${i.ingredient}`
+              : i.product
+                ? `prod-${i.product}`
+                : null
+          )
+          .filter(Boolean)
         const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
         if (dupes.length > 0) {
           return res.status(400).json({
@@ -454,7 +478,15 @@ const purchaseOrderController = {
 
       // ponytail: reject duplicate ingredients/products in same PO
       if (items) {
-        const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+        const keys = items
+          .map((i) =>
+            i.ingredient
+              ? `ing-${i.ingredient}`
+              : i.product
+                ? `prod-${i.product}`
+                : null
+          )
+          .filter(Boolean)
         const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
         if (dupes.length > 0) {
           return res.status(400).json({
@@ -472,7 +504,11 @@ const purchaseOrderController = {
         })
         const receivedMap = {}
         existingItems.forEach((ei) => {
-          const key = ei.ingredient ? `ing-${ei.ingredient}` : ei.product ? `prod-${ei.product}` : `id-${ei.id}`
+          const key = ei.ingredient
+            ? `ing-${ei.ingredient}`
+            : ei.product
+              ? `prod-${ei.product}`
+              : `id-${ei.id}`
           receivedMap[key] = Number(ei.receivedQuantity) || 0
         })
 
@@ -481,7 +517,11 @@ const purchaseOrderController = {
         })
 
         const orderItems = items.map((item) => {
-          const key = item.ingredient ? `ing-${item.ingredient}` : item.product ? `prod-${item.product}` : null
+          const key = item.ingredient
+            ? `ing-${item.ingredient}`
+            : item.product
+              ? `prod-${item.product}`
+              : null
           return {
             purchaseOrder: id,
             product: item.product || null,
@@ -491,7 +531,8 @@ const purchaseOrderController = {
             unit: item.unit || 'pcs',
             price: item.price,
             total: item.quantity * item.price,
-            receivedQuantity: key && receivedMap[key] !== undefined ? receivedMap[key] : 0
+            receivedQuantity:
+              key && receivedMap[key] !== undefined ? receivedMap[key] : 0
           }
         })
 
@@ -590,11 +631,19 @@ const purchaseOrderController = {
             const poItem = poItems[item.id]
             if (!poItem) continue
 
-            const maxReceive = Number(poItem.quantity) - Number(poItem.receivedQuantity)
-            const receiveQty = Math.min(Number(item.receivedQuantity) || 0, maxReceive)
+            const maxReceive =
+              Number(poItem.quantity) - Number(poItem.receivedQuantity)
+            const receiveQty = Math.min(
+              Number(item.receivedQuantity) || 0,
+              maxReceive
+            )
 
             await db.purchase_order_item.update(
-              { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${receiveQty}`) },
+              {
+                receivedQuantity: db.sequelize.literal(
+                  `receivedQuantity + ${receiveQty}`
+                )
+              },
               { where: { id: item.id, purchaseOrder: id }, transaction }
             )
 
@@ -667,7 +716,7 @@ const purchaseOrderController = {
           transaction
         })
         const allReceived = updatedItems.every(
-          pi => Number(pi.receivedQuantity) >= Number(pi.quantity)
+          (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
         )
 
         await purchaseOrder.update(
@@ -815,12 +864,19 @@ const purchaseOrderController = {
               } else if (grItem.ingredientName) {
                 // Match PO item by ingredient name and reverse receivedQuantity
                 const poItem = await db.purchase_order_item.findOne({
-                  where: { purchaseOrder: id, ingredientName: grItem.ingredientName },
+                  where: {
+                    purchaseOrder: id,
+                    ingredientName: grItem.ingredientName
+                  },
                   transaction: t
                 })
                 if (poItem) {
                   await poItem.update(
-                    { receivedQuantity: db.sequelize.literal(`GREATEST(receivedQuantity - ${qty}, 0)`) },
+                    {
+                      receivedQuantity: db.sequelize.literal(
+                        `GREATEST(receivedQuantity - ${qty}, 0)`
+                      )
+                    },
                     { transaction: t }
                   )
                 }
@@ -857,7 +913,10 @@ const purchaseOrderController = {
               // Reverse ingredient stock
               if (grItem.ingredientName) {
                 const ingredient = await db.ingredient.findOne({
-                  where: { name: grItem.ingredientName, store: purchaseOrder.store },
+                  where: {
+                    name: grItem.ingredientName,
+                    store: purchaseOrder.store
+                  },
                   transaction: t
                 })
                 if (ingredient) {

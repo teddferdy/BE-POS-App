@@ -7,10 +7,19 @@ const salesReturnController = {
     try {
       const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate, store: queryStore, search } = req.query
+      const {
+        page = 1,
+        limit = 10,
+        status,
+        startDate,
+        endDate,
+        store: queryStore,
+        search
+      } = req.query
 
       const where = {}
-      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const effectiveStore =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (search) {
@@ -224,7 +233,10 @@ const salesReturnController = {
               )
               await db.product_store_stock.update(
                 { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-                { where: { product: item.product, store: ret.store }, transaction }
+                {
+                  where: { product: item.product, store: ret.store },
+                  transaction
+                }
               )
             }
 
@@ -252,7 +264,10 @@ const salesReturnController = {
               const oldIngStock = Number(ing.stock)
               const qty = Math.floor(Number(deductQty)) || 0
               const newIngStock = Math.max(oldIngStock - qty, 0)
-              await ing.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction })
+              await ing.update(
+                { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                { transaction }
+              )
               await db.stock_history.create(
                 {
                   product: product.id,

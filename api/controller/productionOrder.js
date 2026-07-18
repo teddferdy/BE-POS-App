@@ -30,7 +30,8 @@ const productionOrderController = {
       } = req.query
 
       const where = {}
-      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const effectiveStore =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (product) where.productItemId = product
@@ -137,7 +138,13 @@ const productionOrderController = {
           {
             model: db.bom_line,
             as: 'lines',
-            include: [{ model: db.ingredient, as: 'ingredientData', attributes: ['id', 'name'] }]
+            include: [
+              {
+                model: db.ingredient,
+                as: 'ingredientData',
+                attributes: ['id', 'name']
+              }
+            ]
           }
         ]
       })
@@ -412,7 +419,8 @@ const productionOrderController = {
         await order.update({
           status,
           modifiedBy: req.user?.id || null,
-          completedDate: status === 'completed' ? new Date() : order.completedDate
+          completedDate:
+            status === 'completed' ? new Date() : order.completedDate
         })
       }
 
@@ -512,12 +520,18 @@ const productionOrderController = {
 
           if (!productComp && ingredientName) {
             ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: ingredientName.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: ingredientName.trim() },
+                store: effectiveStore
+              },
               transaction
             })
             if (!ingredient) {
               productComp = await db.product.findOne({
-                where: { nameProduct: { [Op.iLike]: ingredientName.trim() }, store: effectiveStore },
+                where: {
+                  nameProduct: { [Op.iLike]: ingredientName.trim() },
+                  store: effectiveStore
+                },
                 transaction
               })
             }
@@ -651,7 +665,10 @@ const productionOrderController = {
       try {
         const qtyBefore = Number(product.stock) || 0
         const finalQtyInt = Math.floor(Number(finalQty)) || 0
-        await product.update({ stock: db.sequelize.literal(`stock + ${finalQtyInt}`) }, { transaction })
+        await product.update(
+          { stock: db.sequelize.literal(`stock + ${finalQtyInt}`) },
+          { transaction }
+        )
 
         // ponytail: atomic upsert + add per-store stock
         if (effectiveStore) {
@@ -663,7 +680,10 @@ const productionOrderController = {
           )
           await db.product_store_stock.update(
             { stock: db.sequelize.literal(`stock + ${finalQtyInt}`) },
-            { where: { product: product.id, store: effectiveStore }, transaction }
+            {
+              where: { product: product.id, store: effectiveStore },
+              transaction
+            }
           )
         }
 

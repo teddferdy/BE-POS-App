@@ -5,7 +5,10 @@ const memberController = require('../controller/member')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
-const { createMemberSchema, updateMemberSchema } = require('../validation/schemas')
+const {
+  createMemberSchema,
+  updateMemberSchema
+} = require('../validation/schemas')
 
 // Get Members - All authenticated users
 router.get('/get-member', authorization, memberController.getAllMember)

@@ -33,10 +33,20 @@ const purchaseReturnController = {
     try {
       const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
-      const { page = 1, limit = 10, status, startDate, endDate, store: queryStore, search, supplier } = req.query
+      const {
+        page = 1,
+        limit = 10,
+        status,
+        startDate,
+        endDate,
+        store: queryStore,
+        search,
+        supplier
+      } = req.query
 
       const where = {}
-      const effectiveStore = userRole === 'super_admin' ? (queryStore || cookieStore) : cookieStore
+      const effectiveStore =
+        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (search) {
@@ -532,7 +542,11 @@ const purchaseReturnController = {
 
       const poItemMap = {}
       poItems.forEach((pi) => {
-        const key = pi.ingredient ? `ing-${pi.ingredient}` : pi.product ? `prod-${pi.product}` : null
+        const key = pi.ingredient
+          ? `ing-${pi.ingredient}`
+          : pi.product
+            ? `prod-${pi.product}`
+            : null
         if (key) {
           poItemMap[key] = {
             receivedQty: Number(pi.receivedQuantity) || 0,
@@ -543,7 +557,11 @@ const purchaseReturnController = {
 
       existingReturns.forEach((ret) => {
         ;(ret.items || []).forEach((ri) => {
-          const key = ri.ingredient ? `ing-${ri.ingredient}` : ri.product ? `prod-${ri.product}` : null
+          const key = ri.ingredient
+            ? `ing-${ri.ingredient}`
+            : ri.product
+              ? `prod-${ri.product}`
+              : null
           if (key && poItemMap[key]) {
             poItemMap[key].alreadyReturned += Number(ri.qty) || 0
           }
@@ -553,13 +571,21 @@ const purchaseReturnController = {
       // Validate each return item
       const errors = []
       for (const item of items) {
-        const key = item.ingredient ? `ing-${item.ingredient}` : item.productId ? `prod-${item.productId}` : null
+        const key = item.ingredient
+          ? `ing-${item.ingredient}`
+          : item.productId
+            ? `prod-${item.productId}`
+            : null
         if (key && poItemMap[key]) {
           const info = poItemMap[key]
           const available = info.receivedQty - info.alreadyReturned
           if (Number(item.qty) > available) {
-            const name = item.ingredient ? `ingredient #${item.ingredient}` : `product #${item.productId}`
-            errors.push(`${name}: max ${available} (received ${info.receivedQty}, already returned ${info.alreadyReturned})`)
+            const name = item.ingredient
+              ? `ingredient #${item.ingredient}`
+              : `product #${item.productId}`
+            errors.push(
+              `${name}: max ${available} (received ${info.receivedQty}, already returned ${info.alreadyReturned})`
+            )
           }
         }
       }
@@ -577,15 +603,18 @@ const purchaseReturnController = {
 
       const t = await db.sequelize.transaction()
       try {
-        const ret = await db.purchase_return.create({
-          purchaseOrder: po.id,
-          store,
-          returnNumber,
-          status: 'pending',
-          reason: reason || null,
-          returnedBy: returnedBy || null,
-          createdBy
-        }, { transaction: t })
+        const ret = await db.purchase_return.create(
+          {
+            purchaseOrder: po.id,
+            store,
+            returnNumber,
+            status: 'pending',
+            reason: reason || null,
+            returnedBy: returnedBy || null,
+            createdBy
+          },
+          { transaction: t }
+        )
 
         const retItems = items.map((item) => ({
           purchaseReturn: ret.id,
@@ -599,12 +628,17 @@ const purchaseReturnController = {
 
         for (const item of items) {
           if (item.productId) {
-            const product = await db.product.findByPk(item.productId, { transaction: t })
+            const product = await db.product.findByPk(item.productId, {
+              transaction: t
+            })
             if (product) {
               const oldStock = Number(product.stock) || 0
               const qty = Math.floor(Number(item.qty)) || 0
               const newStock = Math.max(oldStock - qty, 0)
-              await product.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
+              await product.update(
+                { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                { transaction: t }
+              )
 
               // ponytail: atomic upsert + deduct per-store stock
               if (store) {
@@ -615,50 +649,69 @@ const purchaseReturnController = {
                   { bind: [item.productId, store], transaction: t }
                 )
                 await db.product_store_stock.update(
-                  { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                  {
+                    stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+                  },
                   { where: { product: item.productId, store }, transaction: t }
                 )
               }
 
-              await db.stock_history.create({
-                product: item.productId,
-                store,
-                referenceType: 'purchase_return',
-                referenceId: ret.id,
-                quantityBefore: oldStock,
-                quantityChange: -(oldStock - newStock),
-                quantityAfter: newStock,
-                unit: item.unit || 'pcs',
-                createdBy
-              }, { transaction: t })
+              await db.stock_history.create(
+                {
+                  product: item.productId,
+                  store,
+                  referenceType: 'purchase_return',
+                  referenceId: ret.id,
+                  quantityBefore: oldStock,
+                  quantityChange: -(oldStock - newStock),
+                  quantityAfter: newStock,
+                  unit: item.unit || 'pcs',
+                  createdBy
+                },
+                { transaction: t }
+              )
             }
           }
           if (item.ingredient) {
-            const ingredient = await db.ingredient.findByPk(item.ingredient, { transaction: t })
+            const ingredient = await db.ingredient.findByPk(item.ingredient, {
+              transaction: t
+            })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
               const qty = Math.floor(Number(item.qty)) || 0
               const newStock = Math.max(oldStock - qty, 0)
-              await ingredient.update({ stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) }, { transaction: t })
-              await db.stock_history.create({
-                ingredient: ingredient.id,
-                ingredientName: ingredient.name,
-                store,
-                referenceType: 'purchase_return',
-                referenceId: ret.id,
-                quantityBefore: oldStock,
-                quantityChange: -(oldStock - newStock),
-                quantityAfter: newStock,
-                unit: item.unit || ingredient.unit || 'pcs',
-                createdBy
-              }, { transaction: t })
+              await ingredient.update(
+                { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                { transaction: t }
+              )
+              await db.stock_history.create(
+                {
+                  ingredient: ingredient.id,
+                  ingredientName: ingredient.name,
+                  store,
+                  referenceType: 'purchase_return',
+                  referenceId: ret.id,
+                  quantityBefore: oldStock,
+                  quantityChange: -(oldStock - newStock),
+                  quantityAfter: newStock,
+                  unit: item.unit || ingredient.unit || 'pcs',
+                  createdBy
+                },
+                { transaction: t }
+              )
             }
           }
         }
 
         await t.commit()
 
-        await createAudit(req, 'create', 'purchase_return', ret.id, 'Created purchase return: ' + ret.id)
+        await createAudit(
+          req,
+          'create',
+          'purchase_return',
+          ret.id,
+          'Created purchase return: ' + ret.id
+        )
 
         return res.status(201).json({
           success: true,

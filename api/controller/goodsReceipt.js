@@ -204,7 +204,15 @@ const goodsReceiptController = {
       }
 
       // ponytail: reject duplicate ingredients/products in same GR
-      const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+      const keys = items
+        .map((i) =>
+          i.ingredient
+            ? `ing-${i.ingredient}`
+            : i.product
+              ? `prod-${i.product}`
+              : null
+        )
+        .filter(Boolean)
       const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
       if (dupes.length > 0) {
         return res.status(400).json({
@@ -260,18 +268,25 @@ const goodsReceiptController = {
           let poItem = null
           if (item.purchaseOrderItem) {
             poItem = await db.purchase_order_item.findOne({
-              where: { id: item.purchaseOrderItem, purchaseOrder: purchaseOrderId },
+              where: {
+                id: item.purchaseOrderItem,
+                purchaseOrder: purchaseOrderId
+              },
               transaction
             })
           } else if (item.ingredient && purchaseOrderId) {
             poItem = await db.purchase_order_item.findOne({
-              where: { purchaseOrder: purchaseOrderId, ingredient: item.ingredient },
+              where: {
+                purchaseOrder: purchaseOrderId,
+                ingredient: item.ingredient
+              },
               transaction
             })
           }
 
           if (poItem) {
-            const remaining = Number(poItem.quantity) - Number(poItem.receivedQuantity)
+            const remaining =
+              Number(poItem.quantity) - Number(poItem.receivedQuantity)
             if (qty > remaining) {
               await transaction.rollback()
               return res.status(400).json({
@@ -293,7 +308,11 @@ const goodsReceiptController = {
 
           if (poItem) {
             await poItem.update(
-              { receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`) },
+              {
+                receivedQuantity: db.sequelize.literal(
+                  `receivedQuantity + ${qty}`
+                )
+              },
               { transaction }
             )
           }
@@ -304,7 +323,10 @@ const goodsReceiptController = {
             })
             if (product) {
               const qtyBefore = Number(product.stock) || 0
-              await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
+              await product.update(
+                { stock: db.sequelize.literal(`stock + ${qty}`) },
+                { transaction }
+              )
 
               // ponytail: atomic upsert + add per-store stock
               if (effectiveStore) {
@@ -316,7 +338,10 @@ const goodsReceiptController = {
                 )
                 await db.product_store_stock.update(
                   { stock: db.sequelize.literal(`stock + ${qty}`) },
-                  { where: { product: item.product, store: effectiveStore }, transaction }
+                  {
+                    where: { product: item.product, store: effectiveStore },
+                    transaction
+                  }
                 )
               }
 
@@ -339,7 +364,10 @@ const goodsReceiptController = {
 
           if (item.ingredientName) {
             const ingredient = await db.ingredient.findOne({
-              where: { name: { [Op.iLike]: item.ingredientName.trim() }, store: effectiveStore },
+              where: {
+                name: { [Op.iLike]: item.ingredientName.trim() },
+                store: effectiveStore
+              },
               transaction
             })
 
@@ -514,7 +542,10 @@ const goodsReceiptController = {
         grItem.poItemData?.ingredientData?.name
       if (ingName) {
         const ingredient = await db.ingredient.findOne({
-          where: { name: { [Op.iLike]: ingName.trim() }, store: grItem.store || receipt.store },
+          where: {
+            name: { [Op.iLike]: ingName.trim() },
+            store: grItem.store || receipt.store
+          },
           transaction
         })
         if (ingredient) {
@@ -567,7 +598,10 @@ const goodsReceiptController = {
         const product = await db.product.findByPk(item.product, { transaction })
         if (product) {
           const qtyBefore = Number(product.stock) || 0
-          await product.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
+          await product.update(
+            { stock: db.sequelize.literal(`stock + ${qty}`) },
+            { transaction }
+          )
 
           // ponytail: atomic upsert + add per-store stock
           if (receipt.store) {
@@ -579,7 +613,10 @@ const goodsReceiptController = {
             )
             await db.product_store_stock.update(
               { stock: db.sequelize.literal(`stock + ${qty}`) },
-              { where: { product: item.product, store: receipt.store }, transaction }
+              {
+                where: { product: item.product, store: receipt.store },
+                transaction
+              }
             )
           }
 
@@ -611,7 +648,10 @@ const goodsReceiptController = {
         })
         if (ingredient) {
           const qtyBefore = Number(ingredient.stock) || 0
-          await ingredient.update({ stock: db.sequelize.literal(`stock + ${qty}`) }, { transaction })
+          await ingredient.update(
+            { stock: db.sequelize.literal(`stock + ${qty}`) },
+            { transaction }
+          )
           await db.stock_history.create(
             {
               ingredient: ingredient.id,
@@ -680,7 +720,15 @@ const goodsReceiptController = {
 
       // ponytail: reject duplicate ingredients/products in same GR
       if (items) {
-        const keys = items.map((i) => i.ingredient ? `ing-${i.ingredient}` : i.product ? `prod-${i.product}` : null).filter(Boolean)
+        const keys = items
+          .map((i) =>
+            i.ingredient
+              ? `ing-${i.ingredient}`
+              : i.product
+                ? `prod-${i.product}`
+                : null
+          )
+          .filter(Boolean)
         const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
         if (dupes.length > 0) {
           return res.status(400).json({

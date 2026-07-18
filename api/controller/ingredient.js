@@ -28,30 +28,29 @@ const ingredientController = {
         where[Op.and] = andConditions
       }
 
-      let { count, rows: ingredients } =
-        await db.ingredient.findAndCountAll({
-          where,
-          include: [
-            {
-              model: db.supplier,
-              as: 'supplierData',
-              attributes: ['id', 'name']
-            },
-            {
-              model: db.ingredientCategory,
-              as: 'categoryData',
-              attributes: ['id', 'name']
-            },
-            {
-              model: db.location,
-              as: 'storeData',
-              attributes: ['id', 'name']
-            }
-          ],
-          limit: parseInt(limit),
-          offset,
-          order: [['createdAt', 'DESC']]
-        })
+      let { count, rows: ingredients } = await db.ingredient.findAndCountAll({
+        where,
+        include: [
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name']
+          },
+          {
+            model: db.ingredientCategory,
+            as: 'categoryData',
+            attributes: ['id', 'name']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name']
+          }
+        ],
+        limit: parseInt(limit),
+        offset,
+        order: [['createdAt', 'DESC']]
+      })
 
       await enrichAuditFields(db, ingredients)
 
@@ -60,9 +59,7 @@ const ingredientController = {
         count = ingredients.length
       }
 
-      const storeFilter = store
-        ? { [Op.or]: [{ store }, { store: null }] }
-        : {}
+      const storeFilter = store ? { [Op.or]: [{ store }, { store: null }] } : {}
       const [active, draft, inactive] = await Promise.all([
         db.ingredient.count({ where: { ...storeFilter, status: 'active' } }),
         db.ingredient.count({ where: { ...storeFilter, status: 'draft' } }),

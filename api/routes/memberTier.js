@@ -4,7 +4,10 @@ const memberTierController = require('../controller/memberTier')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
-const { createMemberTierSchema, updateMemberTierSchema } = require('../validation/schemas')
+const {
+  createMemberTierSchema,
+  updateMemberTierSchema
+} = require('../validation/schemas')
 
 router.get('/get-all', authorization, memberTierController.getAll)
 router.get('/detail/:id', authorization, memberTierController.getDetail)
