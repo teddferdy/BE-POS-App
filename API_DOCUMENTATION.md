@@ -2517,19 +2517,24 @@ Auth required (super_admin).
 ## Report
 
 ### GET `/report/daily`
-Auth required. **Query:** `store` (number), `date` (ISO date).
+Auth required. **Query:** `store` (number), `startDate` (ISO date), `endDate` (ISO date).
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": {
-    "date": "2026-07-11",
-    "totalSales": 5000000,
-    "totalOrders": 50,
-    "avgOrderValue": 100000,
-    "items": [...]
-  }
+  "data": [
+    {
+      "tanggal": "2026-07-11",
+      "totalTransaksi": 50,
+      "totalPenjualanBersih": 4500000,
+      "totalHpp": 1800000,
+      "foodCostPersen": 40,
+      "grossProfit": 2700000,
+      "netProfit": 2200000,
+      "totalCovers": 80
+    }
+  ]
 }
 ```
 
@@ -2543,12 +2548,12 @@ Auth required. **Query:** `store`, `startDate`, `endDate`.
 {
   "success": true,
   "data": {
-    "revenue": 50000000,
-    "cogs": 20000000,
-    "grossProfit": 30000000,
-    "expenses": 10000000,
-    "netProfit": 20000000,
-    "items": [...]
+    "totalRevenue": 50000000,
+    "totalDiscount": 5000000,
+    "netRevenue": 45000000,
+    "totalHpp": 18000000,
+    "grossProfit": 27000000,
+    "marginPersen": 60
   }
 }
 ```
@@ -2558,14 +2563,409 @@ Auth required. **Query:** `store`, `startDate`, `endDate`.
 ### GET `/report/cash-flow`
 Auth required. **Query:** `store`, `startDate`, `endDate`.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "penerimaanTunai": 30000000,
+    "penerimaanQris": 10000000,
+    "penerimaanTransfer": 5000000,
+    "totalKasMasuk": 45000000,
+    "totalPengeluaran": 10000000,
+    "netCashFlow": 35000000
+  }
+}
+```
+
+---
+
 ### GET `/report/sales-summary`
-Auth required. **Query:** `store`, `period` (daily|weekly|monthly|yearly).
+Auth required. **Query:** `store`, `startDate`, `endDate`, `filter` (today|weekly|monthly).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "totalSales": 50000000,
+    "totalOrders": 500,
+    "avgTransaction": 100000,
+    "totalCustomers": 200,
+    "totalStores": 5,
+    "salesChart": [{ "date": "2026-07-11", "sales": 5000000, "orders": 50 }],
+    "storeSalesChart": [{ "storeId": 1, "storeName": "Jakarta", "data": [...] }],
+    "stores": [{ "id": 1, "name": "Jakarta", "sales": 5000000, "transactions": 50 }]
+  }
+}
+```
+
+---
 
 ### GET `/report/best-seller`
 Auth required. **Query:** `store`, `startDate`, `endDate`, `limit`.
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "bestSellers": [{ "id": 1, "name": "Nasi Goreng", "image": "...", "sold": 100, "revenue": 2500000 }],
+    "summary": { "totalUnitsSold": 500, "totalRevenue": 25000000, "activeProducts": 50 }
+  }
+}
+```
+
+---
+
 ### GET `/report/profit-per-product`
 Auth required. **Query:** `store`, `startDate`, `endDate`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    { "productId": 1, "productName": "Nasi Goreng", "qtySold": 100, "totalSales": 2500000, "totalHpp": 1000000, "profit": 1500000, "margin": 60 }
+  ]
+}
+```
+
+---
+
+## Promo Campaign
+
+### GET `/promo/campaigns`
+Auth required. **Query:** `store` (number).
+
+### GET `/promo/campaigns/stats`
+Auth required. **Query:** `store`.
+
+### GET `/promo/campaigns/:id`
+Auth required.
+
+### POST `/promo/campaigns`
+Auth required (super_admin/admin). Create promo campaign with rules & rewards.
+
+**Request:**
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `store` | number | YES | - | Store ID |
+| `name` | string | YES | - | Campaign name |
+| `type` | string | YES | - | `happy_hour`, `birthday`, `buy_x_get_y`, `spend_get`, `manual`, `automatic` |
+| `discountType` | string | No | `percentage` | `percentage`, `fixed`, `free_item`, `buy_x_get_y` |
+| `discountValue` | number | No | `0` | Discount amount/percentage |
+| `maxDiscount` | number | No | null | Cap for percentage discounts |
+| `minPurchase` | number | No | `0` | Minimum cart subtotal |
+| `startDate` | date | YES | - | ISO date |
+| `endDate` | date | YES | - | ISO date |
+| `startTime` | string | No | null | HH:mm:ss |
+| `endTime` | string | No | null | HH:mm:ss |
+| `daysOfWeek` | number[] | No | null | 0-6 (Sun-Sat) |
+| `applicableTo` | string | No | `all` | `all`, `specific_products`, `specific_categories`, `specific_members` |
+| `applicableIds` | number[] | No | null | Product/category/member IDs |
+| `maxUsageTotal` | number | No | null | Global usage cap |
+| `maxUsagePerMember` | number | No | null | Per-member usage cap |
+| `priority` | number | No | `0` | Higher = evaluated first |
+| `isCombinable` | boolean | No | `false` | Can stack with other promos |
+| `rules` | object[] | No | - | Array of `{ ruleType, condition, priority }` |
+| `rewards` | object[] | No | - | Array of `{ rewardType, rewardValue, maxRewardValue, productId, quantity, condition }` |
+
+**Rules ruleType:** `time`, `birthday`, `buy_x_get_y`, `spend_threshold`, `member_tier`, `first_purchase`, `custom`
+**Rewards rewardType:** `discount_percentage`, `discount_fixed`, `free_item`, `buy_x_get_y`, `points_multiplier`, `cashback`
+
+### PUT `/promo/campaigns/:id`
+Auth required (super_admin/admin). Same fields, all optional.
+
+### PUT `/promo/campaigns/:id/status`
+Auth required (super_admin/admin). Toggle campaign status.
+
+### DELETE `/promo/campaigns/:id`
+Auth required (super_admin/admin).
+
+### POST `/promo/apply`
+Auth required. Apply promo to cart.
+
+**Request:**
+```json
+{
+  "store": "number (required)",
+  "memberId": "number (optional)",
+  "code": "string (optional)",
+  "cartItems": [{ "productId": 1, "quantity": 2, "price": 25000 }],
+  "subtotal": 50000
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "applicablePromos": [{ "campaignId": 1, "name": "Happy Hour", "discountAmount": 5000 }],
+    "bestPromo": { "campaignId": 1, "name": "Happy Hour", "discountAmount": 5000 }
+  }
+}
+```
+
+### POST `/promo/usage`
+Auth required (admin/cashier). Record promo usage event.
+
+### POST `/promo/auto-activate`
+Auth required (super_admin). Auto-activate campaigns based on schedule.
+
+---
+
+## Product Bundle / Combo
+
+### GET `/product-bundle/get-all`
+Auth required. **Query:** `store`, `status`, `search`, `page`, `limit`.
+
+**Response:**
+```json
+{
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "id": 1, "name": "Paket Hemat A", "sku": "BNDL-20260718-0042",
+        "bundlePrice": 75000, "originalPrice": 100000,
+        "discountAmount": 25000, "discountPercentage": 25.0,
+        "status": "active",
+        "items": [{ "product": 10, "quantity": 2, "unitPrice": 30000, "productData": { "nameProduct": "Kopi Susu", "stock": 100 } }]
+      }
+    ],
+    "total": 25, "pagination": { "page": 1, "limit": 10, "totalPages": 3 },
+    "stats": { "active": 10, "draft": 5, "inactive": 10, "total": 25 }
+  }
+}
+```
+
+### GET `/product-bundle/get-by-id/:id`
+Auth required.
+
+### POST `/product-bundle/create`
+Auth required (super_admin/admin).
+
+**Request:**
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `name` | string | YES | - |
+| `description` | string | No | - |
+| `bundlePrice` | number | No | `0` |
+| `items` | object[] | YES | - |
+| `items[].product` | number | YES | - |
+| `items[].quantity` | No | `1` |
+| `items[].unitPrice` | No | product price |
+| `isAvailable` | boolean | No | `true` |
+| `status` | string | No | `draft` |
+| `validFrom` | date | No | null |
+| `validUntil` | date | No | null |
+
+### PUT `/product-bundle/update/:id`
+Auth required (super_admin/admin). Same fields, all optional.
+
+### DELETE `/product-bundle/delete/:id`
+Auth required (super_admin/admin).
+
+### PATCH `/product-bundle/status/:id`
+Auth required (super_admin/admin). Toggle bundle status.
+
+---
+
+## Delivery Management
+
+### GET `/delivery/orders`
+Auth required. **Query:** `store`, `status`, `page`, `limit`.
+
+### GET `/delivery/orders/stats`
+Auth required. **Query:** `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "total": 100, "pending": 10, "assigned": 5, "inTransit": 8, "delivered": 70, "cancelled": 7 }
+}
+```
+
+### GET `/delivery/orders/:id`
+Auth required.
+
+### POST `/delivery/orders`
+Auth required (super_admin/admin).
+
+**Request:**
+| Field | Type | Required |
+|-------|------|----------|
+| `store` | number | YES |
+| `customerName` | string | YES |
+| `customerPhone` | string | No |
+| `deliveryAddress` | string | YES |
+| `deliveryNotes` | string | No |
+| `destinationLat` | number | No |
+| `destinationLng` | number | No |
+| `deliveryFee` | number | No |
+| `totalDistance` | number | No |
+| `source` | string | No (`pos`, `gofood`, `grabfood`, `shopeefood`) |
+
+### PUT `/delivery/orders/status`
+Auth required (super_admin/admin). Update delivery status.
+
+### PUT `/delivery/orders/:orderId/assign-driver`
+Auth required (super_admin/admin).
+
+### PUT `/delivery/orders/:id/cancel`
+Auth required (super_admin/admin).
+
+### GET `/delivery/drivers`
+Auth required. **Query:** `store`, `status`.
+
+### GET `/delivery/drivers/:id`
+Auth required.
+
+### POST `/delivery/drivers`
+Auth required (super_admin/admin).
+
+**Request:**
+| Field | Type | Required |
+|-------|------|----------|
+| `name` | string | YES |
+| `store` | number[] | No |
+| `phone` | string | No |
+| `email` | string | No |
+| `vehicleType` | string | No |
+| `vehiclePlate` | string | No |
+| `status` | string | No (`active`, `inactive`, `busy`, `offline`, `draft`) |
+
+### PUT `/delivery/drivers/:id`
+Auth required (super_admin/admin). Same fields, all optional.
+
+### DELETE `/delivery/drivers/:id`
+Auth required (super_admin/admin).
+
+### PUT `/delivery/drivers/:id/status`
+Auth required (super_admin/admin). Update driver availability.
+
+### GET `/delivery/marketplace-config`
+Auth required. **Query:** `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "store": 1,
+    "gofood": { "enabled": false, "merchantId": null, "apiKey": null },
+    "grabfood": { "enabled": false, "merchantId": null, "apiKey": null },
+    "shopeefood": { "enabled": false, "merchantId": null, "apiKey": null }
+  }
+}
+```
+
+### POST `/delivery/marketplace-config`
+Auth required (super_admin). Save marketplace config.
+
+### GET `/delivery/stats`
+Auth required. **Query:** `store`.
+
+---
+
+## Queue Management
+
+### GET `/queue/`
+Auth required. **Query:** `store`, `status`, `page`, `limit`.
+
+### GET `/queue/stats`
+Auth required. **Query:** `store`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": { "totalToday": 42, "waitingNow": 5, "seatedToday": 30, "cancelledToday": 3, "avgWaitMinutes": 12 }
+}
+```
+
+### GET `/queue/:id`
+Auth required.
+
+### POST `/queue/`
+Auth required (super_admin/admin/cashier).
+
+**Request:**
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `store` | number | YES | - |
+| `customerName` | string | YES | - |
+| `customerPhone` | string | No | null |
+| `partySize` | number | No | `1` |
+| `priority` | string | No | `normal` (`normal`, `vip`, `elderly`, `pregnant`, `disabled`) |
+| `estimatedWaitMinutes` | number | No | null |
+| `notes` | string | No | null |
+
+**Response:** Queue entry with auto-generated `queueNumber` (format: `QHHMM-XXX`).
+
+### PUT `/queue/:id`
+Auth required (super_admin/admin/cashier). Same fields, all optional.
+
+### PUT `/queue/:id/status`
+Auth required (super_admin/admin/cashier). Update queue status (`waiting`, `seated`, `completed`, `cancelled`).
+
+### DELETE `/queue/:id`
+Auth required (super_admin/admin).
+
+---
+
+## Supplier Performance
+
+### GET `/supplier-performance/scores`
+Auth required. **Query:** `store`, `search`, `period` (monthly|quarterly|yearly|all_time), `grade` (A-F), `page`, `limit`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [{
+    "id": 1, "supplierId": 5, "period": "monthly",
+    "periodStart": "2026-06-01", "periodEnd": "2026-06-30",
+    "totalOrders": 15, "completedOrders": 14, "cancelledOrders": 1,
+    "onTimeDeliveries": 12, "lateDeliveries": 2, "onTimeRate": "85.71",
+    "totalReceivedQty": 500, "defectiveQty": 5, "defectRate": "1.00",
+    "totalPurchaseAmount": 5000000, "avgPricePerItem": 10000,
+    "priceCompetitivenessScore": 90, "overallScore": "88.14", "grade": "B",
+    "supplier": { "id": 5, "name": "PT Sumber Jaya" }
+  }],
+  "pagination": { "page": 1, "limit": 10, "total": 30, "totalPages": 3 }
+}
+```
+
+### GET `/supplier-performance/scores/top`
+Auth required. **Query:** `store`.
+
+### GET `/supplier-performance/scores/:id`
+Auth required.
+
+### GET `/supplier-performance/performance/:supplierId`
+Auth required. Detailed performance summary.
+
+### POST `/supplier-performance/scores/calculate`
+Auth required (super_admin/admin). Recalculate supplier score.
+
+**Request:**
+| Field | Type | Required |
+|-------|------|----------|
+| `store` | number | YES |
+| `supplierId` | number | YES |
+| `period` | string | YES (`monthly`, `quarterly`, `yearly`, `all_time`) |
+| `periodStart` | date | No (auto-calculated) |
+| `periodEnd` | date | No (auto-calculated) |
+
+**Score formula:** onTime(40%) + (100-defectRate)(30%) + priceCompetitiveness(30%)
+**Grade:** A (>=90), B (>=80), C (>=70), D (>=60), F (<60)
+
+### PUT `/supplier-performance/scores/:id/notes`
+Auth required (super_admin/admin). Update notes.
 
 ---
 
@@ -3322,4 +3722,4 @@ No auth. ESC/POS thermal print via Bluetooth.
 
 ---
 
-**Total: ~210 endpoints across 47 modules**
+**Total: ~260 endpoints across 54 modules**
