@@ -13,9 +13,9 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.INTEGER
       },
-      product: {
+      name: {
         allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.TEXT
       },
       price: {
         type: DataTypes.INTEGER,
@@ -40,10 +40,6 @@ module.exports = (sequelize, DataTypes) => {
     supplierProduct.belongsTo(models.supplier, {
       foreignKey: 'supplier',
       as: 'supplierData'
-    })
-    supplierProduct.belongsTo(models.product, {
-      foreignKey: 'product',
-      as: 'productData'
     })
   }
 

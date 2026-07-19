@@ -251,7 +251,7 @@ exports.createSupplierSchema = z.object({
   products: z
     .array(
       z.object({
-        id: strToNum(),
+        name: z.string().min(1),
         price: strToNum().optional().default(0)
       })
     )

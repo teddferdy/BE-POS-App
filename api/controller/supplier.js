@@ -44,35 +44,40 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
     where: { supplier: supplierId },
     raw: true
   })
-  const existingMap = new Map(existing.map((r) => [r.product, r]))
+  const existingMap = new Map(existing.map((r) => [r.name, r]))
 
-  const incomingIds = products.map((p) => (typeof p === 'object' ? p.id : p))
+  const incomingNames = products.map((p) =>
+    (typeof p === 'object' ? p.name : p).toLowerCase().trim()
+  )
 
   for (const item of products) {
-    const productId = typeof item === 'object' ? item.id : item
+    const productName = typeof item === 'object' ? (item.name || '').trim() : item
     const price = typeof item === 'object' ? item.price || 0 : 0
+    const nameKey = productName.toLowerCase().trim()
 
-    if (existingMap.has(productId)) {
+    if (existingMap.has(nameKey)) {
       await db.supplier_product.update(
         { price, modifiedBy: userId },
-        { where: { supplier: supplierId, product: productId } }
+        { where: { supplier: supplierId, name: existingMap.get(nameKey).name } }
       )
     } else {
       await db.supplier_product.create({
         supplier: supplierId,
-        product: productId,
+        name: productName,
         price,
         createdBy: userId
       })
     }
   }
 
-  const toDelete = existing.filter((r) => !incomingIds.includes(r.product))
+  const toDelete = existing.filter(
+    (r) => !incomingNames.includes(r.name.toLowerCase().trim())
+  )
   if (toDelete.length > 0) {
     await db.supplier_product.destroy({
       where: {
         supplier: supplierId,
-        product: { [Op.in]: toDelete.map((r) => r.product) }
+        name: { [Op.in]: toDelete.map((r) => r.name) }
       }
     })
   }
@@ -81,14 +86,11 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
 const getSupplierProducts = async (supplierId) => {
   const rows = await db.supplier_product.findAll({
     where: { supplier: supplierId },
-    include: [
-      { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku'] }
-    ]
+    attributes: ['id', 'name', 'price']
   })
   return rows.map((r) => ({
-    id: r.product,
-    name: r.productData?.nameProduct || 'Unknown',
-    sku: r.productData?.sku || null,
+    id: r.id,
+    name: r.name,
     price: r.price
   }))
 }
@@ -980,14 +982,6 @@ const supplierController = {
       const products = []
       const errors = []
 
-      const allProducts = await db.product.findAll({
-        attributes: ['id', 'nameProduct'],
-        where: { deletedAt: null }
-      })
-      const productMap = new Map(
-        allProducts.map((p) => [p.nameProduct.toLowerCase().trim(), p.id])
-      )
-
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
         if (rowNumber === 1) return
 
@@ -999,14 +993,8 @@ const supplierController = {
             return
           }
 
-          const productId = productMap.get(String(name).toLowerCase().trim())
-          if (!productId) {
-            errors.push(`Row ${rowNumber}: Product "${name}" not found`)
-            return
-          }
-
           products.push({
-            id: productId,
+            name: String(name).trim(),
             price: Number(price) || 0
           })
         } catch (error) {
