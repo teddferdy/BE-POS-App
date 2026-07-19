@@ -262,7 +262,7 @@ const supplierController = {
             where: { supplier: { [Op.in]: supplierIds } },
             attributes: [
               'supplier',
-              [db.sequelize.fn('COUNT', db.sequelize.col('product')), 'cnt']
+              [db.sequelize.fn('COUNT', db.sequelize.col('*')), 'cnt']
             ],
             group: ['supplier'],
             raw: true
