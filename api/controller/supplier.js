@@ -121,11 +121,21 @@ const supplierController = {
         })
       }
 
-      const [productCount, products, storeNames] = await Promise.all([
-        getSupplierProductCount(id),
-        getSupplierProducts(id),
-        resolveStoreNames(supplierStores)
-      ])
+      let productCount = 0
+      let products = []
+      try {
+        const result = await Promise.all([
+          getSupplierProductCount(id),
+          getSupplierProducts(id)
+        ])
+        productCount = result[0]
+        products = result[1]
+      } catch (e) {
+        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          throw e
+        }
+      }
+      const storeNames = await resolveStoreNames(supplierStores)
 
       return res.status(200).json({
         success: true,
@@ -232,18 +242,26 @@ const supplierController = {
       const supplierIds = suppliers.map((s) => s.id)
       const productCounts = {}
       if (supplierIds.length > 0) {
-        const countRows = await db.supplier_product.findAll({
-          where: { supplier: { [Op.in]: supplierIds } },
-          attributes: [
-            'supplier',
-            [db.sequelize.fn('COUNT', db.sequelize.col('product')), 'cnt']
-          ],
-          group: ['supplier'],
-          raw: true
-        })
-        countRows.forEach((r) => {
-          productCounts[r.supplier] = Number(r.cnt)
-        })
+        try {
+          const countRows = await db.supplier_product.findAll({
+            where: { supplier: { [Op.in]: supplierIds } },
+            attributes: [
+              'supplier',
+              [db.sequelize.fn('COUNT', db.sequelize.col('product')), 'cnt']
+            ],
+            group: ['supplier'],
+            raw: true
+          })
+          countRows.forEach((r) => {
+            productCounts[r.supplier] = Number(r.cnt)
+          })
+        } catch (e) {
+          if (e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01') {
+            // supplier_product table doesn't exist yet — fall back to 0
+          } else {
+            throw e
+          }
+        }
       }
 
       const data = suppliers.map((item) => ({
@@ -307,10 +325,15 @@ const supplierController = {
         })
       }
 
-      const [storeNames, products] = await Promise.all([
-        resolveStoreNames(supplierStores),
-        getSupplierProducts(id)
-      ])
+      const storeNames = await resolveStoreNames(supplierStores)
+      let products = []
+      try {
+        products = await getSupplierProducts(id)
+      } catch (e) {
+        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          throw e
+        }
+      }
 
       return res.status(200).json({
         success: true,
