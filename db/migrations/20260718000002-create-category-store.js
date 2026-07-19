@@ -77,6 +77,7 @@ module.exports = {
              jsonb_array_elements_text(c.store) AS sv
         WHERE c.store IS NOT NULL
           AND jsonb_array_length(c.store) > 0
+          AND sv ~ '^[0-9]+$'
           AND c."deletedAt" IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM category_store cs
