@@ -66,17 +66,28 @@ const purchasePaymentController = {
       const { store } = req.cookies
       const userRole = req.user?.roleType
 
-      const poWhere = { supplier: supplierId }
+      const poiWhere = { supplier: Number(supplierId) }
+      const supplierPOIds = await db.purchase_order_item.findAll({
+        where: poiWhere,
+        attributes: ['purchaseOrder'],
+        group: ['purchaseOrder'],
+        raw: true
+      })
+      const poIds = supplierPOIds.map((r) => r.purchaseOrder)
+
+      if (poIds.length === 0) {
+        return res.status(200).json({
+          success: true,
+          data: { purchaseOrders: [], summary: { totalOrdered: 0, totalPaid: 0, balance: 0 } }
+        })
+      }
+
+      const poWhere = { id: { [Op.in]: poIds } }
       if (store && userRole !== 'super_admin') poWhere.store = store
 
       const purchaseOrders = await db.purchase_order.findAll({
         where: poWhere,
         include: [
-          {
-            model: db.supplier,
-            as: 'supplierData',
-            attributes: ['id', 'name']
-          },
           { model: db.purchase_payment, as: 'payments' }
         ],
         order: [['createdAt', 'DESC']]
