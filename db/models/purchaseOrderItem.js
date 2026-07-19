@@ -65,6 +65,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'ingredient',
       as: 'ingredientData'
     })
+    purchaseOrderItem.belongsTo(models.supplier, {
+      foreignKey: 'supplier',
+      as: 'supplierData'
+    })
   }
 
   return purchaseOrderItem

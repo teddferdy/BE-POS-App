@@ -24,7 +24,6 @@ const purchaseOrderController = {
           : req.cookies.store
       const {
         status,
-        supplier,
         startDate,
         endDate,
         search,
@@ -35,7 +34,6 @@ const purchaseOrderController = {
       const where = {}
       if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
-      if (supplier) where.supplier = supplier
       if (startDate || endDate) {
         where.orderDate = {}
         if (startDate) where.orderDate[Op.gte] = new Date(startDate)
@@ -137,11 +135,6 @@ const purchaseOrderController = {
         },
         include: [
           {
-            model: db.supplier,
-            as: 'supplierData',
-            attributes: ['id', 'name', 'phone']
-          },
-          {
             model: db.user,
             as: 'picData',
             attributes: ['id', 'fullName']
@@ -192,11 +185,6 @@ const purchaseOrderController = {
         where,
         include: [
           {
-            model: db.supplier,
-            as: 'supplierData',
-            attributes: ['id', 'name', 'phone', 'email', 'address']
-          },
-          {
             model: db.user,
             as: 'picData',
             attributes: ['id', 'fullName']
@@ -219,6 +207,11 @@ const purchaseOrderController = {
                 model: db.ingredient,
                 as: 'ingredientData',
                 attributes: ['id', 'name', 'unit']
+              },
+              {
+                model: db.supplier,
+                as: 'supplierData',
+                attributes: ['id', 'name', 'phone']
               }
             ]
           },
@@ -310,7 +303,6 @@ const purchaseOrderController = {
           ? bodyStore || req.cookies.store
           : req.cookies.store || bodyStore
       const {
-        supplier,
         items,
         discount = 0,
         notes,
@@ -324,10 +316,10 @@ const purchaseOrderController = {
       const isDraft = status === 'draft'
 
       if (!isDraft) {
-        if (!supplier || !items || items.length === 0) {
+        if (!items || items.length === 0) {
           return res.status(400).json({
             success: false,
-            message: 'Supplier and items are required'
+            message: 'Items are required'
           })
         }
 
@@ -338,15 +330,16 @@ const purchaseOrderController = {
           })
         }
 
-        // ponytail: reject duplicate ingredients/products in same PO
+        // reject duplicate ingredient/product + supplier combos in same PO
         const keys = items
-          .map((i) =>
-            i.ingredient
+          .map((i) => {
+            const base = i.ingredient
               ? `ing-${i.ingredient}`
               : i.product
                 ? `prod-${i.product}`
                 : null
-          )
+            return base && i.supplier ? `${base}-sup-${i.supplier}` : base
+          })
           .filter(Boolean)
         const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
         if (dupes.length > 0) {
@@ -369,7 +362,6 @@ const purchaseOrderController = {
       const purchaseOrder = await db.purchase_order.create({
         store: store || null,
         orderNumber,
-        supplier: supplier || null,
         totalAmount,
         discount,
         finalAmount,
@@ -387,6 +379,7 @@ const purchaseOrderController = {
           product: item.product || null,
           ingredient: item.ingredient || null,
           ingredientName: item.ingredientName || null,
+          supplier: item.supplier || null,
           quantity: item.quantity,
           unit: item.unit || 'pcs',
           price: item.price,
@@ -434,7 +427,6 @@ const purchaseOrderController = {
       const { id } = req.params
       const { store } = req.cookies
       const {
-        supplier,
         items,
         discount,
         status,
@@ -476,16 +468,17 @@ const purchaseOrderController = {
         })
       }
 
-      // ponytail: reject duplicate ingredients/products in same PO
+      // reject duplicate ingredient/product + supplier combos in same PO
       if (items) {
         const keys = items
-          .map((i) =>
-            i.ingredient
+          .map((i) => {
+            const base = i.ingredient
               ? `ing-${i.ingredient}`
               : i.product
                 ? `prod-${i.product}`
                 : null
-          )
+            return base && i.supplier ? `${base}-sup-${i.supplier}` : base
+          })
           .filter(Boolean)
         const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
         if (dupes.length > 0) {
@@ -504,11 +497,12 @@ const purchaseOrderController = {
         })
         const receivedMap = {}
         existingItems.forEach((ei) => {
-          const key = ei.ingredient
+          const base = ei.ingredient
             ? `ing-${ei.ingredient}`
             : ei.product
               ? `prod-${ei.product}`
               : `id-${ei.id}`
+          const key = base && ei.supplier ? `${base}-sup-${ei.supplier}` : base
           receivedMap[key] = Number(ei.receivedQuantity) || 0
         })
 
@@ -517,16 +511,18 @@ const purchaseOrderController = {
         })
 
         const orderItems = items.map((item) => {
-          const key = item.ingredient
+          const base = item.ingredient
             ? `ing-${item.ingredient}`
             : item.product
               ? `prod-${item.product}`
               : null
+          const key = base && item.supplier ? `${base}-sup-${item.supplier}` : base
           return {
             purchaseOrder: id,
             product: item.product || null,
             ingredient: item.ingredient || null,
             ingredientName: item.ingredientName || null,
+            supplier: item.supplier || null,
             quantity: item.quantity,
             unit: item.unit || 'pcs',
             price: item.price,
@@ -548,7 +544,6 @@ const purchaseOrderController = {
       const finalAmount = totalAmount - finalDiscount
 
       await purchaseOrder.update({
-        supplier: supplier || purchaseOrder.supplier,
         totalAmount,
         discount: finalDiscount,
         finalAmount,

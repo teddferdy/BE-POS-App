@@ -24,6 +24,66 @@ const resolveStoreNames = async (storeIds) => {
   return locations.map((l) => ({ id: l.id, name: l.name }))
 }
 
+const syncSupplierProducts = async (supplierId, products, userId) => {
+  if (!Array.isArray(products)) return
+
+  const existing = await db.supplier_product.findAll({
+    where: { supplier: supplierId },
+    raw: true
+  })
+  const existingMap = new Map(existing.map((r) => [r.product, r]))
+
+  const incomingIds = products.map((p) => (typeof p === 'object' ? p.id : p))
+
+  for (const item of products) {
+    const productId = typeof item === 'object' ? item.id : item
+    const price = typeof item === 'object' ? item.price || 0 : 0
+
+    if (existingMap.has(productId)) {
+      await db.supplier_product.update(
+        { price, modifiedBy: userId },
+        { where: { supplier: supplierId, product: productId } }
+      )
+    } else {
+      await db.supplier_product.create({
+        supplier: supplierId,
+        product: productId,
+        price,
+        createdBy: userId
+      })
+    }
+  }
+
+  const toDelete = existing.filter((r) => !incomingIds.includes(r.product))
+  if (toDelete.length > 0) {
+    await db.supplier_product.destroy({
+      where: {
+        supplier: supplierId,
+        product: { [Op.in]: toDelete.map((r) => r.product) }
+      }
+    })
+  }
+}
+
+const getSupplierProducts = async (supplierId) => {
+  const rows = await db.supplier_product.findAll({
+    where: { supplier: supplierId },
+    include: [
+      { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku'] }
+    ]
+  })
+  return rows.map((r) => ({
+    id: r.product,
+    name: r.productData?.nameProduct || 'Unknown',
+    sku: r.productData?.sku || null,
+    price: r.price
+  }))
+}
+
+const getSupplierProductCount = async (supplierId) => {
+  return db.supplier_product.count({ where: { supplier: supplierId } })
+}
+
 const generateOrderNumber = (prefix) => {
   const date = new Date()
   const year = date.getFullYear()
@@ -61,11 +121,11 @@ const supplierController = {
         })
       }
 
-      const productCount = await db.product.count({
-        where: { supplier: id }
-      })
-
-      const storeNames = await resolveStoreNames(supplierStores)
+      const [productCount, products, storeNames] = await Promise.all([
+        getSupplierProductCount(id),
+        getSupplierProducts(id),
+        resolveStoreNames(supplierStores)
+      ])
 
       return res.status(200).json({
         success: true,
@@ -73,7 +133,8 @@ const supplierController = {
         data: {
           ...supplier.toJSON(),
           store: storeNames,
-          productCount
+          productCount,
+          products
         }
       })
     } catch (error) {
@@ -168,6 +229,23 @@ const supplierController = {
         })
       }
 
+      const supplierIds = suppliers.map((s) => s.id)
+      const productCounts = {}
+      if (supplierIds.length > 0) {
+        const countRows = await db.supplier_product.findAll({
+          where: { supplier: { [Op.in]: supplierIds } },
+          attributes: [
+            'supplier',
+            [db.sequelize.fn('COUNT', db.sequelize.col('product')), 'cnt']
+          ],
+          group: ['supplier'],
+          raw: true
+        })
+        countRows.forEach((r) => {
+          productCounts[r.supplier] = Number(r.cnt)
+        })
+      }
+
       const data = suppliers.map((item) => ({
         ...item.toJSON(),
         store: Array.isArray(item.store)
@@ -175,7 +253,8 @@ const supplierController = {
               id,
               name: locationMap[id] || null
             }))
-          : []
+          : [],
+        productCount: productCounts[item.id] || 0
       }))
 
       return res.status(200).json({
@@ -228,14 +307,18 @@ const supplierController = {
         })
       }
 
-      const storeNames = await resolveStoreNames(supplierStores)
+      const [storeNames, products] = await Promise.all([
+        resolveStoreNames(supplierStores),
+        getSupplierProducts(id)
+      ])
 
       return res.status(200).json({
         success: true,
         message: 'Success get supplier',
         data: {
           ...supplier.toJSON(),
-          store: storeNames
+          store: storeNames,
+          products
         }
       })
     } catch (error) {
@@ -262,7 +345,8 @@ const supplierController = {
         address,
         description,
         isActive,
-        status
+        status,
+        products
       } = req.body
       const createdBy = req.user?.id || null
 
@@ -342,6 +426,10 @@ const supplierController = {
         createdBy
       })
 
+      if (Array.isArray(products) && products.length > 0) {
+        await syncSupplierProducts(supplier.id, products, createdBy)
+      }
+
       createNotification({
         type: 'supplier_created',
         store,
@@ -383,7 +471,8 @@ const supplierController = {
         email,
         address,
         description,
-        status
+        status,
+        products
       } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -482,6 +571,10 @@ const supplierController = {
         modifiedBy
       })
 
+      if (Array.isArray(products)) {
+        await syncSupplierProducts(id, products, modifiedBy)
+      }
+
       createNotification({
         type: 'supplier_updated',
         store,
@@ -531,6 +624,7 @@ const supplierController = {
         })
       }
 
+      await db.supplier_product.destroy({ where: { supplier: id } })
       await supplier.destroy()
 
       createNotification({
@@ -777,6 +871,130 @@ const supplierController = {
         success: true,
         message: `Successfully imported ${createdSuppliers.length} suppliers`,
         data: createdSuppliers
+      })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async downloadProductTemplate(req, res) {
+    try {
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Supplier Product Template')
+
+      worksheet.addRow(['name', 'price'])
+
+      worksheet.getRow(1).font = { bold: true }
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' }
+      }
+
+      worksheet.columns = [{ width: 30 }, { width: 15 }]
+
+      const buffer = await workbook.xlsx.writeBuffer()
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=supplier-product-template.xlsx'
+      )
+
+      return res.status(200).send(buffer)
+    } catch (error) {
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async importProducts(req, res) {
+    try {
+      const { id } = req.params
+      const modifiedBy = req.user?.id || null
+
+      const supplier = await db.supplier.findByPk(id)
+      if (!supplier) {
+        return res.status(404).json({
+          success: false,
+          message: 'Supplier not found'
+        })
+      }
+
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'No file uploaded' })
+      }
+
+      const workbook = new ExcelJS.Workbook()
+      await workbook.xlsx.load(req.file.buffer)
+      const worksheet = workbook.getWorksheet(1)
+
+      const products = []
+      const errors = []
+
+      const allProducts = await db.product.findAll({
+        attributes: ['id', 'nameProduct'],
+        where: { deletedAt: null }
+      })
+      const productMap = new Map(
+        allProducts.map((p) => [p.nameProduct.toLowerCase().trim(), p.id])
+      )
+
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber === 1) return
+
+        try {
+          const [name, price] = row.values
+
+          if (!name) {
+            errors.push(`Row ${rowNumber}: Name is required`)
+            return
+          }
+
+          const productId = productMap.get(String(name).toLowerCase().trim())
+          if (!productId) {
+            errors.push(`Row ${rowNumber}: Product "${name}" not found`)
+            return
+          }
+
+          products.push({
+            id: productId,
+            price: Number(price) || 0
+          })
+        } catch (error) {
+          errors.push(`Row ${rowNumber}: ${error.message}`)
+        }
+      })
+
+      if (errors.length > 0) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Validation errors', errors })
+      }
+
+      await syncSupplierProducts(id, products, modifiedBy)
+      createAudit(
+        req,
+        'import',
+        'supplier_product',
+        id,
+        `Imported ${products.length} products for supplier ${id}`
+      )
+
+      return res.status(200).json({
+        success: true,
+        message: `Successfully imported ${products.length} products`,
+        data: products
       })
     } catch (error) {
       console.error('Error =>', error)

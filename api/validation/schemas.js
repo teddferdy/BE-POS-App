@@ -247,7 +247,16 @@ exports.createSupplierSchema = z.object({
   contactPerson: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
-  status: statusEnum
+  status: statusEnum,
+  products: z
+    .array(
+      z.object({
+        id: strToNum(),
+        price: strToNum().optional().default(0)
+      })
+    )
+    .optional()
+    .nullable()
 })
 
 exports.updateSupplierSchema = exports.createSupplierSchema.partial()
@@ -388,6 +397,7 @@ const poItemSchema = z.object({
   productName: z.string().optional(),
   ingredient: strToNum().optional().nullable(),
   ingredientName: z.string().optional(),
+  supplier: strToNum().optional().nullable(),
   quantity: strToNum(),
   price: strToNum().optional().default(0),
   unit: z.string().optional().default('pcs')
@@ -395,7 +405,6 @@ const poItemSchema = z.object({
 
 exports.createPurchaseOrderSchema = z.object({
   store: strToNum(),
-  supplier: strToNum().optional().nullable(),
   items: z.array(poItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
   discount: strToNum().optional().default(0),

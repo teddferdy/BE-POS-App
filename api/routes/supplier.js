@@ -77,4 +77,21 @@ router.post(
   supplierController.importData
 )
 
+// Supplier Product endpoints
+router.get(
+  '/product-template',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
+  supplierController.downloadProductTemplate
+)
+router.post(
+  '/:id/import-products',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
+  uploadExcel.single('file'),
+  supplierController.importProducts
+)
+
 module.exports = router

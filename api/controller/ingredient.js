@@ -8,7 +8,7 @@ const ingredientController = {
   async getAll(req, res) {
     try {
       const store = req.query.store || req.user?.store
-      const { search, status, lowStock, page = 1, limit = 10 } = req.query
+      const { search, status, lowStock, supplier, page = 1, limit = 10 } = req.query
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const where = {}
@@ -23,6 +23,9 @@ const ingredientController = {
         andConditions.push({
           status
         })
+      }
+      if (supplier) {
+        andConditions.push({ supplier: Number(supplier) })
       }
       if (andConditions.length > 0) {
         where[Op.and] = andConditions

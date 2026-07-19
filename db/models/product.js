@@ -95,10 +95,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
-      supplier: {
-        type: DataTypes.INTEGER,
-        allowNull: true
-      },
       tax: {
         type: DataTypes.JSONB,
         defaultValue: null
@@ -199,6 +195,10 @@ module.exports = (sequelize, DataTypes) => {
     product.hasMany(models.product_store, {
       foreignKey: 'product',
       as: 'storeAssignments'
+    })
+    product.hasMany(models.supplier_product, {
+      foreignKey: 'product',
+      as: 'supplierProducts'
     })
   }
 
