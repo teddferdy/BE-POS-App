@@ -12,6 +12,18 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
+let _categoryStoreExists = null
+const hasCategoryStoreTable = async () => {
+  if (_categoryStoreExists !== null) return _categoryStoreExists
+  try {
+    await db.sequelize.query('SELECT 1 FROM category_store LIMIT 1')
+    _categoryStoreExists = true
+  } catch {
+    _categoryStoreExists = false
+  }
+  return _categoryStoreExists
+}
+
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
   return stores.flatMap((s) => {
@@ -41,6 +53,7 @@ const resolveStoreNames = async (storeIds) => {
 }
 
 const syncCategoryStores = async (categoryId, storeIds, transaction) => {
+  if (!(await hasCategoryStoreTable())) return
   const existing = await db.category_store.findAll({
     where: { category: categoryId },
     attributes: ['store'],
@@ -92,11 +105,13 @@ exports.getCategoryById = async (req, res) => {
     }
 
     // Resolve stores from junction table
-    const storeRows = await db.category_store.findAll({
-      where: { category: Number(id) },
-      attributes: ['store'],
-      raw: true
-    })
+    const storeRows = (await hasCategoryStoreTable())
+      ? await db.category_store.findAll({
+          where: { category: Number(id) },
+          attributes: ['store'],
+          raw: true
+        })
+      : []
     const storeIds = storeRows.map((r) => r.store)
     const stores = await resolveStoreNames(storeIds)
 
@@ -161,19 +176,21 @@ exports.getAllCategoryInTable = async (req, res) => {
 
     if (store) {
       const storeId = parseInt(store)
-      // SuperAdmin: show assigned to store OR unassigned
-      // Admin/Cashier: show assigned to store only
-      const isSuperAdmin = req.user?.roleType === 'super_admin'
-      if (isSuperAdmin) {
-        const storeOr = [
-          getCategoryStoreSubQuery(storeId),
-          getUnassignedCategorySubQuery()
-        ]
-        whereClause[Op.or] = storeOr
-        statsWhere = { [Op.or]: storeOr }
-      } else {
-        whereClause[Op.and] = [getCategoryStoreSubQuery(storeId)]
-        statsWhere = { [Op.and]: [getCategoryStoreSubQuery(storeId)] }
+      if (await hasCategoryStoreTable()) {
+        // SuperAdmin: show assigned to store OR unassigned
+        // Admin/Cashier: show assigned to store only
+        const isSuperAdmin = req.user?.roleType === 'super_admin'
+        if (isSuperAdmin) {
+          const storeOr = [
+            getCategoryStoreSubQuery(storeId),
+            getUnassignedCategorySubQuery()
+          ]
+          whereClause[Op.or] = storeOr
+          statsWhere = { [Op.or]: storeOr }
+        } else {
+          whereClause[Op.and] = [getCategoryStoreSubQuery(storeId)]
+          statsWhere = { [Op.and]: [getCategoryStoreSubQuery(storeId)] }
+        }
       }
     }
 
@@ -235,7 +252,7 @@ exports.getAllCategoryInTable = async (req, res) => {
     // Resolve store assignments via junction table
     const categoryIds = categories.map((c) => c.id)
     const storeRows =
-      categoryIds.length > 0
+      categoryIds.length > 0 && (await hasCategoryStoreTable())
         ? await db.category_store.findAll({
             where: { category: { [Op.in]: categoryIds } },
             attributes: ['category', 'store'],
@@ -626,7 +643,7 @@ exports.exportCategory = async (req, res) => {
     // Resolve store assignments via junction table
     const categoryIds = categories.map((c) => c.id)
     const storeRows =
-      categoryIds.length > 0
+      categoryIds.length > 0 && (await hasCategoryStoreTable())
         ? await db.category_store.findAll({
             where: { category: { [Op.in]: categoryIds } },
             attributes: ['category', 'store'],
@@ -932,7 +949,7 @@ exports.importCategory = async (req, res) => {
       })
 
       // Create junction rows
-      if (cat.storeId) {
+      if (cat.storeId && (await hasCategoryStoreTable())) {
         await db.category_store.create({
           category: newCategory.id,
           store: cat.storeId

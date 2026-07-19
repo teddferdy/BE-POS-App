@@ -25,7 +25,31 @@ const normalizeStores = (stores) => {
   })
 }
 
+let _productStoreExists = null
+let _categoryStoreExists = null
+const hasProductStoreTable = async () => {
+  if (_productStoreExists !== null) return _productStoreExists
+  try {
+    await db.sequelize.query('SELECT 1 FROM product_store LIMIT 1')
+    _productStoreExists = true
+  } catch {
+    _productStoreExists = false
+  }
+  return _productStoreExists
+}
+const hasCategoryStoreTable = async () => {
+  if (_categoryStoreExists !== null) return _categoryStoreExists
+  try {
+    await db.sequelize.query('SELECT 1 FROM category_store LIMIT 1')
+    _categoryStoreExists = true
+  } catch {
+    _categoryStoreExists = false
+  }
+  return _categoryStoreExists
+}
+
 const syncProductStores = async (productId, storeIds, transaction) => {
+  if (!(await hasProductStoreTable())) return
   const existing = await db.product_store.findAll({
     where: { product: productId },
     attributes: ['store'],
@@ -70,7 +94,7 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
 
     if (store) {
       const storeId = Number(store)
-      if (!isNaN(storeId)) {
+      if (!isNaN(storeId) && (await hasProductStoreTable())) {
         whereCondition[Op.or] = [
           getProductStoreSubQuery(storeId),
           getUnassignedProductSubQuery()
@@ -168,7 +192,7 @@ exports.getAllProduct = async (req, res) => {
       { model: Category, as: 'categoryData', attributes: ['value', 'name'] }
     ]
 
-    if (store && userRole !== 'super_admin') {
+    if (store && userRole !== 'super_admin' && (await hasProductStoreTable())) {
       filters[Op.and] = [getProductStoreSubQuery(store)]
     }
 
@@ -235,7 +259,7 @@ exports.getAllProductInTable = async (req, res) => {
 
     if (store) {
       const storeId = Number(store)
-      if (!isNaN(storeId)) {
+      if (!isNaN(storeId) && (await hasProductStoreTable())) {
         whereCondition[Op.or] = [
           getProductStoreSubQuery(storeId),
           getUnassignedProductSubQuery()
@@ -292,7 +316,7 @@ exports.getAllProductInTable = async (req, res) => {
     // Resolve store IDs to names via junction table
     const productIds = getAllProduct.map((p) => p.id)
     const storeRows =
-      productIds.length > 0
+      productIds.length > 0 && (await hasProductStoreTable())
         ? await db.product_store.findAll({
             where: { product: { [Op.in]: productIds } },
             attributes: ['product', 'store'],
@@ -345,7 +369,8 @@ exports.getAllProductInTable = async (req, res) => {
     })
 
     // Calculate stats (based on store filter only, not status filter)
-    const statsWhere = store
+    const useStoreFilter = store && (await hasProductStoreTable())
+    const statsWhere = useStoreFilter
       ? {
           [Op.or]: [
             getProductStoreSubQuery(Number(store)),
@@ -774,11 +799,13 @@ exports.editProductByLocationAndId = async (req, res) => {
     }
 
     // Get first store for notification
-    const firstStoreRow = await db.product_store.findOne({
-      where: { product: id },
-      attributes: ['store'],
-      raw: true
-    })
+    const firstStoreRow = (await hasProductStoreTable())
+      ? await db.product_store.findOne({
+          where: { product: id },
+          attributes: ['store'],
+          raw: true
+        })
+      : null
 
     // Update per-store stock for the current store — ponytail: atomic upsert + adjust
     const storeId = req.cookies?.store || req.body?.storeId
@@ -848,11 +875,13 @@ exports.deleteProductByIdAndLocation = async (req, res) => {
     }
 
     // Get first store for notification before soft-delete
-    const firstStoreRow = await db.product_store.findOne({
-      where: { product: id },
-      attributes: ['store'],
-      raw: true
-    })
+    const firstStoreRow = (await hasProductStoreTable())
+      ? await db.product_store.findOne({
+          where: { product: id },
+          attributes: ['store'],
+          raw: true
+        })
+      : null
 
     await Product.destroy({
       where: { id }
@@ -909,7 +938,7 @@ exports.exportProduct = async (req, res) => {
   try {
     const storeIdNum = Number(storeId)
     let categories
-    if (storeIdNum) {
+    if (storeIdNum && (await hasCategoryStoreTable())) {
       // Use junction table to find categories assigned to this store
       const categoryIds = await db.category_store.findAll({
         where: { store: storeIdNum },
@@ -984,7 +1013,7 @@ exports.downloadData = async (req, res) => {
 
   try {
     const where = {}
-    if (store) {
+    if (store && (await hasProductStoreTable())) {
       where[Op.or] = [
         getProductStoreSubQuery(Number(store)),
         getUnassignedProductSubQuery()
@@ -1079,7 +1108,7 @@ exports.downloadTemplate = async (req, res) => {
     // Resolve store assignments via junction table
     const productIds = existingProducts.map((p) => p.id)
     const storeRows =
-      productIds.length > 0
+      productIds.length > 0 && (await hasProductStoreTable())
         ? await db.product_store.findAll({
             where: { product: { [Op.in]: productIds } },
             attributes: ['product', 'store'],
@@ -1540,11 +1569,13 @@ exports.getProductById = async (req, res) => {
     }
 
     // Resolve store assignments from junction table
-    const storeRows = await db.product_store.findAll({
-      where: { product: Number(id) },
-      attributes: ['store'],
-      raw: true
-    })
+    const storeRows = (await hasProductStoreTable())
+      ? await db.product_store.findAll({
+          where: { product: Number(id) },
+          attributes: ['store'],
+          raw: true
+        })
+      : []
     const storeIds = storeRows.map((r) => r.store)
     const locations =
       storeIds.length > 0

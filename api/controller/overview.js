@@ -1,6 +1,26 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 
+let _productStoreExists = null
+let _categoryStoreExists = null
+const hasTable = async (tableName) => {
+  if (tableName === 'product_store') {
+    if (_productStoreExists !== null) return _productStoreExists
+  } else if (tableName === 'category_store') {
+    if (_categoryStoreExists !== null) return _categoryStoreExists
+  }
+  try {
+    await db.sequelize.query(`SELECT 1 FROM ${tableName} LIMIT 1`)
+    if (tableName === 'product_store') _productStoreExists = true
+    if (tableName === 'category_store') _categoryStoreExists = true
+    return true
+  } catch {
+    if (tableName === 'product_store') _productStoreExists = false
+    if (tableName === 'category_store') _categoryStoreExists = false
+    return false
+  }
+}
+
 const overviewController = {
   async getProductSummary(req, res) {
     try {
@@ -10,16 +30,24 @@ const overviewController = {
 
       if (store) {
         const storeId = Number(store)
-        sql = `SELECT COUNT(*) as total,
-                COUNT(*) FILTER (WHERE "status" = 'active') as active,
-                COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
-         FROM "product"
-         WHERE ("product"."deletedAt" IS NULL)
-           AND (
-             EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = :store AND "deletedAt" IS NULL)
-             OR NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)
-           )`
-        replacements.store = storeId
+        if (await hasTable('product_store')) {
+          sql = `SELECT COUNT(*) as total,
+                  COUNT(*) FILTER (WHERE "status" = 'active') as active,
+                  COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
+           FROM "product"
+           WHERE ("product"."deletedAt" IS NULL)
+             AND (
+               EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = :store AND "deletedAt" IS NULL)
+               OR NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)
+             )`
+          replacements.store = storeId
+        } else {
+          sql = `SELECT COUNT(*) as total,
+                  COUNT(*) FILTER (WHERE "status" = 'active') as active,
+                  COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
+           FROM "product"
+           WHERE ("product"."deletedAt" IS NULL)`
+        }
       } else {
         sql = `SELECT COUNT(*) as total,
                 COUNT(*) FILTER (WHERE "status" = 'active') as active,
@@ -58,16 +86,24 @@ const overviewController = {
 
       if (store) {
         const storeId = Number(store)
-        sql = `SELECT COUNT(*) as total,
-                COUNT(*) FILTER (WHERE "status" = 'active') as active,
-                COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
-         FROM "category"
-         WHERE ("category"."deletedAt" IS NULL)
-           AND (
-             EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = :store AND "deletedAt" IS NULL)
-             OR NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)
-           )`
-        replacements.store = storeId
+        if (await hasTable('category_store')) {
+          sql = `SELECT COUNT(*) as total,
+                  COUNT(*) FILTER (WHERE "status" = 'active') as active,
+                  COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
+           FROM "category"
+           WHERE ("category"."deletedAt" IS NULL)
+             AND (
+               EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = :store AND "deletedAt" IS NULL)
+               OR NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)
+             )`
+          replacements.store = storeId
+        } else {
+          sql = `SELECT COUNT(*) as total,
+                  COUNT(*) FILTER (WHERE "status" = 'active') as active,
+                  COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
+           FROM "category"
+           WHERE ("category"."deletedAt" IS NULL)`
+        }
       } else {
         sql = `SELECT COUNT(*) as total,
                 COUNT(*) FILTER (WHERE "status" = 'active') as active,
@@ -230,15 +266,17 @@ const overviewController = {
       let where = {}
       if (store) {
         const storeId = Number(store)
-        where = {
-          [Op.or]: [
-            db.sequelize.literal(
-              `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${storeId} AND "deletedAt" IS NULL)`
-            ),
-            db.sequelize.literal(
-              `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
-            )
-          ]
+        if (await hasTable('category_store')) {
+          where = {
+            [Op.or]: [
+              db.sequelize.literal(
+                `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+              ),
+              db.sequelize.literal(
+                `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
+              )
+            ]
+          }
         }
       }
 
@@ -292,15 +330,17 @@ const overviewController = {
       let where = {}
       if (store) {
         const storeId = Number(store)
-        where = {
-          [Op.or]: [
-            db.sequelize.literal(
-              `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${storeId} AND "deletedAt" IS NULL)`
-            ),
-            db.sequelize.literal(
-              `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
-            )
-          ]
+        if (await hasTable('product_store')) {
+          where = {
+            [Op.or]: [
+              db.sequelize.literal(
+                `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+              ),
+              db.sequelize.literal(
+                `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
+              )
+            ]
+          }
         }
       }
 

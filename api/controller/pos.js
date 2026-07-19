@@ -10,6 +10,19 @@ const {
 
 const getStoreId = (req) => req.query.storeId || 'default'
 
+let _psExists = null
+let _csExists = null
+let _opPromoCol = null
+const hasTable = async (t) => {
+  if (t === 'product_store') { if (_psExists !== null) return _psExists } else if (t === 'category_store') { if (_csExists !== null) return _csExists }
+  try { await db.sequelize.query(`SELECT 1 FROM ${t} LIMIT 1`); if (t === 'product_store') _psExists = true; if (t === 'category_store') _csExists = true; return true } catch { if (t === 'product_store') _psExists = false; if (t === 'category_store') _csExists = false; return false }
+}
+const hasOrderCol = async (col) => {
+  if (col === 'promoCampaignId') { if (_opPromoCol !== null) return _opPromoCol; try { const [r] = await db.sequelize.query(`SELECT 1 FROM information_schema.columns WHERE table_name='order' AND column_name='${col}' LIMIT 1`); _opPromoCol = r.length > 0; return _opPromoCol } catch { _opPromoCol = false; return false } }
+  return true
+}
+const orderAttrs = async () => (await hasOrderCol('promoCampaignId')) ? undefined : { exclude: ['promoCampaignId'] }
+
 const posController = {
   // Barcode lookup untuk POS scan
   async lookupBarcode(req, res) {
@@ -267,19 +280,21 @@ const posController = {
           )
 
           // Add destination store to product's store list via junction table
-          const existingProdStore = await db.product_store.findOne({
-            where: { product: item.product, store: Number(toStore) },
-            transaction: t
-          })
-          if (!existingProdStore) {
-            await db.product_store.create(
-              { product: item.product, store: Number(toStore) },
-              { transaction: t }
-            )
+          if (await hasTable('product_store')) {
+            const existingProdStore = await db.product_store.findOne({
+              where: { product: item.product, store: Number(toStore) },
+              transaction: t
+            })
+            if (!existingProdStore) {
+              await db.product_store.create(
+                { product: item.product, store: Number(toStore) },
+                { transaction: t }
+              )
+            }
           }
 
           // Add destination store to category's store list via junction table
-          if (product.category) {
+          if (product.category && (await hasTable('category_store'))) {
             const category = await db.category.findByPk(product.category, {
               transaction: t
             })
@@ -682,7 +697,8 @@ const posController = {
       const { store } = req.cookies
       const { items, reason, returnedBy } = req.body
 
-      const order = await db.order.findByPk(id)
+      const oAttrs = await orderAttrs()
+      const order = await db.order.findByPk(id, oAttrs ? { attributes: oAttrs } : undefined)
       if (!order) {
         return res.status(404).json({
           success: false,
@@ -1007,7 +1023,8 @@ const posController = {
                 attributes: ['id', 'productName', 'quantity', 'totalPrice']
               },
               { model: db.table, as: 'table', attributes: ['name'] }
-            ]
+            ],
+            ...(await orderAttrs()) ? { attributes: await orderAttrs() } : {}
           })
           .then(({ count, rows }) => ({
             total: count,
@@ -1209,11 +1226,13 @@ const posController = {
         })
       }
 
+      const waAttrs = await orderAttrs()
       const order = await db.order.findByPk(orderId, {
         include: [
           { model: db.order_item, as: 'items' },
           { model: db.table, as: 'table' }
-        ]
+        ],
+        ...(waAttrs ? { attributes: waAttrs } : {})
       })
 
       if (!order) {
@@ -1352,11 +1371,13 @@ const posController = {
         })
       }
 
+      const emailAttrs = await orderAttrs()
       const order = await db.order.findByPk(orderId, {
         include: [
           { model: db.order_item, as: 'items' },
           { model: db.table, as: 'table' }
-        ]
+        ],
+        ...(emailAttrs ? { attributes: emailAttrs } : {})
       })
 
       if (!order) {

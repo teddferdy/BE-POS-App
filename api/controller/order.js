@@ -12,6 +12,51 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
 
+let _productStoreExists = null
+let _categoryStoreExists = null
+let _orderPromoCampaignCol = null
+const hasTable = async (tableName) => {
+  if (tableName === 'product_store') {
+    if (_productStoreExists !== null) return _productStoreExists
+  } else if (tableName === 'category_store') {
+    if (_categoryStoreExists !== null) return _categoryStoreExists
+  }
+  try {
+    await db.sequelize.query(`SELECT 1 FROM ${tableName} LIMIT 1`)
+    if (tableName === 'product_store') _productStoreExists = true
+    if (tableName === 'category_store') _categoryStoreExists = true
+    return true
+  } catch {
+    if (tableName === 'product_store') _productStoreExists = false
+    if (tableName === 'category_store') _categoryStoreExists = false
+    return false
+  }
+}
+
+const hasOrderColumn = async (colName) => {
+  if (colName === 'promoCampaignId') {
+    if (_orderPromoCampaignCol !== null) return _orderPromoCampaignCol
+    try {
+      const [results] = await db.sequelize.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = 'order' AND column_name = '${colName}' LIMIT 1`
+      )
+      _orderPromoCampaignCol = results.length > 0
+      return _orderPromoCampaignCol
+    } catch {
+      _orderPromoCampaignCol = false
+      return false
+    }
+  }
+  return true
+}
+
+const getOrderAttributes = async () => {
+  if (!(await hasOrderColumn('promoCampaignId'))) {
+    return { exclude: ['promoCampaignId'] }
+  }
+  return undefined
+}
+
 const generateOrderNumber = () => {
   const date = new Date()
   const timestamp = date.getTime().toString().slice(-8)
@@ -621,7 +666,7 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    const order = await Order.create({
+    const orderData = {
       orderNumber,
       store,
       tableId,
@@ -642,7 +687,6 @@ exports.createOrder = async (req, res) => {
       discountAmount: totals.discountAmount,
       discountId: appliedDiscountId,
       promoCode: promoCode || null,
-      promoCampaignId: appliedCampaignId,
       taxRate,
       taxAmount: totals.taxAmount,
       serviceChargeRate,
@@ -652,7 +696,11 @@ exports.createOrder = async (req, res) => {
       currencyCode: currencyCode || null,
       exchangeRate: exchangeRate || null,
       createdBy: req.user?.id
-    })
+    }
+    if (await hasOrderColumn('promoCampaignId')) {
+      orderData.promoCampaignId = appliedCampaignId
+    }
+    const order = await Order.create(orderData)
 
     // Create order items
     for (const item of items) {
@@ -1165,7 +1213,7 @@ exports.getOrdersByStore = async (req, res) => {
     const limitNum = parseInt(limit) || 50
     const offset = (pageNum - 1) * limitNum
 
-    const { count: total, rows: orders } = await Order.findAndCountAll({
+    const queryOptions = {
       where,
       include: [
         {
@@ -1176,7 +1224,12 @@ exports.getOrdersByStore = async (req, res) => {
       order: [['createdAt', 'DESC']],
       limit: limitNum,
       offset
-    })
+    }
+
+    const orderAttributes = await getOrderAttributes()
+    if (orderAttributes) queryOptions.attributes = orderAttributes
+
+    const { count: total, rows: orders } = await Order.findAndCountAll(queryOptions)
 
     return res.status(200).json({
       message: 'Success',
@@ -1200,13 +1253,15 @@ exports.getOrderById = async (req, res) => {
   const { id } = req.params
 
   try {
+    const orderAttributes = await getOrderAttributes()
     const order = await Order.findOne({
       where: { id },
       include: [
         { model: OrderItem, as: 'items' },
         { model: OrderStatus, as: 'statusHistory' },
         { model: Table, as: 'table' }
-      ]
+      ],
+      ...(orderAttributes ? { attributes: orderAttributes } : {})
     })
 
     if (!order) {
@@ -1231,7 +1286,11 @@ exports.updateOrderStatus = async (req, res) => {
   const { id, store, status, changedBy, changedByName, notes } = req.body
 
   try {
-    const order = await Order.findOne({ where: { id, store } })
+    const statusAttrs = await getOrderAttributes()
+    const order = await Order.findOne({
+      where: { id, store },
+      ...(statusAttrs ? { attributes: statusAttrs } : {})
+    })
 
     if (!order) {
       return res.status(404).json({
@@ -1472,7 +1531,8 @@ exports.updateOrderItemStatus = async (req, res) => {
 
     await item.update({ status: itemStatus })
 
-    const order = await Order.findByPk(id)
+    const orderAttrs = await getOrderAttributes()
+    const order = await Order.findByPk(id, orderAttrs ? { attributes: orderAttrs } : undefined)
     if (order) {
       emitItemStatusUpdate(order.store, id, item)
     }
@@ -1508,6 +1568,7 @@ exports.getKitchenOrders = async (req, res) => {
   try {
     // ponytail: order-level status is 'paid' at POS — kitchen cares about item status only
     const whereClause = store ? { store } : {}
+    const orderAttributes = await getOrderAttributes()
     const orders = await Order.findAll({
       where: whereClause,
       include: [
@@ -1521,7 +1582,8 @@ exports.getKitchenOrders = async (req, res) => {
           }
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      ...(orderAttributes ? { attributes: orderAttributes } : {})
     })
 
     return res.status(200).json({
@@ -1547,24 +1609,31 @@ exports.getCustomerMenu = async (req, res) => {
     const Op = require('sequelize').Op
     const storeId = Number(store)
 
-    const productStoreSub = db.sequelize.literal(
-      `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${storeId} AND "deletedAt" IS NULL)`
-    )
-    const productUnassignedSub = db.sequelize.literal(
-      `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
-    )
-    const categoryStoreSub = db.sequelize.literal(
-      `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${storeId} AND "deletedAt" IS NULL)`
-    )
-    const categoryUnassignedSub = db.sequelize.literal(
-      `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
-    )
+    const productWhere = { status: 'active' }
+    const categoryWhere = { status: 'active' }
+
+    if (await hasTable('product_store')) {
+      const productStoreSub = db.sequelize.literal(
+        `EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+      )
+      const productUnassignedSub = db.sequelize.literal(
+        `NOT EXISTS (SELECT 1 FROM product_store WHERE product = "product".id AND "deletedAt" IS NULL)`
+      )
+      productWhere[Op.or] = [productStoreSub, productUnassignedSub]
+    }
+
+    if (await hasTable('category_store')) {
+      const categoryStoreSub = db.sequelize.literal(
+        `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${storeId} AND "deletedAt" IS NULL)`
+      )
+      const categoryUnassignedSub = db.sequelize.literal(
+        `NOT EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND "deletedAt" IS NULL)`
+      )
+      categoryWhere[Op.or] = [categoryStoreSub, categoryUnassignedSub]
+    }
 
     const products = await db.product.findAll({
-      where: {
-        [Op.or]: [productStoreSub, productUnassignedSub],
-        status: 'active'
-      },
+      where: productWhere,
       include: [
         { model: db.category, as: 'categoryData', attributes: ['name'] }
       ],
@@ -1575,10 +1644,7 @@ exports.getCustomerMenu = async (req, res) => {
     })
 
     const categories = await db.category.findAll({
-      where: {
-        [Op.or]: [categoryStoreSub, categoryUnassignedSub],
-        status: 'active'
-      },
+      where: categoryWhere,
       order: [['name', 'ASC']]
     })
 
@@ -1793,7 +1859,7 @@ exports.createCustomerOrder = async (req, res) => {
     const taxAmount = Math.round(afterDiscount * (taxRate / 100))
     const totalPrice = afterDiscount + taxAmount
 
-    const order = await db.order.create({
+    const qrOrderData = {
       orderNumber,
       store,
       tableId: tableId || null,
@@ -1809,12 +1875,15 @@ exports.createCustomerOrder = async (req, res) => {
       discountType,
       discountValue,
       discountAmount,
-      promoCampaignId: appliedCampaignId,
       taxRate,
       taxAmount,
       serviceChargeAmount: 0,
       totalPrice
-    })
+    }
+    if (await hasOrderColumn('promoCampaignId')) {
+      qrOrderData.promoCampaignId = appliedCampaignId
+    }
+    const order = await db.order.create(qrOrderData)
 
     for (const item of orderItems) {
       await db.order_item.create({ ...item, order: order.id })
@@ -2204,11 +2273,13 @@ exports.getReceiptHTML = async (req, res) => {
   const { id } = req.params
 
   try {
+    const printAttrs = await getOrderAttributes()
     const order = await db.order.findByPk(id, {
       include: [
         { model: db.order_item, as: 'items' },
         { model: db.table, as: 'table' }
-      ]
+      ],
+      ...(printAttrs ? { attributes: printAttrs } : {})
     })
 
     if (!order) {

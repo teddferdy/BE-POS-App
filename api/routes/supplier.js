@@ -13,7 +13,7 @@ const {
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
-// Get suppliers - All authenticated users
+// ── GET static routes (MUST be before /:id) ──────────────────────────
 router.get('/', authorization, validateStoreAccess, supplierController.getAll)
 router.get(
   '/detail/:id',
@@ -22,38 +22,12 @@ router.get(
   supplierController.getDetail
 )
 router.get(
-  '/:id',
+  '/product-template',
   authorization,
   validateStoreAccess,
-  supplierController.getById
+  requireRole('super_admin'),
+  supplierController.downloadProductTemplate
 )
-
-// Create/Edit/Delete - Admin & Super Admin only
-router.post(
-  '/',
-  authorization,
-  validateStoreAccess,
-  requireRole('super_admin', 'admin'),
-  validate(createSupplierSchema),
-  supplierController.create
-)
-router.put(
-  '/:id',
-  authorization,
-  validateStoreAccess,
-  requireRole('super_admin', 'admin'),
-  validate(updateSupplierSchema),
-  supplierController.update
-)
-router.delete(
-  '/:id',
-  authorization,
-  validateStoreAccess,
-  requireRole('super_admin', 'admin'),
-  supplierController.delete
-)
-
-// Download/Upload - Super Admin only
 router.get(
   '/template',
   authorization,
@@ -68,6 +42,24 @@ router.get(
   requireRole('super_admin', 'admin'),
   supplierController.downloadData
 )
+
+// ── GET param route (MUST be last among GET routes) ───────────────────
+router.get(
+  '/:id',
+  authorization,
+  validateStoreAccess,
+  supplierController.getById
+)
+
+// ── POST ──────────────────────────────────────────────────────────────
+router.post(
+  '/',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(createSupplierSchema),
+  supplierController.create
+)
 router.post(
   '/import',
   authorization,
@@ -76,15 +68,6 @@ router.post(
   uploadExcel.single('file'),
   supplierController.importData
 )
-
-// Supplier Product endpoints
-router.get(
-  '/product-template',
-  authorization,
-  validateStoreAccess,
-  requireRole('super_admin'),
-  supplierController.downloadProductTemplate
-)
 router.post(
   '/:id/import-products',
   authorization,
@@ -92,6 +75,25 @@ router.post(
   requireRole('super_admin'),
   uploadExcel.single('file'),
   supplierController.importProducts
+)
+
+// ── PUT ───────────────────────────────────────────────────────────────
+router.put(
+  '/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(updateSupplierSchema),
+  supplierController.update
+)
+
+// ── DELETE ────────────────────────────────────────────────────────────
+router.delete(
+  '/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  supplierController.delete
 )
 
 module.exports = router

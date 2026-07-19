@@ -6,6 +6,18 @@ const { enrichAuditFields } = require('../../utils/auditFields')
 const ExcelJS = require('exceljs')
 const Location = db.location
 
+let _spExists = null
+const hasSupplierProductTable = async () => {
+  if (_spExists !== null) return _spExists
+  try {
+    await db.sequelize.query('SELECT 1 FROM supplier_product LIMIT 1')
+    _spExists = true
+  } catch {
+    _spExists = false
+  }
+  return _spExists
+}
+
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
   return stores.flatMap((s) => {
@@ -26,6 +38,7 @@ const resolveStoreNames = async (storeIds) => {
 
 const syncSupplierProducts = async (supplierId, products, userId) => {
   if (!Array.isArray(products)) return
+  if (!(await hasSupplierProductTable())) return
 
   const existing = await db.supplier_product.findAll({
     where: { supplier: supplierId },
@@ -647,7 +660,9 @@ const supplierController = {
         })
       }
 
-      await db.supplier_product.destroy({ where: { supplier: id } })
+      if (await hasSupplierProductTable()) {
+        await db.supplier_product.destroy({ where: { supplier: id } })
+      }
       await supplier.destroy()
 
       createNotification({
