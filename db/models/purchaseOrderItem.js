@@ -23,6 +23,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true
       },
+      supplier: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
       quantity: {
         type: DataTypes.INTEGER,
         allowNull: false

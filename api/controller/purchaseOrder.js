@@ -40,10 +40,7 @@ const purchaseOrderController = {
         if (endDate) where.orderDate[Op.lte] = new Date(endDate)
       }
       if (search) {
-        where[Op.or] = [
-          { orderNumber: { [Op.iLike]: `%${search}%` } },
-          { '$supplierData.name$': { [Op.iLike]: `%${search}%` } }
-        ]
+        where[Op.or] = [{ orderNumber: { [Op.iLike]: `%${search}%` } }]
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)

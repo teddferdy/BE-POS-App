@@ -16,9 +16,6 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.STRING
       },
-      supplier: {
-        type: DataTypes.INTEGER
-      },
       totalAmount: {
         type: DataTypes.INTEGER,
         defaultValue: 0
