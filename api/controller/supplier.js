@@ -173,7 +173,7 @@ const supplierController = {
 
   async getAll(req, res) {
     try {
-      const { search, status, page = 1, limit = 10 } = req.query
+      const { search, status, page = 1, limit = 10, includeProducts } = req.query
 
       const store = req.query.store || req.user?.store
       const where = {}
@@ -289,6 +289,29 @@ const supplierController = {
           : [],
         productCount: productCounts[item.id] || 0
       }))
+
+      if (includeProducts === 'true' && supplierIds.length > 0) {
+        try {
+          const allProducts = await db.supplier_product.findAll({
+            where: { supplier: { [Op.in]: supplierIds } },
+            attributes: ['id', 'supplier', 'name', 'price'],
+            raw: true
+          })
+          const productsBySupplier = {}
+          allProducts.forEach((p) => {
+            if (!productsBySupplier[p.supplier]) productsBySupplier[p.supplier] = []
+            productsBySupplier[p.supplier].push({ id: p.id, name: p.name, price: p.price })
+          })
+          data.forEach((s) => {
+            s.products = productsBySupplier[s.id] || []
+          })
+        } catch (e) {
+          if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+            throw e
+          }
+          data.forEach((s) => { s.products = [] })
+        }
+      }
 
       return res.status(200).json({
         success: true,
