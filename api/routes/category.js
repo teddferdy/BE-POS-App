@@ -44,6 +44,7 @@ const uploadImage = multer({
 const categoryController = require('../controller/category')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
   createCategorySchema,
@@ -54,6 +55,7 @@ const {
 router.get(
   '/get-category-all',
   authorization,
+  validateStoreAccess,
   categoryController.getAllCategoryInTable
 )
 
@@ -61,6 +63,7 @@ router.get(
 router.get(
   '/get-category/:id',
   authorization,
+  validateStoreAccess,
   categoryController.getCategoryById
 )
 
@@ -68,6 +71,7 @@ router.get(
 router.post(
   '/add-new-category',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
   validate(createCategorySchema),
@@ -78,6 +82,7 @@ router.post(
 router.put(
   '/edit-category/:id',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   uploadImage.single('image'),
   validate(updateCategorySchema),
@@ -88,6 +93,7 @@ router.put(
 router.delete(
   '/delete-category/:id',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   categoryController.deleteCategoryById
 )
@@ -96,6 +102,7 @@ router.delete(
 router.get(
   '/download-template',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   categoryController.exportCategory
 )
@@ -104,6 +111,7 @@ router.get(
 router.get(
   '/download',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   categoryController.downloadData
 )
@@ -112,6 +120,7 @@ router.get(
 router.post(
   '/upload-excel',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   upload.single('file'),
   categoryController.importCategory

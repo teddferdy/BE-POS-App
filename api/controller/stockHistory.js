@@ -396,7 +396,6 @@ const stockHistoryController = {
         const purchaseOrder = await db.purchase_order.create({
           store: group.store || store || null,
           orderNumber,
-          supplier: parseInt(supplierId),
           totalAmount,
           discount: 0,
           finalAmount: totalAmount,
@@ -413,6 +412,7 @@ const stockHistoryController = {
           product: null,
           ingredient: item.ingredient,
           ingredientName: item.ingredientName,
+          supplier: parseInt(supplierId) || null,
           quantity: item.quantity,
           unit: item.unit,
           price: item.price,
@@ -427,12 +427,14 @@ const stockHistoryController = {
           include: [
             {
               model: db.purchase_order_item,
-              as: 'items'
-            },
-            {
-              model: db.supplier,
-              as: 'supplierData',
-              attributes: ['id', 'name']
+              as: 'items',
+              include: [
+                {
+                  model: db.supplier,
+                  as: 'supplierData',
+                  attributes: ['id', 'name']
+                }
+              ]
             }
           ]
         })

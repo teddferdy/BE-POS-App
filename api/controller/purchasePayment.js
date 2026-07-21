@@ -242,14 +242,20 @@ const purchasePaymentController = {
         where: poWhere,
         include: [
           {
-            model: db.supplier,
-            as: 'supplierData',
-            attributes: ['id', 'name', 'phone']
+            model: db.purchase_order_item,
+            as: 'items',
+            include: [
+              {
+                model: db.supplier,
+                as: 'supplierData',
+                attributes: ['id', 'name', 'phone']
+              }
+            ]
           },
           {
             model: db.purchase_payment,
             as: 'payments',
-            attributes: ['id', 'amount', 'paymentDate']
+            attributes: ['id', 'amount', 'paymentDate', 'supplier']
           }
         ],
         order: [
@@ -264,53 +270,91 @@ const purchasePaymentController = {
       const outstandingPOs = []
 
       for (const po of purchaseOrders) {
-        const amount = Number(po.finalAmount || 0)
-        const paid = (po.payments || []).reduce(
-          (s, p) => s + Number(p.amount || 0),
-          0
-        )
-        const outstanding = amount - paid
-
-        totalOrdered += amount
-        totalPaid += paid
-
-        const supId = po.supplier
-        if (!supplierMap[supId]) {
-          supplierMap[supId] = {
-            supplierId: supId,
-            supplierName: po.supplierData?.name || 'Unknown',
-            totalPO: 0,
-            totalPaid: 0,
-            outstanding: 0,
-            poCount: 0
+        // Group items in this PO by supplier
+        const itemsBySupplier = {}
+        let totalItemsAmount = 0
+        for (const item of po.items || []) {
+          const sId = item.supplier
+          if (!sId) continue
+          if (!itemsBySupplier[sId]) {
+            itemsBySupplier[sId] = {
+              supplierId: sId,
+              supplierName: item.supplierData?.name || 'Unknown',
+              itemsAmount: 0
+            }
           }
+          itemsBySupplier[sId].itemsAmount += Number(item.total || 0)
+          totalItemsAmount += Number(item.total || 0)
         }
-        supplierMap[supId].totalPO += amount
-        supplierMap[supId].totalPaid += paid
-        supplierMap[supId].outstanding += outstanding
-        supplierMap[supId].poCount += 1
 
-        if (outstanding > 0) {
-          outstandingPOs.push({
-            id: po.id,
-            orderNumber: po.orderNumber,
-            supplierId: supId,
-            supplierName: po.supplierData?.name || 'Unknown',
-            finalAmount: amount,
-            totalPaid: paid,
-            outstanding,
-            orderDate: po.orderDate,
-            dueDate: po.dueDate,
-            status: po.status,
-            daysOverdue: po.dueDate
-              ? Math.max(
-                  0,
-                  Math.floor(
-                    (new Date() - new Date(po.dueDate)) / (1000 * 60 * 60 * 24)
+        // Pro-rate discount to each supplier
+        const discount = Number(po.discount || 0)
+        const supplierDetails = Object.values(itemsBySupplier).map((detail) => {
+          const ratio = totalItemsAmount > 0 ? detail.itemsAmount / totalItemsAmount : 0
+          const allocatedDiscount = Math.round(discount * ratio)
+          const finalAmount = detail.itemsAmount - allocatedDiscount
+          return {
+            ...detail,
+            finalAmount
+          }
+        })
+
+        // Group payments in this PO by supplier
+        const paymentsBySupplier = {}
+        for (const p of po.payments || []) {
+          const sId = p.supplier
+          if (!paymentsBySupplier[sId]) {
+            paymentsBySupplier[sId] = 0
+          }
+          paymentsBySupplier[sId] += Number(p.amount || 0)
+        }
+
+        for (const detail of supplierDetails) {
+          const supId = detail.supplierId
+          const amount = detail.finalAmount
+          const paid = paymentsBySupplier[supId] || 0
+          const outstanding = amount - paid
+
+          totalOrdered += amount
+          totalPaid += paid
+
+          if (!supplierMap[supId]) {
+            supplierMap[supId] = {
+              supplierId: supId,
+              supplierName: detail.supplierName,
+              totalPO: 0,
+              totalPaid: 0,
+              outstanding: 0,
+              poCount: 0
+            }
+          }
+          supplierMap[supId].totalPO += amount
+          supplierMap[supId].totalPaid += paid
+          supplierMap[supId].outstanding += outstanding
+          supplierMap[supId].poCount += 1
+
+          if (outstanding > 0) {
+            outstandingPOs.push({
+              id: po.id,
+              orderNumber: po.orderNumber,
+              supplierId: supId,
+              supplierName: detail.supplierName,
+              finalAmount: amount,
+              totalPaid: paid,
+              outstanding,
+              orderDate: po.orderDate,
+              dueDate: po.dueDate,
+              status: po.status,
+              daysOverdue: po.dueDate
+                ? Math.max(
+                    0,
+                    Math.floor(
+                      (new Date() - new Date(po.dueDate)) / (1000 * 60 * 60 * 24)
+                    )
                   )
-                )
-              : 0
-          })
+                : 0
+            })
+          }
         }
       }
 

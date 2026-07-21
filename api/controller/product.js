@@ -87,7 +87,8 @@ const getUnassignedProductSubQuery = () => {
 }
 
 exports.getProductByLocationSuperAdmin = async (req, res) => {
-  const { store, search } = req.query
+  const store = req.storeId
+  const { search } = req.query
 
   try {
     const whereCondition = { status: 'active' }
@@ -168,7 +169,7 @@ exports.getAllProduct = async (req, res) => {
   const { nameProduct, category } = req.query
 
   try {
-    const store = req.cookies.store || req.query.store
+    const store = req.storeId
     const userRole = req.user?.roleType
     const filters = {}
 
@@ -239,7 +240,6 @@ exports.getAllProductInTable = async (req, res) => {
     page = 1,
     pageSize = req.query.limit || 10,
     status = 'all',
-    store,
     search,
     category,
     sort
@@ -247,6 +247,7 @@ exports.getAllProductInTable = async (req, res) => {
 
   try {
     const offset = (page - 1) * pageSize
+    const store = req.storeId
 
     let statusCondition = {}
     if (status && status !== 'all') {
@@ -997,7 +998,7 @@ exports.exportProduct = async (req, res) => {
 
 // Download Product Data as Excel
 exports.downloadData = async (req, res) => {
-  const store = req.cookies.store || req.query.store
+  const store = req.storeId
 
   const workbook = new excelJS.Workbook()
   const worksheet = workbook.addWorksheet('Products')

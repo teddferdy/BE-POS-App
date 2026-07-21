@@ -16,7 +16,6 @@ const generateProductionNo = () => {
 const productionOrderController = {
   async getAll(req, res) {
     try {
-      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
       const {
         page = 1,
@@ -25,13 +24,11 @@ const productionOrderController = {
         startDate,
         endDate,
         product,
-        store: queryStore,
         search
       } = req.query
 
       const where = {}
-      const effectiveStore =
-        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
+      const effectiveStore = req.storeId
       if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (product) where.productItemId = product

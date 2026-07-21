@@ -55,7 +55,15 @@ const purchaseReturnController = {
           { reason: { [Op.iLike]: `%${search}%` } }
         ]
       }
-      if (supplier) where.supplier = supplier
+      if (supplier) {
+        const matchingPOItems = await db.purchase_order_item.findAll({
+          where: { supplier: Number(supplier) },
+          attributes: ['purchaseOrder'],
+          raw: true
+        })
+        const poIds = matchingPOItems.map((item) => item.purchaseOrder)
+        where.purchaseOrder = { [Op.in]: poIds }
+      }
       if (startDate || endDate) {
         where.createdAt = {}
         if (startDate) where.createdAt[Op.gte] = new Date(startDate)

@@ -16,6 +16,12 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 // ── GET static routes (MUST be before /:id) ──────────────────────────
 router.get('/', authorization, validateStoreAccess, supplierController.getAll)
 router.get(
+  '/compare',
+  authorization,
+  validateStoreAccess,
+  supplierController.compareSuppliers
+)
+router.get(
   '/detail/:id',
   authorization,
   validateStoreAccess,

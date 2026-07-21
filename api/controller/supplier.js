@@ -53,18 +53,36 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
   for (const item of products) {
     const productName = typeof item === 'object' ? (item.name || '').trim() : item
     const price = typeof item === 'object' ? item.price || 0 : 0
+    const leadTime = typeof item === 'object' ? item.leadTime || 0 : 0
+    const qualityRating = typeof item === 'object' ? item.qualityRating || 0 : 0
+    const minOrderQty = typeof item === 'object' ? item.minOrderQty || 1 : 1
+    const lastPrice = typeof item === 'object' ? item.lastPrice || 0 : 0
+    const productId = typeof item === 'object' ? item.productId || null : null
     const nameKey = productName.toLowerCase().trim()
 
     if (existingMap.has(nameKey)) {
       await db.supplier_product.update(
-        { price, modifiedBy: userId },
+        {
+          price,
+          leadTime,
+          qualityRating,
+          minOrderQty,
+          lastPrice,
+          productId: productId || existingMap.get(nameKey).productId,
+          modifiedBy: userId
+        },
         { where: { supplier: supplierId, name: existingMap.get(nameKey).name } }
       )
     } else {
       await db.supplier_product.create({
         supplier: supplierId,
+        productId: productId || null,
         name: productName,
         price,
+        leadTime,
+        qualityRating,
+        minOrderQty,
+        lastPrice,
         createdBy: userId
       })
     }
@@ -84,14 +102,22 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
 }
 
 const getSupplierProducts = async (supplierId) => {
+  const hasSpTable = await hasSupplierProductTable()
+  if (!hasSpTable) return []
+
   const rows = await db.supplier_product.findAll({
     where: { supplier: supplierId },
-    attributes: ['id', 'name', 'price']
+    attributes: ['id', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice']
   })
   return rows.map((r) => ({
     id: r.id,
+    productId: r.productId,
     name: r.name,
-    price: r.price
+    price: r.price,
+    leadTime: r.leadTime,
+    qualityRating: r.qualityRating,
+    minOrderQty: r.minOrderQty,
+    lastPrice: r.lastPrice
   }))
 }
 
@@ -294,13 +320,22 @@ const supplierController = {
         try {
           const allProducts = await db.supplier_product.findAll({
             where: { supplier: { [Op.in]: supplierIds } },
-            attributes: ['id', 'supplier', 'name', 'price'],
+            attributes: ['id', 'supplier', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice'],
             raw: true
           })
           const productsBySupplier = {}
           allProducts.forEach((p) => {
             if (!productsBySupplier[p.supplier]) productsBySupplier[p.supplier] = []
-            productsBySupplier[p.supplier].push({ id: p.id, name: p.name, price: p.price })
+            productsBySupplier[p.supplier].push({
+              id: p.id,
+              productId: p.productId,
+              name: p.name,
+              price: p.price,
+              leadTime: p.leadTime,
+              qualityRating: p.qualityRating,
+              minOrderQty: p.minOrderQty,
+              lastPrice: p.lastPrice
+            })
           })
           data.forEach((s) => {
             s.products = productsBySupplier[s.id] || []
@@ -1047,6 +1082,105 @@ const supplierController = {
       })
     } catch (error) {
       console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async compareSuppliers(req, res) {
+    try {
+      const { productId, search } = req.query
+
+      if (!productId && !search) {
+        return res.status(400).json({
+          success: false,
+          message: 'productId or search query is required'
+        })
+      }
+
+      const hasSpTable = await hasSupplierProductTable()
+      if (!hasSpTable) {
+        return res.status(200).json({
+          success: true,
+          message: 'Supplier product table not available',
+          data: []
+        })
+      }
+
+      const where = {}
+
+      if (productId) {
+        where.productId = Number(productId)
+      }
+
+      if (search) {
+        where.name = { [Op.iLike]: `%${search}%` }
+      }
+
+      const supplierProducts = await db.supplier_product.findAll({
+        where,
+        include: [
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name', 'phone', 'email', 'status'],
+            where: { status: 'active' }
+          }
+        ],
+        attributes: ['id', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice'],
+        order: [['price', 'ASC']]
+      })
+
+      const product = productId
+        ? await db.product.findByPk(Number(productId), {
+            attributes: ['id', 'nameProduct', 'sku', 'unit']
+          })
+        : null
+
+      const result = {
+        product: product
+          ? {
+              id: product.id,
+              name: product.nameProduct,
+              sku: product.sku,
+              unit: product.unit
+            }
+          : null,
+        suppliers: supplierProducts.map((sp) => ({
+          supplierProductId: sp.id,
+          supplierId: sp.supplierData?.id,
+          supplierName: sp.supplierData?.name,
+          supplierPhone: sp.supplierData?.phone,
+          supplierEmail: sp.supplierData?.email,
+          productName: sp.name,
+          price: sp.price,
+          leadTime: sp.leadTime,
+          qualityRating: sp.qualityRating,
+          minOrderQty: sp.minOrderQty,
+          lastPrice: sp.lastPrice
+        }))
+      }
+
+      if (result.suppliers.length > 0 && product) {
+        const prices = result.suppliers.map((s) => s.price).filter((p) => p > 0)
+        if (prices.length > 0) {
+          result.summary = {
+            lowestPrice: Math.min(...prices),
+            highestPrice: Math.max(...prices),
+            avgPrice: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
+            supplierCount: result.suppliers.length
+          }
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success compare suppliers',
+        data: result
+      })
+    } catch (error) {
+      console.error('Error compareSuppliers =>', error)
       return res
         .status(500)
         .json({ success: false, message: 'Internal server error' })

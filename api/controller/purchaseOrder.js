@@ -18,10 +18,7 @@ const purchaseOrderController = {
   async getAll(req, res) {
     try {
       const userRole = req.user?.roleType
-      const effectiveStore =
-        userRole === 'super_admin'
-          ? req.query.store || req.cookies.store
-          : req.cookies.store
+      const effectiveStore = req.storeId
       const {
         status,
         startDate,
@@ -173,7 +170,7 @@ const purchaseOrderController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId
 
       const where = { id }
       if (store) where.store = store
@@ -293,22 +290,9 @@ const purchaseOrderController = {
 
   async create(req, res) {
     try {
-      const { store: bodyStore } = req.body
-      const userRole = req.user?.roleType
-      const store =
-        userRole === 'super_admin'
-          ? bodyStore || req.cookies.store
-          : req.cookies.store || bodyStore
-      const {
-        items,
-        discount = 0,
-        notes,
-        orderDate,
-        pic,
-        dueDate,
-        status
-      } = req.body
+      const { items, discount = 0, notes, orderDate, pic, dueDate, status } = req.body
       const createdBy = req.user?.id || null
+      const store = req.storeId
 
       const isDraft = status === 'draft'
 
@@ -422,7 +406,7 @@ const purchaseOrderController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId
       const {
         items,
         discount,
@@ -750,7 +734,7 @@ const purchaseOrderController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId
 
       const where = { id }
       if (store) where.store = store
@@ -1031,15 +1015,20 @@ const purchaseOrderController = {
 
   async downloadData(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId
       const where = {}
       if (store) where.store = store
 
       const orders = await db.purchase_order.findAll({
         where,
         include: [
-          { model: db.supplier, as: 'supplierData', attributes: ['name'] },
-          { model: db.purchase_order_item, as: 'items' }
+          {
+            model: db.purchase_order_item,
+            as: 'items',
+            include: [
+              { model: db.supplier, as: 'supplierData', attributes: ['name'] }
+            ]
+          }
         ],
         order: [['createdAt', 'DESC']]
       })
@@ -1064,10 +1053,17 @@ const purchaseOrderController = {
         fgColor: { argb: 'FFD3D3D3' }
       }
 
-      orders.forEach((o) =>
+      orders.forEach((o) => {
+        const supplierNames = [
+          ...new Set(
+            (o.items || [])
+              .map((item) => item.supplierData?.name)
+              .filter(Boolean)
+          )
+        ].join(', ')
         worksheet.addRow([
           o.orderNumber,
-          o.supplierData?.name || o.supplier,
+          supplierNames || 'Unknown',
           o.totalAmount,
           o.discount,
           o.finalAmount,
@@ -1075,7 +1071,7 @@ const purchaseOrderController = {
           o.orderDate ? o.orderDate.toISOString().split('T')[0] : '',
           o.createdAt ? o.createdAt.toISOString() : ''
         ])
-      )
+      })
 
       worksheet.columns = [
         { width: 20 },
@@ -1163,11 +1159,32 @@ const purchaseOrderController = {
       }
 
       const createdOrders = []
+      const supplierCache = {}
       for (const data of ordersToCreate) {
+        // Resolve supplier name to ID
+        let supplierId = null
+        if (data.supplier) {
+          const trimmedName = data.supplier.trim()
+          const cacheKey = `${trimmedName}-${data.store || ''}`
+          if (supplierCache[cacheKey]) {
+            supplierId = supplierCache[cacheKey]
+          } else {
+            const supplierObj = await db.supplier.findOne({
+              where: {
+                name: { [Op.iLike]: trimmedName },
+                store: data.store || null
+              }
+            })
+            if (supplierObj) {
+              supplierId = supplierObj.id
+              supplierCache[cacheKey] = supplierId
+            }
+          }
+        }
+
         const order = await db.purchase_order.create({
           store: data.store,
           orderNumber: generateOrderNumber('PO'),
-          supplier: data.supplier,
           totalAmount: data.items.reduce((s, i) => s + i.quantity * i.price, 0),
           discount: 0,
           finalAmount: data.items.reduce((s, i) => s + i.quantity * i.price, 0),
@@ -1181,6 +1198,7 @@ const purchaseOrderController = {
           product: item.product || null,
           ingredient: item.ingredient || null,
           ingredientName: item.ingredientName || null,
+          supplier: supplierId,
           quantity: item.quantity,
           unit: item.unit || 'pcs',
           price: item.price,

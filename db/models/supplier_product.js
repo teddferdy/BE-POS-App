@@ -13,11 +13,31 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.INTEGER
       },
+      productId: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
       name: {
         allowNull: false,
         type: DataTypes.TEXT
       },
       price: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      leadTime: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      qualityRating: {
+        type: DataTypes.DECIMAL(5, 2),
+        defaultValue: 0
+      },
+      minOrderQty: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1
+      },
+      lastPrice: {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
@@ -40,6 +60,10 @@ module.exports = (sequelize, DataTypes) => {
     supplierProduct.belongsTo(models.supplier, {
       foreignKey: 'supplier',
       as: 'supplierData'
+    })
+    supplierProduct.belongsTo(models.product, {
+      foreignKey: 'productId',
+      as: 'productData'
     })
   }
 

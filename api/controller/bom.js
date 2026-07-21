@@ -6,7 +6,7 @@ const bomController = {
   async getAll(req, res) {
     try {
       const { page = 1, limit = 20, search, status } = req.query
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const where = { ...(store ? { store } : {}) }
@@ -62,8 +62,11 @@ const bomController = {
   async getById(req, res) {
     try {
       const { id } = req.params
+      const store = req.storeId
+      const where = { id }
+      if (store) where.store = store
       const bom = await db.bom_header.findOne({
-        where: { id },
+        where,
         include: [
           {
             model: db.product,
@@ -196,8 +199,11 @@ const bomController = {
     try {
       const { id } = req.params
       const { name, notes, lines, status } = req.body
+      const store = req.storeId
 
-      const bom = await db.bom_header.findByPk(id)
+      const where = { id }
+      if (store) where.store = store
+      const bom = await db.bom_header.findOne({ where })
       if (!bom)
         return res
           .status(404)
@@ -283,7 +289,10 @@ const bomController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const bom = await db.bom_header.findByPk(id)
+      const store = req.storeId
+      const where = { id }
+      if (store) where.store = store
+      const bom = await db.bom_header.findOne({ where })
       if (!bom)
         return res
           .status(404)

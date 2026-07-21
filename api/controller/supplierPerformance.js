@@ -188,7 +188,6 @@ const supplierPerformanceController = {
       const purchaseOrders = await db.purchase_order.findAll({
         where: {
           store: Number(store),
-          supplier: Number(supplierId),
           ...dateWhere,
           status: { [Op.in]: ['received', 'ordered'] }
         },
@@ -196,6 +195,7 @@ const supplierPerformanceController = {
           {
             model: db.purchase_order_item,
             as: 'items',
+            where: { supplier: Number(supplierId) },
             attributes: ['id', 'quantity', 'price', 'receivedQuantity']
           }
         ]
