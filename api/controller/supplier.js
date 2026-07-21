@@ -85,6 +85,8 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
         minOrderQty,
         lastPrice,
         createdBy: userId
+      }, {
+        returning: ['id', 'supplier', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice', 'createdBy', 'createdAt', 'updatedAt']
       })
     }
   }
