@@ -42,6 +42,7 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
 
   const existing = await db.supplier_product.findAll({
     where: { supplier: supplierId },
+    attributes: ['id', 'supplier', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt'],
     raw: true
   })
   const existingMap = new Map(existing.map((r) => [r.name, r]))
