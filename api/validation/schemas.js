@@ -114,6 +114,7 @@ exports.createProductSchema = z.object({
   tipeProduk: z.string().optional().default('menu'),
   composition: jsonField().optional().default([]),
   redeemPoints: strToNum().optional().default(0),
+  estimationTime: strToNum().optional().default(0),
   createdBy: z.union([z.number(), strToNum()]).optional().nullable(),
   image: z.string().optional().nullable()
 })

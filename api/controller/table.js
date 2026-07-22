@@ -1,4 +1,5 @@
 const db = require('../../db/models')
+const { Op } = require('sequelize')
 const Table = db.table
 const Order = db.order
 const Reservation = db.reservation
@@ -10,10 +11,14 @@ exports.getTablesByStore = async (req, res) => {
   const store = req.query.store || req.user?.store
   const page = parseInt(req.query.page) || 1
   const limit = parseInt(req.query.limit) || 10
+  const search = req.query.search || ''
   const offset = (page - 1) * limit
 
   try {
     const whereClause = store ? { store } : {}
+    if (search) {
+      whereClause.name = { [Op.iLike]: `%${search}%` }
+    }
 
     const { count, rows } = await Table.findAndCountAll({
       where: whereClause,

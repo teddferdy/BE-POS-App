@@ -445,7 +445,8 @@ exports.postAddProduct = async (req, res) => {
     currencyCode,
     tipeProduk,
     composition,
-    redeemPoints
+    redeemPoints,
+    estimationTime
   } = req.body
 
   const normalizeStatus = (val) => {
@@ -564,7 +565,8 @@ exports.postAddProduct = async (req, res) => {
       priceTiers: parsedPriceTiers,
       currencyId: currencyId || null,
       currencyCode: currencyCode || null,
-      composition: composition || []
+      composition: composition || [],
+      estimationTime: estimationTime || 0
     })
 
     const sku = `PRD-${String(postData.id).padStart(5, '0')}`
@@ -665,7 +667,8 @@ exports.editProductByLocationAndId = async (req, res) => {
     currencyCode,
     tipeProduk,
     composition,
-    redeemPoints
+    redeemPoints,
+    estimationTime
   } = req.body
 
   const normalizeStatus = (val) => {
@@ -779,7 +782,8 @@ exports.editProductByLocationAndId = async (req, res) => {
       currencyId: currencyId || null,
       currencyCode: currencyCode || null,
       tipeProduk,
-      composition: composition || []
+      composition: composition || [],
+      estimationTime: estimationTime || 0
     }
 
     const oldStock = Number(getAllProductByIdAndLocation.stock) || 0

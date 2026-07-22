@@ -142,6 +142,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSONB,
         defaultValue: []
       },
+      estimationTime: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
     },
     {
       paranoid: true,
