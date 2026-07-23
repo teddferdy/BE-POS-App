@@ -168,7 +168,7 @@ const ingredientController = {
         minStock,
         unit: unit || 'pcs',
         baseUnit: baseUnit || unit || 'pcs',
-        conversionFactor: conversionFactor != null ? conversionFactor : 1,
+        conversionFactor: conversionFactor != null ? parseFloat(conversionFactor) : 1,
         costPrice: costPrice || 0,
         status:
           status !== undefined
@@ -243,7 +243,7 @@ const ingredientController = {
         baseUnit: baseUnit !== undefined ? baseUnit : ingredient.baseUnit,
         conversionFactor:
           conversionFactor != null
-            ? conversionFactor
+            ? parseFloat(conversionFactor)
             : ingredient.conversionFactor,
         store: store !== undefined ? store : ingredient.store,
         costPrice: costPrice !== undefined ? costPrice : ingredient.costPrice,

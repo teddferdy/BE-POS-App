@@ -96,7 +96,7 @@ exports.createProductSchema = z.object({
   minStock: strToNum().optional().default(0),
   unit: z.string().optional().default('pcs'),
   baseUnit: z.string().optional().default('pcs'),
-  conversionFactor: z.string().optional().default('1'),
+  conversionFactor: z.coerce.string().optional().default('1'),
   point: strToNum().optional().default(0),
   barcode: z.string().optional().nullable(),
   brand: z.string().optional().nullable(),
@@ -272,7 +272,7 @@ exports.createIngredientSchema = z.object({
   minStock: strToNum().optional().default(0),
   unit: z.string().optional().default('pcs'),
   baseUnit: z.string().optional().default('pcs'),
-  conversionFactor: z.string().optional().default('1'),
+  conversionFactor: z.coerce.string().optional().default('1'),
   costPrice: strToNum().optional().default(0),
   status: statusEnum
 })

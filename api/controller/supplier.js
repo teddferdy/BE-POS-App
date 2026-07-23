@@ -42,7 +42,7 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
 
   const existing = await db.supplier_product.findAll({
     where: { supplier: supplierId },
-    attributes: ['id', 'supplier', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt'],
+    attributes: ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt'],
     raw: true
   })
   const existingMap = new Map(existing.map((r) => [r.name, r]))
@@ -54,9 +54,12 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
   for (const item of products) {
     const productName = typeof item === 'object' ? (item.name || '').trim() : item
     const price = typeof item === 'object' ? item.price || 0 : 0
+    const unit = typeof item === 'object' ? item.unit || 'pcs' : 'pcs'
     const leadTime = typeof item === 'object' ? item.leadTime || 0 : 0
+    const leadTimeUnit = typeof item === 'object' ? item.leadTimeUnit || 'hari' : 'hari'
     const qualityRating = typeof item === 'object' ? item.qualityRating || 0 : 0
     const minOrderQty = typeof item === 'object' ? item.minOrderQty || 1 : 1
+    const notes = typeof item === 'object' ? item.notes || null : null
     const lastPrice = typeof item === 'object' ? item.lastPrice || 0 : 0
     const productId = typeof item === 'object' ? item.productId || null : null
     const nameKey = productName.toLowerCase().trim()
@@ -65,9 +68,12 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
       await db.supplier_product.update(
         {
           price,
+          unit,
           leadTime,
+          leadTimeUnit,
           qualityRating,
           minOrderQty,
+          notes,
           lastPrice,
           productId: productId || existingMap.get(nameKey).productId,
           modifiedBy: userId
@@ -80,13 +86,16 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
         productId: productId || null,
         name: productName,
         price,
+        unit,
         leadTime,
+        leadTimeUnit,
         qualityRating,
         minOrderQty,
+        notes,
         lastPrice,
         createdBy: userId
       }, {
-        returning: ['id', 'supplier', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice', 'createdBy', 'createdAt', 'updatedAt']
+        returning: ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice', 'createdBy', 'createdAt', 'updatedAt']
       })
     }
   }
@@ -110,16 +119,19 @@ const getSupplierProducts = async (supplierId) => {
 
   const rows = await db.supplier_product.findAll({
     where: { supplier: supplierId },
-    attributes: ['id', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice']
+    attributes: ['id', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice']
   })
   return rows.map((r) => ({
     id: r.id,
     productId: r.productId,
     name: r.name,
     price: r.price,
+    unit: r.unit || 'pcs',
     leadTime: r.leadTime,
+    leadTimeUnit: r.leadTimeUnit || 'hari',
     qualityRating: r.qualityRating,
     minOrderQty: r.minOrderQty,
+    notes: r.notes,
     lastPrice: r.lastPrice
   }))
 }
@@ -323,7 +335,7 @@ const supplierController = {
         try {
           const allProducts = await db.supplier_product.findAll({
             where: { supplier: { [Op.in]: supplierIds } },
-            attributes: ['id', 'supplier', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice'],
+            attributes: ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice'],
             raw: true
           })
           const productsBySupplier = {}
@@ -334,9 +346,12 @@ const supplierController = {
               productId: p.productId,
               name: p.name,
               price: p.price,
+              unit: p.unit || 'pcs',
               leadTime: p.leadTime,
+              leadTimeUnit: p.leadTimeUnit || 'hari',
               qualityRating: p.qualityRating,
               minOrderQty: p.minOrderQty,
+              notes: p.notes,
               lastPrice: p.lastPrice
             })
           })
@@ -1131,7 +1146,7 @@ const supplierController = {
             where: { status: 'active' }
           }
         ],
-        attributes: ['id', 'productId', 'name', 'price', 'leadTime', 'qualityRating', 'minOrderQty', 'lastPrice'],
+        attributes: ['id', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice'],
         order: [['price', 'ASC']]
       })
 
@@ -1158,9 +1173,12 @@ const supplierController = {
           supplierEmail: sp.supplierData?.email,
           productName: sp.name,
           price: sp.price,
+          unit: sp.unit || 'pcs',
           leadTime: sp.leadTime,
+          leadTimeUnit: sp.leadTimeUnit || 'hari',
           qualityRating: sp.qualityRating,
           minOrderQty: sp.minOrderQty,
+          notes: sp.notes,
           lastPrice: sp.lastPrice
         }))
       }

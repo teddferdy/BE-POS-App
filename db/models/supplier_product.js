@@ -25,9 +25,17 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
+      unit: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'pcs'
+      },
       leadTime: {
         type: DataTypes.INTEGER,
         defaultValue: 0
+      },
+      leadTimeUnit: {
+        type: DataTypes.STRING(10),
+        defaultValue: 'hari'
       },
       qualityRating: {
         type: DataTypes.DECIMAL(5, 2),
@@ -36,6 +44,10 @@ module.exports = (sequelize, DataTypes) => {
       minOrderQty: {
         type: DataTypes.INTEGER,
         defaultValue: 1
+      },
+      notes: {
+        type: DataTypes.TEXT,
+        allowNull: true
       },
       lastPrice: {
         type: DataTypes.INTEGER,

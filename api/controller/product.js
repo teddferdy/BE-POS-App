@@ -538,7 +538,7 @@ exports.postAddProduct = async (req, res) => {
       minStock: minStock || 0,
       unit,
       baseUnit: baseUnit || unit || 'pcs',
-      conversionFactor: conversionFactor != null ? conversionFactor : 1,
+      conversionFactor: conversionFactor != null ? parseFloat(conversionFactor) : 1,
       point: point || 0,
       redeemPoints: redeemPoints || 0,
       barcode: barcode || null,
@@ -756,7 +756,7 @@ exports.editProductByLocationAndId = async (req, res) => {
           : getAllProductByIdAndLocation.baseUnit,
       conversionFactor:
         conversionFactor != null
-          ? conversionFactor
+          ? parseFloat(conversionFactor)
           : getAllProductByIdAndLocation.conversionFactor,
       point: point || 0,
       redeemPoints: redeemPoints || 0,
