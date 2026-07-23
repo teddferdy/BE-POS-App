@@ -253,8 +253,16 @@ exports.createSupplierSchema = z.object({
     .array(
       z.object({
         name: z.string().min(1),
-        price: strToNum().optional().default(0)
-      })
+        price: strToNum().optional().default(0),
+        unit: z.string().optional().default('pcs'),
+        leadTime: z.number().optional().default(0),
+        leadTimeUnit: z.string().optional().default('hari'),
+        qualityRating: z.number().optional().default(0),
+        minOrderQty: z.number().optional().default(1),
+        notes: z.string().optional().nullable(),
+        lastPrice: z.number().optional().default(0),
+        productId: z.number().optional().nullable()
+      }).passthrough()
     )
     .optional()
     .nullable()
