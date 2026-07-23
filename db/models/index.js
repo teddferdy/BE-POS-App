@@ -116,4 +116,49 @@ Object.keys(db).forEach((modelName) => {
 db.sequelize = sequelize
 db.Sequelize = Sequelize
 
+const pendingMigrations = [
+  {
+    table: 'supplier_product',
+    columns: [
+      { name: 'unit', definition: 'VARCHAR(20) DEFAULT \'pcs\'' },
+      { name: 'leadTimeUnit', definition: 'VARCHAR(10) DEFAULT \'hari\'' },
+      { name: 'notes', definition: 'TEXT' }
+    ]
+  }
+]
+
+async function ensureColumns() {
+  for (const migration of pendingMigrations) {
+    try {
+      const [tableCheck] = await sequelize.query(
+        `SELECT to_regclass('public.${migration.table}') IS NOT NULL AS exists`
+      )
+      if (!tableCheck[0].exists) continue
+
+      const [colCheck] = await sequelize.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name = '${migration.table}' AND table_schema = 'public'`
+      )
+      const existing = colCheck.map((c) => c.column_name)
+
+      for (const col of migration.columns) {
+        if (!existing.includes(col.name)) {
+          await sequelize.query(
+            `ALTER TABLE "${migration.table}" ADD COLUMN "${col.name}" ${col.definition}`
+          )
+          console.log(`[auto-migrate] Added column ${migration.table}.${col.name}`)
+        }
+      }
+    } catch (e) {
+      console.error(`[auto-migrate] Error for ${migration.table}:`, e.message)
+    }
+  }
+}
+
+sequelize.addHook('afterConnect', async () => {
+  if (sequelize._autoMigrateDone) return
+  sequelize._autoMigrateDone = true
+  await ensureColumns()
+})
+
 module.exports = db
