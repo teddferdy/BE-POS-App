@@ -675,7 +675,23 @@ exports.createTypePaymentSchema = z.object({
   icon: z.string().optional().default(''),
   type: z.string().optional().default('cash'),
   status: z.union([z.boolean(), z.string()]).optional().default('active'),
-  store: strToNum().optional().nullable()
+  store: z
+    .union([z.string(), z.array(z.number().int()), z.array(strToNum())])
+    .optional()
+    .nullable()
+    .transform((v) => {
+      if (v === null || v === undefined || v === '') return null
+      if (typeof v === 'string') {
+        if (v === 'all') return 'all'
+        try {
+          const p = JSON.parse(v)
+          return Array.isArray(p) ? p.map(Number) : [Number(p)]
+        } catch {
+          return [Number(v)]
+        }
+      }
+      return v.map(Number)
+    })
 })
 exports.updateTypePaymentSchema = exports.createTypePaymentSchema.partial()
 

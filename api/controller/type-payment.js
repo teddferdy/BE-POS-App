@@ -141,7 +141,8 @@ exports.getTypePaymentById = async (req, res) => {
 
 exports.postNewTypePayment = async (req, res) => {
   const { name, status } = req.body
-  const store = req.body.store || req.user?.store
+  const rawStore = req.body.store || req.user?.store
+  const store = typeof rawStore === 'object' && rawStore !== null ? JSON.stringify(rawStore) : rawStore
   try {
     const findOneTypePayment = await TypePayment?.findOne({
       where: {
@@ -192,7 +193,8 @@ exports.postNewTypePayment = async (req, res) => {
 
 exports.editTypePaymentById = async (req, res) => {
   const body = req.body
-  const store = body.store || req.user?.store
+  const rawStore = body.store || req.user?.store
+  const store = typeof rawStore === 'object' && rawStore !== null ? JSON.stringify(rawStore) : rawStore
   try {
     const existing = await TypePayment.findByPk(req.params.id)
     if (existing?.isSystem) {
@@ -212,6 +214,7 @@ exports.editTypePaymentById = async (req, res) => {
       const editTypePayment = await TypePayment?.update(
         {
           name: body.name,
+          ...(store !== undefined && { store }),
           status:
             body.status !== undefined
               ? body.status === true
