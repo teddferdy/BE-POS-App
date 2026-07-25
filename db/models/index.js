@@ -124,6 +124,12 @@ const pendingMigrations = [
       { name: 'leadTimeUnit', definition: 'VARCHAR(10) DEFAULT \'hari\'' },
       { name: 'notes', definition: 'TEXT' }
     ]
+  },
+  {
+    table: 'role',
+    columns: [
+      { name: 'isSystem', definition: 'BOOLEAN DEFAULT false NOT NULL' }
+    ]
   }
 ]
 
@@ -159,6 +165,11 @@ sequelize.addHook('afterConnect', async () => {
   if (sequelize._autoMigrateDone) return
   sequelize._autoMigrateDone = true
   await ensureColumns()
+  try {
+    await sequelize.query(`UPDATE role SET "isSystem" = true WHERE "createdBy" IS NULL AND "isSystem" = false`)
+  } catch (e) {
+    console.error('[auto-migrate] Error updating role isSystem:', e.message)
+  }
 })
 
 module.exports = db
