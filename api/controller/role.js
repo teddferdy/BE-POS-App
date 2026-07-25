@@ -149,7 +149,8 @@ exports.editRoleById = async (req, res) => {
   try {
     const getDuplicate = await Role.findOne({
       where: {
-        name: body.name
+        name: body.name,
+        id: { [Op.ne]: req.params.id }
       }
     })
 
@@ -179,7 +180,7 @@ exports.editRoleById = async (req, res) => {
                   : body.status
               : 'active',
           accessMenu: body.accessMenu || [],
-          createdBy: body?.createdBy
+          modifiedBy: body?.modifiedBy
         },
         {
           returning: true,

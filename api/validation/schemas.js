@@ -723,7 +723,10 @@ exports.createRoleSchema = z.object({
     .optional()
     .default({})
 })
-exports.updateRoleSchema = exports.createRoleSchema.partial()
+exports.updateRoleSchema = exports.createRoleSchema.extend({
+  id: z.union([z.number(), z.string()]),
+  modifiedBy: z.union([z.number(), z.string()]).optional().nullable()
+}).partial()
 
 // ===================== Purchase Payment =====================
 exports.createPurchasePaymentSchema = z.object({
