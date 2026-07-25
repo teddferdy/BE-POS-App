@@ -9,7 +9,8 @@ exports.getAllRole = async (req, res) => {
     const getAllRole = await Role.findAll({
       where: {
         status: 'active'
-      }
+      },
+      order: [['createdAt', 'DESC']]
     }).then((res) =>
       res.map((items) => {
         const getData = {
@@ -50,7 +51,8 @@ exports.getAllRoleInTable = async (req, res) => {
     const { rows: roles, count: totalRoles } = await Role.findAndCountAll({
       where: whereCondition,
       offset: parseInt(offset),
-      limit: parseInt(limit)
+      limit: parseInt(limit),
+      order: [['createdAt', 'DESC']]
     })
 
     const getAllRole = roles.map((items) => {
@@ -216,17 +218,15 @@ exports.editRoleById = async (req, res) => {
   }
 }
 
-const SYSTEM_ROLE_TYPES = ['super_admin', 'admin', 'kasir', 'user']
-
 exports.deleteRoleById = async (req, res) => {
   const body = req.body
 
   try {
     const role = await Role.findByPk(req.params.id)
-    if (role && SYSTEM_ROLE_TYPES.includes(role.roleType)) {
+    if (role?.isSystem) {
       return res.status(403).json({
         success: false,
-        message: 'Role default tidak dapat dihapus'
+        message: 'Role system tidak dapat dihapus'
       })
     }
 

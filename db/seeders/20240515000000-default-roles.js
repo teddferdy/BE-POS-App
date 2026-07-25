@@ -442,6 +442,7 @@ module.exports = {
           }
         ]),
         status: 'active',
+        isSystem: true,
         createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -697,6 +698,7 @@ module.exports = {
           }
         ]),
         status: 'active',
+        isSystem: true,
         createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -724,6 +726,7 @@ module.exports = {
           }
         ]),
         status: 'active',
+        isSystem: true,
         createdBy: null,
         createdAt: new Date(),
         updatedAt: new Date()

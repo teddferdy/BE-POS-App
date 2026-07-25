@@ -29,6 +29,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(20),
         defaultValue: 'active'
       },
+      isSystem: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },
