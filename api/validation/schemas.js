@@ -714,6 +714,10 @@ exports.updateMemberTierSchema = exports.createMemberTierSchema.partial()
 // ===================== Role =====================
 exports.createRoleSchema = z.object({
   name: z.string().min(1, 'name is required'),
+  description: z.string().optional().default(''),
+  status: z.string().optional().default('active'),
+  createdBy: z.union([z.number(), z.string()]).optional().nullable(),
+  accessMenu: z.array(z.any()).optional().default([]),
   permissions: z
     .union([z.string(), z.array(z.any()), z.record(z.any())])
     .optional()
