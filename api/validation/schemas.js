@@ -178,7 +178,7 @@ exports.createOrderSchema = z.object({
   taxRate: z.string().optional().default('0'),
   serviceChargeRate: z.string().optional().default('0'),
   paymentMethod: z
-    .enum(['cash', 'qris', 'debit', 'credit', 'other', 'points', 'transfer'])
+    .enum(['cash', 'qris', 'debit', 'credit', 'other', 'points', 'transfer', 'e-wallet'])
     .optional(),
   appliedDiscountId: strToNum().optional().nullable(),
   pointDiscountAmount: strToNum().optional().default(0),
