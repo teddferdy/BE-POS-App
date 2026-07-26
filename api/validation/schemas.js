@@ -119,7 +119,9 @@ exports.createProductSchema = z.object({
   image: z.string().optional().nullable()
 })
 
-exports.updateProductSchema = exports.createProductSchema.partial()
+exports.updateProductSchema = exports.createProductSchema.partial().extend({
+  id: strToNum()
+})
 
 // ===================== Category =====================
 exports.createCategorySchema = z.object({
