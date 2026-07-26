@@ -130,6 +130,12 @@ const pendingMigrations = [
     columns: [
       { name: 'isSystem', definition: 'BOOLEAN DEFAULT false NOT NULL' }
     ]
+  },
+  {
+    table: 'product',
+    columns: [
+      { name: 'estimationTime', definition: 'INTEGER DEFAULT 0' }
+    ]
   }
 ]
 
