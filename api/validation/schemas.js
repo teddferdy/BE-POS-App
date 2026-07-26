@@ -377,7 +377,9 @@ exports.createEmployeeSchema = employeeBaseSchema.superRefine((d, ctx) => {
       })
   }
 })
-exports.updateUserSchema = userBaseSchema.partial()
+exports.updateUserSchema = userBaseSchema.partial().extend({
+  id: strToNum()
+})
 
 // ===================== Discount =====================
 exports.createDiscountSchema = z.object({
