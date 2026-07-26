@@ -287,12 +287,12 @@ const purchasePaymentController = {
           totalItemsAmount += Number(item.total || 0)
         }
 
-        // Pro-rate discount to each supplier
-        const discount = Number(po.discount || 0)
+        // Pro-rate PO finalAmount to each supplier based on item share
+        // Use po.finalAmount directly so return adjustments are reflected
+        const poFinalAmount = Number(po.finalAmount || 0)
         const supplierDetails = Object.values(itemsBySupplier).map((detail) => {
           const ratio = totalItemsAmount > 0 ? detail.itemsAmount / totalItemsAmount : 0
-          const allocatedDiscount = Math.round(discount * ratio)
-          const finalAmount = detail.itemsAmount - allocatedDiscount
+          const finalAmount = Math.round(poFinalAmount * ratio)
           return {
             ...detail,
             finalAmount

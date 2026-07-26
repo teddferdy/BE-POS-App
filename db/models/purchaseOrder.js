@@ -52,6 +52,20 @@ module.exports = (sequelize, DataTypes) => {
       },
       dueDate: {
         type: DataTypes.DATEONLY
+      },
+      paymentMethod: {
+        type: DataTypes.ENUM('cash', 'credit'),
+        defaultValue: 'cash'
+      },
+      tenor: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        comment: 'Number of days for credit payment (e.g. 7, 14, 30)'
+      },
+      dpPercent: {
+        type: DataTypes.DECIMAL(5, 2),
+        defaultValue: 0,
+        comment: 'Down payment percentage (0-100)'
       }
     },
     {

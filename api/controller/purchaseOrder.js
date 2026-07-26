@@ -124,6 +124,16 @@ const purchaseOrderController = {
                   AND "purchase_payment"."deletedAt" IS NULL
               )`),
               'totalPaid'
+            ],
+            [
+              db.Sequelize.literal(`(
+                SELECT STRING_AGG(DISTINCT s.name, ', ' ORDER BY s.name)
+                FROM purchase_order_item poi
+                JOIN supplier s ON s.id = poi.supplier AND s."deletedAt" IS NULL
+                WHERE poi."purchaseOrder" = "purchase_order"."id"
+                  AND poi."deletedAt" IS NULL
+              )`),
+              'supplierNames'
             ]
           ]
         },
@@ -290,7 +300,7 @@ const purchaseOrderController = {
 
   async create(req, res) {
     try {
-      const { items, discount = 0, notes, orderDate, pic, dueDate, status } = req.body
+      const { items, discount = 0, notes, orderDate, pic, dueDate, status, paymentMethod, tenor, dpPercent } = req.body
       const createdBy = req.user?.id || null
       const store = req.storeId
 
@@ -351,7 +361,10 @@ const purchaseOrderController = {
         notes,
         createdBy,
         pic: pic || null,
-        dueDate
+        dueDate,
+        paymentMethod: paymentMethod || 'cash',
+        tenor: tenor || 0,
+        dpPercent: dpPercent || 0
       })
 
       if (items?.length > 0) {
@@ -414,7 +427,10 @@ const purchaseOrderController = {
         notes,
         orderDate,
         pic,
-        dueDate
+        dueDate,
+        paymentMethod,
+        tenor,
+        dpPercent
       } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -533,7 +549,10 @@ const purchaseOrderController = {
         orderDate: orderDate || purchaseOrder.orderDate,
         modifiedBy,
         pic: pic !== undefined ? pic : purchaseOrder.pic,
-        dueDate: dueDate !== undefined ? dueDate : purchaseOrder.dueDate
+        dueDate: dueDate !== undefined ? dueDate : purchaseOrder.dueDate,
+        paymentMethod: paymentMethod !== undefined ? paymentMethod : purchaseOrder.paymentMethod,
+        tenor: tenor !== undefined ? tenor : purchaseOrder.tenor,
+        dpPercent: dpPercent !== undefined ? dpPercent : purchaseOrder.dpPercent
       })
 
       await createAudit(

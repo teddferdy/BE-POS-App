@@ -136,6 +136,14 @@ const pendingMigrations = [
     columns: [
       { name: 'estimationTime', definition: 'INTEGER DEFAULT 0' }
     ]
+  },
+  {
+    table: 'purchase_order',
+    columns: [
+      { name: '"paymentMethod"', definition: "VARCHAR(20) DEFAULT 'cash'" },
+      { name: '"tenor"', definition: 'INTEGER DEFAULT 0' },
+      { name: '"dpPercent"', definition: "DECIMAL(5,2) DEFAULT 0" }
+    ]
   }
 ]
 

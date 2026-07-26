@@ -275,7 +275,10 @@ const purchaseReturnController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const ret = await db.purchase_return.findOne({ where })
+      const ret = await db.purchase_return.findOne({
+        where,
+        include: [{ model: db.purchase_return_item, as: 'items' }]
+      })
       if (!ret) {
         return res
           .status(404)
@@ -289,18 +292,56 @@ const purchaseReturnController = {
         })
       }
 
-      await ret.update({ status: 'approved' })
-      await createAudit(
-        req,
-        'update',
-        'purchase_return',
-        id,
-        'Approved purchase return: ' + id
-      )
+      const t = await db.sequelize.transaction()
+      try {
+        await ret.update({ status: 'approved' }, { transaction: t })
 
-      return res
-        .status(200)
-        .json({ success: true, message: 'Purchase return approved', data: ret })
+        // Calculate return value and deduct from PO finalAmount
+        if (ret.purchaseOrder) {
+          const poItems = await db.purchase_order_item.findAll({
+            where: { purchaseOrder: ret.purchaseOrder },
+            transaction: t
+          })
+          const priceMap = {}
+          poItems.forEach((pi) => {
+            if (pi.ingredient) priceMap[`ing-${pi.ingredient}`] = parseFloat(pi.price) || 0
+            if (pi.product) priceMap[`prod-${pi.product}`] = parseFloat(pi.price) || 0
+          })
+
+          let returnTotal = 0
+          for (const item of ret.items) {
+            const key = item.ingredient ? `ing-${item.ingredient}` : item.product ? `prod-${item.product}` : null
+            const unitPrice = key ? priceMap[key] || 0 : 0
+            returnTotal += unitPrice * (Number(item.qty) || 0)
+          }
+
+          if (returnTotal > 0) {
+            await db.purchase_order.update(
+              {
+                finalAmount: db.sequelize.literal(`GREATEST(finalAmount - ${returnTotal}, 0)`)
+              },
+              { where: { id: ret.purchaseOrder }, transaction: t }
+            )
+          }
+        }
+
+        await t.commit()
+
+        await createAudit(
+          req,
+          'update',
+          'purchase_return',
+          id,
+          'Approved purchase return: ' + id
+        )
+
+        return res
+          .status(200)
+          .json({ success: true, message: 'Purchase return approved', data: ret })
+      } catch (err) {
+        await t.rollback()
+        throw err
+      }
     } catch (error) {
       console.error(error)
       return res

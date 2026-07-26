@@ -428,7 +428,10 @@ exports.createPurchaseOrderSchema = z.object({
     .optional()
     .default('draft'),
   orderDate: z.string().optional(),
-  dueDate: z.string().optional().nullable()
+  dueDate: z.string().optional().nullable(),
+  paymentMethod: z.enum(['cash', 'credit']).optional().default('cash'),
+  tenor: strToNum().optional().default(0),
+  dpPercent: strToNum().optional().default(0)
 })
 
 exports.updatePurchaseOrderSchema = exports.createPurchaseOrderSchema.partial()
@@ -465,7 +468,9 @@ exports.createTableSchema = z.object({
   description: z.string().optional().nullable()
 })
 
-exports.updateTableSchema = exports.createTableSchema.partial()
+exports.updateTableSchema = exports.createTableSchema.partial().extend({
+  id: strToNum()
+})
 
 // ===================== Tax Config =====================
 exports.createTaxConfigSchema = z.object({
@@ -581,7 +586,9 @@ exports.createShiftSchema = z.object({
   status: statusEnum
 })
 
-exports.updateShiftSchema = exports.createShiftSchema.partial()
+exports.updateShiftSchema = exports.createShiftSchema.partial().extend({
+  id: strToNum()
+})
 
 // ===================== Department / Position =====================
 exports.createDepartmentSchema = z.object({
@@ -591,12 +598,20 @@ exports.createDepartmentSchema = z.object({
   status: statusEnum
 })
 
+exports.updateDepartmentSchema = exports.createDepartmentSchema.partial().extend({
+  id: strToNum()
+})
+
 exports.createPositionSchema = z.object({
   store: strToNum().optional().nullable(),
   name: z.string().min(1, 'Position name is required'),
   departmentId: strToNum().optional().nullable(),
   description: z.string().optional().nullable(),
   status: statusEnum
+})
+
+exports.updatePositionSchema = exports.createPositionSchema.partial().extend({
+  id: strToNum()
 })
 
 // ===================== Cash Register =====================
