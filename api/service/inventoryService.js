@@ -1,0 +1,334 @@
+const db = require('../../db/models')
+const { Op } = require('sequelize')
+
+const DEFAULT_DAYS = 30
+const DEAD_STOCK_THRESHOLD = 60
+const EXPIRY_ALERT_DAYS = 30
+
+const inventoryService = {
+  async calculateDailyConsumption(productId, storeId, days = DEFAULT_DAYS) {
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    since.setHours(0, 0, 0, 0)
+
+    const rows = await db.stock_history.findAll({
+      where: {
+        product: productId,
+        ...(storeId ? { store: storeId } : {}),
+        referenceType: 'sale',
+        createdAt: { [Op.gte]: since }
+      },
+      attributes: [
+        [db.sequelize.fn('SUM', db.sequelize.col('quantityChange')), 'totalSold']
+      ]
+    })
+
+    const totalSold = Math.abs(Number(rows[0]?.get('totalSold') || 0))
+    return days > 0 ? Number((totalSold / days).toFixed(4)) : 0
+  },
+
+  async buildForecast(productId, storeId) {
+    const product = await db.product.findByPk(productId)
+    if (!product) throw new Error(`Product ${productId} not found`)
+
+    const consumption = await this.calculateDailyConsumption(productId, storeId)
+    const currentStock = Number(product.stock) || 0
+    const minStock = Number(product.minStock) || 0
+    const safetyStock = Math.max(minStock, Math.ceil(consumption * 3))
+    const reorderPoint = Math.ceil(consumption * 7) + safetyStock
+
+    let forecastedStockoutDate = null
+    let daysUntilStockout = null
+    if (consumption > 0) {
+      daysUntilStockout = Math.floor((currentStock - safetyStock) / consumption)
+      if (daysUntilStockout < 0) daysUntilStockout = 0
+      const d = new Date()
+      d.setDate(d.getDate() + daysUntilStockout)
+      forecastedStockoutDate = d.toISOString().split('T')[0]
+    }
+
+    const confidence = consumption > 0 ? Math.min(90, Math.round((DEFAULT_DAYS / 30) * 80 + 10)) : 50
+
+    return {
+      productId,
+      productName: product.nameProduct,
+      storeId: storeId || null,
+      currentStock,
+      dailyConsumption: consumption,
+      minStock,
+      safetyStock,
+      reorderPoint,
+      daysUntilStockout,
+      forecastedStockoutDate,
+      confidence,
+      status:
+        currentStock <= safetyStock
+          ? 'critical'
+          : currentStock <= reorderPoint
+            ? 'low'
+            : 'healthy'
+    }
+  },
+
+  async saveForecast(forecast) {
+    const where = {
+      product: forecast.productId,
+      store: forecast.storeId || null
+    }
+    const existing = await db.stock_forecast.findOne({ where })
+    if (existing) {
+      return existing.update({
+        current_quantity: forecast.currentStock,
+        daily_consumption_rate: forecast.dailyConsumption,
+        safety_stock: forecast.safetyStock,
+        reorder_point: forecast.reorderPoint,
+        forecasted_stockout_date: forecast.forecastedStockoutDate,
+        days_until_stockout: forecast.daysUntilStockout,
+        confidence_level: forecast.confidence,
+        forecast_date: new Date()
+      })
+    }
+    return db.stock_forecast.create({
+      product: forecast.productId,
+      store: forecast.storeId || null,
+      current_quantity: forecast.currentStock,
+      daily_consumption_rate: forecast.dailyConsumption,
+      safety_stock: forecast.safetyStock,
+      reorder_point: forecast.reorderPoint,
+      forecasted_stockout_date: forecast.forecastedStockoutDate,
+      days_until_stockout: forecast.daysUntilStockout,
+      confidence_level: forecast.confidence,
+      forecast_date: new Date()
+    })
+  },
+
+  async detectDeadStock(storeId, thresholdDays = DEAD_STOCK_THRESHOLD) {
+    const since = new Date()
+    since.setDate(since.getDate() - thresholdDays)
+    since.setHours(0, 0, 0, 0)
+
+    const [rows] = await db.sequelize.query(
+      `SELECT p.id as "productId", p."nameProduct",
+              COALESCE(pss.stock, p.stock) as stock,
+              MAX(sh."createdAt") as "lastSale"
+       FROM product p
+       LEFT JOIN product_store_stock pss ON pss.product = p.id AND pss.store = :storeId
+       LEFT JOIN stock_history sh ON sh.product = p.id
+         AND sh."referenceType" = 'sale'
+         AND sh.store = :storeId
+       WHERE p.status = 'active'
+       GROUP BY p.id, p."nameProduct", pss.stock, p.stock
+       HAVING MAX(sh."createdAt") IS NULL OR MAX(sh."createdAt") < :since
+       ORDER BY COALESCE(pss.stock, p.stock) DESC`,
+      {
+        replacements: { storeId, since },
+        type: db.sequelize.QueryTypes.SELECT
+      }
+    )
+
+    const results = []
+    for (const row of rows) {
+      const qty = Number(row.stock) || 0
+      if (qty <= 0) continue
+      const lastSale = row.lastSale ? new Date(row.lastSale) : null
+      const daysWithout = lastSale
+        ? Math.floor((Date.now() - lastSale.getTime()) / 86400000)
+        : thresholdDays
+      if (daysWithout < thresholdDays) continue
+
+      const level =
+        qty >= 100
+          ? 'critical'
+          : qty >= 50
+            ? 'high'
+            : qty >= 20
+              ? 'medium'
+              : 'low'
+
+      results.push({
+        productId: row.productId,
+        productName: row.nameProduct,
+        quantity: qty,
+        daysWithoutSale: daysWithout,
+        lastSaleDate: lastSale ? lastSale.toISOString().split('T')[0] : null,
+        alertLevel: level
+      })
+
+      await db.dead_stock_alert.destroy({
+        where: { product: row.productId, store: storeId },
+        force: true
+      })
+      await db.dead_stock_alert.create({
+        product: row.productId,
+        store: storeId,
+        quantity: qty,
+        days_without_sale: daysWithout,
+        last_sale_date: lastSale ? lastSale.toISOString().split('T')[0] : null,
+        alert_level: level,
+        alert_status: 'active'
+      })
+    }
+    return results
+  },
+
+  async getExpiringBatches(storeId, withinDays = EXPIRY_ALERT_DAYS) {
+    const today = new Date()
+    const limit = new Date()
+    limit.setDate(limit.getDate() + withinDays)
+
+    const where = {
+      expiryDate: {
+        [Op.gte]: today,
+        [Op.lte]: limit
+      },
+      status: 'active'
+    }
+
+    const batches = await db.product_batch.findAll({
+      where,
+      include: [
+        { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
+        ...(storeId
+          ? [{ model: db.location, as: 'storeData', attributes: ['id', 'name'] }]
+          : [])
+      ],
+      order: [['expiryDate', 'ASC']]
+    })
+
+    return batches.map((b) => ({
+      id: b.id,
+      productId: b.product,
+      productName: b.productData?.nameProduct,
+      batchCode: b.batchCode,
+      expiryDate: b.expiryDate,
+      qty: b.qty,
+      storeId: b.store,
+      daysLeft: Math.floor((new Date(b.expiryDate) - today) / 86400000)
+    }))
+  },
+
+  async calculateValuation(productId, storeId, method = 'FIFO') {
+    const batches = await db.product_batch.findAll({
+      where: { product: productId, status: 'active' },
+      order: [['received_date', 'ASC'], ['id', 'ASC']]
+    })
+
+    let totalCost = 0
+    let totalQty = 0
+    let avgCost = 0
+
+    if (method === 'SPECIFIC_ID') {
+      batches.forEach((b) => {
+        totalCost += Number(b.cost_per_unit || 0) * Number(b.qty || 0)
+        totalQty += Number(b.qty || 0)
+      })
+    } else {
+      const costs = batches.map((b) => Number(b.cost_per_unit || 0))
+      const qtys = batches.map((b) => Number(b.qty || 0))
+      const weightedSum = costs.reduce((s, c, i) => s + c * (qtys[i] || 0), 0)
+      totalQty = qtys.reduce((s, q) => s + q, 0)
+      avgCost = totalQty > 0 ? weightedSum / totalQty : 0
+      totalCost = totalQty > 0 ? avgCost * totalQty : 0
+    }
+
+    const valuation = {
+      productId,
+      storeId: storeId || null,
+      method,
+      totalQuantity: totalQty,
+      totalCost: Number(totalCost.toFixed(2)),
+      averageCost: Number(avgCost.toFixed(2)),
+      batches: batches.map((b) => ({
+        id: b.id,
+        batchCode: b.batchCode,
+        qty: b.qty,
+        costPerUnit: b.cost_per_unit,
+        expiryDate: b.expiryDate
+      }))
+    }
+
+    await db.inventory_valuation.create({
+      product: productId,
+      store: storeId || null,
+      valuation_date: new Date(),
+      quantity: totalQty,
+      total_cost: totalCost,
+      average_cost: avgCost,
+      cogs_method: method,
+      valuation_type: 'perpetual'
+    })
+
+    return valuation
+  },
+
+  async aggregateSupplierPerformance(month = null) {
+    const monthStr =
+      month || new Date().toISOString().slice(0, 7)
+    const monthStart = `${monthStr}-01`
+
+    const where = {
+      status: { [Op.ne]: 'cancelled' },
+      orderDate: { [Op.gte]: monthStart }
+    }
+    const orders = await db.purchase_order.findAll({ where })
+
+    const map = {}
+    for (const po of orders) {
+      const sup = po.supplier
+      if (!sup) continue
+      if (!map[sup]) {
+        map[sup] = {
+          supplier: sup,
+          totalOrders: 0,
+          onTime: 0,
+          late: 0,
+          leadTimes: [],
+          totalValue: 0,
+          totalQty: 0
+        }
+      }
+      const rec = map[sup]
+      rec.totalOrders += 1
+      rec.totalValue += Number(po.finalAmount || po.totalAmount || 0)
+
+      if (po.status === 'received' && po.dueDate && po.receivedDate) {
+        const due = new Date(po.dueDate)
+        const recd = new Date(po.receivedDate)
+        if (recd <= due) rec.onTime += 1
+        else rec.late += 1
+        rec.leadTimes.push(Math.ceil((recd - new Date(po.orderDate)) / 86400000))
+      }
+    }
+
+    const results = []
+    for (const [supId, data] of Object.entries(map)) {
+      const onTimeRate = data.totalOrders > 0
+        ? Number(((data.onTime / data.totalOrders) * 100).toFixed(2))
+        : 0
+      const avgLead = data.leadTimes.length > 0
+        ? Number((data.leadTimes.reduce((s, l) => s + l, 0) / data.leadTimes.length).toFixed(2))
+        : null
+      const score = Math.min(100, Math.round(
+        onTimeRate * 0.6 + (avgLead !== null && avgLead <= 7 ? 20 : 10)
+      ))
+
+      const monthDate = `${monthStr}-01`
+      await db.supplier_performance.destroy({ where: { supplier: supId, month: monthDate }, force: true })
+      const perf = await db.supplier_performance.create({
+        supplier: supId,
+        month: monthDate,
+        total_orders: data.totalOrders,
+        on_time_deliveries: data.onTime,
+        late_deliveries: data.late,
+        total_value: data.totalValue,
+        total_quantity: data.totalQty,
+        avg_lead_time_days: avgLead,
+        score
+      })
+      results.push(perf)
+    }
+    return results
+  }
+}
+
+module.exports = inventoryService
