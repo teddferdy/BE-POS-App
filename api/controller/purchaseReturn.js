@@ -6,20 +6,23 @@ async function attachPriceInfo(json, poId) {
   if (!json.items || json.items.length === 0) return json
   const poItems = await db.purchase_order_item.findAll({
     where: { purchaseOrder: poId },
-    attributes: ['ingredient', 'product', 'price']
+    attributes: ['ingredient', 'product', 'ingredientName', 'price']
   })
   const priceMap = {}
   poItems.forEach((pi) => {
-    if (pi.ingredient)
-      priceMap[`ing-${pi.ingredient}`] = parseFloat(pi.price) || 0
-    if (pi.product) priceMap[`prod-${pi.product}`] = parseFloat(pi.price) || 0
+    const price = parseFloat(pi.price) || 0
+    if (pi.ingredient) priceMap[`ing-${pi.ingredient}`] = price
+    if (pi.product) priceMap[`prod-${pi.product}`] = price
+    if (pi.ingredientName) priceMap[`name-${pi.ingredientName}`] = price
   })
   json.items = json.items.map((item) => {
     const key = item.ingredient?.id
       ? `ing-${item.ingredient.id}`
       : item.product?.id
         ? `prod-${item.product.id}`
-        : null
+        : item.ingredientName
+          ? `name-${item.ingredientName}`
+          : null
     item.price = key ? priceMap[key] || 0 : 0
     item.subtotal = item.price * (parseFloat(item.qty) || 0)
     return item
