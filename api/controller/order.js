@@ -11,6 +11,7 @@ const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
+const batchService = require('../service/batchService')
 
 let _productStoreExists = null
 let _categoryStoreExists = null
@@ -792,6 +793,14 @@ exports.createOrder = async (req, res) => {
               { where: { product: product.id, store }, transaction: t }
             )
 
+            // ponytail: FIFO - consume oldest batches first
+            await batchService.deductFifo({
+              productId: product.id,
+              store,
+              qty: deductQty,
+              transaction: t
+            })
+
             await db.stock_history.create(
               {
                 product: product.id,
@@ -920,6 +929,14 @@ exports.createOrder = async (req, res) => {
             { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
             { where: { product: product.id, store }, transaction: t }
           )
+
+          // ponytail: FIFO - consume oldest batches first
+          await batchService.deductFifo({
+            productId: product.id,
+            store,
+            qty,
+            transaction: t
+          })
 
           await db.stock_history.create(
             {
@@ -1313,96 +1330,131 @@ exports.updateOrderStatus = async (req, res) => {
     if (status === 'paid' && oldStatus !== 'paid') {
       const items = await OrderItem.findAll({ where: { order: id } })
 
-      for (const item of items) {
-        const product = await Product.findByPk(item.product)
-        if (!product) continue
+      await db.sequelize.transaction(async (t) => {
+        for (const item of items) {
+          const product = await Product.findByPk(item.product, { transaction: t })
+          if (!product) continue
 
-        const bom = await db.bom_header.findOne({
-          where: { productId: item.product, status: 'active' },
-          include: [{ model: db.bom_line, as: 'lines' }]
-        })
-
-        if (!bom) {
-          const oldStock = Number(product.stock) || 0
-          const qty = Math.floor(Number(item.quantity)) || 0
-          const newStock = Math.max(oldStock - qty, 0)
-          await product.update({
-            stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+          const bom = await db.bom_header.findOne({
+            where: { productId: item.product, status: 'active' },
+            include: [{ model: db.bom_line, as: 'lines' }],
+            transaction: t
           })
 
-          // ponytail: atomic upsert + deduct per-store stock
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [item.product, store] }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-            { where: { product: item.product, store } }
-          )
+          if (!bom) {
+            const oldStock = Number(product.stock) || 0
+            const qty = Math.floor(Number(item.quantity)) || 0
+            const newStock = Math.max(oldStock - qty, 0)
+            await product.update(
+              {
+                stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+              },
+              { transaction: t }
+            )
 
-          await db.stock_history.create({
-            product: product.id,
-            store,
-            referenceType: 'sale',
-            referenceId: order.id,
-            quantityBefore: oldStock,
-            quantityChange: -Number(item.quantity),
-            quantityAfter: newStock,
-            unit: product.unit || 'pcs',
-            notes: `Penjualan: ${order.orderNumber}`,
-            createdBy: changedBy
-          })
-        }
+            // ponytail: atomic upsert + deduct per-store stock
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [item.product, store], transaction: t }
+            )
+            await db.product_store_stock.update(
+              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+              { where: { product: item.product, store }, transaction: t }
+            )
 
-        const findBs = await db.best_selling.findOne({
-          where: { productId: product.id, nameProduct: item.productName, store }
-        })
-        if (findBs) {
-          await db.best_selling.update(
-            {
-              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
-            },
-            { where: { productId: product.id, nameProduct: item.productName } }
-          )
-        } else {
-          await db.best_selling.create({
-            productId: product.id,
-            nameProduct: item.productName,
-            image: product.image || null,
-            totalSelling: Number(item.quantity),
-            store
-          })
-        }
-
-        if (bom) {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId)
-            if (!ing) continue
-            const deductQty = line.qty * Number(item.quantity)
-            const oldIngStock = Number(ing.stock)
-            const qty = Math.floor(Number(deductQty)) || 0
-            const newIngStock = Math.max(oldIngStock - qty, 0)
-            await ing.update({
-              stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-            })
-            await db.stock_history.create({
-              product: product.id,
-              ingredient: ing.id,
-              ingredientName: ing.name,
+            // ponytail: FIFO - consume oldest batches first
+            await batchService.deductFifo({
+              productId: product.id,
               store,
-              referenceType: 'sale',
-              referenceId: order.id,
-              quantityBefore: oldIngStock,
-              quantityChange: -(oldIngStock - newIngStock),
-              quantityAfter: newIngStock,
-              unit: line.unit || ing.unit,
-              createdBy: changedBy
+              qty,
+              transaction: t
+            })
+
+            await db.stock_history.create(
+              {
+                product: product.id,
+                store,
+                referenceType: 'sale',
+                referenceId: order.id,
+                quantityBefore: oldStock,
+                quantityChange: -Number(item.quantity),
+                quantityAfter: newStock,
+                unit: product.unit || 'pcs',
+                notes: `Penjualan: ${order.orderNumber}`,
+                createdBy: changedBy
+              },
+              { transaction: t }
+            )
+          }
+
+          const findBs = await db.best_selling.findOne({
+            where: {
+              productId: product.id,
+              nameProduct: item.productName,
+              store
+            }
+          })
+          if (findBs) {
+            await db.best_selling.update(
+              {
+                totalSelling:
+                  Number(findBs.totalSelling) + Number(item.quantity)
+              },
+              {
+                where: {
+                  productId: product.id,
+                  nameProduct: item.productName
+                }
+              }
+            )
+          } else {
+            await db.best_selling.create({
+              productId: product.id,
+              nameProduct: item.productName,
+              image: product.image || null,
+              totalSelling: Number(item.quantity),
+              store
             })
           }
+
+          if (bom) {
+            for (const line of bom.lines) {
+              const ing = await db.ingredient.findByPk(line.ingredientId, {
+                transaction: t
+              })
+              if (!ing) continue
+              const deductQty = line.qty * Number(item.quantity)
+              const oldIngStock = Number(ing.stock)
+              const qty = Math.floor(Number(deductQty)) || 0
+              const newIngStock = Math.max(oldIngStock - qty, 0)
+              await ing.update(
+                {
+                  stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+                },
+                { transaction: t }
+              )
+              await db.stock_history.create(
+                {
+                  product: product.id,
+                  ingredient: ing.id,
+                  ingredientName: ing.name,
+                  store,
+                  referenceType: 'sale',
+                  referenceId: order.id,
+                  quantityBefore: oldIngStock,
+                  quantityChange: -(oldIngStock - newIngStock),
+                  quantityAfter: newIngStock,
+                  unit: line.unit || ing.unit,
+                  createdBy: changedBy
+                },
+                { transaction: t }
+              )
+            }
+          }
         }
-      }
+      })
     }
 
     // If transitioning to cancelled/void, reverse stock
@@ -1926,6 +1978,14 @@ exports.createCustomerOrder = async (req, res) => {
               { where: { product: product.id, store }, transaction: t }
             )
 
+            // ponytail: FIFO - consume oldest batches first
+            await batchService.deductFifo({
+              productId: product.id,
+              store,
+              qty: deductQty,
+              transaction: t
+            })
+
             await db.stock_history.create(
               {
                 product: product.id,
@@ -2016,6 +2076,14 @@ exports.createCustomerOrder = async (req, res) => {
             { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
             { where: { product: product.id, store }, transaction: t }
           )
+
+          // ponytail: FIFO - consume oldest batches first
+          await batchService.deductFifo({
+            productId: product.id,
+            store,
+            qty,
+            transaction: t
+          })
 
           await db.stock_history.create(
             {

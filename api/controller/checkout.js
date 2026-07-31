@@ -10,6 +10,7 @@ const MemberTier = db.member_tier
 const Product = db.product
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
+const batchService = require('../service/batchService')
 
 exports.addNewTransaction = async (id, order) => {
   for (const element of order) {
@@ -138,6 +139,14 @@ exports.addNewTransaction = async (id, order) => {
                 transaction: t
               }
             )
+
+            // ponytail: FIFO - consume oldest batches first
+            await batchService.deductFifo({
+              productId: order[index].idProduct,
+              store: order[index].store,
+              qty,
+              transaction: t
+            })
           }
 
           await db.stock_history.create(

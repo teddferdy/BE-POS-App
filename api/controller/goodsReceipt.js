@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const batchService = require('../service/batchService')
 
 const generateReceiptNo = () => {
   const date = new Date()
@@ -326,7 +327,7 @@ const goodsReceiptController = {
           0
         )
 
-        for (const item of items) {
+        for (const [index, item] of items.entries()) {
           const qty = parseInt(item.qtyReceived) || 0
           if (qty <= 0) continue
 
@@ -453,6 +454,21 @@ const goodsReceiptController = {
                 },
                 { transaction }
               )
+
+              // ponytail: FIFO - create batch + per-store batch stock per GR line
+              const baseUnitCost =
+                conversion > 0 ? costPrice / conversion : 0
+              await batchService.addBatchStock({
+                productId: item.product,
+                store: effectiveStore,
+                qty: qtyStock,
+                costPerUnit: baseUnitCost,
+                batchCode: `${receiptNumber}-${index + 1}`,
+                expiryDate: item.expiryDate || null,
+                supplier: po.supplier || null,
+                receivedDate: receivedDate || new Date(),
+                transaction
+              })
             }
           }
 

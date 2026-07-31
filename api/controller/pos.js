@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const path = require('path')
+const batchService = require('../service/batchService')
 const {
   getConnectionStatus,
   sendDocument,
@@ -158,6 +159,14 @@ const posController = {
             }
           )
 
+          // ponytail: FIFO - consume oldest batches at source store
+          await batchService.deductFifo({
+            productId: item.productId,
+            store: fromStore,
+            qty: item.qty,
+            transaction: t
+          })
+
           const oldPssStock = availPss
           const newPssStock = availPss - Number(item.qty)
 
@@ -230,7 +239,7 @@ const posController = {
       const { toStore } = transfer
 
       await db.sequelize.transaction(async (t) => {
-        for (const item of transfer.items) {
+        for (const [index, item] of transfer.items.entries()) {
           const product = await db.product.findByPk(item.product, {
             transaction: t
           })
@@ -262,6 +271,17 @@ const posController = {
             { stock: db.sequelize.literal(`stock + ${qty}`) },
             { transaction: t }
           )
+
+          // ponytail: FIFO - register incoming batch at destination store
+          await batchService.addBatchStock({
+            productId: item.product,
+            store: toStore,
+            qty,
+            costPerUnit: Number(product.costPrice) || 0,
+            batchCode: `TRF-${transfer.id}-${index + 1}`,
+            supplier: null,
+            transaction: t
+          })
 
           await db.stock_history.create(
             {

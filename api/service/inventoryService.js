@@ -210,8 +210,21 @@ const inventoryService = {
   async calculateValuation(productId, storeId, method = 'FIFO') {
     const batches = await db.product_batch.findAll({
       where: { product: productId, status: 'active' },
-      order: [['received_date', 'ASC'], ['id', 'ASC']]
+      include: [{ model: db.product_batch_stock, as: 'stocks' }],
+      order: [
+        ['received_date', 'ASC'],
+        ['expiryDate', 'ASC'],
+        ['id', 'ASC']
+      ]
     })
+
+    const available = (b) => {
+      if (!storeId) return Number(b.qty) || 0
+      const bs = (b.stocks || []).find(
+        (s) => Number(s.store) === Number(storeId)
+      )
+      return bs ? Number(bs.quantity) || 0 : 0
+    }
 
     let totalCost = 0
     let totalQty = 0
@@ -219,12 +232,21 @@ const inventoryService = {
 
     if (method === 'SPECIFIC_ID') {
       batches.forEach((b) => {
-        totalCost += Number(b.cost_per_unit || 0) * Number(b.qty || 0)
-        totalQty += Number(b.qty || 0)
+        const q = available(b)
+        totalCost += Number(b.cost_per_unit || 0) * q
+        totalQty += q
       })
+    } else if (method === 'FIFO') {
+      // true FIFO: value remaining stock at cost of the oldest remaining layers
+      batches.forEach((b) => {
+        const q = available(b)
+        totalCost += Number(b.cost_per_unit || 0) * q
+        totalQty += q
+      })
+      avgCost = totalQty > 0 ? totalCost / totalQty : 0
     } else {
       const costs = batches.map((b) => Number(b.cost_per_unit || 0))
-      const qtys = batches.map((b) => Number(b.qty || 0))
+      const qtys = batches.map((b) => available(b))
       const weightedSum = costs.reduce((s, c, i) => s + c * (qtys[i] || 0), 0)
       totalQty = qtys.reduce((s, q) => s + q, 0)
       avgCost = totalQty > 0 ? weightedSum / totalQty : 0
@@ -241,7 +263,7 @@ const inventoryService = {
       batches: batches.map((b) => ({
         id: b.id,
         batchCode: b.batchCode,
-        qty: b.qty,
+        qty: available(b),
         costPerUnit: b.cost_per_unit,
         expiryDate: b.expiryDate
       }))
