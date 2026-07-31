@@ -95,6 +95,7 @@ const purchaseReturnController = {
 
       const { count, rows } = await db.purchase_return.findAndCountAll({
         where,
+        distinct: true,
         include: [
           {
             model: db.purchase_return_item,
