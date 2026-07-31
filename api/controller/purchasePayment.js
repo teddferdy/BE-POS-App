@@ -167,7 +167,7 @@ const purchasePaymentController = {
       }
 
       const payment = await db.purchase_payment.create({
-        store: store || null,
+        store: po.store || store || null,
         purchaseOrder,
         supplier,
         amount: parseInt(amount),
@@ -399,7 +399,9 @@ const purchasePaymentController = {
       const where = {}
       const effectiveStore =
         userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
-      if (effectiveStore) where.store = effectiveStore
+      if (effectiveStore) {
+        where['$purchaseOrderData.store$'] = effectiveStore
+      }
       if (supplierId) where.supplier = supplierId
       if (search) {
         where[Op.or] = [
