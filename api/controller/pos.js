@@ -1073,6 +1073,61 @@ const posController = {
         parseInt(lowStockProductCount?.count || 0) +
         parseInt(lowStockIngredientCount?.count || 0)
 
+      const expenseWhere = { status: 'approved' }
+      if (store) expenseWhere.store = store
+      if (startDate || endDate) {
+        expenseWhere.date = {}
+        if (startDate) expenseWhere.date[Op.gte] = new Date(startDate)
+        if (endDate) expenseWhere.date[Op.lte] = new Date(endDate)
+      }
+
+      const [totalExpense, recentExpenseRows] = await Promise.all([
+        db.expense.sum('amount', { where: expenseWhere }),
+        db.expense.findAll({
+          where: expenseWhere,
+          attributes: ['id', 'expenseNumber', 'description', 'amount', 'date', 'store'],
+          include: [
+            {
+              model: db.expense_category,
+              as: 'categoryData',
+              attributes: ['id', 'name']
+            }
+          ],
+          order: [
+            ['date', 'DESC'],
+            ['createdAt', 'DESC']
+          ],
+          limit: 5
+        })
+      ])
+
+      const expStoreIds = [
+        ...new Set(recentExpenseRows.map((e) => e.store).filter(Boolean))
+      ]
+      const expStoreMap = {}
+      if (expStoreIds.length > 0) {
+        const locs = await db.location.findAll({
+          where: { id: expStoreIds },
+          attributes: ['id', 'name']
+        })
+        locs.forEach((l) => {
+          expStoreMap[l.id] = l.name
+        })
+      }
+      const recentExpenses = recentExpenseRows.map((e) => {
+        const j = e.toJSON()
+        return {
+          id: j.id,
+          expenseNumber: j.expenseNumber,
+          description: j.description,
+          amount: j.amount,
+          date: j.date,
+          store: j.store,
+          storeName: expStoreMap[j.store] || null,
+          categoryName: j.categoryData?.name || null
+        }
+      })
+
       return res.status(200).json({
         success: true,
         message: 'Success',
@@ -1101,6 +1156,8 @@ const posController = {
           salesChart: salesChart || [],
           bestSellers: bestSellers || [],
           recentOrders: recentOrders || [],
+          totalExpense: totalExpense || 0,
+          recentExpenses: recentExpenses || [],
           lowStock,
           filter: filter || 'weekly'
         }
