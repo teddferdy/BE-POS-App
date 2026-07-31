@@ -21,6 +21,10 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         type: DataTypes.INTEGER
       },
+      ingredientName: {
+        allowNull: true,
+        type: DataTypes.TEXT
+      },
       qty: {
         allowNull: false,
         type: DataTypes.INTEGER

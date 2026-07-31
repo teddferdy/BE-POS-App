@@ -701,6 +701,7 @@ const purchaseReturnController = {
           purchaseReturn: ret.id,
           product: item.productId || null,
           ingredient: item.ingredient || null,
+          ingredientName: item.ingredientName || null,
           qty: item.qty,
           unit: item.unit || 'pcs',
           notes: item.notes || null

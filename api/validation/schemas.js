@@ -784,9 +784,11 @@ exports.updatePurchasePaymentSchema =
 
 // ===================== Purchase Return =====================
 exports.createPurchaseReturnSchema = z.object({
-  purchaseOrderId: z.union([z.number(), strToNum()]),
+  purchaseOrder: z.union([z.number(), strToNum()]),
+  reason: z.string().optional().nullable(),
+  returnedBy: z.union([z.number(), strToNum()]).optional().nullable(),
   items: z.array(z.record(z.any())).min(1, 'At least one item is required'),
-  notes: z.string().optional().default('')
+  notes: z.string().optional().nullable()
 })
 exports.updatePurchaseReturnSchema =
   exports.createPurchaseReturnSchema.partial()
