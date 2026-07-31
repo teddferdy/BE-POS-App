@@ -2,6 +2,17 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
+const generateOrderNumber = (prefix) => {
+  const date = new Date()
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const random = Math.floor(Math.random() * 10000)
+    .toString()
+    .padStart(4, '0')
+  return `${prefix}-${year}${month}${day}-${random}`
+}
+
 async function attachPriceInfo(json, poId) {
   if (!json.items || json.items.length === 0) return json
   const poItems = await db.purchase_order_item.findAll({
@@ -273,8 +284,16 @@ const purchaseReturnController = {
   async approve(req, res) {
     try {
       const { id } = req.params
+      const { resolution = 'credit' } = req.body
       const { store } = req.cookies
       const userRole = req.user?.roleType
+
+      if (!['credit', 'replacement'].includes(resolution)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Resolution must be credit or replacement'
+        })
+      }
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -298,10 +317,12 @@ const purchaseReturnController = {
 
       const t = await db.sequelize.transaction()
       try {
-        await ret.update({ status: 'approved' }, { transaction: t })
+        await ret.update({ status: 'approved', resolution }, { transaction: t })
 
-        // Calculate return value and deduct from PO finalAmount
         if (ret.purchaseOrder) {
+          const po = await db.purchase_order.findByPk(ret.purchaseOrder, {
+            transaction: t
+          })
           const poItems = await db.purchase_order_item.findAll({
             where: { purchaseOrder: ret.purchaseOrder },
             transaction: t
@@ -310,54 +331,90 @@ const purchaseReturnController = {
           poItems.forEach((pi) => {
             if (pi.ingredient) poItemMap[`ing-${pi.ingredient}`] = pi
             if (pi.product) poItemMap[`prod-${pi.product}`] = pi
+            if (pi.ingredientName) poItemMap[`name-${pi.ingredientName}`] = pi
           })
 
           let returnTotal = 0
-          for (const item of ret.items) {
+          const resolvedItems = ret.items.map((item) => {
             const key = item.ingredient
               ? `ing-${item.ingredient}`
               : item.product
                 ? `prod-${item.product}`
-                : null
+                : item.ingredientName
+                  ? `name-${item.ingredientName}`
+                  : null
             const poItem = key ? poItemMap[key] : null
             const qty = Number(item.qty) || 0
-            returnTotal += (key ? Number(poItem?.price) || 0 : 0) * qty
+            const price = poItem ? Number(poItem.price) || 0 : 0
+            returnTotal += price * qty
+            return { item, poItem, key, qty, price }
+          })
 
-            // ponytail: reopen remaining slot - reduce receivedQuantity on the PO item
-            if (poItem && qty > 0) {
-              await db.purchase_order_item.update(
-                {
-                  receivedQuantity: db.sequelize.literal(
-                    `GREATEST("receivedQuantity" - ${qty}, 0)`
-                  )
-                },
-                { where: { id: poItem.id }, transaction: t }
-              )
-            }
-          }
-
+          // Returned goods are always credited against the PO bill.
+          // For replacement, the new PO re-adds the same cost, so the net
+          // effect stays neutral while remaining fully traceable.
           if (returnTotal > 0) {
             await db.purchase_order.update(
               {
-                finalAmount: db.sequelize.literal(`GREATEST(finalAmount - ${returnTotal}, 0)`)
+                finalAmount: db.sequelize.literal(
+                  `GREATEST("purchase_order"."finalAmount" - ${returnTotal}, 0)`
+                )
               },
               { where: { id: ret.purchaseOrder }, transaction: t }
             )
           }
 
-          // Roll back PO status to 'ordered' if any item is no longer fully received
-          const updatedPoItems = await db.purchase_order_item.findAll({
-            where: { purchaseOrder: ret.purchaseOrder },
-            transaction: t
-          })
-          const stillAllReceived = updatedPoItems.every(
-            (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
-          )
-          if (!stillAllReceived) {
-            await db.purchase_order.update(
-              { status: 'ordered' },
-              { where: { id: ret.purchaseOrder }, transaction: t }
+          // receivedQuantity is intentionally NOT reduced: the returned qty
+          // stays consumed so those units cannot be received again on this PO
+          // (prevents double benefit / double receiving).
+
+          if (resolution === 'replacement') {
+            const total = resolvedItems.reduce((s, r) => s + r.price * r.qty, 0)
+            const supplier =
+              resolvedItems.find((r) => r.poItem && r.poItem.supplier)?.poItem
+                ?.supplier || null
+
+            const replacementPO = await db.purchase_order.create(
+              {
+                store: ret.store || null,
+                orderNumber: generateOrderNumber('RPL'),
+                totalAmount: total,
+                discount: 0,
+                finalAmount: total,
+                status: 'draft',
+                orderDate: new Date(),
+                notes: `Replacement PO for return ${ret.returnNumber}`,
+                createdBy: req.user?.id || null,
+                pic: po ? po.pic : null,
+                dueDate: po ? po.dueDate : null,
+                paymentMethod: po ? po.paymentMethod : 'cash',
+                tenor: po ? po.tenor : 0,
+                dpPercent: po ? po.dpPercent : 0,
+                additionalCost: 0,
+                overDeliveryTolerance: po ? po.overDeliveryTolerance : 10
+              },
+              { transaction: t }
             )
+
+            const replacementItems = resolvedItems
+              .filter((r) => r.qty > 0)
+              .map((r) => ({
+                purchaseOrder: replacementPO.id,
+                product: r.item.product,
+                ingredient: r.item.ingredient,
+                ingredientName: r.item.ingredientName,
+                supplier: r.poItem?.supplier || supplier,
+                quantity: r.qty,
+                unit: r.item.unit || r.poItem?.unit || 'pcs',
+                price: r.price,
+                total: r.price * r.qty,
+                receivedQuantity: 0,
+                conversionToBase: Number(r.poItem?.conversionToBase) || 1
+              }))
+
+            await db.purchase_order_item.bulkCreate(replacementItems, {
+              transaction: t
+            })
           }
         }
 
@@ -368,7 +425,7 @@ const purchaseReturnController = {
           'update',
           'purchase_return',
           id,
-          'Approved purchase return: ' + id
+          'Approved purchase return: ' + id + ' (' + resolution + ')'
         )
 
         return res
