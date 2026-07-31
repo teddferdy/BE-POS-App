@@ -63,6 +63,7 @@ const queueRoutes = require('./routes/queue')
 const supplierPerformanceRoutes = require('./routes/supplierPerformance')
 const promoRoutes = require('./routes/promo')
 const productBundleRoutes = require('./routes/productBundle')
+const reportingRoutes = require('./routes/reporting')
 
 const app = express()
 const server = http.createServer(app)
@@ -164,7 +165,8 @@ const routes = [
   { path: '/queue', route: queueRoutes },
   { path: '/supplier-performance', route: supplierPerformanceRoutes },
   { path: '/promo', route: promoRoutes },
-  { path: '/product-bundle', route: productBundleRoutes }
+  { path: '/product-bundle', route: productBundleRoutes },
+  { path: '/reports', route: reportingRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
