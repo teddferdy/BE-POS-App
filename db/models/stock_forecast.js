@@ -22,21 +22,42 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
-      forecasted_stockout_date: {
-        allowNull: true,
-        type: DataTypes.DATEONLY
-      },
-      days_until_stockout: {
-        allowNull: true,
-        type: DataTypes.INTEGER
-      },
       daily_consumption_rate: {
         allowNull: true,
         type: DataTypes.DECIMAL(10, 4)
       },
+      lead_time_days: {
+        allowNull: true,
+        type: DataTypes.INTEGER
+      },
+      safety_stock: {
+        allowNull: true,
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      reorder_point: {
+        allowNull: true,
+        type: DataTypes.INTEGER
+      },
+      forecasted_stockout_date: {
+        allowNull: true,
+        type: DataTypes.DATEONLY
+      },
+      forecast_date: {
+        allowNull: true,
+        type: DataTypes.DATEONLY
+      },
       confidence_level: {
         allowNull: true,
         type: DataTypes.DECIMAL(5, 2)
+      },
+      notes: {
+        allowNull: true,
+        type: DataTypes.TEXT
+      },
+      days_until_stockout: {
+        allowNull: true,
+        type: DataTypes.INTEGER
       },
       last_updated: {
         allowNull: false,

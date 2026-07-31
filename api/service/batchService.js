@@ -113,4 +113,92 @@ async function deductFifo({ productId, store, qty, transaction }) {
   return qtyInt - remaining
 }
 
-module.exports = { addBatchStock, deductFifo }
+// Mark expired batches (expiryDate < today) as 'expired' and write off their
+// remaining qty from product.stock + product_store_stock. Returns a summary.
+async function writeOffExpired({
+  storeId = null,
+  productId = null,
+  createdBy = null
+} = {}) {
+  const today = toDateOnly(new Date())
+  const where = {
+    status: 'active',
+    expiryDate: { [Op.lt]: today }
+  }
+  if (storeId) where.store = storeId
+  if (productId) where.product = productId
+
+  const summary = { total: 0, affected: [] }
+  await db.sequelize.transaction(async (t) => {
+    const batches = await db.product_batch.findAll({
+      where,
+      lock: t.LOCK.UPDATE,
+      transaction: t
+    })
+    const stockRows = await db.product_batch_stock.findAll({
+      where: { batch: { [Op.in]: batches.map((b) => b.id) } },
+      transaction: t
+    })
+    const stockByBatch = new Map(stockRows.map((s) => [Number(s.batch), s]))
+
+    for (const batch of batches) {
+      const bs = stockByBatch.get(Number(batch.id))
+      const qty = bs ? Number(bs.quantity) || 0 : Number(batch.qty) || 0
+      if (qty <= 0) continue
+
+      const product = await db.product.findByPk(batch.product, { transaction: t })
+      if (!product) continue
+
+      const oldStock = Number(product.stock) || 0
+      await product.update(
+        { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+        { transaction: t }
+      )
+
+      await db.sequelize.query(
+        `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+         VALUES ($1, $2, 0, NOW(), NOW())
+         ON CONFLICT (product, store) DO NOTHING`,
+        { bind: [batch.product, batch.store], transaction: t }
+      )
+      await db.product_store_stock.update(
+        { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+        { where: { product: batch.product, store: batch.store }, transaction: t }
+      )
+
+      if (bs) {
+        await bs.update({ quantity: 0 }, { transaction: t })
+      }
+      await batch.update({ status: 'expired' }, { transaction: t })
+
+      await db.stock_history.create(
+        {
+          product: batch.product,
+          store: batch.store,
+          referenceType: 'writeoff',
+          referenceId: batch.id,
+          quantityBefore: oldStock,
+          quantityChange: -qty,
+          quantityAfter: Math.max(oldStock - qty, 0),
+          unit: product.unit || 'pcs',
+          notes: `Write-off batch ${batch.batchCode} (expired ${batch.expiryDate})`,
+          createdBy: createdBy || null
+        },
+        { transaction: t }
+      )
+
+      summary.total += qty
+      summary.affected.push({
+        batchId: batch.id,
+        batchCode: batch.batchCode,
+        product: batch.product,
+        store: batch.store,
+        qty
+      })
+    }
+  })
+
+  return summary
+}
+
+module.exports = { addBatchStock, deductFifo, writeOffExpired }

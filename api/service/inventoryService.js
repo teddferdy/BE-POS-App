@@ -32,7 +32,13 @@ const inventoryService = {
     if (!product) throw new Error(`Product ${productId} not found`)
 
     const consumption = await this.calculateDailyConsumption(productId, storeId)
-    const currentStock = Number(product.stock) || 0
+    let currentStock = Number(product.stock) || 0
+    if (storeId) {
+      const pss = await db.product_store_stock.findOne({
+        where: { product: productId, store: storeId }
+      })
+      if (pss) currentStock = Number(pss.stock) || 0
+    }
     const minStock = Number(product.minStock) || 0
     const safetyStock = Math.max(minStock, Math.ceil(consumption * 3))
     const reorderPoint = Math.ceil(consumption * 7) + safetyStock

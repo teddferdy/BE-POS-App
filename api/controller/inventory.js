@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const inventoryService = require('../service/inventoryService')
 const reconcileService = require('../service/reconcileService')
+const batchService = require('../service/batchService')
 
 const getStoreId = (req) =>
   req.query.storeId || req.query.store || req.cookies?.store || null
@@ -198,6 +199,22 @@ const inventoryController = {
       }
       const result = await reconcileService.reconcile({
         direction,
+        storeId,
+        productId,
+        createdBy: req.user?.id || null
+      })
+      return res.status(200).json({ success: true, ...result })
+    } catch (error) {
+      console.error('Error:', error)
+      return res.status(500).json({ success: false, message: error.message })
+    }
+  },
+
+  async postWriteOffExpired(req, res) {
+    try {
+      const storeId = req.body.storeId || req.body.store || req.cookies?.store || null
+      const productId = req.body.productId ? parseInt(req.body.productId) : null
+      const result = await batchService.writeOffExpired({
         storeId,
         productId,
         createdBy: req.user?.id || null

@@ -65,6 +65,13 @@ router.get(
   validateStoreAccess,
   inventoryController.getBatchById
 )
+router.post(
+  '/batch/writeoff',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  inventoryController.postWriteOffExpired
+)
 
 // Stock reconciliation (global vs per-store)
 router.get(
