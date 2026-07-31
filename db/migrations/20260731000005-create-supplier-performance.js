@@ -21,7 +21,8 @@ module.exports = {
       total_quantity: { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },
       score: { type: Sequelize.DECIMAL(5, 2) },
       createdAt: { type: Sequelize.DATE },
-      updatedAt: { type: Sequelize.DATE }
+      updatedAt: { type: Sequelize.DATE },
+      deletedAt: { type: Sequelize.DATE }
     })
     await queryInterface.addIndex('supplier_performance', ['supplier'])
     await queryInterface.addIndex('supplier_performance', ['month'])

@@ -19,7 +19,10 @@ module.exports = {
       forecasted_stockout_date: { type: Sequelize.DATEONLY, allowNull: true },
       forecast_date: { type: Sequelize.DATEONLY, allowNull: false },
       confidence_level: { type: Sequelize.DECIMAL(5, 2), allowNull: true },
-      notes: { type: Sequelize.TEXT }
+      notes: { type: Sequelize.TEXT },
+      createdAt: { type: Sequelize.DATE },
+      updatedAt: { type: Sequelize.DATE },
+      deletedAt: { type: Sequelize.DATE }
     })
     await queryInterface.addIndex('stock_forecast', ['product', 'store'])
     await queryInterface.addIndex('stock_forecast', ['forecast_date'])

@@ -26,7 +26,8 @@ module.exports = {
         defaultValue: 'perpetual'
       },
       createdAt: { type: Sequelize.DATE },
-      updatedAt: { type: Sequelize.DATE }
+      updatedAt: { type: Sequelize.DATE },
+      deletedAt: { type: Sequelize.DATE }
     })
     await queryInterface.addIndex('inventory_valuation', ['product', 'store'])
     await queryInterface.addIndex('inventory_valuation', ['valuation_date'])

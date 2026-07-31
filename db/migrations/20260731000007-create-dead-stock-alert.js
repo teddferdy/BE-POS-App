@@ -26,7 +26,8 @@ module.exports = {
       },
       notes: { type: Sequelize.TEXT },
       createdAt: { type: Sequelize.DATE },
-      updatedAt: { type: Sequelize.DATE }
+      updatedAt: { type: Sequelize.DATE },
+      deletedAt: { type: Sequelize.DATE }
     })
     await queryInterface.addIndex('dead_stock_alert', ['product', 'store'])
     await queryInterface.addIndex('dead_stock_alert', ['alert_level'])

@@ -13,53 +13,48 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.INTEGER
       },
-      batch_number: {
+      batchCode: {
         allowNull: false,
-        type: DataTypes.STRING(50),
-        unique: true
+        type: DataTypes.STRING
+      },
+      expiryDate: {
+        allowNull: false,
+        type: DataTypes.DATEONLY
+      },
+      qty: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      store: {
+        type: DataTypes.INTEGER
+      },
+      status: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'active'
+      },
+      createdBy: {
+        type: DataTypes.INTEGER
       },
       received_date: {
-        allowNull: false,
         type: DataTypes.DATEONLY
-      },
-      expiry_date: {
-        allowNull: true,
-        type: DataTypes.DATEONLY
-      },
-      quantity: {
-        allowNull: false,
-        type: DataTypes.INTEGER,
-        defaultValue: 0
       },
       received_quantity: {
-        allowNull: false,
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
       cost_per_unit: {
-        allowNull: false,
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
       supplier: {
-        allowNull: true,
         type: DataTypes.INTEGER
       },
-      status: {
-        allowNull: false,
-        type: DataTypes.ENUM('active', 'quarantine', 'recalled', 'disposed'),
-        defaultValue: 'active'
-      },
       quality_status: {
-        allowNull: true,
         type: DataTypes.ENUM('passed', 'failed', 'pending'),
         defaultValue: 'pending'
       },
       notes: {
         type: DataTypes.TEXT
-      },
-      createdBy: {
-        type: DataTypes.INTEGER
       }
     },
     {
@@ -69,8 +64,7 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'product_batch',
       indexes: [
         { fields: ['product'] },
-        { fields: ['batch_number'], unique: true },
-        { fields: ['expiry_date'] },
+        { fields: ['expiryDate'] },
         { fields: ['supplier'] },
         { fields: ['status'] }
       ]
@@ -81,6 +75,10 @@ module.exports = (sequelize, DataTypes) => {
     product_batch.belongsTo(models.product, {
       foreignKey: 'product',
       as: 'productData'
+    })
+    product_batch.belongsTo(models.location, {
+      foreignKey: 'store',
+      as: 'storeData'
     })
     product_batch.belongsTo(models.supplier, {
       foreignKey: 'supplier',
