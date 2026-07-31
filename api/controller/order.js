@@ -767,7 +767,8 @@ exports.createOrder = async (req, res) => {
           const bundleQty = Number(item.quantity) || 1
           for (const bi of bundle.items) {
             const product = await Product.findByPk(bi.product, {
-              transaction: t
+              transaction: t,
+              lock: t.LOCK.UPDATE
             })
             if (!product) continue
             const deductQty = bi.quantity * bundleQty
@@ -826,7 +827,8 @@ exports.createOrder = async (req, res) => {
             if (bom) {
               for (const line of bom.lines) {
                 const ing = await db.ingredient.findByPk(line.ingredientId, {
-                  transaction: t
+                  transaction: t,
+                  lock: t.LOCK.UPDATE
                 })
                 if (!ing) continue
                 const ingDeductQty = line.qty * deductQty
@@ -897,7 +899,8 @@ exports.createOrder = async (req, res) => {
 
         // Regular product item
         const product = await Product.findByPk(item.product || item.productId, {
-          transaction: t
+          transaction: t,
+          lock: t.LOCK.UPDATE
         })
         if (!product) continue
 
@@ -989,7 +992,8 @@ exports.createOrder = async (req, res) => {
         if (bom) {
           for (const line of bom.lines) {
             const ing = await db.ingredient.findByPk(line.ingredientId, {
-              transaction: t
+              transaction: t,
+              lock: t.LOCK.UPDATE
             })
             if (!ing) continue
             const deductQty = line.qty * Number(item.quantity)
@@ -1332,7 +1336,10 @@ exports.updateOrderStatus = async (req, res) => {
 
       await db.sequelize.transaction(async (t) => {
         for (const item of items) {
-          const product = await Product.findByPk(item.product, { transaction: t })
+          const product = await Product.findByPk(item.product, {
+            transaction: t,
+            lock: t.LOCK.UPDATE
+          })
           if (!product) continue
 
           const bom = await db.bom_header.findOne({
@@ -1952,7 +1959,8 @@ exports.createCustomerOrder = async (req, res) => {
           const bundleQty = Number(item.quantity) || 1
           for (const bi of bundle.items) {
             const product = await Product.findByPk(bi.product, {
-              transaction: t
+              transaction: t,
+              lock: t.LOCK.UPDATE
             })
             if (!product) continue
             const deductQty = bi.quantity * bundleQty
@@ -2010,7 +2018,8 @@ exports.createCustomerOrder = async (req, res) => {
             if (bom) {
               for (const line of bom.lines) {
                 const ing = await db.ingredient.findByPk(line.ingredientId, {
-                  transaction: t
+                  transaction: t,
+                  lock: t.LOCK.UPDATE
                 })
                 if (!ing) continue
                 const ingDeductQty = line.qty * deductQty
@@ -2047,7 +2056,10 @@ exports.createCustomerOrder = async (req, res) => {
         }
 
         const product = item.productId
-          ? await Product.findByPk(item.productId, { transaction: t })
+          ? await Product.findByPk(item.productId, {
+              transaction: t,
+              lock: t.LOCK.UPDATE
+            })
           : null
         if (!product) continue
 
@@ -2105,7 +2117,8 @@ exports.createCustomerOrder = async (req, res) => {
         if (bom) {
           for (const line of bom.lines) {
             const ing = await db.ingredient.findByPk(line.ingredientId, {
-              transaction: t
+              transaction: t,
+              lock: t.LOCK.UPDATE
             })
             if (!ing) continue
             const deductQty = line.qty * Number(item.quantity)

@@ -372,7 +372,8 @@ const productionOrderController = {
           if (bomHeader?.lines?.length) {
             for (const line of bomHeader.lines) {
               const ing = await db.ingredient.findByPk(line.ingredientId, {
-                transaction
+                transaction,
+                lock: transaction.LOCK.UPDATE
               })
               if (!ing) continue
               const restoreQty = line.qty * order.plannedQty
@@ -511,7 +512,8 @@ const productionOrderController = {
 
           if (ingredientId) {
             productComp = await db.product.findByPk(ingredientId, {
-              transaction
+              transaction,
+              lock: transaction.LOCK.UPDATE
             })
           }
 

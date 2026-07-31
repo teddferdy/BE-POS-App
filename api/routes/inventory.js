@@ -66,4 +66,20 @@ router.get(
   inventoryController.getBatchById
 )
 
+// Stock reconciliation (global vs per-store)
+router.get(
+  '/reconcile',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  inventoryController.getReconcile
+)
+router.post(
+  '/reconcile/fix',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  inventoryController.postReconcile
+)
+
 module.exports = router

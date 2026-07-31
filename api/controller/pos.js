@@ -124,7 +124,8 @@ const posController = {
 
         for (const item of items) {
           const product = await db.product.findByPk(item.productId, {
-            transaction: t
+            transaction: t,
+            lock: t.LOCK.UPDATE
           })
           if (!product) continue
 
@@ -241,7 +242,8 @@ const posController = {
       await db.sequelize.transaction(async (t) => {
         for (const [index, item] of transfer.items.entries()) {
           const product = await db.product.findByPk(item.product, {
-            transaction: t
+            transaction: t,
+            lock: t.LOCK.UPDATE
           })
           if (!product) continue
 
@@ -377,7 +379,8 @@ const posController = {
       await db.sequelize.transaction(async (t) => {
         for (const item of transfer.items) {
           const product = await db.product.findByPk(item.product, {
-            transaction: t
+            transaction: t,
+            lock: t.LOCK.UPDATE
           })
           if (!product) continue
 

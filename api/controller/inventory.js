@@ -1,6 +1,6 @@
 const db = require('../../db/models')
-const { Op } = require('sequelize')
 const inventoryService = require('../service/inventoryService')
+const reconcileService = require('../service/reconcileService')
 
 const getStoreId = (req) =>
   req.query.storeId || req.query.store || req.cookies?.store || null
@@ -162,6 +162,47 @@ const inventoryController = {
         return res.status(404).json({ success: false, message: 'Batch not found' })
       }
       return res.status(200).json({ success: true, data: batch })
+    } catch (error) {
+      console.error('Error:', error)
+      return res.status(500).json({ success: false, message: error.message })
+    }
+  },
+
+  async getReconcile(req, res) {
+    try {
+      const storeId = req.query.storeId || req.query.store || req.cookies?.store || null
+      const productId = req.query.productId ? parseInt(req.query.productId) : null
+      const minDiff = Number(req.query.minDiff || 1)
+      const rows = await reconcileService.getDiscrepancies({
+        storeId,
+        productId,
+        minDiff
+      })
+      return res.status(200).json({ success: true, data: rows, total: rows.length })
+    } catch (error) {
+      console.error('Error:', error)
+      return res.status(500).json({ success: false, message: error.message })
+    }
+  },
+
+  async postReconcile(req, res) {
+    try {
+      const storeId = req.body.storeId || req.body.store || req.cookies?.store || null
+      const productId = req.body.productId ? parseInt(req.body.productId) : null
+      const direction = req.body.direction || 'store-to-global'
+      if (!['store-to-global', 'global-to-store'].includes(direction)) {
+        return res.status(400).json({
+          success: false,
+          message: 'direction must be store-to-global or global-to-store'
+        })
+      }
+      const result = await reconcileService.reconcile({
+        direction,
+        storeId,
+        productId,
+        createdBy: req.user?.id || null
+      })
+      return res.status(200).json({ success: true, ...result })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })

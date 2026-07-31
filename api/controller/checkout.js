@@ -58,7 +58,8 @@ exports.addNewTransaction = async (id, order) => {
       }
 
       const prod = await db.product.findByPk(order[index].idProduct, {
-        transaction: t
+        transaction: t,
+        lock: t.LOCK.UPDATE
       })
       if (prod) {
         // Check BOM — if exists, deduct ingredient stock instead of product stock
@@ -71,7 +72,8 @@ exports.addNewTransaction = async (id, order) => {
         if (bom) {
           for (const line of bom.lines) {
             const ing = await db.ingredient.findByPk(line.ingredientId, {
-              transaction: t
+              transaction: t,
+              lock: t.LOCK.UPDATE
             })
             if (!ing) continue
             const deductQty = line.qty * Number(order[index].count)
