@@ -269,13 +269,14 @@ const purchaseOrderController = {
           {
             model: db.purchase_return,
             as: 'return',
-            where: { purchaseOrder: id },
+            where: { purchaseOrder: id, status: { [Op.ne]: 'rejected' } },
             attributes: []
           }
         ],
         attributes: [
           'ingredient',
           'product',
+          'ingredientName',
           [
             db.Sequelize.fn(
               'COALESCE',
@@ -285,14 +286,20 @@ const purchaseOrderController = {
             'returnedQty'
           ]
         ],
-        group: ['ingredient', 'product'],
+        group: ['ingredient', 'product', 'ingredientName'],
         raw: true
       })
 
       const returnMap = {}
       returnAgg.forEach((r) => {
-        const key = r.ingredient ? `ing-${r.ingredient}` : `prod-${r.product}`
-        returnMap[key] = parseFloat(r.returnedQty) || 0
+        const key = r.ingredient
+          ? `ing-${r.ingredient}`
+          : r.product
+            ? `prod-${r.product}`
+            : r.ingredientName
+              ? `name-${r.ingredientName}`
+              : null
+        if (key) returnMap[key] = parseFloat(r.returnedQty) || 0
       })
 
       const data = purchaseOrder.toJSON()
@@ -303,7 +310,9 @@ const purchaseOrderController = {
             ? returnMap[`ing-${item.ingredient}`] || 0
             : item.product
               ? returnMap[`prod-${item.product}`] || 0
-              : 0
+              : item.ingredientName
+                ? returnMap[`name-${item.ingredientName}`] || 0
+                : 0
         }))
       }
 

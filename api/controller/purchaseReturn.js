@@ -677,8 +677,9 @@ const purchaseReturnController = {
       })
 
       // Fetch existing return items to compute already-returned qty
+      // Note: rejected returns are excluded because they restore stock
       const existingReturns = await db.purchase_return.findAll({
-        where: { purchaseOrder: poId },
+        where: { purchaseOrder: poId, status: { [Op.ne]: 'rejected' } },
         include: [{ model: db.purchase_return_item, as: 'items' }]
       })
 
@@ -688,7 +689,9 @@ const purchaseReturnController = {
           ? `ing-${pi.ingredient}`
           : pi.product
             ? `prod-${pi.product}`
-            : null
+            : pi.ingredientName
+              ? `name-${pi.ingredientName}`
+              : null
         if (key) {
           poItemMap[key] = {
             receivedQty: Number(pi.receivedQuantity) || 0,
@@ -703,7 +706,9 @@ const purchaseReturnController = {
             ? `ing-${ri.ingredient}`
             : ri.product
               ? `prod-${ri.product}`
-              : null
+              : ri.ingredientName
+                ? `name-${ri.ingredientName}`
+                : null
           if (key && poItemMap[key]) {
             poItemMap[key].alreadyReturned += Number(ri.qty) || 0
           }
@@ -717,14 +722,18 @@ const purchaseReturnController = {
           ? `ing-${item.ingredient}`
           : item.productId
             ? `prod-${item.productId}`
-            : null
+            : item.ingredientName
+              ? `name-${item.ingredientName}`
+              : null
         if (key && poItemMap[key]) {
           const info = poItemMap[key]
           const available = info.receivedQty - info.alreadyReturned
           if (Number(item.qty) > available) {
             const name = item.ingredient
               ? `ingredient #${item.ingredient}`
-              : `product #${item.productId}`
+              : item.productId
+                ? `product #${item.productId}`
+                : `"${item.ingredientName}"`
             errors.push(
               `${name}: max ${available} (received ${info.receivedQty}, already returned ${info.alreadyReturned})`
             )
@@ -815,10 +824,15 @@ const purchaseReturnController = {
               )
             }
           }
-          if (item.ingredient) {
-            const ingredient = await db.ingredient.findByPk(item.ingredient, {
-              transaction: t
-            })
+          if (item.ingredient || (!item.productId && item.ingredientName)) {
+            const ingredient = item.ingredient
+              ? await db.ingredient.findByPk(item.ingredient, {
+                  transaction: t
+                })
+              : await db.ingredient.findOne({
+                  where: { name: item.ingredientName, store },
+                  transaction: t
+                })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
               const qty = Math.floor(Number(item.qty)) || 0
