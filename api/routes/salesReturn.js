@@ -16,6 +16,7 @@ router.get(
   validateStoreAccess,
   salesReturnController.getAll
 )
+
 router.get(
   '/get-by-id/:id',
   authorization,
@@ -31,6 +32,7 @@ router.patch(
   validate(approveSalesReturnSchema),
   salesReturnController.approve
 )
+
 router.patch(
   '/reject/:id',
   authorization,

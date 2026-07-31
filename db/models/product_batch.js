@@ -13,24 +13,50 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.INTEGER
       },
-      batchCode: {
+      batch_number: {
         allowNull: false,
-        type: DataTypes.STRING
+        type: DataTypes.STRING(50),
+        unique: true
       },
-      expiryDate: {
+      received_date: {
         allowNull: false,
         type: DataTypes.DATEONLY
       },
-      qty: {
-        allowNull: false,
-        type: DataTypes.INTEGER
+      expiry_date: {
+        allowNull: true,
+        type: DataTypes.DATEONLY
       },
-      store: {
+      quantity: {
+        allowNull: false,
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      received_quantity: {
+        allowNull: false,
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      cost_per_unit: {
+        allowNull: false,
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      supplier: {
+        allowNull: true,
         type: DataTypes.INTEGER
       },
       status: {
-        type: DataTypes.STRING(20),
+        allowNull: false,
+        type: DataTypes.ENUM('active', 'quarantine', 'recalled', 'disposed'),
         defaultValue: 'active'
+      },
+      quality_status: {
+        allowNull: true,
+        type: DataTypes.ENUM('passed', 'failed', 'pending'),
+        defaultValue: 'pending'
+      },
+      notes: {
+        type: DataTypes.TEXT
       },
       createdBy: {
         type: DataTypes.INTEGER
@@ -40,7 +66,14 @@ module.exports = (sequelize, DataTypes) => {
       paranoid: true,
       freezeTableName: true,
       modelName: 'product_batch',
-      tableName: 'product_batch'
+      tableName: 'product_batch',
+      indexes: [
+        { fields: ['product'] },
+        { fields: ['batch_number'], unique: true },
+        { fields: ['expiry_date'] },
+        { fields: ['supplier'] },
+        { fields: ['status'] }
+      ]
     }
   )
 
@@ -49,9 +82,13 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'product',
       as: 'productData'
     })
-    product_batch.belongsTo(models.location, {
-      foreignKey: 'store',
-      as: 'storeData'
+    product_batch.belongsTo(models.supplier, {
+      foreignKey: 'supplier',
+      as: 'supplierData'
+    })
+    product_batch.hasMany(models.product_batch_stock, {
+      foreignKey: 'batch',
+      as: 'stocks'
     })
   }
 
