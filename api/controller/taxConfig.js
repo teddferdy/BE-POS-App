@@ -287,7 +287,7 @@ const taxConfigController = {
 
       const taxes = await db.taxConfig.findAll({
         where,
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       const workbook = new ExcelJS.Workbook()
@@ -405,19 +405,37 @@ const taxConfigController = {
           .json({ success: false, message: 'Validation errors', errors })
       }
 
-      const created = await db.taxConfig.bulkCreate(taxesToCreate)
+      const created = []
+      const skipped = []
+      for (const item of taxesToCreate) {
+        const existing = await db.taxConfig.findOne({
+          where: { name: item.name }
+        })
+        if (existing) {
+          skipped.push(item.name)
+          continue
+        }
+        const tax = await db.taxConfig.create(item)
+        created.push(tax)
+      }
+
       createAudit(
         req,
         'create',
         'tax_config',
         null,
-        'Imported tax_configs: ' + created.length
+        `Imported ${created.length} tax configs, skipped ${skipped.length}`
       )
 
       return res.status(201).json({
         success: true,
-        message: `Successfully imported ${created.length} tax configs`,
-        data: created
+        message: `Successfully imported ${created.length} from ${taxesToCreate.length} tax configs`,
+        data: {
+          total: taxesToCreate.length,
+          created: created.length,
+          skipped: skipped.length,
+          skippedNames: skipped.length > 0 ? skipped : undefined
+        }
       })
     } catch (error) {
       console.error('Error =>', error)

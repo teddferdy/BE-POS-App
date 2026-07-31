@@ -76,6 +76,7 @@ router.post(
   '/seed',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin'),
   taxConfigController.seed
 )
 

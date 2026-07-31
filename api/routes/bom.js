@@ -18,6 +18,7 @@ router.get(
   '/get-by-id/:id',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   bomController.getById
 )
 router.post(

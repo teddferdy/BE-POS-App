@@ -89,6 +89,13 @@ router.get(
   requireRole('super_admin', 'admin'),
   ingredientController.downloadData
 )
+router.get(
+  '/product-names',
+  authorization,
+  validateStoreAccess,
+  ingredientController.getProductNames
+)
+
 router.post(
   '/import',
   authorization,

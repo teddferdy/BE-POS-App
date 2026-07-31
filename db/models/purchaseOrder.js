@@ -66,6 +66,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DECIMAL(5, 2),
         defaultValue: 0,
         comment: 'Down payment percentage (0-100)'
+      },
+      additionalCost: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        comment: 'Landed cost / freight / additional cost allocated to HPP'
+      },
+      overDeliveryTolerance: {
+        type: DataTypes.INTEGER,
+        defaultValue: 10,
+        comment: 'Allowed over-delivery tolerance in percent of ordered qty'
       }
     },
     {

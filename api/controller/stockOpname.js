@@ -1324,7 +1324,7 @@ const stockOpnameController = {
           { model: db.stockOpnameItem, as: 'items' },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       if (opnames.length === 0) {

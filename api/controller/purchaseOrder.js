@@ -17,20 +17,24 @@ const generateOrderNumber = (prefix) => {
 const purchaseOrderController = {
   async getAll(req, res) {
     try {
-      const userRole = req.user?.roleType
       const effectiveStore = req.storeId
       const {
         status,
         startDate,
         endDate,
         search,
+        deleted,
         page = 1,
         limit = 10
       } = req.query
 
       const where = {}
-      if (effectiveStore) where.store = effectiveStore
-      if (status) where.status = status
+      if (deleted) where.deletedAt = { [Op.ne]: null }
+      if (status) {
+        const statuses = status.split(',').map(s => s.trim()).filter(Boolean)
+        if (statuses.length === 1) where.status = statuses[0]
+        else if (statuses.length > 1) where.status = { [Op.in]: statuses }
+      }
       if (startDate || endDate) {
         where.orderDate = {}
         if (startDate) where.orderDate[Op.gte] = new Date(startDate)
@@ -147,6 +151,25 @@ const purchaseOrderController = {
             model: db.location,
             as: 'storeData',
             attributes: ['id', 'name']
+          },
+          {
+            model: db.purchase_order_item,
+            as: 'items',
+            attributes: [
+              'id',
+              'ingredientName',
+              'quantity',
+              'price',
+              'unit',
+              'supplier'
+            ],
+            include: [
+              {
+                model: db.supplier,
+                as: 'supplierData',
+                attributes: ['id', 'name']
+              }
+            ]
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -298,9 +321,73 @@ const purchaseOrderController = {
     }
   },
 
+  async sendToSupplier(req, res) {
+    try {
+      const { id } = req.params
+      const store = req.storeId
+
+      const where = { id }
+      if (store) where.store = store
+
+      const po = await db.purchase_order.findOne({ where })
+
+      if (!po) {
+        return res.status(404).json({
+          success: false,
+          message: 'Purchase order not found'
+        })
+      }
+
+      if (po.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          message: `Only pending PO can be sent to supplier. Current status: ${po.status}`
+        })
+      }
+
+      await po.update({
+        status: 'ordered',
+        modifiedBy: req.user?.id || null
+      })
+
+      await createAudit(
+        req,
+        'update',
+        'purchase_order',
+        id,
+        'Sent PO to supplier: ' + id
+      )
+
+      return res.status(200).json({
+        success: true,
+        message: 'Purchase order sent to supplier',
+        data: po
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
   async create(req, res) {
     try {
-      const { items, discount = 0, notes, orderDate, pic, dueDate, status, paymentMethod, tenor, dpPercent } = req.body
+      const {
+        items,
+        discount = 0,
+        notes,
+        orderDate,
+        pic,
+        dueDate,
+        status,
+        paymentMethod,
+        tenor,
+        dpPercent,
+        additionalCost = 0,
+        overDeliveryTolerance = 10
+      } = req.body
       const createdBy = req.user?.id || null
       const store = req.storeId
 
@@ -314,7 +401,7 @@ const purchaseOrderController = {
           })
         }
 
-        if (!dueDate) {
+        if (paymentMethod === 'credit' && !dueDate) {
           return res.status(400).json({
             success: false,
             message: 'Tanggal jatuh tempo wajib diisi'
@@ -348,7 +435,7 @@ const purchaseOrderController = {
           ? items.reduce((sum, item) => sum + item.quantity * item.price, 0)
           : 0
 
-      const finalAmount = totalAmount - discount
+      const finalAmount = totalAmount - discount + (Number(additionalCost) || 0)
 
       const purchaseOrder = await db.purchase_order.create({
         store: store || null,
@@ -364,7 +451,9 @@ const purchaseOrderController = {
         dueDate,
         paymentMethod: paymentMethod || 'cash',
         tenor: tenor || 0,
-        dpPercent: dpPercent || 0
+        dpPercent: dpPercent || 0,
+        additionalCost: Number(additionalCost) || 0,
+        overDeliveryTolerance: Number(overDeliveryTolerance) || 10
       })
 
       if (items?.length > 0) {
@@ -378,7 +467,8 @@ const purchaseOrderController = {
           unit: item.unit || 'pcs',
           price: item.price,
           total: item.quantity * item.price,
-          receivedQuantity: 0
+          receivedQuantity: 0,
+          conversionToBase: Number(item.conversionToBase) || 1
         }))
 
         await db.purchase_order_item.bulkCreate(orderItems)
@@ -430,7 +520,9 @@ const purchaseOrderController = {
         dueDate,
         paymentMethod,
         tenor,
-        dpPercent
+        dpPercent,
+        additionalCost,
+        overDeliveryTolerance
       } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -458,7 +550,8 @@ const purchaseOrderController = {
         })
       }
 
-      if (dueDate !== undefined && !dueDate) {
+      const effectivePaymentMethod = paymentMethod ?? purchaseOrder.paymentMethod
+      if (dueDate !== undefined && !dueDate && effectivePaymentMethod === 'credit') {
         return res.status(400).json({
           success: false,
           message: 'Tanggal jatuh tempo wajib diisi'
@@ -513,7 +606,8 @@ const purchaseOrderController = {
             : item.product
               ? `prod-${item.product}`
               : null
-          const key = base && item.supplier ? `${base}-sup-${item.supplier}` : base
+          const key =
+            base && item.supplier ? `${base}-sup-${item.supplier}` : base
           return {
             purchaseOrder: id,
             product: item.product || null,
@@ -525,7 +619,8 @@ const purchaseOrderController = {
             price: item.price,
             total: item.quantity * item.price,
             receivedQuantity:
-              key && receivedMap[key] !== undefined ? receivedMap[key] : 0
+              key && receivedMap[key] !== undefined ? receivedMap[key] : 0,
+            conversionToBase: Number(item.conversionToBase) || 1
           }
         })
 
@@ -538,7 +633,11 @@ const purchaseOrderController = {
 
       const finalDiscount =
         discount !== undefined ? discount : purchaseOrder.discount
-      const finalAmount = totalAmount - finalDiscount
+      const finalAdditionalCost =
+        additionalCost !== undefined
+          ? Number(additionalCost) || 0
+          : Number(purchaseOrder.additionalCost) || 0
+      const finalAmount = totalAmount - finalDiscount + finalAdditionalCost
 
       await purchaseOrder.update({
         totalAmount,
@@ -550,9 +649,17 @@ const purchaseOrderController = {
         modifiedBy,
         pic: pic !== undefined ? pic : purchaseOrder.pic,
         dueDate: dueDate !== undefined ? dueDate : purchaseOrder.dueDate,
-        paymentMethod: paymentMethod !== undefined ? paymentMethod : purchaseOrder.paymentMethod,
+        paymentMethod:
+          paymentMethod !== undefined
+            ? paymentMethod
+            : purchaseOrder.paymentMethod,
         tenor: tenor !== undefined ? tenor : purchaseOrder.tenor,
-        dpPercent: dpPercent !== undefined ? dpPercent : purchaseOrder.dpPercent
+        dpPercent: dpPercent !== undefined ? dpPercent : purchaseOrder.dpPercent,
+        additionalCost: finalAdditionalCost,
+        overDeliveryTolerance:
+          overDeliveryTolerance !== undefined
+            ? Number(overDeliveryTolerance) || 10
+            : purchaseOrder.overDeliveryTolerance || 10
       })
 
       await createAudit(
@@ -610,6 +717,22 @@ const purchaseOrderController = {
           success: false,
           message: 'Purchase order already fully received'
         })
+      }
+
+      if (purchaseOrder.paymentMethod === 'credit') {
+        const dpAmount =
+          (Number(purchaseOrder.dpPercent || 0) / 100) *
+          Number(purchaseOrder.finalAmount || 0)
+        const paidToPO =
+          (await db.purchase_payment.sum('amount', {
+            where: { purchaseOrder: id, deletedAt: null }
+          })) || 0
+        if (paidToPO < dpAmount) {
+          return res.status(400).json({
+            success: false,
+            message: `DP belum lunas. DP: Rp ${dpAmount.toLocaleString('id-ID')}, Dibayar: Rp ${paidToPO.toLocaleString('id-ID')}`
+          })
+        }
       }
 
       const transaction = await db.sequelize.transaction()
@@ -848,7 +971,7 @@ const purchaseOrderController = {
                 await db.purchase_order_item.update(
                   {
                     receivedQuantity: db.sequelize.literal(
-                      `GREATEST(receivedQuantity - ${qty}, 0)`
+                      `GREATEST("receivedQuantity" - ${qty}, 0)`
                     )
                   },
                   {
@@ -869,7 +992,7 @@ const purchaseOrderController = {
                   await poItem.update(
                     {
                       receivedQuantity: db.sequelize.literal(
-                        `GREATEST(receivedQuantity - ${qty}, 0)`
+                        `GREATEST("receivedQuantity" - ${qty}, 0)`
                       )
                     },
                     { transaction: t }
@@ -1049,7 +1172,7 @@ const purchaseOrderController = {
             ]
           }
         ],
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       const workbook = new ExcelJS.Workbook()
@@ -1239,7 +1362,10 @@ const purchaseOrderController = {
       return res.status(200).json({
         success: true,
         message: `Imported ${createdOrders.length} purchase orders`,
-        data: createdOrders
+        data: {
+          total: ordersToCreate.length,
+          created: createdOrders.length
+        }
       })
     } catch (error) {
       console.error('Error =>', error)

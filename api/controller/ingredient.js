@@ -7,8 +7,20 @@ const excelJS = require('exceljs')
 const ingredientController = {
   async getAll(req, res) {
     try {
-      const store = req.query.store || req.user?.store
-      const { search, status, lowStock, supplier, page = 1, limit = 10 } = req.query
+      const storeParam = req.query.store
+      const store = storeParam && !isNaN(Number(storeParam))
+        ? storeParam
+        : req.user?.roleType !== 'super_admin'
+          ? req.user?.store
+          : undefined
+      const {
+        search,
+        status,
+        lowStock,
+        supplier,
+        page = 1,
+        limit = 10
+      } = req.query
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const where = {}
@@ -168,7 +180,8 @@ const ingredientController = {
         minStock,
         unit: unit || 'pcs',
         baseUnit: baseUnit || unit || 'pcs',
-        conversionFactor: conversionFactor != null ? parseFloat(conversionFactor) : 1,
+        conversionFactor:
+          conversionFactor != null ? parseFloat(conversionFactor) : 1,
         costPrice: costPrice || 0,
         status:
           status !== undefined
@@ -398,12 +411,12 @@ const ingredientController = {
       const categories = await db.ingredientCategory.findAll({
         where: store ? { store } : {},
         attributes: ['name'],
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
       const suppliers = await db.supplier.findAll({
         where: store ? { store } : {},
         attributes: ['name'],
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
       const catList = categories.map((c) => c.name).join(',')
       const suppList = suppliers.map((s) => s.name).join(',')
@@ -569,7 +582,7 @@ const ingredientController = {
             attributes: ['id', 'name']
           }
         ],
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       const workbook = new excelJS.Workbook()
@@ -798,9 +811,9 @@ const ingredientController = {
         message: `Berhasil import ${insertedCount} dari ${ingredients.length} bahan baku`,
         data: {
           total: ingredients.length,
-          inserted: insertedCount,
-          duplicates: duplicateErrors.length,
-          errors: [...duplicateErrors, ...errors]
+          created: insertedCount,
+          skipped: duplicateErrors.length,
+          skippedNames: duplicateErrors.length > 0 ? duplicateErrors : undefined
         }
       })
     } catch (error) {
@@ -808,6 +821,68 @@ const ingredientController = {
       return res
         .status(500)
         .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async getProductNames(req, res) {
+    try {
+      const { store, category, supplier } = req.query
+
+      if (!supplier) {
+        return res.status(400).json({
+          success: false,
+          message: 'Supplier is required'
+        })
+      }
+
+      const supplierId = Number(supplier)
+
+      const where = { supplier: supplierId }
+      const productAttrs = ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt']
+      let products = await db.supplier_product.findAll({
+        where,
+        attributes: productAttrs,
+        raw: true
+      })
+
+      if (category) {
+        const usedIngredients = await db.ingredient.findAll({
+          where: {
+            supplier: supplierId,
+            category: Number(category)
+          },
+          attributes: ['name'],
+          raw: true
+        })
+        const usedNames = usedIngredients.map((i) =>
+          i.name.toLowerCase().trim()
+        )
+        if (usedNames.length > 0) {
+          products = products.filter((p) =>
+            usedNames.includes(p.name.toLowerCase().trim())
+          )
+        }
+      }
+
+      const seen = new Set()
+      products = products.filter((p) => {
+        const key = p.name.toLowerCase().trim()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get product names',
+        data: products
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
     }
   }
 }

@@ -5,8 +5,7 @@ const validateStoreAccess = (req, res, next) => {
     parseInt(req.query.store) || parseInt(req.body.store) || null
 
   if (userRole === 'super_admin') {
-    // super_admin can access any store — use requested store or fall back to user's default
-    req.storeId = requestedStore || userStore || null
+    req.storeId = requestedStore || null
     return next()
   }
 

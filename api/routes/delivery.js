@@ -139,6 +139,7 @@ router.get(
   '/marketplace-config',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin'),
   deliveryController.getMarketplaceConfig
 )
 

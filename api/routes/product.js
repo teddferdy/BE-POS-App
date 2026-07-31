@@ -79,6 +79,7 @@ router.get(
   '/download',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   productController.downloadData
 )
 router.post(

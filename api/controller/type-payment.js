@@ -142,7 +142,10 @@ exports.getTypePaymentById = async (req, res) => {
 exports.postNewTypePayment = async (req, res) => {
   const { name, status } = req.body
   const rawStore = req.body.store || req.user?.store
-  const store = typeof rawStore === 'object' && rawStore !== null ? JSON.stringify(rawStore) : rawStore
+  const store =
+    typeof rawStore === 'object' && rawStore !== null
+      ? JSON.stringify(rawStore)
+      : rawStore
   try {
     const findOneTypePayment = await TypePayment?.findOne({
       where: {
@@ -194,7 +197,10 @@ exports.postNewTypePayment = async (req, res) => {
 exports.editTypePaymentById = async (req, res) => {
   const body = req.body
   const rawStore = body.store || req.user?.store
-  const store = typeof rawStore === 'object' && rawStore !== null ? JSON.stringify(rawStore) : rawStore
+  const store =
+    typeof rawStore === 'object' && rawStore !== null
+      ? JSON.stringify(rawStore)
+      : rawStore
   try {
     const existing = await TypePayment.findByPk(req.params.id)
     if (existing?.isSystem) {
@@ -324,7 +330,7 @@ exports.downloadData = async (req, res) => {
 
     const typePayments = await TypePayment.findAll({
       where,
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const workbook = new ExcelJS.Workbook()
@@ -443,19 +449,37 @@ exports.importData = async (req, res) => {
         .json({ success: false, message: 'Validation errors', errors })
     }
 
-    const created = await TypePayment.bulkCreate(toCreate)
+    const created = []
+    const skipped = []
+    for (const item of toCreate) {
+      const existing = await TypePayment.findOne({
+        where: { name: item.name }
+      })
+      if (existing) {
+        skipped.push(item.name)
+        continue
+      }
+      const payment = await TypePayment.create(item)
+      created.push(payment)
+    }
+
     createAudit(
       req,
       'import',
       'type_payment',
       null,
-      `Imported ${created.length} type payments`
+      `Imported ${created.length} type payments, skipped ${skipped.length}`
     )
 
     return res.status(201).json({
       success: true,
-      message: `Successfully imported ${created.length} type payments`,
-      data: created
+      message: `Successfully imported ${created.length} from ${toCreate.length} type payments`,
+      data: {
+        total: toCreate.length,
+        created: created.length,
+        skipped: skipped.length,
+        skippedNames: skipped.length > 0 ? skipped : undefined
+      }
     })
   } catch (error) {
     console.error('Error =>', error)

@@ -3,17 +3,29 @@ const router = express.Router()
 const memberTierController = require('../controller/memberTier')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
   createMemberTierSchema,
   updateMemberTierSchema
 } = require('../validation/schemas')
 
-router.get('/get-all', authorization, memberTierController.getAll)
-router.get('/detail/:id', authorization, memberTierController.getDetail)
+router.get(
+  '/get-all',
+  authorization,
+  validateStoreAccess,
+  memberTierController.getAll
+)
+router.get(
+  '/detail/:id',
+  authorization,
+  validateStoreAccess,
+  memberTierController.getDetail
+)
 router.post(
   '/add',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   validate(createMemberTierSchema),
   memberTierController.create
@@ -21,6 +33,7 @@ router.post(
 router.put(
   '/edit/:id',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   validate(updateMemberTierSchema),
   memberTierController.update
@@ -28,13 +41,20 @@ router.put(
 router.delete(
   '/delete/:id',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   memberTierController.delete
 )
-router.get('/get-by-points', authorization, memberTierController.getMemberTier)
+router.get(
+  '/get-by-points',
+  authorization,
+  validateStoreAccess,
+  memberTierController.getMemberTier
+)
 router.post(
   '/update-members',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   memberTierController.updateMemberTier
 )

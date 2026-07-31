@@ -1608,6 +1608,9 @@ exports.getCustomerMenu = async (req, res) => {
 
     const Op = require('sequelize').Op
     const storeId = Number(store)
+    if (isNaN(storeId)) {
+      return res.status(400).json({ message: 'Invalid store value' })
+    }
 
     const productWhere = { status: 'active' }
     const categoryWhere = { status: 'active' }

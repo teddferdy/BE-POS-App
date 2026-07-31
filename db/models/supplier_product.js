@@ -42,8 +42,8 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       minOrderQty: {
-        type: DataTypes.INTEGER,
-        defaultValue: 1
+        type: DataTypes.STRING,
+        defaultValue: "1"
       },
       notes: {
         type: DataTypes.TEXT,

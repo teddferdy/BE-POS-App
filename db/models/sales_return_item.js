@@ -25,6 +25,17 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         defaultValue: 'pcs'
       },
+      orderItem: {
+        type: DataTypes.INTEGER
+      },
+      price: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      conversionToBase: {
+        type: DataTypes.DECIMAL(10, 4),
+        defaultValue: 1
+      },
       notes: {
         type: DataTypes.TEXT
       }

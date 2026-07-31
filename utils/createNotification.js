@@ -117,7 +117,7 @@ const createNotification = async ({
         : config.description
 
     const notification = await db.notification.create({
-      store,
+      store: store || null,
       type,
       title,
       description,

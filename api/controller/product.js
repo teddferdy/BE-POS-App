@@ -485,7 +485,11 @@ exports.postAddProduct = async (req, res) => {
     let imageUrl = null
 
     if (imageFile) {
-      imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-products')
+      try {
+        imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-products')
+      } catch (err) {
+        console.warn('Image upload skipped (Cloudinary not configured):', err.message)
+      }
     }
 
     let parsedStores = []
@@ -1026,7 +1030,8 @@ exports.downloadData = async (req, res) => {
     }
     const products = await Product.findAll({
       where,
-      include: [{ model: Category, as: 'categoryData', attributes: ['name'] }]
+      include: [{ model: Category, as: 'categoryData', attributes: ['name'] }],
+      order: [['createdAt', 'ASC']]
     })
 
     products.forEach((p, i) => {

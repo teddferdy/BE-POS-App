@@ -690,147 +690,161 @@ const posController = {
     return purchaseReturnController.create(req, res)
   },
 
-  // Sales order return
+  // Sales order return — create request (pending)
   async returnSalesOrder(req, res) {
     try {
       const { id } = req.params
       const { store } = req.cookies
       const { items, reason, returnedBy } = req.body
 
-      const oAttrs = await orderAttrs()
-      const order = await db.order.findByPk(id, oAttrs ? { attributes: oAttrs } : undefined)
-      if (!order) {
-        return res.status(404).json({
+      if (!items || items.length === 0) {
+        return res.status(400).json({
           success: false,
-          message: 'Order not found'
+          message: 'At least one item is required'
         })
       }
 
-      if (order.status !== 'paid') {
+      if (!reason || reason.trim() === '') {
+        return res.status(400).json({
+          success: false,
+          message: 'Return reason is required'
+        })
+      }
+
+      const oAttrs = await orderAttrs()
+      const order = await db.order.findByPk(id, {
+        include: [{ model: db.order_item, as: 'items' }],
+        attributes: oAttrs ? oAttrs : undefined
+      })
+
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'Order not found' })
+      }
+
+      if (order.paymentStatus !== 'paid') {
         return res.status(400).json({
           success: false,
           message: 'Only paid orders can be returned'
         })
       }
 
+      if (store && order.store !== parseInt(store)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot return order from different store'
+        })
+      }
+
+      const existingReturns = await db.sales_return.findAll({
+        where: { order: id, status: { [Op.ne]: 'rejected' } },
+        include: [{ model: db.sales_return_item, as: 'items' }]
+      })
+
+      const returnedQtyMap = {}
+      existingReturns.forEach((ret) => {
+        ret.items.forEach((item) => {
+          if (item.orderItem) {
+            returnedQtyMap[item.orderItem] = (returnedQtyMap[item.orderItem] || 0) + Number(item.qty)
+          }
+        })
+      })
+
       const result = await db.sequelize.transaction(async (t) => {
+        let totalRefund = 0
+        const returnItemsData = []
+
+        for (const reqItem of items) {
+          const qty = Number(reqItem.qty)
+          if (!qty || qty <= 0) {
+            throw new Error(`Invalid quantity for product ${reqItem.productId}`)
+          }
+
+          const originalItem = order.items.find(
+            (oi) => oi.product === reqItem.productId || oi.id === reqItem.orderItemId
+          )
+          if (!originalItem) {
+            throw new Error(`Product ${reqItem.productId} not found in original order`)
+          }
+
+          const product = await db.product.findByPk(reqItem.productId, { transaction: t })
+          if (!product) {
+            throw new Error(`Product ${reqItem.productId} does not exist`)
+          }
+
+          const alreadyReturned = returnedQtyMap[originalItem.id] || 0
+          if (alreadyReturned + qty > originalItem.quantity) {
+            throw new Error(
+              `Cumulative return quantity for ${originalItem.productName} (${alreadyReturned + qty}) exceeds original quantity (${originalItem.quantity})`
+            )
+          }
+
+          const pricePerUnit = Math.floor(originalItem.totalPrice / originalItem.quantity)
+          const itemRefund = pricePerUnit * qty
+          totalRefund += itemRefund
+
+          returnItemsData.push({
+            product: reqItem.productId,
+            orderItem: originalItem.id,
+            qty: qty,
+            price: pricePerUnit,
+            unit: reqItem.unit || originalItem.unit || 'pcs',
+            conversionToBase: reqItem.conversionToBase || 1,
+            notes: reqItem.notes || null
+          })
+        }
+
+        if (totalRefund > order.totalPrice) {
+          throw new Error('Refund amount cannot exceed order total')
+        }
+
         const returnOrder = await db.sales_return.create(
           {
             order: id,
-            store,
-            reason,
+            store: store || order.store,
+            reason: reason.trim(),
             returnNumber: `SR-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
             status: 'pending',
-            returnedBy,
+            refundAmount: totalRefund,
+            returnedBy: returnedBy || req.user?.id || null,
             createdBy: req.user?.id || null
           },
           { transaction: t }
         )
 
-        const returnItems = items.map((item) => ({
-          salesReturn: returnOrder.id,
-          product: item.productId,
-          qty: item.qty,
-          unit: item.unit || 'pcs',
-          notes: item.notes || null
+        const finalItems = returnItemsData.map((item) => ({
+          ...item,
+          salesReturn: returnOrder.id
         }))
 
-        await db.sales_return_item.bulkCreate(returnItems, { transaction: t })
+        await db.sales_return_item.bulkCreate(finalItems, { transaction: t })
 
-        // Update stock
-        for (const item of items) {
-          const product = await db.product.findByPk(item.productId, {
-            transaction: t
-          })
-          if (!product) continue
-
-          // ponytail: if BOM exists, restore ingredient stock (reverse of sale deduction).
-          // If no BOM, restore product stock directly.
-          const bom = await db.bom_header.findOne({
-            where: { productId: item.productId, status: 'active' },
-            include: [{ model: db.bom_line, as: 'lines' }],
-            transaction: t
-          })
-
-          if (!bom) {
-            const oldStock = Number(product.stock) || 0
-            const qty = Math.floor(Number(item.qty)) || 0
-            await product.update(
-              { stock: db.sequelize.literal(`stock + ${qty}`) },
-              { transaction: t }
-            )
-
-            // ponytail: atomic upsert + add per-store stock
-            await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-              { bind: [item.productId, store], transaction: t }
-            )
-            await db.product_store_stock.update(
-              { stock: db.sequelize.literal(`stock + ${qty}`) },
-              { where: { product: item.productId, store }, transaction: t }
-            )
-
-            await db.stock_history.create(
-              {
-                product: item.productId,
-                store,
-                referenceType: 'sale_return',
-                quantityBefore: oldStock,
-                quantityChange: item.qty,
-                quantityAfter: oldStock + item.qty,
-                unit: item.unit || 'pcs',
-                notes: `Sales return: ${reason}`,
-                createdBy: req.user?.id || null
-              },
-              { transaction: t }
-            )
-          } else {
-            for (const line of bom.lines) {
-              const ing = await db.ingredient.findByPk(line.ingredientId, {
-                transaction: t
-              })
-              if (!ing) continue
-              const restoreQty = line.qty * Number(item.qty)
-              const oldIngStock = Number(ing.stock)
-              await ing.update(
-                { stock: oldIngStock + restoreQty },
-                { transaction: t }
-              )
-              await db.stock_history.create(
-                {
-                  product: product.id,
-                  ingredient: ing.id,
-                  ingredientName: ing.name,
-                  store,
-                  referenceType: 'sale_return',
-                  quantityBefore: oldIngStock,
-                  quantityChange: restoreQty,
-                  quantityAfter: oldIngStock + restoreQty,
-                  unit: line.unit || ing.unit || 'pcs',
-                  notes: `Sales return: ${reason}`,
-                  createdBy: req.user?.id || null
-                },
-                { transaction: t }
-              )
-            }
-          }
-        }
+        await db.stock_history.create(
+          {
+            store: store || order.store,
+            referenceType: 'sale_return',
+            referenceId: returnOrder.id,
+            quantityBefore: 0,
+            quantityChange: 0,
+            quantityAfter: 0,
+            notes: `Sales return request: ${returnOrder.returnNumber} (pending approval)`,
+            createdBy: req.user?.id || null
+          },
+          { transaction: t }
+        )
 
         return returnOrder
       })
 
       return res.status(201).json({
         success: true,
-        message: 'Sales return created',
+        message: 'Sales return request created (Pending approval)',
         data: result
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(500).json({
+      return res.status(400).json({
         success: false,
-        message: 'Internal server error'
+        message: error.message || 'Internal server error'
       })
     }
   },

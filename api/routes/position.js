@@ -91,6 +91,7 @@ router.get(
   '/download-template',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   positionController.downloadTemplate
 )
 
@@ -98,6 +99,7 @@ router.get(
   '/download',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   positionController.downloadData
 )
 

@@ -12,6 +12,44 @@ const generateReceiptNo = () => {
   return `GR-${year}${month}${day}-${timestamp}`
 }
 
+// ponytail: weighted-average HPP update when GR costPrice differs from PO price
+const applyCostPrice = async ({ item, qty, store, transaction }) => {
+  const costPrice = parseInt(item.costPrice) || 0
+  const conversion = Number(item.conversionToBase) || 1
+  const qtyStock = qty * conversion
+  // HPP is per PO unit; convert to per base-stock-unit before averaging
+  const baseUnitCost = conversion > 0 ? costPrice / conversion : 0
+  if (baseUnitCost <= 0 || qtyStock <= 0) return
+
+  if (item.product) {
+    const product = await db.product.findByPk(item.product, { transaction })
+    if (product) {
+      const oldStock = Number(product.stock) || 0
+      const oldCost = Number(product.costPrice) || 0
+      const newCost = Math.round(
+        (oldStock * oldCost + qtyStock * baseUnitCost) / (oldStock + qtyStock)
+      )
+      await product.update({ costPrice: newCost }, { transaction })
+    }
+  }
+
+  const ingName = item.ingredientName || item.poItemData?.ingredientName
+  if (ingName) {
+    const ingredient = await db.ingredient.findOne({
+      where: { name: { [Op.iLike]: ingName.trim() }, store },
+      transaction
+    })
+    if (ingredient) {
+      const oldStock = Number(ingredient.stock) || 0
+      const oldCost = Number(ingredient.costPrice) || 0
+      const newCost = Math.round(
+        (oldStock * oldCost + qtyStock * baseUnitCost) / (oldStock + qtyStock)
+      )
+      await ingredient.update({ costPrice: newCost }, { transaction })
+    }
+  }
+}
+
 const goodsReceiptController = {
   async getAll(req, res) {
     try {
@@ -50,6 +88,7 @@ const goodsReceiptController = {
 
       const { count, rows } = await db.goodsReceipt.findAndCountAll({
         where,
+        distinct: true,
         include: [
           {
             model: db.purchase_order,
@@ -240,6 +279,22 @@ const goodsReceiptController = {
           .json({ success: false, message: 'Cannot receive cancelled order' })
       }
 
+      // ponytail: credit control - block GR until DP is fully paid
+      if (po.paymentMethod === 'credit') {
+        const dpAmount =
+          (Number(po.dpPercent || 0) / 100) * Number(po.finalAmount || 0)
+        const paidToPO =
+          (await db.purchase_payment.sum('amount', {
+            where: { purchaseOrder: purchaseOrderId, deletedAt: null }
+          })) || 0
+        if (paidToPO < dpAmount) {
+          return res.status(400).json({
+            success: false,
+            message: `DP belum lunas. DP: Rp ${dpAmount.toLocaleString('id-ID')}, Dibayar: Rp ${paidToPO.toLocaleString('id-ID')}`
+          })
+        }
+      }
+
       const receiptNumber = generateReceiptNo()
       const effectiveStore = store || po.store
 
@@ -260,6 +315,17 @@ const goodsReceiptController = {
         )
 
         const receiptItems = []
+        const additionalCost = Number(po.additionalCost) || 0
+        const tolerance = Number(po.overDeliveryTolerance) || 10
+        const allPoItems = await db.purchase_order_item.findAll({
+          where: { purchaseOrder: purchaseOrderId },
+          transaction
+        })
+        const totalPOValue = allPoItems.reduce(
+          (sum, pi) => sum + Number(pi.quantity) * Number(pi.price),
+          0
+        )
+
         for (const item of items) {
           const qty = parseInt(item.qtyReceived) || 0
           if (qty <= 0) continue
@@ -282,19 +348,43 @@ const goodsReceiptController = {
               },
               transaction
             })
+          } else if (item.ingredientName && purchaseOrderId) {
+            poItem = await db.purchase_order_item.findOne({
+              where: {
+                purchaseOrder: purchaseOrderId,
+                ingredientName: item.ingredientName
+              },
+              transaction
+            })
           }
 
           if (poItem) {
-            const remaining =
-              Number(poItem.quantity) - Number(poItem.receivedQuantity)
+            const ordered = Number(poItem.quantity)
+            const alreadyReceived = Number(poItem.receivedQuantity) || 0
+            const toleranceQty = Math.ceil((ordered * tolerance) / 100)
+            const maxDeliverable = ordered + toleranceQty
+            const remaining = maxDeliverable - alreadyReceived
             if (qty > remaining) {
               await transaction.rollback()
               return res.status(400).json({
                 success: false,
-                message: `Over-receiving not allowed for ${item.ingredientName || poItem.ingredientName || 'item'}: max ${remaining} remaining (ordered ${poItem.quantity}, already received ${poItem.receivedQuantity})`
+                message: `Over-receiving not allowed for ${item.ingredientName || poItem.ingredientName || 'item'}: max ${remaining} remaining (ordered ${ordered}, tolerance ${tolerance}% = +${toleranceQty}, already received ${alreadyReceived})`
               })
             }
           }
+
+          const conversion =
+            Number(item.conversionToBase) || Number(poItem?.conversionToBase) || 1
+          const baseCost =
+            parseInt(item.costPrice) || (poItem ? Number(poItem.price) || 0 : 0)
+          const landed =
+            additionalCost > 0 && totalPOValue > 0 && poItem
+              ? Math.round(
+                  (additionalCost * (Number(poItem.price) || 0)) / totalPOValue
+                )
+              : 0
+          const costPrice = baseCost + landed
+          const qtyStock = qty * conversion
 
           receiptItems.push({
             goodsReceipt: receipt.id,
@@ -303,14 +393,18 @@ const goodsReceiptController = {
             qtyReceived: qty,
             unit: item.unit || 'pcs',
             conditionNotes: item.conditionNotes || null,
-            ingredientName: item.ingredientName || null
+            ingredientName: item.ingredientName || null,
+            costPrice,
+            landedCost: landed,
+            conversionToBase: conversion,
+            qtyStock
           })
 
           if (poItem) {
             await poItem.update(
               {
                 receivedQuantity: db.sequelize.literal(
-                  `receivedQuantity + ${qty}`
+                  `"receivedQuantity" + ${qty}`
                 )
               },
               { transaction }
@@ -324,7 +418,7 @@ const goodsReceiptController = {
             if (product) {
               const qtyBefore = Number(product.stock) || 0
               await product.update(
-                { stock: db.sequelize.literal(`stock + ${qty}`) },
+                { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
                 { transaction }
               )
 
@@ -337,7 +431,7 @@ const goodsReceiptController = {
                   { bind: [item.product, effectiveStore], transaction }
                 )
                 await db.product_store_stock.update(
-                  { stock: db.sequelize.literal(`stock + ${qty}`) },
+                  { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
                   {
                     where: { product: item.product, store: effectiveStore },
                     transaction
@@ -351,9 +445,9 @@ const goodsReceiptController = {
                   store: effectiveStore,
                   referenceType: 'purchase',
                   quantityBefore: qtyBefore,
-                  quantityChange: qty,
-                  quantityAfter: qtyBefore + qty,
-                  unit: item.unit || 'pcs',
+                  quantityChange: qtyStock,
+                  quantityAfter: qtyBefore + qtyStock,
+                  unit: product.unit || item.unit || 'pcs',
                   notes: `GR: ${receiptNumber} (PO: ${po.orderNumber})`,
                   createdBy: req.user?.id || null
                 },
@@ -374,7 +468,7 @@ const goodsReceiptController = {
             if (ingredient) {
               const qtyBefore = Number(ingredient.stock) || 0
               await ingredient.update(
-                { stock: db.sequelize.literal(`stock + ${qty}`) },
+                { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
                 { transaction }
               )
 
@@ -385,9 +479,9 @@ const goodsReceiptController = {
                   store: effectiveStore,
                   referenceType: 'purchase',
                   quantityBefore: qtyBefore,
-                  quantityChange: qty,
-                  quantityAfter: qtyBefore + qty,
-                  unit: item.unit || ingredient.unit || 'pcs',
+                  quantityChange: qtyStock,
+                  quantityAfter: qtyBefore + qtyStock,
+                  unit: ingredient.unit || item.unit || 'pcs',
                   notes: `GR: ${receiptNumber} (PO: ${po.orderNumber})`,
                   createdBy: req.user?.id || null
                 },
@@ -395,16 +489,18 @@ const goodsReceiptController = {
               )
             }
           }
+
+          await applyCostPrice({
+            item: { ...item, costPrice, conversionToBase: conversion },
+            qty,
+            store: effectiveStore,
+            transaction
+          })
         }
 
         if (receiptItems.length > 0) {
           await db.goodsReceiptItem.bulkCreate(receiptItems, { transaction })
         }
-
-        const allPoItems = await db.purchase_order_item.findAll({
-          where: { purchaseOrder: purchaseOrderId },
-          transaction
-        })
 
         const allReceived = allPoItems.every(
           (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
@@ -498,11 +594,16 @@ const goodsReceiptController = {
       const qty = parseInt(grItem.qtyReceived) || 0
       if (qty <= 0) continue
 
+      const qtyStock =
+        Number(grItem.qtyStock) > 0
+          ? Number(grItem.qtyStock)
+          : qty * (Number(grItem.conversionToBase) || 1)
+
       if (grItem.purchaseOrderItem) {
         await db.purchase_order_item.update(
           {
             receivedQuantity: db.sequelize.literal(
-              `GREATEST(receivedQuantity - ${qty}, 0)`
+              `GREATEST("receivedQuantity" - ${qty}, 0)`
             )
           },
           { where: { id: grItem.purchaseOrderItem }, transaction }
@@ -516,7 +617,7 @@ const goodsReceiptController = {
         if (product) {
           const qtyBefore = Number(product.stock) || 0
           await product.update(
-            { stock: Math.max(qtyBefore - qty, 0) },
+            { stock: Math.max(qtyBefore - qtyStock, 0) },
             { transaction }
           )
           await db.stock_history.create(
@@ -525,9 +626,9 @@ const goodsReceiptController = {
               store: grItem.store || null,
               referenceType: 'adjustment',
               quantityBefore: qtyBefore,
-              quantityChange: -qty,
-              quantityAfter: Math.max(qtyBefore - qty, 0),
-              unit: grItem.unit || 'pcs',
+              quantityChange: -qtyStock,
+              quantityAfter: Math.max(qtyBefore - qtyStock, 0),
+              unit: product.unit || grItem.unit || 'pcs',
               notes: `GR reversal: ${grItem.id || 'update'}`,
               createdBy: userId || null
             },
@@ -551,7 +652,7 @@ const goodsReceiptController = {
         if (ingredient) {
           const qtyBefore = Number(ingredient.stock) || 0
           await ingredient.update(
-            { stock: Math.max(qtyBefore - qty, 0) },
+            { stock: Math.max(qtyBefore - qtyStock, 0) },
             { transaction }
           )
           await db.stock_history.create(
@@ -561,9 +662,9 @@ const goodsReceiptController = {
               store: grItem.store || null,
               referenceType: 'adjustment',
               quantityBefore: qtyBefore,
-              quantityChange: -qty,
-              quantityAfter: Math.max(qtyBefore - qty, 0),
-              unit: grItem.unit || ingredient.unit || 'pcs',
+              quantityChange: -qtyStock,
+              quantityAfter: Math.max(qtyBefore - qtyStock, 0),
+              unit: ingredient.unit || grItem.unit || 'pcs',
               notes: `GR reversal: ${grItem.id || 'update'}`,
               createdBy: userId || null
             },
@@ -579,10 +680,18 @@ const goodsReceiptController = {
       const qty = parseInt(item.qtyReceived) || 0
       if (qty <= 0) continue
 
+      const conversion =
+        Number(item.conversionToBase) ||
+        Number(item.poItemData?.conversionToBase) ||
+        1
+      const qtyStock = qty * conversion
+
       if (item.purchaseOrderItem) {
         await db.purchase_order_item.update(
           {
-            receivedQuantity: db.sequelize.literal(`receivedQuantity + ${qty}`)
+            receivedQuantity: db.sequelize.literal(
+              `"receivedQuantity" + ${qty}`
+            )
           },
           {
             where: {
@@ -599,7 +708,7 @@ const goodsReceiptController = {
         if (product) {
           const qtyBefore = Number(product.stock) || 0
           await product.update(
-            { stock: db.sequelize.literal(`stock + ${qty}`) },
+            { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
             { transaction }
           )
 
@@ -612,7 +721,7 @@ const goodsReceiptController = {
               { bind: [item.product, receipt.store], transaction }
             )
             await db.product_store_stock.update(
-              { stock: db.sequelize.literal(`stock + ${qty}`) },
+              { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
               {
                 where: { product: item.product, store: receipt.store },
                 transaction
@@ -626,9 +735,9 @@ const goodsReceiptController = {
               store: receipt.store,
               referenceType: 'purchase',
               quantityBefore: qtyBefore,
-              quantityChange: qty,
-              quantityAfter: qtyBefore + qty,
-              unit: item.unit || 'pcs',
+              quantityChange: qtyStock,
+              quantityAfter: qtyBefore + qtyStock,
+              unit: product.unit || item.unit || 'pcs',
               notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
               createdBy: userId || null
             },
@@ -649,7 +758,7 @@ const goodsReceiptController = {
         if (ingredient) {
           const qtyBefore = Number(ingredient.stock) || 0
           await ingredient.update(
-            { stock: db.sequelize.literal(`stock + ${qty}`) },
+            { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
             { transaction }
           )
           await db.stock_history.create(
@@ -659,9 +768,9 @@ const goodsReceiptController = {
               store: receipt.store,
               referenceType: 'purchase',
               quantityBefore: qtyBefore,
-              quantityChange: qty,
-              quantityAfter: qtyBefore + qty,
-              unit: item.unit || ingredient.unit || 'pcs',
+              quantityChange: qtyStock,
+              quantityAfter: qtyBefore + qtyStock,
+              unit: ingredient.unit || item.unit || 'pcs',
               notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
               createdBy: userId || null
             },
@@ -669,6 +778,13 @@ const goodsReceiptController = {
           )
         }
       }
+
+      await applyCostPrice({
+        item,
+        qty,
+        store: receipt.store,
+        transaction
+      })
     }
   },
 
@@ -760,17 +876,84 @@ const goodsReceiptController = {
         })
 
         if (items && items.length > 0) {
-          const newItems = items
-            .filter((item) => parseInt(item.qtyReceived) > 0)
-            .map((item) => ({
+          const po = await db.purchase_order.findOne({
+            where: { id: receipt.purchaseOrderId }
+          })
+          const additionalCost = Number(po?.additionalCost) || 0
+          const tolerance = Number(po?.overDeliveryTolerance) || 10
+          const allPoItems = await db.purchase_order_item.findAll({
+            where: { purchaseOrder: receipt.purchaseOrderId },
+            transaction
+          })
+          const totalPOValue = allPoItems.reduce(
+            (sum, pi) => sum + Number(pi.quantity) * Number(pi.price),
+            0
+          )
+
+          const newItems = []
+          for (const item of items) {
+            const qty = parseInt(item.qtyReceived)
+            if (qty <= 0) continue
+
+            let poItem =
+              allPoItems.find((pi) => pi.id === item.purchaseOrderItem) || null
+            if (!poItem && item.ingredient) {
+              poItem =
+                allPoItems.find((pi) => pi.ingredient === item.ingredient) ||
+                null
+            }
+            if (!poItem && item.ingredientName) {
+              poItem =
+                allPoItems.find(
+                  (pi) => pi.ingredientName === item.ingredientName
+                ) || null
+            }
+
+            if (poItem) {
+              const ordered = Number(poItem.quantity)
+              const alreadyReceived = Number(poItem.receivedQuantity) || 0
+              const toleranceQty = Math.ceil((ordered * tolerance) / 100)
+              const maxDeliverable = ordered + toleranceQty
+              const remaining = maxDeliverable - alreadyReceived
+              if (qty > remaining) {
+                await transaction.rollback()
+                return res.status(400).json({
+                  success: false,
+                  message: `Over-receiving not allowed for ${item.ingredientName || poItem.ingredientName || 'item'}: max ${remaining} remaining (ordered ${ordered}, tolerance ${tolerance}%, already received ${alreadyReceived})`
+                })
+              }
+            }
+
+            const conversion =
+              Number(item.conversionToBase) ||
+              Number(poItem?.conversionToBase) ||
+              1
+            const baseCost =
+              parseInt(item.costPrice) ||
+              (poItem ? Number(poItem.price) || 0 : 0)
+            const landed =
+              additionalCost > 0 && totalPOValue > 0 && poItem
+                ? Math.round(
+                    (additionalCost * (Number(poItem.price) || 0)) /
+                      totalPOValue
+                  )
+                : 0
+            const costPrice = baseCost + landed
+
+            newItems.push({
               goodsReceipt: id,
-              purchaseOrderItem: item.purchaseOrderItem || null,
+              purchaseOrderItem: item.purchaseOrderItem || poItem?.id || null,
               product: item.product || null,
-              qtyReceived: parseInt(item.qtyReceived),
+              qtyReceived: qty,
               unit: item.unit || 'pcs',
               conditionNotes: item.conditionNotes || null,
-              ingredientName: item.ingredientName || null
-            }))
+              ingredientName: item.ingredientName || null,
+              costPrice,
+              landedCost: landed,
+              conversionToBase: conversion,
+              qtyStock: qty * conversion
+            })
+          }
 
           if (newItems.length > 0) {
             await db.goodsReceiptItem.bulkCreate(newItems, { transaction })

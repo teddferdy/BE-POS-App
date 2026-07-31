@@ -23,6 +23,26 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
+      costPrice: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        comment: 'Actual received unit cost (HPP) - editable for price variance'
+      },
+      landedCost: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        comment: 'Allocated landed cost per unit from PO additionalCost'
+      },
+      conversionToBase: {
+        type: DataTypes.DECIMAL(10, 4),
+        defaultValue: 1,
+        comment: 'Factor to convert received unit to base stock unit'
+      },
+      qtyStock: {
+        type: DataTypes.DECIMAL(12, 2),
+        defaultValue: 0,
+        comment: 'Received quantity expressed in base stock unit'
+      },
       unit: {
         type: DataTypes.STRING,
         defaultValue: 'pcs'

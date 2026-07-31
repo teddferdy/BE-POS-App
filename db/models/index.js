@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 'use strict'
 
 const fs = require('fs')
@@ -120,8 +119,8 @@ const pendingMigrations = [
   {
     table: 'supplier_product',
     columns: [
-      { name: 'unit', definition: 'VARCHAR(20) DEFAULT \'pcs\'' },
-      { name: 'leadTimeUnit', definition: 'VARCHAR(10) DEFAULT \'hari\'' },
+      { name: 'unit', definition: "VARCHAR(20) DEFAULT 'pcs'" },
+      { name: 'leadTimeUnit', definition: "VARCHAR(10) DEFAULT 'hari'" },
       { name: 'notes', definition: 'TEXT' }
     ]
   },
@@ -140,9 +139,47 @@ const pendingMigrations = [
   {
     table: 'purchase_order',
     columns: [
-      { name: '"paymentMethod"', definition: "VARCHAR(20) DEFAULT 'cash'" },
-      { name: '"tenor"', definition: 'INTEGER DEFAULT 0' },
-      { name: '"dpPercent"', definition: "DECIMAL(5,2) DEFAULT 0" }
+      { name: 'paymentMethod', definition: "VARCHAR(20) DEFAULT 'cash'" },
+      { name: 'tenor', definition: 'INTEGER DEFAULT 0' },
+      { name: 'dpPercent', definition: 'DECIMAL(5,2) DEFAULT 0' },
+      { name: 'additionalCost', definition: 'INTEGER DEFAULT 0' },
+      { name: 'overDeliveryTolerance', definition: 'INTEGER DEFAULT 10' }
+    ]
+  },
+  {
+    table: 'purchase_order_item',
+    columns: [
+      { name: 'conversionToBase', definition: 'DECIMAL(10,4) DEFAULT 1' }
+    ]
+  },
+  {
+    table: 'goods_receipt_item',
+    columns: [
+      { name: 'costPrice', definition: 'INTEGER DEFAULT 0' },
+      { name: 'landedCost', definition: 'INTEGER DEFAULT 0' },
+      { name: 'conversionToBase', definition: 'DECIMAL(10,4) DEFAULT 1' },
+      { name: 'qtyStock', definition: 'DECIMAL(12,2) DEFAULT 0' }
+    ]
+  },
+  {
+    table: 'sales_return',
+    columns: [
+      { name: 'refundAmount', definition: 'INTEGER DEFAULT 0' },
+      { name: 'returnedBy', definition: 'INTEGER' }
+    ]
+  },
+  {
+    table: 'sales_return_item',
+    columns: [
+      { name: 'orderItem', definition: 'INTEGER' },
+      { name: 'price', definition: 'INTEGER DEFAULT 0' },
+      { name: 'conversionToBase', definition: 'DECIMAL(10,4) DEFAULT 1' }
+    ]
+  },
+  {
+    table: 'transaction',
+    columns: [
+      { name: 'salesReturnId', definition: 'INTEGER' }
     ]
   }
 ]

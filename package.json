@@ -11,7 +11,9 @@
     "sync:inventory": "node scripts/migrate-inventory.js",
     "reset-data": "node scripts/reset-data.js",
     "migrate": "npx sequelize-cli db:migrate",
-    "migrate:create": "npx sequelize-cli migration:generate"
+    "migrate:create": "npx sequelize-cli migration:generate",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --forceExit --detectOpenHandles",
+    "test:isolation": "node --experimental-vm-modules node_modules/.bin/jest __tests__/ingredient-isolation.test.js --forceExit --detectOpenHandles"
   },
   "author": "",
   "license": "ISC",
@@ -45,6 +47,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.3"
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.3",
+    "supertest": "^7.2.2"
   }
 }

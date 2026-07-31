@@ -449,7 +449,7 @@ exports.downloadTemplate = async (req, res) => {
 
     const departments = await Department.findAll({
       attributes: ['name', 'description', 'status'],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -489,7 +489,7 @@ exports.downloadData = async (req, res) => {
     const departments = await Department.findAll({
       where: whereCondition,
       attributes: ['id', 'name', 'description', 'status'],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -652,8 +652,12 @@ exports.uploadExcel = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Berhasil memproses ${createdDepartments.length} departemen baru`,
-      data: { created: createdDepartments.length, errors: errors.length }
+      message: `Berhasil memproses ${createdDepartments.length} dari ${departmentsToCreate.length} departemen`,
+      data: {
+        total: departmentsToCreate.length,
+        created: createdDepartments.length,
+        skipped: departmentsToCreate.length - createdDepartments.length
+      }
     })
   } catch (error) {
     console.error('Error processing upload =>', error)

@@ -61,6 +61,15 @@ router.put(
   purchaseOrderController.receive
 )
 
+// Send to Supplier - Admin & Super Admin only
+router.put(
+  '/send-to-supplier/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  purchaseOrderController.sendToSupplier
+)
+
 // Cancel - Admin & Super Admin only
 router.put(
   '/cancel/:id',

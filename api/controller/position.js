@@ -446,7 +446,7 @@ exports.downloadTemplate = async (req, res) => {
           attributes: ['id', 'name']
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -492,7 +492,7 @@ exports.downloadData = async (req, res) => {
           attributes: ['id', 'name']
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -704,8 +704,12 @@ exports.uploadExcel = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Berhasil memproses ${createdPositions.length} jabatan baru`,
-      data: { created: createdPositions.length, errors: errors.length }
+      message: `Berhasil memproses ${createdPositions.length} dari ${positionsToCreate.length} jabatan`,
+      data: {
+        total: positionsToCreate.length,
+        created: createdPositions.length,
+        skipped: positionsToCreate.length - createdPositions.length
+      }
     })
   } catch (error) {
     console.error('Error processing upload =>', error)

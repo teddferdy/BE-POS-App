@@ -240,7 +240,7 @@ exports.downloadData = async (req, res) => {
       filters.store = store
     }
 
-    const discounts = await Discount.findAll({ where: filters })
+    const discounts = await Discount.findAll({ where: filters, order: [['createdAt', 'ASC']] })
 
     // Generate Excel file
     const workbook = new ExcelJS.Workbook()
@@ -355,9 +355,8 @@ exports.importData = async (req, res) => {
     const discountsToCreate = []
     const errors = []
 
-    // Skip header row
-    worksheet.eachRow({ includeEmpty: false }, async (row, rowNumber) => {
-      if (rowNumber === 1) return // Skip header
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber === 1) return
 
       try {
         const [
@@ -371,7 +370,6 @@ exports.importData = async (req, res) => {
           isActiveStr
         ] = row.values
 
-        // Validation
         if (!name || !type || !valueStr) {
           errors.push(`Row ${rowNumber}: Missing required fields`)
           return
@@ -400,21 +398,6 @@ exports.importData = async (req, res) => {
           !!isActiveStr
         const isDraft = isActiveStr?.toLowerCase() === 'draft'
 
-        // Check for duplicate name
-        const existingDiscount = await Discount.findOne({
-          where: {
-            name: name.trim(),
-            ...(req.user?.store ? { store: req.user.store } : {})
-          }
-        })
-
-        if (existingDiscount) {
-          errors.push(
-            `Row ${rowNumber}: Discount with name '${name}' already exists`
-          )
-          return
-        }
-
         discountsToCreate.push({
           name: name.trim(),
           type: typeNormalized === 'percentage' ? 'percent' : 'nominal',
@@ -440,20 +423,40 @@ exports.importData = async (req, res) => {
       })
     }
 
-    // Create all discounts
-    const createdDiscounts = await Discount.bulkCreate(discountsToCreate)
+    const created = []
+    const skipped = []
+    for (const item of discountsToCreate) {
+      const existing = await Discount.findOne({
+        where: {
+          name: item.name,
+          ...(req.user?.store ? { store: req.user.store } : {})
+        }
+      })
+      if (existing) {
+        skipped.push(item.name)
+        continue
+      }
+      const discount = await Discount.create(item)
+      created.push(discount)
+    }
+
     createAudit(
       req,
       'import',
       'discount',
       null,
-      `Imported ${createdDiscounts.length} discounts`
+      `Imported ${created.length} discounts, skipped ${skipped.length}`
     )
 
     return res.status(201).json({
       success: true,
-      message: `Successfully imported ${createdDiscounts.length} discounts`,
-      data: createdDiscounts
+      message: `Successfully imported ${created.length} from ${discountsToCreate.length} discounts`,
+      data: {
+        total: discountsToCreate.length,
+        created: created.length,
+        skipped: skipped.length,
+        skippedNames: skipped.length > 0 ? skipped : undefined
+      }
     })
   } catch (error) {
     console.error('Error =>', error)

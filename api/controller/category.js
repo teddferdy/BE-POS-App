@@ -598,7 +598,7 @@ exports.deleteCategoryById = async (req, res) => {
 exports.exportCategory = async (req, res) => {
   try {
     const categories = await Category.findAll({
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const Location = db.location
@@ -760,7 +760,7 @@ exports.exportCategory = async (req, res) => {
 exports.downloadData = async (req, res) => {
   try {
     const categories = await Category.findAll({
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'ASC']]
     })
 
     const workbook = new excelJS.Workbook()
@@ -972,9 +972,9 @@ exports.importCategory = async (req, res) => {
       message: `Berhasil upload ${insertedCount} dari ${categories.length} kategori`,
       data: {
         total: categories.length,
-        inserted: insertedCount,
-        duplicates: duplicateErrors.length,
-        errors: duplicateErrors.length > 0 ? duplicateErrors : undefined
+        created: insertedCount,
+        skipped: duplicateErrors.length,
+        skippedNames: duplicateErrors.length > 0 ? duplicateErrors : undefined
       }
     })
   } catch (error) {

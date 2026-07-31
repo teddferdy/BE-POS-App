@@ -33,6 +33,7 @@ router.post(
   '/',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   validate(createReservationSchema),
   reservationController.create
 )

@@ -7,7 +7,14 @@ const ExcelJS = require('exceljs')
 const ingredientCategoryController = {
   async getAll(req, res) {
     try {
-      const { search, status, page = 1, limit = 10 } = req.query
+      const {
+        search,
+        status,
+        page = 1,
+        limit = 10,
+        store,
+        supplier
+      } = req.query
 
       const where = {}
       if (search) {
@@ -17,29 +24,50 @@ const ingredientCategoryController = {
         where.status = status
       }
 
+      let supplierFilteredIds = null
+      if (supplier) {
+        const usedCategories = await db.ingredient.findAll({
+          where: { supplier: Number(supplier) },
+          attributes: ['category'],
+          group: ['category']
+        })
+        supplierFilteredIds = usedCategories
+          .map((r) => r.category)
+          .filter(Boolean)
+      }
+
       const offset = (page - 1) * limit
+
+      const categoryWhere = { ...where }
+      if (supplierFilteredIds !== null) {
+        if (supplierFilteredIds.length > 0) {
+          categoryWhere.id = { [Op.in]: supplierFilteredIds }
+        } else {
+          categoryWhere.id = { [Op.in]: [0] }
+        }
+      }
 
       const [categories, total] = await Promise.all([
         db.ingredientCategory.findAll({
-          where,
+          where: categoryWhere,
           limit: parseInt(limit),
           offset: parseInt(offset),
           order: [['createdAt', 'DESC']]
         }),
-        db.ingredientCategory.count({ where })
+        db.ingredientCategory.count({ where: categoryWhere })
       ])
       await enrichAuditFields(db, categories)
 
       const totalPages = Math.ceil(total / limit)
 
       const active = await db.ingredientCategory.count({
-        where: { ...where, status: 'active' }
+        where: { ...categoryWhere, status: 'active' }
       })
       const draft = await db.ingredientCategory.count({
-        where: { ...where, status: 'draft' }
+        where: { ...categoryWhere, status: 'draft' }
       })
       const inactive = await db.ingredientCategory.count({
-        where: { ...where, status: 'inactive' }
+        where: { ...categoryWhere, status: 'inactive' }
       })
 
       return res.status(200).json({
@@ -242,7 +270,7 @@ const ingredientCategoryController = {
   async downloadTemplate(req, res) {
     try {
       const categories = await db.ingredientCategory.findAll({
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       const workbook = new ExcelJS.Workbook()
@@ -349,7 +377,7 @@ const ingredientCategoryController = {
   async downloadData(req, res) {
     try {
       const categories = await db.ingredientCategory.findAll({
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       const workbook = new ExcelJS.Workbook()
@@ -455,19 +483,37 @@ const ingredientCategoryController = {
           .json({ success: false, message: 'Validation errors', errors })
       }
 
-      const created = await db.ingredientCategory.bulkCreate(toCreate)
+      const created = []
+      const skipped = []
+      for (const item of toCreate) {
+        const existing = await db.ingredientCategory.findOne({
+          where: { name: item.name }
+        })
+        if (existing) {
+          skipped.push(item.name)
+          continue
+        }
+        const cat = await db.ingredientCategory.create(item)
+        created.push(cat)
+      }
+
       createAudit(
         req,
         'create',
         'ingredientCategory',
         null,
-        'Imported ingredient categories: ' + created.length
+        `Imported ${created.length} ingredient categories, skipped ${skipped.length}`
       )
 
       return res.status(201).json({
         success: true,
-        message: `Successfully imported ${created.length} ingredient categories`,
-        data: created
+        message: `Successfully imported ${created.length} from ${toCreate.length} ingredient categories`,
+        data: {
+          total: toCreate.length,
+          created: created.length,
+          skipped: skipped.length,
+          skippedNames: skipped.length > 0 ? skipped : undefined
+        }
       })
     } catch (error) {
       console.error('Error =>', error)

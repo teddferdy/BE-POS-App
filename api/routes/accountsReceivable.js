@@ -30,6 +30,7 @@ router.post(
   '/:id/pay',
   authorization,
   validateStoreAccess,
+  requireRole('super_admin', 'admin'),
   arController.recordPayment
 )
 router.put(

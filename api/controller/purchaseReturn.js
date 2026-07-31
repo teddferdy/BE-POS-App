@@ -302,17 +302,34 @@ const purchaseReturnController = {
             where: { purchaseOrder: ret.purchaseOrder },
             transaction: t
           })
-          const priceMap = {}
+          const poItemMap = {}
           poItems.forEach((pi) => {
-            if (pi.ingredient) priceMap[`ing-${pi.ingredient}`] = parseFloat(pi.price) || 0
-            if (pi.product) priceMap[`prod-${pi.product}`] = parseFloat(pi.price) || 0
+            if (pi.ingredient) poItemMap[`ing-${pi.ingredient}`] = pi
+            if (pi.product) poItemMap[`prod-${pi.product}`] = pi
           })
 
           let returnTotal = 0
           for (const item of ret.items) {
-            const key = item.ingredient ? `ing-${item.ingredient}` : item.product ? `prod-${item.product}` : null
-            const unitPrice = key ? priceMap[key] || 0 : 0
-            returnTotal += unitPrice * (Number(item.qty) || 0)
+            const key = item.ingredient
+              ? `ing-${item.ingredient}`
+              : item.product
+                ? `prod-${item.product}`
+                : null
+            const poItem = key ? poItemMap[key] : null
+            const qty = Number(item.qty) || 0
+            returnTotal += (key ? Number(poItem?.price) || 0 : 0) * qty
+
+            // ponytail: reopen remaining slot - reduce receivedQuantity on the PO item
+            if (poItem && qty > 0) {
+              await db.purchase_order_item.update(
+                {
+                  receivedQuantity: db.sequelize.literal(
+                    `GREATEST("receivedQuantity" - ${qty}, 0)`
+                  )
+                },
+                { where: { id: poItem.id }, transaction: t }
+              )
+            }
           }
 
           if (returnTotal > 0) {
@@ -320,6 +337,21 @@ const purchaseReturnController = {
               {
                 finalAmount: db.sequelize.literal(`GREATEST(finalAmount - ${returnTotal}, 0)`)
               },
+              { where: { id: ret.purchaseOrder }, transaction: t }
+            )
+          }
+
+          // Roll back PO status to 'ordered' if any item is no longer fully received
+          const updatedPoItems = await db.purchase_order_item.findAll({
+            where: { purchaseOrder: ret.purchaseOrder },
+            transaction: t
+          })
+          const stillAllReceived = updatedPoItems.every(
+            (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
+          )
+          if (!stillAllReceived) {
+            await db.purchase_order.update(
+              { status: 'ordered' },
               { where: { id: ret.purchaseOrder }, transaction: t }
             )
           }

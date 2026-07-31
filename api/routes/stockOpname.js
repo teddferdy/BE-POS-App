@@ -44,10 +44,16 @@ router.get(
   validateStoreAccess,
   stockOpnameController.getById
 )
-router.get('/check-exists', authorization, stockOpnameController.checkExists)
+router.get(
+  '/check-exists',
+  authorization,
+  validateStoreAccess,
+  stockOpnameController.checkExists
+)
 router.get(
   '/composition-items',
   authorization,
+  validateStoreAccess,
   stockOpnameController.getCompositionItems
 )
 

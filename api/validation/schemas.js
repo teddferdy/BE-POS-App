@@ -259,8 +259,8 @@ exports.createSupplierSchema = z.object({
         unit: z.string().optional().default('pcs'),
         leadTime: z.number().optional().default(0),
         leadTimeUnit: z.string().optional().default('hari'),
-        qualityRating: z.number().optional().default(0),
-        minOrderQty: z.number().optional().default(1),
+        qualityRating: strToNum().optional().default(0),
+        minOrderQty: z.string().optional().default("1"),
         notes: z.string().optional().nullable(),
         lastPrice: z.number().optional().default(0),
         productId: z.number().optional().nullable()
@@ -413,7 +413,8 @@ const poItemSchema = z.object({
   supplier: strToNum().optional().nullable(),
   quantity: strToNum(),
   price: strToNum().optional().default(0),
-  unit: z.string().optional().default('pcs')
+  unit: z.string().optional().default('pcs'),
+  conversionToBase: strToNum().optional().default(1)
 })
 
 exports.createPurchaseOrderSchema = z.object({
@@ -421,6 +422,8 @@ exports.createPurchaseOrderSchema = z.object({
   items: z.array(poItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
   discount: strToNum().optional().default(0),
+  additionalCost: strToNum().optional().default(0),
+  overDeliveryTolerance: strToNum().optional().default(10),
   pic: strToNum().optional().nullable(),
   createdBy: z.union([z.number(), strToNum()]).optional().nullable(),
   status: z
@@ -522,6 +525,7 @@ exports.updateMemberSchema = exports.createMemberSchema.partial()
 
 // ===================== Goods Receipt =====================
 const grItemSchema = z.object({
+  purchaseOrderItem: strToNum().optional().nullable(),
   product: strToNum().optional().nullable(),
   productName: z.string().optional(),
   ingredient: strToNum().optional().nullable(),
@@ -530,7 +534,9 @@ const grItemSchema = z.object({
   quantity: strToNum().optional().default(0),
   conditionNotes: z.string().optional().default(''),
   unit: z.string().optional().default('pcs'),
-  price: strToNum().optional().default(0)
+  price: strToNum().optional().default(0),
+  costPrice: strToNum().optional().default(0),
+  conversionToBase: strToNum().optional().default(1)
 })
 
 exports.createGoodsReceiptSchema = z.object({
@@ -1227,4 +1233,28 @@ exports.paginationSchema = z.object({
   store: z.string().optional(),
   status: z.string().optional(),
   search: z.string().optional()
+})
+
+// ===================== Sales Return =====================
+const returnItemSchema = z.object({
+  productId: strToNum(),
+  orderItemId: strToNum().optional(),
+  qty: strToNum().refine((q) => q > 0, 'Qty must be greater than 0'),
+  unit: z.string().optional().default('pcs'),
+  conversionToBase: z.coerce.number().optional().default(1),
+  notes: z.string().optional().default('')
+})
+
+exports.createSalesReturnSchema = z.object({
+  items: z.array(returnItemSchema).min(1, 'At least one item required'),
+  reason: z.string().min(1, 'Reason is required'),
+  returnedBy: z.union([strToNum(), z.string()]).optional()
+})
+
+exports.approveSalesReturnSchema = z.object({
+  id: strToNum()
+})
+
+exports.rejectSalesReturnSchema = z.object({
+  id: strToNum()
 })

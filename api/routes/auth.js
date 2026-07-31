@@ -62,6 +62,7 @@ router.get('/get-user', authorization, authController.userByLocation)
 // Get All User - Super Admin only
 router.get(
   '/get-all-user',
+  authorization,
   requireRole('super_admin'),
   authController.getAllUser
 )
@@ -69,6 +70,7 @@ router.get(
 // Change Role User By Id & Location - Admin/Super Admin
 router.put(
   '/change-profile-user',
+  authorization,
   requireRole('super_admin', 'admin'),
   authController.changeUserByIdAndLocation
 )

@@ -13,6 +13,7 @@ router.get('/get-role', roleController.getAllRole)
 // Get All List To Table (Super Admin only)
 router.get(
   '/get-role-all',
+  authorization,
   requireRole('super_admin'),
   roleController.getAllRoleInTable
 )
@@ -20,6 +21,7 @@ router.get(
 // Add role (Super Admin only)
 router.post(
   '/add-new-role',
+  authorization,
   requireRole('super_admin'),
   validate(createRoleSchema),
   roleController.addNewRole
@@ -28,6 +30,7 @@ router.post(
 // Edit role (Super Admin only)
 router.put(
   '/edit-role/:id',
+  authorization,
   requireRole('super_admin'),
   validate(updateRoleSchema),
   roleController.editRoleById
@@ -36,6 +39,7 @@ router.put(
 // Delete role (Super Admin only)
 router.delete(
   '/delete-role/:id',
+  authorization,
   requireRole('super_admin'),
   roleController.deleteRoleById
 )
@@ -46,6 +50,7 @@ router.get('/get-role-by-id/:id', authorization, roleController.getRoleById)
 // Update User Role (Super Admin only)
 router.put(
   '/update-user-role',
+  authorization,
   requireRole('super_admin'),
   roleController.updateUserRole
 )
@@ -56,6 +61,7 @@ router.get('/get-users-by-role', authorization, roleController.getUsersByRole)
 // Update Access Menu for Role (Super Admin only)
 router.put(
   '/update-access-menu',
+  authorization,
   requireRole('super_admin'),
   roleController.updateRoleAccessMenu
 )

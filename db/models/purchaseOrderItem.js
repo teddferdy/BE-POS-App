@@ -46,6 +46,11 @@ module.exports = (sequelize, DataTypes) => {
       receivedQuantity: {
         type: DataTypes.INTEGER,
         defaultValue: 0
+      },
+      conversionToBase: {
+        type: DataTypes.DECIMAL(10, 4),
+        defaultValue: 1,
+        comment: 'Factor to convert PO unit to base unit (stock unit) of the item'
       }
     },
     {

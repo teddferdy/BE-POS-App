@@ -9,6 +9,7 @@ const {
   createPosTransferSchema,
   createPosAdjustSchema,
   createPosReturnSchema,
+  createSalesReturnSchema,
   updatePriceByStoreSchema,
   sendInvoiceWaSchema,
   sendInvoiceEmailSchema,
@@ -87,7 +88,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  validate(createPosReturnSchema),
+  validate(createSalesReturnSchema),
   posController.returnSalesOrder
 )
 
@@ -142,16 +143,23 @@ router.post(
 )
 
 // WhatsApp connection management
-router.get('/whatsapp/status', authorization, posController.getWhatsAppStatus)
+router.get(
+  '/whatsapp/status',
+  authorization,
+  validateStoreAccess,
+  posController.getWhatsAppStatus
+)
 router.post(
   '/whatsapp/logout',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   posController.logoutWhatsApp
 )
 router.post(
   '/whatsapp/restart',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin', 'admin'),
   posController.restartWhatsApp
 )

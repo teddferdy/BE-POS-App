@@ -30,7 +30,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT
       },
       returnedBy: {
-        type: DataTypes.STRING
+        type: DataTypes.INTEGER
+      },
+      refundAmount: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
       },
       createdBy: {
         type: DataTypes.INTEGER
@@ -54,8 +58,20 @@ module.exports = (sequelize, DataTypes) => {
       as: 'storeData'
     })
     sales_return.belongsTo(models.user, {
-      foreignKey: 'createdBy',
+      foreignKey: 'returnedBy',
       as: 'returnedByData'
+    })
+    sales_return.belongsTo(models.order, {
+      foreignKey: 'order',
+      as: 'orderData'
+    })
+    sales_return.hasMany(models.transaction, {
+      foreignKey: 'salesReturnId',
+      as: 'refundTransactions'
+    })
+    sales_return.belongsTo(models.user, {
+      foreignKey: 'createdBy',
+      as: 'createdByUser'
     })
   }
 

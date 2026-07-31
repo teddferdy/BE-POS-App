@@ -42,23 +42,43 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
 
   const existing = await db.supplier_product.findAll({
     where: { supplier: supplierId },
-    attributes: ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt'],
+    attributes: [
+      'id',
+      'supplier',
+      'productId',
+      'name',
+      'price',
+      'unit',
+      'leadTime',
+      'leadTimeUnit',
+      'qualityRating',
+      'minOrderQty',
+      'notes',
+      'lastPrice',
+      'createdBy',
+      'modifiedBy',
+      'createdAt',
+      'updatedAt',
+      'deletedAt'
+    ],
     raw: true
   })
-  const existingMap = new Map(existing.map((r) => [r.name, r]))
+  const existingMap = new Map(existing.map((r) => [r.name.toLowerCase().trim(), r]))
 
   const incomingNames = products.map((p) =>
     (typeof p === 'object' ? p.name : p).toLowerCase().trim()
   )
 
   for (const item of products) {
-    const productName = typeof item === 'object' ? (item.name || '').trim() : item
+    const productName =
+      typeof item === 'object' ? (item.name || '').trim() : item
     const price = typeof item === 'object' ? item.price || 0 : 0
     const unit = typeof item === 'object' ? item.unit || 'pcs' : 'pcs'
     const leadTime = typeof item === 'object' ? item.leadTime || 0 : 0
-    const leadTimeUnit = typeof item === 'object' ? item.leadTimeUnit || 'hari' : 'hari'
+    const leadTimeUnit =
+      typeof item === 'object' ? item.leadTimeUnit || 'hari' : 'hari'
     const qualityRating = typeof item === 'object' ? item.qualityRating || 0 : 0
-    const minOrderQty = typeof item === 'object' ? item.minOrderQty || 1 : 1
+    const minOrderQty = typeof item === 'object' ? item.minOrderQty || "1" : "1"
     const notes = typeof item === 'object' ? item.notes || null : null
     const lastPrice = typeof item === 'object' ? item.lastPrice || 0 : 0
     const productId = typeof item === 'object' ? item.productId || null : null
@@ -81,22 +101,41 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
         { where: { supplier: supplierId, name: existingMap.get(nameKey).name } }
       )
     } else {
-      await db.supplier_product.create({
-        supplier: supplierId,
-        productId: productId || null,
-        name: productName,
-        price,
-        unit,
-        leadTime,
-        leadTimeUnit,
-        qualityRating,
-        minOrderQty,
-        notes,
-        lastPrice,
-        createdBy: userId
-      }, {
-        returning: ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice', 'createdBy', 'createdAt', 'updatedAt']
-      })
+      await db.supplier_product.create(
+        {
+          supplier: supplierId,
+          productId: productId || null,
+          name: productName,
+          price,
+          unit,
+          leadTime,
+          leadTimeUnit,
+          qualityRating,
+          minOrderQty,
+          notes,
+          lastPrice,
+          createdBy: userId
+        },
+        {
+          returning: [
+            'id',
+            'supplier',
+            'productId',
+            'name',
+            'price',
+            'unit',
+            'leadTime',
+            'leadTimeUnit',
+            'qualityRating',
+            'minOrderQty',
+            'notes',
+            'lastPrice',
+            'createdBy',
+            'createdAt',
+            'updatedAt'
+          ]
+        }
+      )
     }
   }
 
@@ -119,7 +158,19 @@ const getSupplierProducts = async (supplierId) => {
 
   const rows = await db.supplier_product.findAll({
     where: { supplier: supplierId },
-    attributes: ['id', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice']
+    attributes: [
+      'id',
+      'productId',
+      'name',
+      'price',
+      'unit',
+      'leadTime',
+      'leadTimeUnit',
+      'qualityRating',
+      'minOrderQty',
+      'notes',
+      'lastPrice'
+    ]
   })
   return rows.map((r) => ({
     id: r.id,
@@ -187,7 +238,9 @@ const supplierController = {
         productCount = result[0]
         products = result[1]
       } catch (e) {
-        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+        if (
+          !(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')
+        ) {
           throw e
         }
       }
@@ -214,7 +267,13 @@ const supplierController = {
 
   async getAll(req, res) {
     try {
-      const { search, status, page = 1, limit = 10, includeProducts } = req.query
+      const {
+        search,
+        status,
+        page = 1,
+        limit = 10,
+        includeProducts
+      } = req.query
 
       const store = req.query.store || req.user?.store
       const where = {}
@@ -312,7 +371,10 @@ const supplierController = {
             productCounts[r.supplier] = Number(r.cnt)
           })
         } catch (e) {
-          if (e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01') {
+          if (
+            e.name === 'SequelizeDatabaseError' &&
+            e.parent?.code === '42P01'
+          ) {
             // supplier_product table doesn't exist yet — fall back to 0
           } else {
             throw e
@@ -335,12 +397,26 @@ const supplierController = {
         try {
           const allProducts = await db.supplier_product.findAll({
             where: { supplier: { [Op.in]: supplierIds } },
-            attributes: ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice'],
+            attributes: [
+              'id',
+              'supplier',
+              'productId',
+              'name',
+              'price',
+              'unit',
+              'leadTime',
+              'leadTimeUnit',
+              'qualityRating',
+              'minOrderQty',
+              'notes',
+              'lastPrice'
+            ],
             raw: true
           })
           const productsBySupplier = {}
           allProducts.forEach((p) => {
-            if (!productsBySupplier[p.supplier]) productsBySupplier[p.supplier] = []
+            if (!productsBySupplier[p.supplier])
+              productsBySupplier[p.supplier] = []
             productsBySupplier[p.supplier].push({
               id: p.id,
               productId: p.productId,
@@ -359,10 +435,14 @@ const supplierController = {
             s.products = productsBySupplier[s.id] || []
           })
         } catch (e) {
-          if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          if (
+            !(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')
+          ) {
             throw e
           }
-          data.forEach((s) => { s.products = [] })
+          data.forEach((s) => {
+            s.products = []
+          })
         }
       }
 
@@ -421,7 +501,9 @@ const supplierController = {
       try {
         products = await getSupplierProducts(id)
       } catch (e) {
-        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+        if (
+          !(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')
+        ) {
           throw e
         }
       }
@@ -846,7 +928,7 @@ const supplierController = {
 
       const suppliers = await db.supplier.findAll({
         where,
-        order: [['createdAt', 'DESC']]
+        order: [['createdAt', 'ASC']]
       })
 
       const workbook = new ExcelJS.Workbook()
@@ -974,19 +1056,37 @@ const supplierController = {
           .json({ success: false, message: 'Validation errors', errors })
       }
 
-      const createdSuppliers = await db.supplier.bulkCreate(suppliersToCreate)
+      const createdSuppliers = []
+      const skipped = []
+      for (const item of suppliersToCreate) {
+        const existing = await db.supplier.findOne({
+          where: { name: item.name }
+        })
+        if (existing) {
+          skipped.push(item.name)
+          continue
+        }
+        const supplier = await db.supplier.create(item)
+        createdSuppliers.push(supplier)
+      }
+
       createAudit(
         req,
         'import',
         'supplier',
         null,
-        `Imported ${createdSuppliers.length} suppliers`
+        `Imported ${createdSuppliers.length} suppliers, skipped ${skipped.length}`
       )
 
       return res.status(201).json({
         success: true,
-        message: `Successfully imported ${createdSuppliers.length} suppliers`,
-        data: createdSuppliers
+        message: `Successfully imported ${createdSuppliers.length} from ${suppliersToCreate.length} suppliers`,
+        data: {
+          total: suppliersToCreate.length,
+          created: createdSuppliers.length,
+          skipped: skipped.length,
+          skippedNames: skipped.length > 0 ? skipped : undefined
+        }
       })
     } catch (error) {
       console.error('Error =>', error)
@@ -998,10 +1098,11 @@ const supplierController = {
 
   async downloadProductTemplate(req, res) {
     try {
+      const { supplier } = req.query
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Supplier Product Template')
 
-      worksheet.addRow(['name', 'price'])
+      worksheet.addRow(['Nama Produk', 'Harga', 'Satuan', 'Lead Time', 'Satuan Lead Time', 'Kualitas (0-5)', 'Min Order', 'Catatan'])
 
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
@@ -1010,7 +1111,73 @@ const supplierController = {
         fgColor: { argb: 'FFD3D3D3' }
       }
 
-      worksheet.columns = [{ width: 30 }, { width: 15 }]
+      worksheet.columns = [
+        { width: 25 },
+        { width: 12 },
+        { width: 10 },
+        { width: 12 },
+        { width: 18 },
+        { width: 15 },
+        { width: 15 },
+        { width: 30 }
+      ]
+
+      let rowStart = 2
+      let hasExistingData = false
+
+      if (supplier) {
+        const existingProducts = await db.supplier_product.findAll({
+          where: { supplier: Number(supplier) },
+          attributes: ['id', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes'],
+          order: [['name', 'ASC']]
+        })
+        if (existingProducts.length > 0) {
+          hasExistingData = true
+          existingProducts.forEach((p, i) => {
+            const r = rowStart + i
+            worksheet.getCell(`A${r}`).value = p.name
+            worksheet.getCell(`B${r}`).value = p.price
+            worksheet.getCell(`C${r}`).value = p.unit || 'pcs'
+            worksheet.getCell(`D${r}`).value = p.leadTime || 0
+            worksheet.getCell(`E${r}`).value = p.leadTimeUnit || 'hari'
+            worksheet.getCell(`F${r}`).value = p.qualityRating || 0
+            worksheet.getCell(`G${r}`).value = p.minOrderQty || '1'
+            worksheet.getCell(`H${r}`).value = p.notes || ''
+          })
+          rowStart = rowStart + existingProducts.length
+        }
+      }
+
+      if (!hasExistingData) {
+        worksheet.getCell(`A2`).value = 'Contoh: Indomie Goreng'
+        worksheet.getCell(`B2`).value = 3500
+        worksheet.getCell(`C2`).value = 'pcs'
+        worksheet.getCell(`D2`).value = 1
+        worksheet.getCell(`E2`).value = 'hari'
+        worksheet.getCell(`F2`).value = 4
+        worksheet.getCell(`G2`).value = '10 karton'
+        worksheet.getCell(`H2`).value = 'Rasa original'
+      }
+
+      const totalRows = Math.max(200, rowStart + 50)
+      for (let r = 2; r <= totalRows; r++) {
+        worksheet.getCell(`C${r}`).dataValidation = {
+          type: 'list',
+          formulae: ['"pcs,buah,kg,gram,liter,ml,meter,cm,lusin,pack,box,karton,krat"'],
+          allowBlank: true,
+          showErrorMessage: true,
+          errorTitle: 'Satuan tidak valid',
+          error: 'Pilih satuan yang tersedia'
+        }
+        worksheet.getCell(`E${r}`).dataValidation = {
+          type: 'list',
+          formulae: ['"hari,jam,menit"'],
+          allowBlank: true,
+          showErrorMessage: true,
+          errorTitle: 'Satuan Lead Time tidak valid',
+          error: 'Pilih hari, jam, atau menit'
+        }
+      }
 
       const buffer = await workbook.xlsx.writeBuffer()
 
@@ -1035,14 +1202,17 @@ const supplierController = {
   async importProducts(req, res) {
     try {
       const { id } = req.params
+      const isPreview = id === 'preview'
       const modifiedBy = req.user?.id || null
 
-      const supplier = await db.supplier.findByPk(id)
-      if (!supplier) {
-        return res.status(404).json({
-          success: false,
-          message: 'Supplier not found'
-        })
+      if (!isPreview) {
+        const supplier = await db.supplier.findByPk(id)
+        if (!supplier) {
+          return res.status(404).json({
+            success: false,
+            message: 'Supplier not found'
+          })
+        }
       }
 
       if (!req.file) {
@@ -1062,16 +1232,33 @@ const supplierController = {
         if (rowNumber === 1) return
 
         try {
-          const [name, price] = row.values
+          const values = row.values
+          const name = values[1]
+          const price = values[2]
+          const unit = values[3]
+          const leadTime = values[4]
+          const leadTimeUnit = values[5]
+          const qualityRating = values[6]
+          const minOrderQty = values[7]
+          const notes = values[8]
 
           if (!name) {
             errors.push(`Row ${rowNumber}: Name is required`)
             return
           }
 
+          const nameStr = String(name).trim()
+          if (nameStr.startsWith('Contoh:')) return
+
           products.push({
-            name: String(name).trim(),
-            price: Number(price) || 0
+            name: nameStr,
+            price: Number(price) || 0,
+            unit: unit ? String(unit).trim() : 'pcs',
+            leadTime: Number(leadTime) || 0,
+            leadTimeUnit: leadTimeUnit ? String(leadTimeUnit).trim() : 'hari',
+            qualityRating: Number(qualityRating) || 0,
+            minOrderQty: minOrderQty ? String(minOrderQty).trim() : '1',
+            notes: notes ? String(notes).trim() : null
           })
         } catch (error) {
           errors.push(`Row ${rowNumber}: ${error.message}`)
@@ -1084,19 +1271,23 @@ const supplierController = {
           .json({ success: false, message: 'Validation errors', errors })
       }
 
-      await syncSupplierProducts(id, products, modifiedBy)
-      createAudit(
-        req,
-        'import',
-        'supplier_product',
-        id,
-        `Imported ${products.length} products for supplier ${id}`
-      )
+      if (!isPreview) {
+        await syncSupplierProducts(id, products, modifiedBy)
+        createAudit(
+          req,
+          'import',
+          'supplier_product',
+          id,
+          `Imported ${products.length} products for supplier ${id}`
+        )
+      }
 
       return res.status(200).json({
         success: true,
-        message: `Successfully imported ${products.length} products`,
-        data: products
+        message: isPreview
+          ? `Preview: ${products.length} products parsed`
+          : `Successfully imported ${products.length} products`,
+        data: products.reverse()
       })
     } catch (error) {
       console.error('Error =>', error)
@@ -1146,7 +1337,19 @@ const supplierController = {
             where: { status: 'active' }
           }
         ],
-        attributes: ['id', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice'],
+        attributes: [
+          'id',
+          'productId',
+          'name',
+          'price',
+          'unit',
+          'leadTime',
+          'leadTimeUnit',
+          'qualityRating',
+          'minOrderQty',
+          'notes',
+          'lastPrice'
+        ],
         order: [['price', 'ASC']]
       })
 
@@ -1189,7 +1392,9 @@ const supplierController = {
           result.summary = {
             lowestPrice: Math.min(...prices),
             highestPrice: Math.max(...prices),
-            avgPrice: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
+            avgPrice: Math.round(
+              prices.reduce((a, b) => a + b, 0) / prices.length
+            ),
             supplierCount: result.suppliers.length
           }
         }
