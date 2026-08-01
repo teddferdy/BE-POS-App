@@ -13,7 +13,7 @@ module.exports = {
       defaults.push({
         name: 'PPN 11%',
         rate: 11,
-        type: 'percentage',
+        type: 'ppn',
         description: 'Pajak Pertambahan Nilai standar barang/jasa',
         status: 'active',
         createdBy: null,
@@ -25,7 +25,7 @@ module.exports = {
       defaults.push({
         name: 'PPh 23 2%',
         rate: 2,
-        type: 'percentage',
+        type: 'other',
         description: 'Pajak Penghasilan Pasal 23 atas jasa',
         status: 'active',
         createdBy: null,
@@ -37,7 +37,7 @@ module.exports = {
       defaults.push({
         name: 'Non-Pajak',
         rate: 0,
-        type: 'percentage',
+        type: 'service_charge',
         description: 'Transaksi tidak dikenakan pajak',
         status: 'active',
         createdBy: null,

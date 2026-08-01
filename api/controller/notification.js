@@ -1,7 +1,6 @@
 const { Op } = require('sequelize')
 const db = require('../../db/models')
 const Notification = db.notification
-const { emitNotification } = require('../service/socket')
 
 exports.getAllNotifications = async (req, res) => {
   try {

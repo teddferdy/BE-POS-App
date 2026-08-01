@@ -190,7 +190,7 @@ const purchaseReturnController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -285,7 +285,7 @@ const purchaseReturnController = {
     try {
       const { id } = req.params
       const { resolution = 'credit' } = req.body
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       if (!['credit', 'replacement'].includes(resolution)) {
@@ -446,7 +446,7 @@ const purchaseReturnController = {
   async reject(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -669,7 +669,7 @@ const purchaseReturnController = {
         })
       }
 
-      const store = req.cookies.store || po.store
+      const store = req.storeId || req.cookies.store || po.store
 
       // Fetch PO items to validate return qty against receivedQty
       const poItems = await db.purchase_order_item.findAll({

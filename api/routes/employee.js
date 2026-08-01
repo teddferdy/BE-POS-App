@@ -7,7 +7,6 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
   createEmployeeSchema,
-  createUserSchema,
   updateUserSchema
 } = require('../validation/schemas')
 const fs = require('fs')

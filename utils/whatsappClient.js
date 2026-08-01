@@ -1,6 +1,3 @@
-const fs = require('fs')
-const path = require('path')
-
 const FONNTE_TOKENS = [process.env.FONNTE_TOKEN, process.env.FONNTE_TOKEN_2].filter(Boolean)
 const FONNTE_URL = 'https://api.fonnte.com/send'
 
@@ -20,7 +17,7 @@ const initClient = async () => true
 const logout = async () => {}
 const restartClient = async () => true
 
-const sendDocument = async (phoneNumber, filePath, caption, storeId = 'default') => {
+const sendDocument = async (phoneNumber, filePath, caption, _storeId = 'default') => {
   if (FONNTE_TOKENS.length === 0) throw new Error('FONNTE_TOKEN not configured')
 
   const cleanPhone = String(phoneNumber).replace(/[^0-9]/g, '')

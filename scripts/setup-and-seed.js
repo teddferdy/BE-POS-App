@@ -127,7 +127,7 @@ async function seedTestData() {
             role.status
           ]
         )
-      } catch (err) {
+      } catch {
         // Ignore duplicate errors
       }
     }
@@ -837,4 +837,4 @@ async function seedTestData() {
   }
 }
 
-setupAndSeed()
+seedTestData()

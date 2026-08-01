@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 const pg = require('pg')
 const envPath =
   process.env.NODE_ENV === 'production'

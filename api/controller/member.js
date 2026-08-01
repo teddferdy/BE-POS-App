@@ -96,8 +96,14 @@ exports.getMemberById = async (req, res) => {
   try {
     const { id } = req.params
     const { page = 1, limit = 5 } = req.query
+    const store =
+      req.user?.roleType === 'super_admin'
+        ? req.storeId || null
+        : req.user?.store || null
 
-    const member = await Member.findByPk(id)
+    const member = store
+      ? await Member.findOne({ where: { id, store } })
+      : await Member.findByPk(id)
 
     if (!member) {
       return res.status(404).json({
@@ -107,8 +113,9 @@ exports.getMemberById = async (req, res) => {
     }
 
     const offset = (parseInt(page) - 1) * parseInt(limit)
+    const orderWhere = { customerId: id, ...(store ? { store } : {}) }
     const { count, rows: orders } = await db.order.findAndCountAll({
-      where: { customerId: id },
+      where: orderWhere,
       include: [
         { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
       ],
@@ -126,7 +133,7 @@ exports.getMemberById = async (req, res) => {
     })
 
     const allOrders = await db.order.findAll({
-      where: { customerId: id },
+      where: orderWhere,
       attributes: ['totalPrice']
     })
     const totalSpent = allOrders.reduce(
@@ -175,9 +182,14 @@ exports.addNewMember = async (req, res) => {
   const body = req.body
 
   try {
+    const store =
+      req.user?.roleType === 'super_admin'
+        ? body.store || null
+        : req.user?.store || null
+
     if (body?.nameMember) {
       const nameExists = await Member.findOne({
-        where: { name: body.nameMember },
+        where: { name: body.nameMember, ...(store !== null ? { store } : { store: null }) },
         raw: true
       })
       if (nameExists) {
@@ -188,7 +200,10 @@ exports.addNewMember = async (req, res) => {
     }
     if (body?.phoneNumber) {
       const phoneExists = await Member.findOne({
-        where: { phoneNumber: body.phoneNumber },
+        where: {
+          phoneNumber: body.phoneNumber,
+          ...(store !== null ? { store } : { store: null })
+        },
         raw: true
       })
       if (phoneExists) {
@@ -199,7 +214,10 @@ exports.addNewMember = async (req, res) => {
     }
     if (body?.email) {
       const emailExists = await Member.findOne({
-        where: { email: body.email },
+        where: {
+          email: body.email,
+          ...(store !== null ? { store } : { store: null })
+        },
         raw: true
       })
       if (emailExists) {
@@ -214,10 +232,6 @@ exports.addNewMember = async (req, res) => {
         ? body.phoneNumber
         : `GUEST-${Date.now()}`
 
-    const store =
-      req.user?.roleType === 'super_admin'
-        ? body.store || null
-        : req.user?.store
     const createdMember = await Member.create({
       store,
       name: body.nameMember,
@@ -296,7 +310,7 @@ exports.editMember = async (req, res) => {
     if (
       req.user?.roleType !== 'super_admin' &&
       member.store &&
-      member.store !== req.user?.store
+      Number(member.store) !== Number(req.user?.store)
     ) {
       return res.status(403).json({
         success: false,
@@ -306,7 +320,11 @@ exports.editMember = async (req, res) => {
 
     if (nameMember) {
       const nameExists = await Member.findOne({
-        where: { name: nameMember, id: { [Op.ne]: id } },
+        where: {
+          name: nameMember,
+          id: { [Op.ne]: id },
+          ...(member.store ? { store: member.store } : { store: null })
+        },
         raw: true
       })
       if (nameExists) {
@@ -317,7 +335,11 @@ exports.editMember = async (req, res) => {
     }
     if (phoneNumber) {
       const phoneExists = await Member.findOne({
-        where: { phoneNumber, id: { [Op.ne]: id } },
+        where: {
+          phoneNumber,
+          id: { [Op.ne]: id },
+          ...(member.store ? { store: member.store } : { store: null })
+        },
         raw: true
       })
       if (phoneExists) {
@@ -328,7 +350,11 @@ exports.editMember = async (req, res) => {
     }
     if (email) {
       const emailExists = await Member.findOne({
-        where: { email, id: { [Op.ne]: id } },
+        where: {
+          email,
+          id: { [Op.ne]: id },
+          ...(member.store ? { store: member.store } : { store: null })
+        },
         raw: true
       })
       if (emailExists) {
@@ -349,7 +375,6 @@ exports.editMember = async (req, res) => {
     if (status !== undefined) updateData.status = status
     if (point !== undefined) {
       updateData.totalPoints = point
-      updateData.lifetimePoints = point
     }
     updateData.modifiedBy = req.user?.id
 
@@ -396,7 +421,7 @@ exports.deleteMember = async (req, res) => {
     if (
       req.user?.roleType !== 'super_admin' &&
       member.store &&
-      member.store !== req.user?.store
+      Number(member.store) !== Number(req.user?.store)
     ) {
       return res.status(403).json({
         success: false,
@@ -411,7 +436,7 @@ exports.deleteMember = async (req, res) => {
       'delete',
       'member',
       id,
-      `Deleted member: ${member.nameMember}`
+      `Deleted member: ${member.name}`
     )
 
     return res.status(200).json({
@@ -430,9 +455,22 @@ exports.deleteMember = async (req, res) => {
 
 exports.editMemberById = async (req, res) => {
   const body = req.body
-  const memberId = Number(req.params.phoneNumber)
+  const phoneNumber = String(req.params.phoneNumber || '')
   try {
-    const getMember = await Member.findByPk(memberId)
+    const store =
+      req.user?.roleType === 'super_admin'
+        ? req.storeId || null
+        : req.user?.store || null
+
+    const getMember = await Member.findOne({
+      where: {
+        [Op.or]: [
+          { phoneNumber },
+          ...(Number(phoneNumber) > 0 ? [{ id: Number(phoneNumber) }] : [])
+        ],
+        ...(store ? { store } : {})
+      }
+    })
 
     if (getMember) {
       const addedPoints = Number(body.points) || 0
@@ -442,6 +480,14 @@ exports.editMemberById = async (req, res) => {
       await getMember.update({
         totalPoints: newTotal,
         lifetimePoints: newLifetime
+      })
+
+      await db.member_point_history.create({
+        member: getMember.id,
+        pointsChange: addedPoints,
+        pointsBefore: getMember.totalPoints,
+        pointsAfter: newTotal,
+        notes: 'Manual points adjustment'
       })
 
       createAudit(

@@ -19,8 +19,8 @@ const bundleController = {
       const userRole = req.user?.roleType
       const effectiveStore =
         userRole === 'super_admin'
-          ? req.query.store || req.cookies.store
-          : req.cookies.store
+          ? req.storeId || req.query.store || req.cookies.store
+          : req.storeId || req.cookies.store
       const { status, search, page = 1, limit = 10 } = req.query
 
       const where = {}
@@ -170,7 +170,7 @@ const bundleController = {
           : 0
 
       const bundle = await db.product_bundle.create({
-        store: req.cookies.store || null,
+        store: req.storeId || req.cookies.store || null,
         name,
         sku,
         description,

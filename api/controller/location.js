@@ -29,17 +29,12 @@ const Position = db.position
 const Role = db.role
 
 const {
-  uploadToCloudinary,
   uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
-const {
-  downloadLocationTemplate,
-  parseLocationTemplate
-} = require('../../utils/excelTemplate')
 
 exports.getAllLocationPublic = async (req, res) => {
   try {
@@ -271,7 +266,7 @@ exports.addNewLocation = async (req, res) => {
     mainBranch,
     openingHours,
     socialMedia,
-    createdBy
+    _createdBy
   } = bodyData
 
   const imageFile = req.file
@@ -321,7 +316,7 @@ exports.addNewLocation = async (req, res) => {
 
     let imageUrl = null
     if (imageFile) {
-      const { url, hash } = await uploadToCloudinaryWithDedup(
+      const { url } = await uploadToCloudinaryWithDedup(
         imageFile.path,
         'pos-app-locations'
       )
@@ -422,11 +417,11 @@ exports.editLocationById = async (req, res) => {
     id: rawIdAlt,
     name,
     status,
-    confirmUserUpdate,
+    _confirmUserUpdate,
     coordinates,
-    image,
-    storeId,
-    location: locationField,
+    _image,
+    _storeId,
+    location: _locationField,
     isActive,
     ...rest
   } = bodyData
@@ -453,7 +448,7 @@ exports.editLocationById = async (req, res) => {
     const dataExist = location.dataValues
     let imageUrl = dataExist.image
     if (req.file) {
-      const { url, hash } = await uploadToCloudinaryWithDedup(
+      const { url } = await uploadToCloudinaryWithDedup(
         req.file.path,
         'pos-app-locations'
       )
@@ -497,7 +492,7 @@ exports.editLocationById = async (req, res) => {
       if (coordinates.lng) updatedData.longitude = coordinates.lng
     }
 
-    const [affectedCount, updatedRows] = await Location.update(updatedData, {
+    const [, updatedRows] = await Location.update(updatedData, {
       returning: true,
       where: { id }
     })

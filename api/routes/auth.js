@@ -17,8 +17,7 @@ const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
 const {
   loginSchema,
-  registerSchema,
-  resetPasswordSchema
+  registerSchema
 } = require('../validation/schemas')
 
 const fs = require('fs')

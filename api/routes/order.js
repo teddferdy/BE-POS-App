@@ -2,7 +2,6 @@ const express = require('express')
 const router = express.Router()
 const orderController = require('../controller/order')
 const authorization = require('../../utils/authorization')
-const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
@@ -57,5 +56,6 @@ router.get('/customer-member', orderController.getCustomerMember)
 router.get('/customer-order/:id', orderController.getCustomerOrder)
 router.post('/customer-create', orderController.createCustomerOrder)
 router.get('/receipt-html/:id', orderController.getReceiptHTML)
+router.get('/customer-tax-rate', orderController.getCustomerTaxRate)
 
 module.exports = router

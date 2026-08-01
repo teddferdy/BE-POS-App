@@ -32,30 +32,6 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 }).single('image')
 
-const uploadExcel = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (
-      file.mimetype.includes('sheet') ||
-      file.originalname.endsWith('.xlsx') ||
-      file.originalname.endsWith('.xls')
-    ) {
-      cb(null, true)
-    } else {
-      cb(new Error('Hanya file Excel yang diperbolehkan'))
-    }
-  }
-})
-
-const uploadImages = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-  }),
-  limits: { fileSize: 5 * 1024 * 1024 }
-}).array('images', 50)
-
 const uploadImport = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),

@@ -2,9 +2,6 @@
 const { Op } = require('sequelize')
 const db = require('../../db/models')
 const Order = db.order
-const OrderItem = db.order_item
-const Transaction = db.transaction
-const Expense = db.expense
 
 exports.getDailyReport = async (req, res) => {
   try {
@@ -191,7 +188,7 @@ exports.getProfitLoss = async (req, res) => {
 
 exports.getSalesSummary = async (req, res) => {
   try {
-    const { store } = req.cookies
+    const store = req.storeId || req.cookies.store
     const { startDate, endDate, filter } = req.query
 
     let dateRange = {}
@@ -372,7 +369,7 @@ exports.getSalesSummary = async (req, res) => {
 
 exports.getBestSellerReport = async (req, res) => {
   try {
-    const { store } = req.cookies
+    const store = req.storeId || req.cookies.store
     const { limit = 10 } = req.query
 
     const where = store ? { store } : {}
@@ -438,22 +435,27 @@ exports.getBestSellerReport = async (req, res) => {
 
 exports.getCashFlow = async (req, res) => {
   try {
-    const { store, startDate, endDate } = req.query
+    const userRole = req.user?.roleType
+    const store =
+      userRole === 'super_admin'
+        ? req.query.store
+        : req.storeId || req.query.store
+    const { startDate, endDate } = req.query
     const replacements = {}
     let txConditions = '1=1'
 
     if (store) {
-      txConditions += ` AND t."store" = :store`
+      txConditions += ` AND o."store" = :store`
       replacements.store = store
     }
     if (startDate) {
-      txConditions += ` AND t."createdAt" >= :startDate`
+      txConditions += ` AND o."createdAt" >= :startDate`
       replacements.startDate = new Date(startDate)
     }
     if (endDate) {
       const end = new Date(endDate)
       end.setHours(23, 59, 59, 999)
-      txConditions += ` AND t."createdAt" <= :endDate`
+      txConditions += ` AND o."createdAt" <= :endDate`
       replacements.endDate = end
     }
 
@@ -462,6 +464,7 @@ exports.getCashFlow = async (req, res) => {
       `SELECT t."typePayment",
               COALESCE(SUM(t."amount"), 0) as total
        FROM "transaction" t
+       JOIN "order" o ON o.id = t."order"
        WHERE ${txConditions}
        GROUP BY t."typePayment"`,
       { replacements, type: db.sequelize.QueryTypes.SELECT }
@@ -475,8 +478,17 @@ exports.getCashFlow = async (req, res) => {
     for (const row of paymentRows) {
       const type = (row.typePayment || '').toLowerCase()
       const amount = Number(row.total || 0)
-      if (type.includes('cash') || type === 'tunai') penerimaanTunai += amount
-      else if (type.includes('qris')) penerimaanQris += amount
+      if (
+        type.includes('cash') ||
+        type === 'tunai' ||
+        type.includes('debit') ||
+        type.includes('credit') ||
+        type.includes('other') ||
+        type.includes('points')
+      )
+        penerimaanTunai += amount
+      else if (type.includes('qris') || type.includes('e-wallet'))
+        penerimaanQris += amount
       else if (type.includes('transfer')) penerimaanTransfer += amount
       else lainnya += amount
     }

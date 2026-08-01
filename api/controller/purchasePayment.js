@@ -37,7 +37,7 @@ const purchasePaymentController = {
   async getByPO(req, res) {
     try {
       const { poId } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { purchaseOrder: poId }
@@ -63,7 +63,7 @@ const purchasePaymentController = {
   async getBySupplier(req, res) {
     try {
       const { supplierId } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const poiWhere = { supplier: Number(supplierId) }
@@ -128,7 +128,7 @@ const purchasePaymentController = {
 
   async record(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const {
         purchaseOrder,
         supplier,
@@ -232,7 +232,7 @@ const purchasePaymentController = {
 
   async apDashboard(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const poWhere = { status: { [Op.notIn]: ['cancelled', 'draft'] } }

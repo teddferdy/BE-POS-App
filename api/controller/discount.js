@@ -6,16 +6,6 @@ const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
-const resolveStoreNames = async (storeIds) => {
-  if (!storeIds || storeIds.length === 0) return []
-  const Location = db.location
-  const locations = await Location.findAll({
-    where: { id: storeIds },
-    attributes: ['id', 'name']
-  })
-  return locations.map((l) => ({ id: l.id, name: l.name }))
-}
-
 const attachStoreData = async (rows) => {
   if (!rows?.length) return rows
   const allStoreIds = [...new Set(rows.map((r) => r.store).filter(Boolean))]
@@ -676,10 +666,7 @@ exports.editDiscountById = async (req, res) => {
 }
 
 exports.deleteDiscountById = async (req, res) => {
-  const body = req.body
-
   try {
-    const store = body.store !== undefined ? body.store : req.user?.store
     const getId = await Discount.destroy({
       where: { id: req.params.id }
     })

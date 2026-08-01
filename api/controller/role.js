@@ -220,8 +220,6 @@ exports.editRoleById = async (req, res) => {
 }
 
 exports.deleteRoleById = async (req, res) => {
-  const body = req.body
-
   try {
     const role = await Role.findByPk(req.params.id)
     if (role?.isSystem) {

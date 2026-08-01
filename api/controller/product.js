@@ -440,7 +440,7 @@ exports.postAddProduct = async (req, res) => {
     stores,
     supplier,
     tax,
-    priceTiers,
+    _priceTiers,
     currencyId,
     currencyCode,
     tipeProduk,
@@ -496,7 +496,7 @@ exports.postAddProduct = async (req, res) => {
     if (stores) {
       try {
         parsedStores = normalizeStores(JSON.parse(stores))
-      } catch (e) {
+      } catch {
         parsedStores = []
       }
     }
@@ -662,7 +662,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     isOption,
     options,
     isAvailable,
-    image: newImage,
+    image: _newImage,
     stores,
     supplier,
     tax,
@@ -715,7 +715,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     if (stores) {
       try {
         parsedStores = normalizeStores(JSON.parse(stores))
-      } catch (e) {
+      } catch {
         parsedStores = []
       }
     }
@@ -725,7 +725,7 @@ exports.editProductByLocationAndId = async (req, res) => {
       try {
         parsedPriceTiers =
           typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
-      } catch (e) {
+      } catch {
         parsedPriceTiers = []
       }
     }
@@ -794,7 +794,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     const newStock = Number(reqBody.stock) || 0
     const stockDiff = newStock - oldStock
 
-    const [_, editRows] = await Product.update(reqBody, {
+    const [, editRows] = await Product.update(reqBody, {
       returning: true,
       where: {
         id: id

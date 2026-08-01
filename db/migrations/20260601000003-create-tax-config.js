@@ -22,12 +22,12 @@ module.exports = {
         defaultValue: 0
       },
       type: {
-        type: Sequelize.ENUM('percentage', 'fixed'),
-        defaultValue: 'percentage'
+        type: Sequelize.ENUM('ppn', 'service_charge', 'other'),
+        defaultValue: 'ppn'
       },
       status: {
-        type: Sequelize.BOOLEAN,
-        defaultValue: true
+        type: Sequelize.STRING(20),
+        defaultValue: 'active'
       },
       description: {
         type: Sequelize.TEXT

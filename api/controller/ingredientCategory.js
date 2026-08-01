@@ -12,7 +12,6 @@ const ingredientCategoryController = {
         status,
         page = 1,
         limit = 10,
-        store,
         supplier
       } = req.query
 

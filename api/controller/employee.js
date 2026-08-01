@@ -3,7 +3,6 @@ const User = db.user
 const Location = db.location
 const Position = db.position
 const Department = db.department
-const Shift = db.shift
 const { Op } = require('sequelize')
 const {
   uploadToCloudinaryWithDedup,
@@ -18,7 +17,7 @@ const parseAccessMenu = (menu) => {
   if (typeof menu === 'string') {
     try {
       return JSON.parse(menu)
-    } catch (e) {
+    } catch {
       return []
     }
   }
@@ -94,7 +93,7 @@ exports.addEmployee = async (req, res) => {
 
     let imageUrl = null
     if (imageFile) {
-      const { url, hash } = await uploadToCloudinaryWithDedup(
+      const { url } = await uploadToCloudinaryWithDedup(
         imageFile.path,
         'pos-app-users'
       )
@@ -235,8 +234,7 @@ exports.getAllEmployee = async (req, res) => {
       total,
       activeCount,
       inactiveCount,
-      draftCount,
-      locationsResult
+      draftCount
     ] = await Promise.all([
       User.findAll({
         where: whereCondition,
@@ -435,7 +433,7 @@ exports.updateEmployee = async (req, res) => {
 
     let imageUrl = employee.image
     if (imageFile) {
-      const { url, hash } = await uploadToCloudinaryWithDedup(
+      const { url } = await uploadToCloudinaryWithDedup(
         imageFile.path,
         'pos-app-users'
       )

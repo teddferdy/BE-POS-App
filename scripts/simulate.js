@@ -2,7 +2,6 @@
 // Usage: node scripts/simulate.js all [password]
 const http = require('http')
 const BASE = 'http://localhost:5001'
-let reqId = 0
 
 function req(method, path, body, token) {
   return new Promise((resolve, reject) => {
@@ -126,7 +125,7 @@ async function run() {
     if (ourSup?.id) {
       const po = await post('/purchase-order/create', {
         store: sid, supplier: ourSup.id,
-        items: pPayload.composition.map((c, i) => ({
+        items: pPayload.composition.map((c) => ({
           product: ourProd?.id || 1, productName: c.name,
           quantity: Math.ceil(Number(c.qty) * 20), price: 1000, unit: c.unit || 'pcs',
         })),

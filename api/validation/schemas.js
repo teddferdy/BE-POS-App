@@ -621,16 +621,18 @@ exports.updatePositionSchema = exports.createPositionSchema.partial().extend({
 })
 
 // ===================== Cash Register =====================
-exports.openCashRegisterSchema = z.object({
-  store: strToNum(),
-  initialBalance: strToNum(),
-  cashierId: strToNum().optional().nullable(),
+exports.createCashRegisterSchema = z.object({
+  store: strToNum().optional().nullable(),
+  storeId: strToNum().optional().nullable(),
+  openingBalance: strToNum().optional().default(0),
+  shift: strToNum().optional().nullable(),
   notes: z.string().optional().default('')
 })
 
-exports.closeCashRegisterSchema = z.object({
-  id: strToNum(),
-  finalBalance: strToNum(),
+exports.updateCashRegisterSchema = z.object({
+  store: strToNum().optional().nullable(),
+  storeId: strToNum().optional().nullable(),
+  closingBalance: strToNum().optional().nullable(),
   notes: z.string().optional().default('')
 })
 
@@ -746,7 +748,10 @@ exports.createMemberTierSchema = z.object({
   maxPoints: z.union([z.number(), strToNum()]).nullable().optional(),
   discountPercent: z.union([z.number(), strToNum()]).optional().default(0),
   pointMultiplier: z.union([z.number(), strToNum()]).optional().default(1),
-  benefits: z.string().optional().default(''),
+  benefits: z
+    .array(z.union([z.string(), z.object({ text: z.string() })]))
+    .optional()
+    .default([]),
   color: z.string().optional().default(''),
   status: statusEnum
 })
@@ -867,10 +872,13 @@ exports.createNotificationSchema = z.object({
 // ===================== Accounts Receivable =====================
 exports.createAccountsReceivableSchema = z.object({
   orderId: z.union([z.number(), strToNum()]),
+  customerId: z.union([z.number(), strToNum()]).optional().nullable(),
   customerName: z.string().optional().default(''),
   totalAmount: z.union([z.number(), strToNum()]),
   paidAmount: z.union([z.number(), strToNum()]).optional().default(0),
   dueDate: z.string().optional(),
+  creditTerm: z.union([z.number(), strToNum()]).optional().nullable(),
+  status: z.string().optional(),
   notes: z.string().optional().default('')
 })
 exports.updateAccountsReceivableSchema =
@@ -906,14 +914,15 @@ exports.createPosTransferSchema = z.object({
   items: z
     .array(
       z.object({
-        product: strToNum(),
-        quantity: strToNum(),
+        productId: strToNum(),
+        qty: strToNum(),
+        unit: z.string().optional().default('pcs'),
         notes: z.string().optional().default('')
       })
     )
     .min(1, 'At least one item'),
   notes: z.string().optional().default(''),
-  transferredBy: strToNum().optional()
+  transferredBy: z.string().optional().default('')
 })
 
 exports.createPosAdjustSchema = z.object({

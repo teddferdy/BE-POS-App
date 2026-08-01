@@ -203,7 +203,7 @@ exports.editPositionById = async (req, res) => {
     })
 
     if (!getDuplicate?.dataValues) {
-      const [_, rows] = await Position.update(
+      const [, rows] = await Position.update(
         {
           name: body.name,
           departmentId: body.departmentId,

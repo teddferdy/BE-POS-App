@@ -108,7 +108,7 @@ const ingredientController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
 
       const ingredient = await db.ingredient.findOne({
         where: { id, ...(store ? { store } : {}) },
@@ -149,7 +149,7 @@ const ingredientController = {
 
   async create(req, res) {
     try {
-      const store = req.body.store || req.cookies.store || req.user?.store
+      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
       const {
         name,
         category,
@@ -218,7 +218,7 @@ const ingredientController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const {
         name,
         category,
@@ -306,7 +306,7 @@ const ingredientController = {
   async adjustStock(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const { quantity, type, notes } = req.body
 
       const ingredient = await db.ingredient.findOne({
@@ -376,7 +376,7 @@ const ingredientController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
 
       const ingredient = await db.ingredient.findOne({
         where: { id, ...(store ? { store } : {}) }
@@ -407,7 +407,7 @@ const ingredientController = {
 
   async downloadTemplate(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const categories = await db.ingredientCategory.findAll({
         where: store ? { store } : {},
         attributes: ['name'],
@@ -567,7 +567,7 @@ const ingredientController = {
 
   async downloadData(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const ingredients = await db.ingredient.findAll({
         where: store ? { store } : {},
         include: [
@@ -826,7 +826,7 @@ const ingredientController = {
 
   async getProductNames(req, res) {
     try {
-      const { store, category, supplier } = req.query
+      const { category, supplier } = req.query
 
       if (!supplier) {
         return res.status(400).json({

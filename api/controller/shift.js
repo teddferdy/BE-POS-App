@@ -188,7 +188,7 @@ exports.editShiftById = async (req, res) => {
         message: 'Shift Sudah Tersedia'
       })
     }
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'

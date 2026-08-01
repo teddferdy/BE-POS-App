@@ -304,8 +304,8 @@ const stockHistoryController = {
 
   async autoGeneratePOFromLowStock(req, res) {
     try {
-      const store = req.cookies?.store || req.query?.store || req.body?.store
-      const userRole = req.user?.roleType
+      const store =
+        req.storeId || req.cookies?.store || req.query?.store || req.body?.store
       const createdBy = req.user?.id || null
 
       const ingredientWhere = { status: 'active' }

@@ -6,7 +6,7 @@ const expenseCategoryController = {
   async getAll(req, res) {
     try {
       const { status, search, store: queryStore } = req.query
-      let store = queryStore || req.cookies.store || req.user?.store
+      let store = queryStore || req.storeId || req.cookies.store || req.user?.store
       if (req.user?.roleType !== 'super_admin') {
         store = req.user?.store
       }
@@ -58,7 +58,7 @@ const expenseCategoryController = {
 
   async create(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const { name, description, icon, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -103,7 +103,7 @@ const expenseCategoryController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const { name, description, icon, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -159,7 +159,7 @@ const expenseCategoryController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
 
       const category = await db.expense_category.findOne({
         where: { id, ...(store ? { store } : {}) }

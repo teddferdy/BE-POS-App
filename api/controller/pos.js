@@ -1,6 +1,5 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
-const path = require('path')
 const batchService = require('../service/batchService')
 const {
   getConnectionStatus,
@@ -96,6 +95,15 @@ const posController = {
         })
       }
 
+      if (req.user?.roleType !== 'super_admin' && req.storeId) {
+        if (Number(fromStore) !== Number(req.storeId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Anda hanya dapat mentransfer stok dari toko Anda'
+          })
+        }
+      }
+
       const result = await db.sequelize.transaction(async (t) => {
         const transfer = await db.stock_transfer.create(
           {
@@ -171,9 +179,7 @@ const posController = {
           const oldPssStock = availPss
           const newPssStock = availPss - Number(item.qty)
 
-          const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
-          const newStock = oldStock - qty
           await product.update(
             { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
             { transaction: t }
@@ -218,8 +224,13 @@ const posController = {
     try {
       const { id } = req.params
 
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where.toStore = req.storeId
+      }
+
       const transfer = await db.stock_transfer.findOne({
-        where: { id },
+        where,
         include: [{ model: db.stock_transfer_item, as: 'items' }]
       })
 
@@ -266,9 +277,7 @@ const posController = {
           const oldPssStock = 0
           const newPssStock = Number(item.qty)
 
-          const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
-          const newStock = oldStock + qty
           await product.update(
             { stock: db.sequelize.literal(`stock + ${qty}`) },
             { transaction: t }
@@ -357,8 +366,13 @@ const posController = {
     try {
       const { id } = req.params
 
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where.fromStore = req.storeId
+      }
+
       const transfer = await db.stock_transfer.findOne({
-        where: { id },
+        where,
         include: [{ model: db.stock_transfer_item, as: 'items' }]
       })
 
@@ -406,9 +420,7 @@ const posController = {
           const oldPssStock = 0
           const newPssStock = Number(item.qty)
 
-          const oldStock = Number(product.stock) || 0
           const qty = Math.floor(Number(item.qty)) || 0
-          const newStock = oldStock + qty
           await product.update(
             { stock: db.sequelize.literal(`stock + ${qty}`) },
             { transaction: t }
@@ -451,21 +463,17 @@ const posController = {
   // Get stock transfer history
   async getTransferHistory(req, res) {
     try {
-      const { store: cookieStore } = req.cookies
-      const userRole = req.user?.roleType
       const {
         page = 1,
         limit = 20,
         status,
         startDate,
         endDate,
-        store: queryStore,
         search
       } = req.query
 
       let where = {}
-      const effectiveStore =
-        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
+      const effectiveStore = req.storeId
       const storeClause = effectiveStore
         ? [{ fromStore: effectiveStore }, { toStore: effectiveStore }]
         : null
@@ -537,8 +545,13 @@ const posController = {
     try {
       const { id } = req.params
 
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where[Op.or] = [{ fromStore: req.storeId }, { toStore: req.storeId }]
+      }
+
       const transfer = await db.stock_transfer.findOne({
-        where: { id },
+        where,
         include: [
           {
             model: db.stock_transfer_item,
@@ -597,7 +610,7 @@ const posController = {
   // Stock adjustment
   async adjust(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       let {
         productId,
         qty,
@@ -656,7 +669,7 @@ const posController = {
         )
 
         // Update per-store stock — ponytail: atomic upsert + adjust
-        const adjStore = storeId || store
+        const adjStore = storeId || store || req.storeId
         if (adjStore) {
           await db.sequelize.query(
             `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
@@ -677,7 +690,7 @@ const posController = {
         await db.stock_history.create(
           {
             product: productId,
-            store: storeId || store,
+            store: adjStore,
             referenceType,
             quantityBefore: oldStock,
             quantityChange: qty,
@@ -717,7 +730,7 @@ const posController = {
   async returnSalesOrder(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const { items, reason, returnedBy } = req.body
 
       if (!items || items.length === 0) {
@@ -927,7 +940,7 @@ const posController = {
   // Dashboard summary
   async getDashboardSummary(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       let { startDate, endDate, filter, page, pageSize } = req.query
       page = Math.max(parseInt(page) || 1, 1)
       pageSize = Math.min(Math.max(parseInt(pageSize) || 5, 1), 50)
@@ -1353,7 +1366,7 @@ const posController = {
           })
         : null
       const { generateInvoicePdf } = require('../../utils/generateInvoicePdf')
-      const { fileName, filePath } = await generateInvoicePdf(
+      const { filePath } = await generateInvoicePdf(
         order,
         storeData,
         order.items || []
@@ -1501,6 +1514,7 @@ const posController = {
   async addBatch(req, res) {
     try {
       const { productId, batchCode, expiryDate, qty, store } = req.body
+      const effectiveStore = store || req.storeId
 
       if (!productId || !batchCode || !expiryDate || !qty) {
         return res.status(400).json({
@@ -1530,23 +1544,20 @@ const posController = {
           { transaction: t }
         )
 
-        await db.product_batch.create(
-          {
-            product: productId,
-            batchCode,
-            expiryDate,
-            qty,
-            store,
-            status: 'active',
-            createdBy: req.user?.id || null
-          },
-          { transaction: t }
-        )
+        const batch = await batchService.addBatchStock({
+          productId,
+          store: effectiveStore,
+          qty,
+          batchCode,
+          expiryDate,
+          supplier: null,
+          transaction: t
+        })
 
         await db.stock_history.create(
           {
             product: productId,
-            store,
+            store: effectiveStore,
             referenceType: 'purchase',
             quantityBefore: oldStock,
             quantityChange: qty,
@@ -1558,7 +1569,10 @@ const posController = {
           { transaction: t }
         )
 
-        return { product, batch: { batchCode, expiryDate, qty, newStock } }
+        return {
+          product,
+          batch: { batchCode, expiryDate, qty, newStock, id: batch?.id }
+        }
       })
 
       return res.status(201).json({

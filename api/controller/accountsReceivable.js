@@ -5,7 +5,6 @@ const { createAudit } = require('../../utils/auditLog')
 const accountsReceivableController = {
   async list(req, res) {
     try {
-      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
       const {
         page = 1,
@@ -13,15 +12,11 @@ const accountsReceivableController = {
         status,
         customerId,
         startDate,
-        endDate,
-        store: queryStore
+        endDate
       } = req.query
 
-      const store =
-        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
-
       const where = {}
-      if (store && userRole !== 'super_admin') where.store = store
+      if (req.storeId && userRole !== 'super_admin') where.store = req.storeId
       if (status) where.status = status
       if (customerId) where.customerId = customerId
       if (startDate || endDate) {
@@ -95,7 +90,12 @@ const accountsReceivableController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const ar = await db.accounts_receivable.findByPk(id, {
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where.store = req.storeId
+      }
+      const ar = await db.accounts_receivable.findOne({
+        where,
         include: [
           {
             model: db.order,
@@ -134,7 +134,7 @@ const accountsReceivableController = {
 
   async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.user?.store || null
       const {
         orderId,
         customerId,
@@ -209,7 +209,11 @@ const accountsReceivableController = {
           .json({ success: false, message: 'Amount is required' })
       }
 
-      const ar = await db.accounts_receivable.findByPk(id)
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where.store = req.storeId
+      }
+      const ar = await db.accounts_receivable.findOne({ where })
       if (!ar) {
         return res.status(404).json({ success: false, message: 'AR not found' })
       }
@@ -284,11 +288,10 @@ const accountsReceivableController = {
 
   async agingReport(req, res) {
     try {
-      const { store } = req.cookies
       const userRole = req.user?.roleType
 
       const where = { status: { [Op.ne]: 'PAID' } }
-      if (store && userRole !== 'super_admin') where.store = store
+      if (req.storeId && userRole !== 'super_admin') where.store = req.storeId
 
       const arList = await db.accounts_receivable.findAll({
         where,
@@ -353,7 +356,11 @@ const accountsReceivableController = {
       const { id } = req.params
       const { dueDate, creditTerm, notes, status } = req.body
 
-      const ar = await db.accounts_receivable.findByPk(id)
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where.store = req.storeId
+      }
+      const ar = await db.accounts_receivable.findOne({ where })
       if (!ar) {
         return res.status(404).json({ success: false, message: 'AR not found' })
       }
@@ -388,7 +395,11 @@ const accountsReceivableController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const ar = await db.accounts_receivable.findByPk(id)
+      const where = { id }
+      if (req.storeId && req.user?.roleType !== 'super_admin') {
+        where.store = req.storeId
+      }
+      const ar = await db.accounts_receivable.findOne({ where })
       if (!ar) {
         return res.status(404).json({ success: false, message: 'AR not found' })
       }

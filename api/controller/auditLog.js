@@ -4,7 +4,7 @@ const { Op } = require('sequelize')
 const auditLogController = {
   async getAll(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const {
         page = 1,
         limit = 20,
@@ -57,7 +57,7 @@ const auditLogController = {
   async getByEntity(req, res) {
     try {
       const { entity, entityId } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const { page = 1, limit = 10 } = req.query
 
       const where = {

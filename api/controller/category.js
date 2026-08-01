@@ -8,7 +8,6 @@ const {
   uploadToCloudinaryWithDedup,
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
-const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
@@ -380,8 +379,8 @@ exports.addNewCategory = async (req, res) => {
 
     const parsedStores = body.store
       ? parseStoreField(body.store)
-      : req.cookies.store
-        ? [parseInt(req.cookies.store, 10)]
+      : req.storeId || req.cookies.store
+        ? [parseInt(req.storeId || req.cookies.store, 10)]
         : req.user?.store
           ? [parseInt(req.user.store, 10)]
           : []
@@ -543,8 +542,6 @@ exports.editCategoryById = async (req, res) => {
 
 // Delete Category By Id
 exports.deleteCategoryById = async (req, res) => {
-  const body = req.body
-
   try {
     const categoryId = req.params.id
 

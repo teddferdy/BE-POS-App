@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
 const getStore = (req) =>
+  req.storeId ||
   req.body.storeId ||
   req.body.store ||
   req.query.store ||

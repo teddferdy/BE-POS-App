@@ -38,7 +38,7 @@ const authorization = (req, res, next) => {
     req.user = decoded
     setUserContext(decoded)
     return next()
-  } catch (error) {
+  } catch {
     return res.status(401).json({
       message: 'Token Tidak Valid'
     })

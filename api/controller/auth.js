@@ -12,7 +12,7 @@ const parseAccessMenu = (menu) => {
   if (typeof menu === 'string') {
     try {
       return JSON.parse(menu)
-    } catch (e) {
+    } catch {
       return []
     }
   }
@@ -91,7 +91,7 @@ exports.userByLocation = async (req, res) => {
 }
 
 // Change User Role By Id & Location
-exports.changeUserByIdAndLocation = async (req, res, next) => {
+exports.changeUserByIdAndLocation = async (req, res) => {
   const { store, id, userType, position, roleId, roleType } = req.body
   const currentUserRole = req.user?.roleType
   const currentUserStore = req.user?.store
@@ -168,7 +168,7 @@ exports.changeUserByIdAndLocation = async (req, res, next) => {
 }
 
 // Get All List User
-exports.getAllUser = async (req, res, next) => {
+exports.getAllUser = async (req, res) => {
   try {
     const currentUserRole = req.user?.roleType
     const currentUserStore = req.user?.store
@@ -197,7 +197,7 @@ exports.getAllUser = async (req, res, next) => {
       message: 'Success',
       data: getAllUser.length > 0 ? getAllUser : []
     })
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       error: 'Terjadi Kesalahan Internal Server'
     })
@@ -312,7 +312,7 @@ exports.login = async (req, res) => {
 }
 
 // Register
-exports.registerNewUser = async (req, res, next) => {
+exports.registerNewUser = async (req, res) => {
   const body = req.body
   console.log('BODY =>', body)
 
@@ -413,7 +413,7 @@ exports.registerNewUser = async (req, res, next) => {
 }
 
 // Edit User
-exports.editUser = async (req, res, next) => {
+exports.editUser = async (req, res) => {
   try {
     const { body } = req
     const imageFile = req.file
@@ -488,7 +488,7 @@ exports.editUser = async (req, res, next) => {
 }
 
 // Reset Password
-exports.resetPassword = async (req, res, next) => {
+exports.resetPassword = async (req, res) => {
   const body = req?.body
 
   if (!body?.email || !body?.newPassword || !body?.confirmPassword) {
@@ -553,7 +553,7 @@ exports.generateEmployeeId = async (req, res) => {
 }
 
 // User Logout
-exports.logout = async (req, res, next) => {
+exports.logout = async (req, res) => {
   try {
     const user = req.user
 

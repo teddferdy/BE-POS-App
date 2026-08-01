@@ -226,7 +226,7 @@ exports.editDepartmentById = async (req, res) => {
         })
       }
 
-      const [_, editRows] = await Department.update(
+      const [, editRows] = await Department.update(
         {
           name: body.name,
           description: body.description,

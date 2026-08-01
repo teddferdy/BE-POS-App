@@ -104,7 +104,7 @@ const bomController = {
 
   async create(req, res) {
     try {
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
       const { productId, name, notes, lines } = req.body
       if (!productId || !lines?.length) {
         return res

@@ -1,5 +1,12 @@
 export default [
   {
+    ignores: [
+      '**/node_modules/**',
+      '**/.wwebjs_auth*/**',
+      '**/.wwebjs_auth_default*/**'
+    ]
+  },
+  {
     files: ['**/*.js'],
     languageOptions: {
       sourceType: 'commonjs',
@@ -33,9 +40,19 @@ export default [
       }
     },
     rules: {
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+      ],
       'no-unsafe-finally': 'warn',
       'no-console': 'off'
+    }
+  },
+  {
+    // Sequelize CLI passes (queryInterface, Sequelize) even when unused
+    files: ['db/migrations/**', 'db/seeders/**'],
+    rules: {
+      'no-unused-vars': 'off'
     }
   }
 ]

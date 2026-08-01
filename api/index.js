@@ -66,6 +66,7 @@ const productBundleRoutes = require('./routes/productBundle')
 const reportingRoutes = require('./routes/reporting')
 const employeePerformanceRoutes = require('./routes/employeePerformance')
 const inventoryRoutes = require('./routes/inventory')
+const thermalPrinterRoutes = require('./routes/thermalPrinter')
 
 const app = express()
 const server = http.createServer(app)
@@ -170,7 +171,8 @@ const routes = [
   { path: '/product-bundle', route: productBundleRoutes },
   { path: '/reports', route: reportingRoutes },
   { path: '/employee', route: employeePerformanceRoutes },
-  { path: '/inventory', route: inventoryRoutes }
+  { path: '/inventory', route: inventoryRoutes },
+  { path: '/thermal-printer', route: thermalPrinterRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
@@ -295,7 +297,8 @@ function generateESCPOS(data) {
     escposPadBoth('TOTAL', escposPrice(total)) +
     '\n\x1B\x45\x00'
   enc += escposLine('-', w) + '\n'
-  enc += '\x1B\x61\x01' + footer + '\n'
+  enc +=
+    '\x1B\x61\x01' + footer + '\n'
   const vSocial = (socialMedia || []).filter(
     (_, i) => socialMediaVisible && socialMediaVisible[i]
   )
@@ -336,7 +339,7 @@ app.post('/print-thermal', (req, res) => {
   }
 })
 
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   console.error(err.stack)
   res.status(err.status || 500).json({
     success: false,

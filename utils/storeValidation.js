@@ -2,7 +2,10 @@ const validateStoreAccess = (req, res, next) => {
   const userRole = req.user?.roleType
   const userStore = req.user?.store
   const requestedStore =
-    parseInt(req.query.store) || parseInt(req.body.store) || null
+    parseInt(req.query.store) ||
+    parseInt(req.body.store) ||
+    parseInt(req.body.storeId) ||
+    null
 
   if (userRole === 'super_admin') {
     req.storeId = requestedStore || null

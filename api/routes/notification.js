@@ -2,7 +2,6 @@ const express = require('express')
 const router = express.Router()
 const notificationController = require('../controller/notification')
 const authorization = require('../../utils/authorization')
-const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 
 router.get(

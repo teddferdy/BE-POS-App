@@ -14,14 +14,6 @@ const generateDeliveryNumber = () => {
   return `DLV-${year}${month}${day}-${random}`
 }
 
-const normalizeStores = (stores) => {
-  if (!Array.isArray(stores)) return []
-  return stores.flatMap((s) => {
-    if (s == null) return []
-    return typeof s === 'object' ? [s.id] : [s]
-  })
-}
-
 const deliveryController = {
   // ─── Delivery Orders ─────────────────────────────────────────────
 

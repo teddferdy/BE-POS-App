@@ -68,7 +68,7 @@ async function simpleSetup() {
             role.status
           ]
         )
-      } catch (err) {
+      } catch {
         console.log(`Role ${role.roleType} already exists`)
       }
     }

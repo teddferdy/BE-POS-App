@@ -1,5 +1,4 @@
 const db = require('../../db/models')
-const BestSelling = db.best_selling
 const Order = db.order
 const { Op, Sequelize } = require('sequelize')
 const moment = require('moment')

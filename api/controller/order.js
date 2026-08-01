@@ -5,8 +5,6 @@ const OrderStatus = db.order_status
 const Table = db.table
 const Product = db.product
 const Discount = db.discount
-const Transaction = db.transaction
-const BestSelling = db.best_selling
 const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
@@ -68,7 +66,7 @@ const generateOrderNumber = () => {
 const getActiveTaxRate = async (store) => {
   try {
     const taxConfigs = await db.taxConfig.findAll({
-      where: { store, status: 'active' },
+      where: { store, type: 'ppn', status: 'active' },
       attributes: ['rate']
     })
     if (taxConfigs.length > 0) {
@@ -81,8 +79,18 @@ const getActiveTaxRate = async (store) => {
 }
 
 const getServiceChargeRate = async (store) => {
-  // Could be extended to a service_charge_config table
-  return 5
+  try {
+    const configs = await db.taxConfig.findAll({
+      where: { store, type: 'service_charge', status: 'active' },
+      attributes: ['rate']
+    })
+    if (configs.length > 0) {
+      return configs.reduce((sum, t) => sum + Number(t.rate), 0)
+    }
+  } catch (e) {
+    console.error('Error fetching service charge config:', e.message)
+  }
+  return 0
 }
 
 const evaluatePromoCampaign = async (items, store, customerId, subtotal) => {
@@ -340,7 +348,7 @@ exports.createOrder = async (req, res) => {
     cashierName,
     items,
     discountId,
-    discountAmount,
+    _discountAmount,
     promoCode,
     customerId,
     customerName,
@@ -531,7 +539,7 @@ exports.createOrder = async (req, res) => {
     let appliedCampaignId = null
 
     // Priority 5: Evaluate promo campaigns (replaces old applyAdvancedPromo)
-    const campaignResult = await evaluatePromoCampaign(
+    await evaluatePromoCampaign(
       items.map((item) => ({
         ...item,
         productId: item.product || item.productId,
@@ -1209,8 +1217,12 @@ exports.getOrdersByStore = async (req, res) => {
     req.query
 
   try {
+    const reqStore =
+      req.user?.roleType === 'super_admin'
+        ? req.storeId || store || null
+        : req.storeId || req.user?.store || null
     const where = {}
-    if (store) where.store = store
+    if (reqStore) where.store = reqStore
     if (status) where.status = status
     if (req.query.source) where.source = req.query.source
     if (req.query.paymentStatus) where.paymentStatus = req.query.paymentStatus
@@ -1275,8 +1287,12 @@ exports.getOrderById = async (req, res) => {
 
   try {
     const orderAttributes = await getOrderAttributes()
+    const reqStore =
+      req.user?.roleType === 'super_admin'
+        ? req.storeId || null
+        : req.storeId || req.user?.store || null
     const order = await Order.findOne({
-      where: { id },
+      where: { id, ...(reqStore ? { store: reqStore } : {}) },
       include: [
         { model: OrderItem, as: 'items' },
         { model: OrderStatus, as: 'statusHistory' },
@@ -1304,12 +1320,16 @@ exports.getOrderById = async (req, res) => {
 }
 
 exports.updateOrderStatus = async (req, res) => {
-  const { id, store, status, changedBy, changedByName, notes } = req.body
+  const { id, status, changedBy, changedByName, notes } = req.body
+  const store =
+    req.user?.roleType === 'super_admin'
+      ? req.storeId || req.body.store || null
+      : req.storeId || req.user?.store || null
 
   try {
     const statusAttrs = await getOrderAttributes()
     const order = await Order.findOne({
-      where: { id, store },
+      where: { id, ...(store ? { store } : {}) },
       ...(statusAttrs ? { attributes: statusAttrs } : {})
     })
 
@@ -1330,9 +1350,20 @@ exports.updateOrderStatus = async (req, res) => {
       notes: notes || (changedByName ? `By ${changedByName}` : null)
     })
 
-    // If transitioning to paid, reduce stock
+    // If transitioning to paid, record payment & reduce stock
     if (status === 'paid' && oldStatus !== 'paid') {
       const items = await OrderItem.findAll({ where: { order: id } })
+
+      // Ensure a transaction record exists (e.g. QR/customer orders paid at cashier)
+      const existingTxn = await db.transaction.findOne({ where: { order: id } })
+      if (!existingTxn) {
+        await db.transaction.create({
+          order: id,
+          typePayment: order.paymentMethod || 'cash',
+          amount: Number(order.totalPrice) || 0,
+          createdBy: changedBy || req.user?.id
+        })
+      }
 
       await db.sequelize.transaction(async (t) => {
         for (const item of items) {
@@ -2501,5 +2532,20 @@ exports.getReceiptHTML = async (req, res) => {
   } catch (error) {
     console.error('Error generating receipt:', error)
     return res.status(500).send('<h1>Internal Server Error</h1>')
+  }
+}
+
+exports.getCustomerTaxRate = async (req, res) => {
+  const { store } = req.query
+  if (!store) {
+    return res.status(400).json({ message: 'store is required' })
+  }
+  try {
+    const rate = await getActiveTaxRate(Number(store))
+    const serviceChargeRate = await getServiceChargeRate(Number(store))
+    return res.status(200).json({ data: { rate, serviceChargeRate } })
+  } catch (error) {
+    console.error('Error fetching customer tax rate:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
   }
 }

@@ -7,7 +7,7 @@ const { enrichAuditFields } = require('../../utils/auditFields')
 const taxConfigController = {
   async getAll(req, res) {
     try {
-      const store = req.query.store || req.cookies.store || req.user?.store
+      const store = req.storeId || req.query.store || req.cookies.store || req.user?.store
       const { page = 1, limit = 10, search, status } = req.query
 
       // Auto-seed default PPh 2026 data if table is empty
@@ -70,10 +70,13 @@ const taxConfigController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.query.store || req.cookies.store || req.user?.store
+      const store = req.storeId || req.query.store || req.cookies.store || req.user?.store
 
       const tax = await db.taxConfig.findOne({
-        where: { id, ...(store ? { store } : {}) }
+        where: {
+          id,
+          ...(store ? { [Op.or]: [{ store }, { store: null }] } : {})
+        }
       })
 
       if (!tax) {
@@ -99,7 +102,7 @@ const taxConfigController = {
 
   async create(req, res) {
     try {
-      const store = req.body.store || req.cookies.store || req.user?.store
+      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -114,7 +117,7 @@ const taxConfigController = {
         store,
         name,
         rate: parseInt(rate),
-        type: type || 'percentage',
+        type: type || 'ppn',
         description,
         status: status || 'active',
         createdBy
@@ -144,7 +147,7 @@ const taxConfigController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.body.store || req.cookies.store || req.user?.store
+      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -194,10 +197,13 @@ const taxConfigController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
 
       const tax = await db.taxConfig.findOne({
-        where: { id, ...(store ? { store } : {}) }
+        where: {
+          id,
+          ...(store ? { [Op.or]: [{ store }, { store: null }] } : {})
+        }
       })
 
       if (!tax) {
@@ -281,7 +287,7 @@ const taxConfigController = {
 
   async downloadData(req, res) {
     try {
-      const store = req.query.store || req.cookies.store || req.user?.store
+      const store = req.storeId || req.query.store || req.cookies.store || req.user?.store
       const where = {}
       if (store) where.store = store
 
@@ -313,7 +319,13 @@ const taxConfigController = {
         worksheet.addRow([
           t.id,
           t.name,
-          t.type === 'percentage' ? 'Persentase' : t.type,
+          t.type === 'ppn'
+            ? 'PPN'
+            : t.type === 'service_charge'
+              ? 'Non-Pajak'
+              : t.type === 'other'
+                ? 'PPh'
+                : t.type,
           t.rate,
           t.description,
           t.status === 'active' ? 'Active' : 'Inactive',
@@ -370,12 +382,27 @@ const taxConfigController = {
         if (rowNumber === 1) return
 
         try {
-          const [name, type, rate, description, status] = row.values
+          const [, name, type, rate, description, status] = row.values
 
           if (!name || rate === undefined || rate === null) {
             errors.push(`Row ${rowNumber}: Name and rate are required`)
             return
           }
+
+          const typeValue = String(type || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+          const mappedType =
+            typeValue === 'ppn'
+              ? 'ppn'
+              : typeValue === 'pph'
+                ? 'other'
+                : typeValue === 'non-pajak'
+                  ? 'service_charge'
+                  : typeValue === 'service_charge'
+                    ? 'service_charge'
+                    : 'ppn'
 
           const statusValue = status
             ? String(status).toLowerCase() === 'draft'
@@ -386,10 +413,10 @@ const taxConfigController = {
             : 'active'
 
           taxesToCreate.push({
-            store: req.cookies.store || req.user?.store,
+            store: req.storeId || req.cookies.store || req.user?.store,
             name: name.trim(),
             rate: parseInt(rate),
-            type: 'percentage',
+            type: mappedType,
             description: description?.trim() || null,
             status: statusValue,
             createdBy: req.user?.id || null
@@ -478,21 +505,21 @@ async function seedDefaultTaxes() {
     {
       name: 'PPN 11%',
       rate: 11,
-      type: 'percentage',
+      type: 'ppn',
       description: 'Pajak Pertambahan Nilai standar barang/jasa',
       status: 'active'
     },
     {
       name: 'PPh 23 2%',
       rate: 2,
-      type: 'percentage',
+      type: 'other',
       description: 'Pajak Penghasilan Pasal 23 atas jasa',
       status: 'active'
     },
     {
       name: 'Non-Pajak',
       rate: 0,
-      type: 'percentage',
+      type: 'service_charge',
       description: 'Transaksi tidak dikenakan pajak',
       status: 'active'
     }

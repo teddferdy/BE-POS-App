@@ -1,7 +1,35 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const ExcelJS = require('exceljs')
 const TypePayment = db.type_payment
 const { createAudit } = require('../../utils/auditLog')
+
+// Resolves the store payload sent by the FE (single id, JSON string array, or 'all')
+// into a list of store ids to attach rows to. Empty array means global (store null).
+const resolveStoreIds = (rawStore, userStore) => {
+  let s = rawStore
+  if (s === undefined || s === null) s = userStore
+  if (s === '' || s === 'all') return []
+  let arr = s
+  if (typeof s === 'string') {
+    try {
+      arr = JSON.parse(s)
+    } catch {
+      arr = [s]
+    }
+  }
+  if (!Array.isArray(arr)) arr = [arr]
+  const ids = arr
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  return [...new Set(ids)]
+}
+
+// Matches store-specific rows plus global (store null) rows for reads.
+const buildStoreWhere = (store) => {
+  if (!store) return {}
+  return { [Op.or]: [{ store }, { store: null }] }
+}
 
 exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -10,7 +38,7 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
   try {
     const offset = (page - 1) * limit
 
-    const where = store ? { store } : {}
+    const where = buildStoreWhere(store)
     if (search) where.name = { [Op.iLike]: `%${search}%` }
 
     const { rows: typePayment, count } = await TypePayment.findAndCountAll({
@@ -21,13 +49,13 @@ exports.getAllTypePaymentByLocationAndActive = async (req, res) => {
 
     const [active, draft, inactive] = await Promise.all([
       TypePayment.count({
-        where: store ? { store, status: 'active' } : { status: 'active' }
+        where: { ...buildStoreWhere(store), status: 'active' }
       }),
       TypePayment.count({
-        where: store ? { store, status: 'draft' } : { status: 'draft' }
+        where: { ...buildStoreWhere(store), status: 'draft' }
       }),
       TypePayment.count({
-        where: store ? { store, status: 'inactive' } : { status: 'inactive' }
+        where: { ...buildStoreWhere(store), status: 'inactive' }
       })
     ])
 
@@ -68,7 +96,7 @@ exports.getAllTypePayment = async (req, res) => {
   try {
     const offset = (page - 1) * pageSize
 
-    const queryConditions = store ? { store } : {}
+    const queryConditions = buildStoreWhere(store)
 
     if (status && status !== 'all') {
       queryConditions.status = status
@@ -140,51 +168,57 @@ exports.getTypePaymentById = async (req, res) => {
 }
 
 exports.postNewTypePayment = async (req, res) => {
-  const { name, status } = req.body
-  const rawStore = req.body.store || req.user?.store
-  const store =
-    typeof rawStore === 'object' && rawStore !== null
-      ? JSON.stringify(rawStore)
-      : rawStore
+  const { name, type, icon, status } = req.body
+  const rawStore = req.body.store ?? req.user?.store
+  const stores = resolveStoreIds(rawStore, req.user?.store)
+  const statusValue =
+    status !== undefined
+      ? status === true
+        ? 'active'
+        : status === false
+          ? 'inactive'
+          : status
+      : 'active'
   try {
-    const findOneTypePayment = await TypePayment?.findOne({
-      where: {
-        name: name,
-        ...(store ? { store } : {})
-      }
-    })
-
-    if (!findOneTypePayment) {
+    const created = []
+    const targets = stores.length > 0 ? stores : [null]
+    for (const target of targets) {
+      const findOneTypePayment = await TypePayment?.findOne({
+        where: {
+          name,
+          ...(target !== null ? { store: target } : { store: null })
+        }
+      })
+      if (findOneTypePayment) continue
       const postData = await TypePayment.create({
-        name: name,
-        store: store,
-        status:
-          status !== undefined
-            ? status === true
-              ? 'active'
-              : status === false
-                ? 'inactive'
-                : status
-            : 'active'
+        name,
+        store: target,
+        type: type || 'cash',
+        icon: icon || '',
+        status: statusValue
       })
-      createAudit(
-        req,
-        'create',
-        'type_payment',
-        postData.id,
-        'Created type_payment: ' + (postData.name || postData.id)
-      )
-      return res.status(200).json({
-        success: true,
-        message: 'Success',
-        data: postData
-      })
-    } else {
+      created.push(postData)
+    }
+
+    if (created.length === 0) {
       return res.status(403).json({
         success: false,
         message: 'TypePayment Sudah Terdaftar'
       })
     }
+
+    createAudit(
+      req,
+      'create',
+      'type_payment',
+      created[0].id,
+      'Created type_payment: ' + (created[0].name || created[0].id)
+    )
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: created.length === 1 ? created[0] : created
+    })
   } catch (error) {
     console.error('Error =>', error)
     return res.status(500).json({
@@ -196,23 +230,39 @@ exports.postNewTypePayment = async (req, res) => {
 
 exports.editTypePaymentById = async (req, res) => {
   const body = req.body
-  const rawStore = body.store || req.user?.store
-  const store =
-    typeof rawStore === 'object' && rawStore !== null
-      ? JSON.stringify(rawStore)
-      : rawStore
+  const rawStore = body.store ?? req.user?.store
+  const stores = resolveStoreIds(rawStore, req.user?.store)
   try {
     const existing = await TypePayment.findByPk(req.params.id)
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'TypePayment not found'
+      })
+    }
     if (existing?.isSystem) {
       return res.status(403).json({
         success: false,
         message: 'Metode pembayaran sistem tidak dapat diedit'
       })
     }
+    if (
+      req.user?.roleType !== 'super_admin' &&
+      existing.store &&
+      Number(existing.store) !== Number(req.user?.store)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki akses untuk mengedit metode pembayaran ini'
+      })
+    }
+
+    const targetStore =
+      stores.length === 1 ? stores[0] : stores.length > 1 ? existing.store : null
     const getDuplicate = await TypePayment.findOne({
       where: {
         name: body.name,
-        ...(store ? { store } : {})
+        ...(targetStore !== null ? { store: targetStore } : { store: null })
       }
     })
 
@@ -220,7 +270,9 @@ exports.editTypePaymentById = async (req, res) => {
       const editTypePayment = await TypePayment?.update(
         {
           name: body.name,
-          ...(store !== undefined && { store }),
+          ...(targetStore !== undefined && { store: targetStore }),
+          type: body.type || existing.type,
+          icon: body.icon !== undefined ? body.icon : existing.icon,
           status:
             body.status !== undefined
               ? body.status === true
@@ -233,8 +285,7 @@ exports.editTypePaymentById = async (req, res) => {
         {
           returning: true,
           where: {
-            id: req.params.id,
-            ...(store ? { store } : {})
+            id: req.params.id
           }
         }
       ).then(([_, data]) => {
@@ -260,6 +311,7 @@ exports.editTypePaymentById = async (req, res) => {
       })
     }
   } catch (error) {
+    console.error('Error =>', error)
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
@@ -413,7 +465,7 @@ exports.importData = async (req, res) => {
       if (rowNumber === 1) return
 
       try {
-        const [name, type, description, status] = row.values
+        const [name, type, _description, status] = row.values
 
         if (!name) {
           errors.push(`Row ${rowNumber}: Name is required`)

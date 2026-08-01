@@ -23,7 +23,7 @@ exports.getAllSocialMedia = async (req, res) => {
       currentPage: parseInt(page),
       data: getAllCategory?.length > 0 ? getAllCategory : []
     })
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
@@ -72,7 +72,7 @@ exports.addNewSocialMedia = async (req, res) => {
         message: 'Social Media Sudah Terdaftar'
       })
     }
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
@@ -129,7 +129,7 @@ exports.editSocialMediaById = async (req, res) => {
         message: 'Social Media Sudah Tersedia'
       })
     }
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
@@ -169,7 +169,7 @@ exports.deleteSocialMediaById = async (req, res) => {
         message: 'Gagal Hapus Social Media'
       })
     }
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'

@@ -31,7 +31,6 @@ const STOCK_OPNAME_EXCEL_HEADERS = [
 const stockOpnameController = {
   async getAll(req, res) {
     try {
-      const userRole = req.user?.roleType
       const {
         page = 1,
         limit = 10,
@@ -53,7 +52,7 @@ const stockOpnameController = {
         where[Op.or] = [
           { auditId: { [Op.iLike]: `%${search}%` } },
           { auditor: { [Op.iLike]: `%${search}%` } },
-          { warehouse: { [Op.iLike]: `%${search}%` } }
+          { '$storeData.name$': { [Op.iLike]: `%${search}%` } }
         ]
       }
 
@@ -171,7 +170,7 @@ const stockOpnameController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const whereClause = { id }
@@ -248,7 +247,7 @@ const stockOpnameController = {
 
   async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userStore = req.user?.store
       const {
         items,
@@ -540,7 +539,7 @@ const stockOpnameController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
       const { items, notes, date, auditDate, auditor } = req.body
 
@@ -658,7 +657,7 @@ const stockOpnameController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const whereClause = { id }
@@ -715,7 +714,7 @@ const stockOpnameController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       if (!['completed', 'cancelled'].includes(status)) {
@@ -978,7 +977,7 @@ const stockOpnameController = {
 
   async downloadExcel(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const locationWhere = { status: 'active' }

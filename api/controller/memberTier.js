@@ -1,9 +1,16 @@
 const db = require('../../db/models')
-const { Op, fn, col, literal } = require('sequelize')
+const { Op, literal } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
 const memberTierController = {
+  normalizeBenefits(benefits) {
+    if (!Array.isArray(benefits)) return []
+    return benefits
+      .map((b) => (typeof b === 'string' ? b : b?.text ?? ''))
+      .filter((b) => b !== '')
+  },
+
   async getAll(req, res) {
     try {
       const { status } = req.query
@@ -151,7 +158,7 @@ const memberTierController = {
         maxPoints: maxPoints ?? 0,
         discountPercent: discountPercent || 0,
         pointMultiplier: pointMultiplier || 1.0,
-        benefits: benefits || [],
+        benefits: memberTierController.normalizeBenefits(benefits),
         color: color || '#000000',
         status: status !== undefined ? status : 'active',
         createdBy
@@ -214,7 +221,10 @@ const memberTierController = {
           pointMultiplier !== undefined
             ? pointMultiplier
             : tier.pointMultiplier,
-        benefits: benefits || tier.benefits,
+        benefits:
+          benefits !== undefined
+            ? memberTierController.normalizeBenefits(benefits)
+            : tier.benefits,
         color: color || tier.color,
         status:
           status !== undefined

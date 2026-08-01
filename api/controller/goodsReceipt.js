@@ -54,7 +54,7 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
 const goodsReceiptController = {
   async getAll(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
       const {
         page = 1,
@@ -142,7 +142,7 @@ const goodsReceiptController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -203,7 +203,7 @@ const goodsReceiptController = {
   async getByPO(req, res) {
     try {
       const { poId } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { purchaseOrderId: poId }
@@ -233,7 +233,7 @@ const goodsReceiptController = {
 
   async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const { purchaseOrderId, items, receivedDate, notes } = req.body
 
       if (!purchaseOrderId || !items || items.length === 0) {
@@ -564,7 +564,7 @@ const goodsReceiptController = {
 
   async exportExcel(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
       const { status, startDate, endDate, store: queryStore } = req.query
 
@@ -807,7 +807,7 @@ const goodsReceiptController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
       const { notes, receivedDate, items, status } = req.body
 
@@ -1011,7 +1011,7 @@ const goodsReceiptController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -1091,7 +1091,7 @@ const goodsReceiptController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       if (!['completed', 'cancelled'].includes(status)) {

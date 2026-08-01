@@ -1,7 +1,6 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
-const { createNotification } = require('../../utils/createNotification')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
 const generateProductionNo = () => {
@@ -16,7 +15,6 @@ const generateProductionNo = () => {
 const productionOrderController = {
   async getAll(req, res) {
     try {
-      const userRole = req.user?.roleType
       const {
         page = 1,
         limit = 10,
@@ -103,7 +101,7 @@ const productionOrderController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -173,7 +171,7 @@ const productionOrderController = {
 
   async create(req, res) {
     try {
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const { productItemId, plannedQty, scheduledDate, notes, status } =
         req.body
 
@@ -229,7 +227,7 @@ const productionOrderController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
       const { productItemId, plannedQty, scheduledDate, notes, status } =
         req.body
@@ -285,7 +283,7 @@ const productionOrderController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -329,7 +327,7 @@ const productionOrderController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const validStatuses = [
@@ -446,7 +444,7 @@ const productionOrderController = {
   async startProduction(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -631,7 +629,7 @@ const productionOrderController = {
     try {
       const { id } = req.params
       const { producedQty } = req.body
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }

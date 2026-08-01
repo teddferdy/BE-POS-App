@@ -4,36 +4,19 @@ const receiptController = {
   async getOrderReceipt(req, res) {
     try {
       const { orderId } = req.params
-      const store = req.cookies.store || req.user?.store
+      const store = req.storeId || req.cookies.store || req.user?.store
 
       const order = await db.order.findOne({
         where: { id: orderId, ...(store ? { store } : {}) },
         include: [
           {
             model: db.order_item,
-            as: 'items',
-            include: [
-              {
-                model: db.product,
-                as: 'productData',
-                attributes: ['id', 'nameProduct']
-              }
-            ]
+            as: 'items'
           },
           {
             model: db.location,
             as: 'storeData',
-            attributes: ['id', 'name', 'address', 'phone']
-          },
-          {
-            model: db.user,
-            as: 'userData',
-            attributes: ['id', 'name']
-          },
-          {
-            model: db.member,
-            as: 'memberData',
-            attributes: ['id', 'name', 'phone']
+            attributes: ['id', 'name', 'address', 'phoneNumber']
           }
         ]
       })
@@ -47,18 +30,18 @@ const receiptController = {
       const receipt = {
         storeName: order.storeData?.name || 'Toko',
         storeAddress: order.storeData?.address || '',
-        storePhone: order.storeData?.phone || '',
+        storePhone: order.storeData?.phoneNumber || '',
         orderNumber: order.orderNumber || `INV-${order.id}`,
-        cashier: order.userData?.name || '-',
-        customer: order.memberData?.name || 'Umum',
+        cashier: order.cashierName || '-',
+        customer: order.customerName || 'Umum',
         date: order.createdAt
           ? new Date(order.createdAt).toLocaleString('id-ID')
           : '',
         items: (order.items || []).map((item) => ({
-          name: item.productData?.nameProduct || item.productName || '-',
+          name: item.productName || '-',
           qty: item.quantity || 0,
           price: item.price || 0,
-          total: item.total || item.quantity * item.price || 0
+          total: item.totalPrice || item.quantity * item.price || 0
         })),
         subtotal: order.subTotal || 0,
         discount: order.discountAmount || 0,

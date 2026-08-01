@@ -84,7 +84,7 @@ const salesReturnController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -134,7 +134,7 @@ const salesReturnController = {
     const transaction = await db.sequelize.transaction()
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -319,7 +319,7 @@ const salesReturnController = {
   async reject(req, res) {
     try {
       const { id } = req.params
-      const { store } = req.cookies
+      const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
 
       const where = { id }

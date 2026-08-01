@@ -22,8 +22,8 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       type: {
-        type: DataTypes.ENUM('percentage', 'fixed'),
-        defaultValue: 'percentage'
+        type: DataTypes.ENUM('ppn', 'service_charge', 'other'),
+        defaultValue: 'ppn'
       },
       status: {
         type: DataTypes.STRING(20),

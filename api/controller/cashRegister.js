@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
 const getStore = (req) =>
+  req.storeId ||
   req.body.storeId ||
   req.body.store ||
   req.query.store ||
@@ -317,7 +318,6 @@ const cashRegisterController = {
 
       let salesMap = {}
       let expenseMap = {}
-      let transactionsMap = {}
 
       if (openRegisters.length > 0) {
         const salesQueries = openRegisters.map(async (row) => {

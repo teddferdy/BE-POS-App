@@ -1,13 +1,9 @@
 const db = require('../../db/models')
 const Checkout = db.checkout
-const Order = db.order
-const OrderItem = db.order_item
-const PaymentMethod = db.payment_method
 const Transaction = db.transaction
 const BestSelling = db.best_selling
 const Member = db.member
 const MemberTier = db.member_tier
-const Product = db.product
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const batchService = require('../service/batchService')
