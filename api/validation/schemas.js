@@ -565,7 +565,10 @@ exports.createGoodsReceiptSchema = z.object({
   items: z.array(grItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
   receivedDate: z.string().optional(),
-  status: z.string().optional().default('pending')
+  status: z
+    .enum(['draft', 'completed', 'cancelled'])
+    .optional()
+    .default('completed')
 })
 
 exports.updateGoodsReceiptSchema = exports.createGoodsReceiptSchema.partial()
@@ -782,6 +785,11 @@ exports.createRoleSchema = z.object({
   description: z.string().optional().default(''),
   status: z.string().optional().default('active'),
   createdBy: z.union([z.number(), z.string()]).optional().nullable(),
+  roleType: z
+    .enum(['super_admin', 'admin', 'kasir', 'user'])
+    .optional()
+    .default('user'),
+  store: z.union([z.number(), z.string()]).optional().nullable(),
   accessMenu: z.array(z.any()).optional().default([]),
   permissions: z
     .union([z.string(), z.array(z.any()), z.record(z.any())])

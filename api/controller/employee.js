@@ -67,9 +67,10 @@ exports.addEmployee = async (req, res) => {
       }
     }
 
-    if (body?.employeeID) {
+    const employeeID = body?.employeeID || body?.employeeId
+    if (employeeID) {
       const existingEmployeeID = await User.findOne({
-        where: { employeeID: body.employeeID }
+        where: { employeeID }
       })
       if (existingEmployeeID) {
         return res.status(409).json({
@@ -125,7 +126,7 @@ exports.addEmployee = async (req, res) => {
       : await db.role.findOne({ where: { roleType: 'user' } })
 
     const employeeId =
-      body?.employeeID || String(Math.floor(100000 + Math.random() * 900000))
+      body?.employeeID || body?.employeeId || String(Math.floor(100000 + Math.random() * 900000))
 
     const isDraft = (body?.status || 'active') === 'draft'
     const draftSuffix = isDraft ? `draft-${employeeId}` : null
@@ -419,6 +420,9 @@ exports.updateEmployee = async (req, res) => {
       }
     }
 
+    const updateEmployeeID =
+      body?.employeeID || body?.employeeId || employee.employeeID
+
     if (body?.phoneNumber && body.phoneNumber !== employee.phoneNumber) {
       const existing = await User.findOne({
         where: { phoneNumber: body.phoneNumber, id: { [Op.ne]: employeeId } }
@@ -487,7 +491,7 @@ exports.updateEmployee = async (req, res) => {
       address: body?.address ?? employee.address,
       gender: body?.gender ?? employee.gender,
       phoneNumber: body?.phoneNumber ?? employee.phoneNumber,
-      employeeID: body?.employeeID ?? employee.employeeID,
+      employeeID: updateEmployeeID ?? employee.employeeID,
       department: body?.department ?? employee.department,
       departmentId: body?.departmentId ?? employee.departmentId,
       employmentType: body?.employmentType ?? employee.employmentType,

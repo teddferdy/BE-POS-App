@@ -113,8 +113,9 @@ const inventoryService = {
     since.setDate(since.getDate() - thresholdDays)
     since.setHours(0, 0, 0, 0)
 
-    const [rows] = await db.sequelize.query(
+    const rows = await db.sequelize.query(
       `SELECT p.id as "productId", p."nameProduct",
+              p."costPrice" as "costPrice",
               COALESCE(pss.stock, p.stock) as stock,
               MAX(sh."createdAt") as "lastSale"
        FROM product p
@@ -123,7 +124,7 @@ const inventoryService = {
          AND sh."referenceType" = 'sale'
          AND sh.store = :storeId
        WHERE p.status = 'active'
-       GROUP BY p.id, p."nameProduct", pss.stock, p.stock
+       GROUP BY p.id, p."nameProduct", p."costPrice", pss.stock, p.stock
        HAVING MAX(sh."createdAt") IS NULL OR MAX(sh."createdAt") < :since
        ORDER BY COALESCE(pss.stock, p.stock) DESC`,
       {
@@ -154,7 +155,10 @@ const inventoryService = {
       results.push({
         productId: row.productId,
         productName: row.nameProduct,
+        productData: { id: row.productId, nameProduct: row.nameProduct },
         quantity: qty,
+        stock: qty,
+        costPrice: Number(row.costPrice) || 0,
         daysWithoutSale: daysWithout,
         lastSaleDate: lastSale ? lastSale.toISOString().split('T')[0] : null,
         alertLevel: level
@@ -205,9 +209,11 @@ const inventoryService = {
       id: b.id,
       productId: b.product,
       productName: b.productData?.nameProduct,
+      productData: { id: b.product, nameProduct: b.productData?.nameProduct },
       batchCode: b.batchCode,
       expiryDate: b.expiryDate,
       qty: b.qty,
+      stock: b.qty,
       storeId: b.store,
       daysLeft: Math.floor((new Date(b.expiryDate) - today) / 86400000)
     }))
@@ -287,6 +293,47 @@ const inventoryService = {
     })
 
     return valuation
+  },
+
+  async aggregateValuation(storeId, method = 'FIFO') {
+    const products = await db.product.findAll({
+      where: { status: 'active' },
+      attributes: ['id', 'nameProduct', 'costPrice', 'stock']
+    })
+
+    const productsOut = []
+    let totalValue = 0
+    let totalStock = 0
+
+    for (const p of products) {
+      let stock = Number(p.stock) || 0
+      if (storeId) {
+        const pss = await db.product_store_stock.findOne({
+          where: { product: p.id, store: storeId }
+        })
+        if (pss) stock = Number(pss.stock) || 0
+      }
+      if (stock <= 0) continue
+
+      const costPrice = Number(p.costPrice) || 0
+      productsOut.push({
+        id: p.id,
+        nameProduct: p.nameProduct,
+        stock,
+        costPrice
+      })
+      totalValue += stock * costPrice
+      totalStock += stock
+    }
+
+    return {
+      storeId: storeId || null,
+      method,
+      totalValue: Number(totalValue.toFixed(2)),
+      totalProducts: productsOut.length,
+      avgCost: totalStock > 0 ? Number((totalValue / totalStock).toFixed(2)) : 0,
+      products: productsOut
+    }
   },
 
   async aggregateSupplierPerformance(month = null) {

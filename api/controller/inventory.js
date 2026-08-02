@@ -4,7 +4,7 @@ const reconcileService = require('../service/reconcileService')
 const batchService = require('../service/batchService')
 
 const getStoreId = (req) =>
-  req.query.storeId || req.query.store || req.cookies?.store || null
+  req.query.storeId || req.query.store || req.cookies?.store || req.user?.store || null
 
 const inventoryController = {
   async getForecasts(req, res) {
@@ -27,7 +27,21 @@ const inventoryController = {
         limit: parseInt(req.query.limit || 50)
       })
 
-      return res.status(200).json({ success: true, data: forecasts })
+      const data = forecasts.map((f) => {
+        const j = f.toJSON()
+        return {
+          ...j,
+          currentStock: j.current_quantity,
+          dailyConsumption: j.daily_consumption_rate,
+          safetyStock: j.safety_stock,
+          reorderPoint: j.reorder_point,
+          forecastedStockoutDate: j.forecasted_stockout_date,
+          confidence: j.confidence_level,
+          forecastDate: j.forecast_date
+        }
+      })
+
+      return res.status(200).json({ success: true, data })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -95,16 +109,20 @@ const inventoryController = {
 
   async getValuation(req, res) {
     try {
-      const { productId, method = 'FIFO' } = req.query
-      if (!productId) {
-        return res.status(400).json({ success: false, message: 'productId required' })
-      }
+      const { method = 'FIFO' } = req.query
       const storeId = getStoreId(req)
-      const result = await inventoryService.calculateValuation(
-        parseInt(productId),
-        storeId,
-        method
-      )
+      const productId = req.query.productId ? parseInt(req.query.productId) : null
+
+      if (productId) {
+        const result = await inventoryService.calculateValuation(
+          productId,
+          storeId,
+          method
+        )
+        return res.status(200).json({ success: true, data: result })
+      }
+
+      const result = await inventoryService.aggregateValuation(storeId, method)
       return res.status(200).json({ success: true, data: result })
     } catch (error) {
       console.error('Error:', error)

@@ -140,7 +140,8 @@ const bundleController = {
         validFrom,
         validUntil,
         minQuantity,
-        maxQuantity
+        maxQuantity,
+        store
       } = req.body
 
       if (!items || items.length === 0) {
@@ -169,8 +170,10 @@ const bundleController = {
           ? ((discountAmount / originalPrice) * 100).toFixed(2)
           : 0
 
+      const effectiveStore = store !== undefined ? store : req.storeId || req.cookies.store || null
+
       const bundle = await db.product_bundle.create({
-        store: req.storeId || req.cookies.store || null,
+        store: effectiveStore,
         name,
         sku,
         description,
@@ -257,7 +260,8 @@ const bundleController = {
         validFrom,
         validUntil,
         minQuantity,
-        maxQuantity
+        maxQuantity,
+        store
       } = req.body
 
       let originalPrice = 0
@@ -316,7 +320,8 @@ const bundleController = {
         minQuantity:
           minQuantity !== undefined ? minQuantity : bundle.minQuantity,
         maxQuantity:
-          maxQuantity !== undefined ? maxQuantity : bundle.maxQuantity
+          maxQuantity !== undefined ? maxQuantity : bundle.maxQuantity,
+        store: store !== undefined ? store : bundle.store
       })
 
       const result = await db.product_bundle.findByPk(bundle.id, {

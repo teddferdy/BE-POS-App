@@ -105,6 +105,8 @@ exports.addNewRole = async (req, res) => {
       const creadtedRole = await Role.create({
         name: body.name,
         description: body.description,
+        roleType: body.roleType || 'user',
+        store: body.store || null,
         status:
           body.status !== undefined
             ? body.status === true
@@ -171,6 +173,8 @@ exports.editRoleById = async (req, res) => {
         {
           name: body.name,
           description: body.description,
+          roleType: body.roleType || 'user',
+          store: body.store !== undefined ? body.store : null,
           status:
             body.status !== undefined
               ? body.status === true

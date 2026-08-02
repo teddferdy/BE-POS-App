@@ -149,11 +149,60 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
       })
     )
 
+    let bundles = []
+    if (store) {
+      const storeId = Number(store)
+      if (!isNaN(storeId)) {
+        const activeBundles = await db.product_bundle.findAll({
+          where: {
+            status: 'active',
+            isAvailable: true,
+            store: { [Op.contains]: [storeId] }
+          },
+          include: [
+            {
+              model: db.product_bundle_item,
+              as: 'items',
+              include: [
+                {
+                  model: db.product,
+                  as: 'productData',
+                  attributes: ['id', 'nameProduct', 'sku']
+                }
+              ]
+            }
+          ]
+        })
+        bundles = activeBundles.map((b) => ({
+          id: b.id,
+          name: b.name,
+          sku: b.sku,
+          description: b.description,
+          bundlePrice: b.bundlePrice,
+          originalPrice: b.originalPrice,
+          discountAmount: b.discountAmount,
+          discountPercentage: b.discountPercentage,
+          minQuantity: b.minQuantity,
+          maxQuantity: b.maxQuantity,
+          isAvailable: b.isAvailable,
+          items: (b.items || []).map((item) => ({
+            id: item.id,
+            productId: item.product,
+            nameProduct: item.productData?.nameProduct,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            isOptional: item.isOptional
+          }))
+        }))
+      }
+    }
+
     res.setHeader('Cache-Control', 'no-store')
     return res.status(200).json({
       success: true,
       message: 'Success',
-      data: getAllProduct?.length > 0 ? getAllProduct : []
+      data: getAllProduct?.length > 0 ? getAllProduct : [],
+      bundles
     })
   } catch (error) {
     console.error('Error =>', error)
