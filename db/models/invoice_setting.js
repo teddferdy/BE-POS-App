@@ -50,6 +50,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true
       },
+      footer: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'active'

@@ -14,7 +14,8 @@ const DEFAULT_TEMPLATE = {
   socialMediaVisibility: null,
   addressFieldsVisibility: null,
   memberFieldsVisibility: null,
-  logo: null
+  logo: null,
+  footer: 'Terima kasih atas kunjungan Anda'
 }
 
 const invoiceController = {
@@ -59,6 +60,7 @@ const invoiceController = {
         socialMediaVisibility,
         addressFieldsVisibility,
         memberFieldsVisibility,
+        footer,
         removeLogo
       } = req.body
 
@@ -118,6 +120,7 @@ const invoiceController = {
             ? memberFieldsVisibility
             : (existing?.memberFieldsVisibility ?? null),
         logo: logoUrl,
+        footer: footer !== undefined ? footer : (existing?.footer ?? 'Terima kasih atas kunjungan Anda'),
         modifiedBy: req.user?.id
       }
 

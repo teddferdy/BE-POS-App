@@ -930,6 +930,7 @@ exports.updateInvoiceSettingSchema = z.object({
   socialMediaVisibility: z.union([z.string(), z.record(z.any())]).optional(),
   addressFieldsVisibility: z.union([z.string(), z.record(z.any())]).optional(),
   memberFieldsVisibility: z.union([z.string(), z.record(z.any())]).optional(),
+  footer: z.string().optional().default('Terima kasih atas kunjungan Anda'),
   removeLogo: z.union([z.boolean(), z.string()]).optional(),
   logo: z.any().optional()
 })
