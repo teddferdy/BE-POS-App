@@ -13,11 +13,30 @@ const strToNum = () =>
 const optionalStrToNum = () =>
   z
     .any()
+    .refine((v) => v !== '' && v !== null && v !== undefined, {
+      message: 'required'
+    })
+    .transform((v) => Number(v))
+    .refine((v) => !isNaN(v), { message: 'must be a number' })
     .optional()
     .transform((v) => {
       if (v === '' || v === null || v === undefined) return null
       const n = Number(v)
       return isNaN(n) ? null : n
+    })
+
+const storeParam = () =>
+  z
+    .any()
+    .optional()
+    .nullable()
+    .transform((v) => {
+      if (v === '' || v === null || v === undefined) return null
+      const arr = Array.isArray(v) ? v : [v]
+      return arr.map((x) => Number(x))
+    })
+    .refine((v) => v === null || v.every((n) => !Number.isNaN(n)), {
+      message: 'must be a number'
     })
 
 const jsonField = () =>
@@ -1089,7 +1108,7 @@ exports.updateQueueStatusSchema = z.object({
 
 // ===================== Supplier Performance =====================
 exports.calculateSupplierScoreSchema = z.object({
-  store: strToNum(),
+  store: storeParam(),
   supplierId: strToNum(),
   period: z.enum(['monthly', 'quarterly', 'yearly', 'all_time']),
   periodStart: z.string().optional().nullable(),

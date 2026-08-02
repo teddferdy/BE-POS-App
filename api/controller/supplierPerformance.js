@@ -14,7 +14,7 @@ const supplierPerformanceController = {
   async getSupplierScores(req, res) {
     try {
       const { search, period, grade, page = 1, limit = 10 } = req.query
-      const store = req.query.store || req.user?.store
+      const store = req.query.store
 
       const where = {}
       if (req.user?.roleType !== 'super_admin') {
@@ -143,6 +143,13 @@ const supplierPerformanceController = {
     try {
       const { store, supplierId, period, periodStart, periodEnd } = req.body
 
+      const isSuperAdmin = req.user?.roleType === 'super_admin'
+      const storeIds = isSuperAdmin
+        ? store
+        : [Number(req.storeId)]
+      const storeFilter =
+        storeIds && storeIds.length > 0 ? { store: { [Op.in]: storeIds } } : {}
+
       const startDate = periodStart ? new Date(periodStart) : new Date()
       const endDate = periodEnd ? new Date(periodEnd) : new Date()
 
@@ -187,7 +194,7 @@ const supplierPerformanceController = {
 
       const purchaseOrders = await db.purchase_order.findAll({
         where: {
-          store: Number(store),
+          ...storeFilter,
           ...dateWhere,
           status: { [Op.in]: ['received', 'ordered'] }
         },
@@ -242,7 +249,7 @@ const supplierPerformanceController = {
 
       const goodsReceipts = await db.goodsReceipt.findAll({
         where: {
-          store: Number(store),
+          ...storeFilter,
           purchaseOrderId: { [Op.in]: purchaseOrders.map((po) => po.id) },
           status: 'completed'
         },
@@ -322,7 +329,7 @@ const supplierPerformanceController = {
 
       const [score, created] = await db.supplier_score.findOrCreate({
         where: {
-          store: Number(store),
+          store: storeIds,
           supplierId: Number(supplierId),
           period,
           periodStart: periodStart || startDate.toISOString().split('T')[0],
@@ -433,7 +440,7 @@ const supplierPerformanceController = {
   async getSupplierPerformanceSummary(req, res) {
     try {
       const { supplierId } = req.params
-      const store = req.query.store || req.user?.store
+      const store = req.query.store
 
       const where = { supplierId: Number(supplierId) }
       if (req.user?.roleType !== 'super_admin') {
@@ -491,7 +498,7 @@ const supplierPerformanceController = {
 
   async getTopSuppliers(req, res) {
     try {
-      const store = req.query.store || req.user?.store
+      const store = req.query.store
       const period = req.query.period || 'all_time'
       const limit = parseInt(req.query.limit) || 5
 

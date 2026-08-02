@@ -477,6 +477,13 @@ exports.editMemberById = async (req, res) => {
       const newTotal = (getMember.totalPoints || 0) + addedPoints
       const newLifetime = (getMember.lifetimePoints || 0) + addedPoints
 
+      if (newTotal < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Poin tidak cukup untuk diredeem'
+        })
+      }
+
       await getMember.update({
         totalPoints: newTotal,
         lifetimePoints: newLifetime

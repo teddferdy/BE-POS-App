@@ -24,6 +24,22 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.TIME
       },
+      tipe_shift: {
+        type: DataTypes.STRING(20),
+        defaultValue: ''
+      },
+      tanggal_mulai: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+      },
+      tanggal_selesai: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+      },
+      karyawan: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'active'

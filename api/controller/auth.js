@@ -90,6 +90,81 @@ exports.userByLocation = async (req, res) => {
   }
 }
 
+// Change User Status (activate/deactivate) By Id
+exports.changeUserStatusById = async (req, res) => {
+  const { id, status } = req.body
+  const currentUserRole = req.user?.roleType
+  const currentUserStore = req.user?.store
+
+  try {
+    if (!id) {
+      return res.status(400).json({
+        message: 'ID User wajib diisi'
+      })
+    }
+    if (!['active', 'inactive'].includes(status)) {
+      return res.status(400).json({
+        message: 'Status harus active atau inactive'
+      })
+    }
+
+    const targetUser = await User.findByPk(id)
+
+    if (!targetUser) {
+      return res.status(404).json({
+        message: 'User tidak ditemukan'
+      })
+    }
+
+    if (currentUserRole === 'admin') {
+      if (
+        targetUser.store !== currentUserStore &&
+        targetUser.roleType !== 'user'
+      ) {
+        return res.status(403).json({
+          message: 'Anda hanya dapat mengubah user di toko Anda'
+        })
+      }
+      if (targetUser.roleType === 'super_admin') {
+        return res.status(403).json({
+          message: 'Tidak dapat mengubah Super Admin'
+        })
+      }
+    }
+
+    const updatedUser = await User.update(
+      { status },
+      {
+        returning: true,
+        where: { id }
+      }
+    )
+
+    if (updatedUser[0] === 0) {
+      return res.status(404).json({
+        message: 'User not found or no changes made.'
+      })
+    }
+
+    createAudit(req, 'update', 'user', id, `Updated user status: ${id}`)
+
+    const result = updatedUser[1][0]?.dataValues
+    if (result) {
+      delete result.password
+    }
+
+    return res.status(200).json({
+      message: 'Status user berhasil diubah',
+      data: result
+    })
+  } catch (error) {
+    console.error('Error updating user status:', error)
+    return res.status(500).json({
+      error: 'Internal Server Error'
+    })
+  }
+}
+
 // Change User Role By Id & Location
 exports.changeUserByIdAndLocation = async (req, res) => {
   const { store, id, userType, position, roleId, roleType } = req.body

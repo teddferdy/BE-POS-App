@@ -429,6 +429,11 @@ const purchasePaymentController = {
             model: db.supplier,
             as: 'supplierData',
             attributes: ['id', 'name']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name']
           }
         ],
         order: [

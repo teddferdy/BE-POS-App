@@ -74,6 +74,14 @@ router.put(
   authController.changeUserByIdAndLocation
 )
 
+// Change User Status (activate/deactivate) By Id - Admin/Super Admin
+router.put(
+  '/change-user-status',
+  authorization,
+  requireRole('super_admin', 'admin'),
+  authController.changeUserStatusById
+)
+
 // Generate Employee ID
 router.get(
   '/generate-employee-id',
