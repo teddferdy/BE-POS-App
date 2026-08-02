@@ -2403,7 +2403,10 @@ exports.getReceiptHTML = async (req, res) => {
 
     const storeData = order.store
       ? await db.location.findByPk(order.store, {
-          attributes: ['name', 'address', 'phoneNumber']
+          attributes: [
+            'name', 'address', 'detailLocation', 'city', 'province',
+            'district', 'village', 'postalCode', 'phoneNumber', 'email'
+          ]
         })
       : null
 
@@ -2415,6 +2418,13 @@ exports.getReceiptHTML = async (req, res) => {
     const showStoreName = setting?.showStoreName !== false
     const showAddress = setting?.showAddress !== false
     const logoUrl = setting?.logo || null
+    const footerText = setting?.footer || 'Terima kasih atas kunjungan Anda'
+
+    const addressFieldsVisibility = setting?.addressFieldsVisibility
+      ? (typeof setting.addressFieldsVisibility === 'string'
+          ? JSON.parse(setting.addressFieldsVisibility)
+          : setting.addressFieldsVisibility)
+      : {}
 
     const formatPrice = (v) => 'Rp' + Number(v || 0).toLocaleString('id-ID')
 
@@ -2477,7 +2487,16 @@ exports.getReceiptHTML = async (req, res) => {
     <div class="header">
       ${showLogo && logoUrl ? `<img src="${logoUrl}" style="max-height:50px;margin-bottom:6px" />` : ''}
       ${showStoreName ? `<h2>${storeData?.name || 'TOKO'}</h2>` : ''}
-      ${showAddress && storeData ? `<p>${[storeData.address, storeData.phoneNumber].filter(Boolean).join(' | ')}</p>` : ''}
+      ${showAddress && storeData ? `<p>${[
+      (addressFieldsVisibility.storeName !== false ? storeData.name : null),
+      (addressFieldsVisibility.address !== false ? storeData.address : null),
+      (addressFieldsVisibility.locationDetail !== false ? storeData.detailLocation : null),
+      (addressFieldsVisibility.province !== false ? storeData.province : null),
+      (addressFieldsVisibility.city !== false ? storeData.city : null),
+      (addressFieldsVisibility.postalCode !== false ? storeData.postalCode : null),
+      (addressFieldsVisibility.phone !== false ? storeData.phoneNumber : null),
+      (addressFieldsVisibility.email !== false ? storeData.email : null)
+    ].filter(Boolean).join(' | ')}</p>` : ''}
     </div>
 
     <div class="info">
@@ -2514,7 +2533,7 @@ exports.getReceiptHTML = async (req, res) => {
     </div>
 
     <div class="footer">
-      Terima kasih atas kunjungan Anda
+      ${footerText}
     </div>
 
     <div class="no-print" style="text-align:center;margin-top:20px">
