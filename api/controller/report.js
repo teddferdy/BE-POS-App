@@ -369,7 +369,11 @@ exports.getSalesSummary = async (req, res) => {
 
 exports.getBestSellerReport = async (req, res) => {
   try {
-    const store = req.storeId || req.cookies.store
+    const userRole = req.user?.roleType
+    const store =
+      userRole === 'super_admin'
+        ? req.storeId
+        : req.storeId || req.query.store || req.cookies.store
     const { limit = 10 } = req.query
 
     const where = store ? { store } : {}
@@ -381,9 +385,17 @@ exports.getBestSellerReport = async (req, res) => {
         limit: parseInt(limit),
         attributes: ['productId', 'nameProduct', 'totalSelling', 'image']
       }),
-      db.product.count({
-        where: { status: 'active', ...(store ? { store } : {}) }
-      }),
+      store
+        ? db.sequelize.query(
+            `SELECT COUNT(*)::int AS "count" FROM "product" p
+             WHERE p."deletedAt" IS NULL AND p.status = 'active'
+               AND EXISTS (
+                 SELECT 1 FROM "product_store" ps
+                 WHERE ps."product" = p."id" AND ps."store" = :store AND ps."deletedAt" IS NULL
+               )`,
+            { replacements: { store }, type: db.sequelize.QueryTypes.SELECT }
+          )
+        : db.product.count({ where: { status: 'active' } }),
       db.sequelize.query(
         `SELECT oi.product, COALESCE(SUM(oi."totalPrice"), 0) as revenue
          FROM order_item oi
@@ -396,6 +408,10 @@ exports.getBestSellerReport = async (req, res) => {
         }
       )
     ])
+
+    const activeProducts = Array.isArray(productCount)
+      ? Number(productCount[0]?.count || 0)
+      : Number(productCount || 0)
 
     const revenueMap = {}
     for (const r of productRevenues)
@@ -423,7 +439,7 @@ exports.getBestSellerReport = async (req, res) => {
         summary: {
           totalUnitsSold,
           totalRevenue,
-          activeProducts: Number(productCount || 0)
+          activeProducts
         }
       }
     })

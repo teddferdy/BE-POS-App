@@ -2,14 +2,18 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 
-const getStore = (req) =>
-  req.storeId ||
-  req.body.storeId ||
-  req.body.store ||
-  req.query.store ||
-  req.cookies.store ||
-  req.cookies.activeStore ||
-  req.user?.store
+const getStore = (req) => {
+  if (req.user?.roleType === 'super_admin') return req.storeId || null
+  return (
+    req.storeId ||
+    req.body.storeId ||
+    req.body.store ||
+    req.query.store ||
+    req.cookies.store ||
+    req.cookies.activeStore ||
+    req.user?.store
+  )
+}
 
 const generateExpenseNumber = () => {
   const date = new Date()
