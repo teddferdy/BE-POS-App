@@ -1661,7 +1661,13 @@ exports.getKitchenOrders = async (req, res) => {
 
   try {
     // ponytail: order-level status is 'paid' at POS — kitchen cares about item status only
+    // QR orders should only appear in kitchen after being accepted (status != pending/cancelled/void)
     const whereClause = store ? { store } : {}
+    whereClause[Op.or] = [
+      { source: { [Op.ne]: 'qr' } },
+      { source: { [Op.is]: null } },
+      { status: { [Op.notIn]: ['pending', 'cancelled', 'void'] } }
+    ]
     const orderAttributes = await getOrderAttributes()
     const orders = await Order.findAll({
       where: whereClause,
@@ -1671,7 +1677,7 @@ exports.getKitchenOrders = async (req, res) => {
           as: 'items',
           where: {
             status: {
-              [require('sequelize').Op.in]: ['pending', 'preparing', 'ready']
+              [Op.in]: ['pending', 'preparing', 'ready']
             }
           }
         }
