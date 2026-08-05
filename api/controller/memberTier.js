@@ -7,7 +7,7 @@ const memberTierController = {
   normalizeBenefits(benefits) {
     if (!Array.isArray(benefits)) return []
     return benefits
-      .map((b) => (typeof b === 'string' ? b : b?.text ?? ''))
+      .map((b) => (typeof b === 'string' ? b : (b?.text ?? '')))
       .filter((b) => b !== '')
   },
 

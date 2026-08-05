@@ -13,6 +13,9 @@ const {
 
 const uploadExcel = multer({ storage: multer.memoryStorage() })
 
+// Get tax configs - Public (no auth)
+router.get('/public', taxConfigController.getPublic)
+
 // Get tax configs - All authenticated users
 router.get('/', authorization, validateStoreAccess, taxConfigController.getAll)
 router.get(

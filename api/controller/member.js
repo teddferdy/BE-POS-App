@@ -189,7 +189,10 @@ exports.addNewMember = async (req, res) => {
 
     if (body?.nameMember) {
       const nameExists = await Member.findOne({
-        where: { name: body.nameMember, ...(store !== null ? { store } : { store: null }) },
+        where: {
+          name: body.nameMember,
+          ...(store !== null ? { store } : { store: null })
+        },
         raw: true
       })
       if (nameExists) {
@@ -431,13 +434,7 @@ exports.deleteMember = async (req, res) => {
 
     await member.destroy()
 
-    createAudit(
-      req,
-      'delete',
-      'member',
-      id,
-      `Deleted member: ${member.name}`
-    )
+    createAudit(req, 'delete', 'member', id, `Deleted member: ${member.name}`)
 
     return res.status(200).json({
       success: true,

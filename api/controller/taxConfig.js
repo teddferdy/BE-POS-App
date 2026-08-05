@@ -5,6 +5,36 @@ const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
 const taxConfigController = {
+  async getPublic(req, res) {
+    try {
+      const store = req.query.store
+      if (!store) {
+        return res.status(400).json({ message: 'store is required' })
+      }
+      const storeId = Number(store)
+      if (isNaN(storeId)) {
+        return res.status(400).json({ message: 'Invalid store value' })
+      }
+      const { status } = req.query
+      const where = { store: storeId }
+      if (status !== undefined && status !== 'all') {
+        where.status = status
+      }
+      const taxes = await db.taxConfig.findAll({
+        where,
+        order: [['createdAt', 'DESC']],
+      })
+      return res.status(200).json({
+        success: true,
+        message: 'Success get tax configs',
+        data: taxes,
+      })
+    } catch (error) {
+      console.error('getPublic error:', error)
+      return res.status(500).json({ message: 'Internal server error' })
+    }
+  },
+
   async getAll(req, res) {
     try {
       const store = req.storeId || req.query.store || req.cookies.store || req.user?.store

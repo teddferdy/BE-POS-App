@@ -138,7 +138,9 @@ exports.getDepartmentById = async (req, res) => {
         positionCount: positions.length,
         positions,
         createdBy: department.createdBy,
+        createdByUser: department.dataValues?.createdByUser || null,
         modifiedBy: department.modifiedBy,
+        modifiedByUser: department.dataValues?.modifiedByUser || null,
         createdAt: department.createdAt,
         updatedAt: department.updatedAt
       }

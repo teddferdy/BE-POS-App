@@ -14,14 +14,42 @@ let _psExists = null
 let _csExists = null
 let _opPromoCol = null
 const hasTable = async (t) => {
-  if (t === 'product_store') { if (_psExists !== null) return _psExists } else if (t === 'category_store') { if (_csExists !== null) return _csExists }
-  try { await db.sequelize.query(`SELECT 1 FROM ${t} LIMIT 1`); if (t === 'product_store') _psExists = true; if (t === 'category_store') _csExists = true; return true } catch { if (t === 'product_store') _psExists = false; if (t === 'category_store') _csExists = false; return false }
+  if (t === 'product_store') {
+    if (_psExists !== null) return _psExists
+  } else if (t === 'category_store') {
+    if (_csExists !== null) return _csExists
+  }
+  try {
+    await db.sequelize.query(`SELECT 1 FROM ${t} LIMIT 1`)
+    if (t === 'product_store') _psExists = true
+    if (t === 'category_store') _csExists = true
+    return true
+  } catch {
+    if (t === 'product_store') _psExists = false
+    if (t === 'category_store') _csExists = false
+    return false
+  }
 }
 const hasOrderCol = async (col) => {
-  if (col === 'promoCampaignId') { if (_opPromoCol !== null) return _opPromoCol; try { const [r] = await db.sequelize.query(`SELECT 1 FROM information_schema.columns WHERE table_name='order' AND column_name='${col}' LIMIT 1`); _opPromoCol = r.length > 0; return _opPromoCol } catch { _opPromoCol = false; return false } }
+  if (col === 'promoCampaignId') {
+    if (_opPromoCol !== null) return _opPromoCol
+    try {
+      const [r] = await db.sequelize.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name='order' AND column_name='${col}' LIMIT 1`
+      )
+      _opPromoCol = r.length > 0
+      return _opPromoCol
+    } catch {
+      _opPromoCol = false
+      return false
+    }
+  }
   return true
 }
-const orderAttrs = async () => (await hasOrderCol('promoCampaignId')) ? undefined : { exclude: ['promoCampaignId'] }
+const orderAttrs = async () =>
+  (await hasOrderCol('promoCampaignId'))
+    ? undefined
+    : { exclude: ['promoCampaignId'] }
 
 const posController = {
   // Barcode lookup untuk POS scan
@@ -754,7 +782,9 @@ const posController = {
       })
 
       if (!order) {
-        return res.status(404).json({ success: false, message: 'Order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Order not found' })
       }
 
       if (order.paymentStatus !== 'paid') {
@@ -780,7 +810,8 @@ const posController = {
       existingReturns.forEach((ret) => {
         ret.items.forEach((item) => {
           if (item.orderItem) {
-            returnedQtyMap[item.orderItem] = (returnedQtyMap[item.orderItem] || 0) + Number(item.qty)
+            returnedQtyMap[item.orderItem] =
+              (returnedQtyMap[item.orderItem] || 0) + Number(item.qty)
           }
         })
       })
@@ -796,13 +827,18 @@ const posController = {
           }
 
           const originalItem = order.items.find(
-            (oi) => oi.product === reqItem.productId || oi.id === reqItem.orderItemId
+            (oi) =>
+              oi.product === reqItem.productId || oi.id === reqItem.orderItemId
           )
           if (!originalItem) {
-            throw new Error(`Product ${reqItem.productId} not found in original order`)
+            throw new Error(
+              `Product ${reqItem.productId} not found in original order`
+            )
           }
 
-          const product = await db.product.findByPk(reqItem.productId, { transaction: t })
+          const product = await db.product.findByPk(reqItem.productId, {
+            transaction: t
+          })
           if (!product) {
             throw new Error(`Product ${reqItem.productId} does not exist`)
           }
@@ -814,7 +850,9 @@ const posController = {
             )
           }
 
-          const pricePerUnit = Math.floor(originalItem.totalPrice / originalItem.quantity)
+          const pricePerUnit = Math.floor(
+            originalItem.totalPrice / originalItem.quantity
+          )
           const itemRefund = pricePerUnit * qty
           totalRefund += itemRefund
 
@@ -1074,7 +1112,7 @@ const posController = {
               },
               { model: db.table, as: 'table', attributes: ['name'] }
             ],
-            ...(await orderAttrs()) ? { attributes: await orderAttrs() } : {}
+            ...((await orderAttrs()) ? { attributes: await orderAttrs() } : {})
           })
           .then(({ count, rows }) => ({
             total: count,
@@ -1121,7 +1159,14 @@ const posController = {
         db.expense.sum('amount', { where: expenseWhere }),
         db.expense.findAll({
           where: expenseWhere,
-          attributes: ['id', 'expenseNumber', 'description', 'amount', 'date', 'store'],
+          attributes: [
+            'id',
+            'expenseNumber',
+            'description',
+            'amount',
+            'date',
+            'store'
+          ],
           include: [
             {
               model: db.expense_category,
@@ -1362,14 +1407,49 @@ const posController = {
       // Generate PDF
       const storeData = order.store
         ? await db.location.findByPk(order.store, {
-            attributes: ['name', 'address', 'phoneNumber']
+            attributes: [
+              'name',
+              'address',
+              'detailLocation',
+              'city',
+              'province',
+              'district',
+              'village',
+              'postalCode',
+              'phoneNumber',
+              'email',
+              'socialMedia'
+            ]
           })
         : null
+
+      const invoiceSetting = order.store
+        ? await db.invoice_setting.findOne({
+            where: { store: order.store }
+          })
+        : null
+
+      const settings = invoiceSetting
+        ? {
+            showStoreName: invoiceSetting.showStoreName ?? true,
+            showAddress: invoiceSetting.showAddress ?? true,
+            showMemberInfo: invoiceSetting.showMemberInfo ?? true,
+            showLogo: invoiceSetting.showLogo ?? true,
+            showSocialMedia: invoiceSetting.showSocialMedia ?? true,
+            socialMediaVisibility: invoiceSetting.socialMediaVisibility,
+            addressFieldsVisibility: invoiceSetting.addressFieldsVisibility,
+            memberFieldsVisibility: invoiceSetting.memberFieldsVisibility,
+            logo: invoiceSetting.logo,
+            footer: invoiceSetting.footer
+          }
+        : null
+
       const { generateInvoicePdf } = require('../../utils/generateInvoicePdf')
       const { filePath } = await generateInvoicePdf(
         order,
         storeData,
-        order.items || []
+        order.items || [],
+        settings
       )
 
       // Look up member points

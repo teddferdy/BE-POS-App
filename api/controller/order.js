@@ -1262,7 +1262,8 @@ exports.getOrdersByStore = async (req, res) => {
     const orderAttributes = await getOrderAttributes()
     if (orderAttributes) queryOptions.attributes = orderAttributes
 
-    const { count: total, rows: orders } = await Order.findAndCountAll(queryOptions)
+    const { count: total, rows: orders } =
+      await Order.findAndCountAll(queryOptions)
 
     return res.status(200).json({
       message: 'Success',
@@ -1622,7 +1623,10 @@ exports.updateOrderItemStatus = async (req, res) => {
     await item.update({ status: itemStatus })
 
     const orderAttrs = await getOrderAttributes()
-    const order = await Order.findByPk(id, orderAttrs ? { attributes: orderAttrs } : undefined)
+    const order = await Order.findByPk(
+      id,
+      orderAttrs ? { attributes: orderAttrs } : undefined
+    )
     if (order) {
       emitItemStatusUpdate(order.store, id, item)
     }
@@ -1752,7 +1756,7 @@ exports.getCustomerMenu = async (req, res) => {
 }
 
 exports.createCustomerOrder = async (req, res) => {
-  const { store, tableId, items, customerName, notes, customerId } = req.body
+  const { store, tableId, items, customerName, notes, customerId, paymentMethod, splitCount } = req.body
 
   try {
     if (!store || !items || !items.length) {
@@ -1971,7 +1975,10 @@ exports.createCustomerOrder = async (req, res) => {
       taxRate,
       taxAmount,
       serviceChargeAmount: 0,
-      totalPrice
+      totalPrice,
+      paymentMethod: paymentMethod || null,
+      paymentStatus: paymentMethod ? 'paid' : 'unpaid',
+      splitCount: splitCount || null,
     }
     if (await hasOrderColumn('promoCampaignId')) {
       qrOrderData.promoCampaignId = appliedCampaignId
@@ -2358,7 +2365,10 @@ exports.getCustomerOrder = async (req, res) => {
         'totalQuantity',
         'customerName',
         'createdAt',
-        'tableId'
+        'tableId',
+        'paymentMethod',
+        'paymentStatus',
+        'splitCount'
       ],
       include: [
         {
@@ -2378,6 +2388,85 @@ exports.getCustomerOrder = async (req, res) => {
     })
     if (!order) return res.status(404).json({ message: 'Order not found' })
     return res.status(200).json({ data: order })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ error: 'Internal Server Error' })
+  }
+}
+
+// ——— Public customer orders list (no auth) ———
+exports.getCustomerOrders = async (req, res) => {
+  const { store, tableId, page = 1, limit = 20 } = req.query
+  try {
+    if (!store) {
+      return res.status(400).json({ message: 'store is required' })
+    }
+    const storeId = Number(store)
+    if (isNaN(storeId)) {
+      return res.status(400).json({ message: 'Invalid store value' })
+    }
+
+    const where = { store: storeId, source: 'qr' }
+    if (tableId) where.tableId = Number(tableId)
+
+    const offset = (Number(page) - 1) * Number(limit)
+
+    const { count, rows } = await db.order.findAndCountAll({
+      where,
+      attributes: [
+        'id',
+        'orderNumber',
+        'status',
+        'subTotal',
+        'discountAmount',
+        'taxRate',
+        'taxAmount',
+        'serviceChargeAmount',
+        'totalPrice',
+        'totalQuantity',
+        'customerName',
+        'paymentMethod',
+        'paymentStatus',
+        'notes',
+        'source',
+        'createdAt',
+        'tableId',
+        'splitCount'
+      ],
+      include: [
+        {
+          model: db.order_item,
+          as: 'items',
+          attributes: [
+            'id',
+            'productName',
+            'quantity',
+            'price',
+            'totalPrice',
+            'notes',
+            'options',
+            'modifiers',
+            'status'
+          ]
+        },
+        { model: db.table, as: 'table', attributes: ['name'] }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: Number(limit),
+      offset
+    })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: rows,
+      pagination: {
+        total: count,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(count / Number(limit))
+      }
+    })
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ error: 'Internal Server Error' })
@@ -2404,8 +2493,16 @@ exports.getReceiptHTML = async (req, res) => {
     const storeData = order.store
       ? await db.location.findByPk(order.store, {
           attributes: [
-            'name', 'address', 'detailLocation', 'city', 'province',
-            'district', 'village', 'postalCode', 'phoneNumber', 'email'
+            'name',
+            'address',
+            'detailLocation',
+            'city',
+            'province',
+            'district',
+            'village',
+            'postalCode',
+            'phoneNumber',
+            'email'
           ]
         })
       : null
@@ -2421,9 +2518,9 @@ exports.getReceiptHTML = async (req, res) => {
     const footerText = setting?.footer || 'Terima kasih atas kunjungan Anda'
 
     const addressFieldsVisibility = setting?.addressFieldsVisibility
-      ? (typeof setting.addressFieldsVisibility === 'string'
-          ? JSON.parse(setting.addressFieldsVisibility)
-          : setting.addressFieldsVisibility)
+      ? typeof setting.addressFieldsVisibility === 'string'
+        ? JSON.parse(setting.addressFieldsVisibility)
+        : setting.addressFieldsVisibility
       : {}
 
     const formatPrice = (v) => 'Rp' + Number(v || 0).toLocaleString('id-ID')
@@ -2479,61 +2576,113 @@ exports.getReceiptHTML = async (req, res) => {
     .status-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; }
     .status-paid { background: #d4edda; color: #155724; }
     .status-unpaid { background: #fff3cd; color: #856404; }
-    @media print { body { padding: 0; } .no-print { display: none; } }
+      @media print { body { padding: 0; background: #fff; } .no-print { display: none; } }
+      @media print { body { padding: 0; background: #fff; } .no-print { display: none; } }
   </style>
 </head>
 <body>
-  <div class="receipt">
-    <div class="header">
-      ${showLogo && logoUrl ? `<img src="${logoUrl}" style="max-height:50px;margin-bottom:6px" />` : ''}
-      ${showStoreName ? `<h2>${storeData?.name || 'TOKO'}</h2>` : ''}
-      ${showAddress && storeData ? `<p>${[
-      (addressFieldsVisibility.storeName !== false ? storeData.name : null),
-      (addressFieldsVisibility.address !== false ? storeData.address : null),
-      (addressFieldsVisibility.locationDetail !== false ? storeData.detailLocation : null),
-      (addressFieldsVisibility.province !== false ? storeData.province : null),
-      (addressFieldsVisibility.city !== false ? storeData.city : null),
-      (addressFieldsVisibility.postalCode !== false ? storeData.postalCode : null),
-      (addressFieldsVisibility.phone !== false ? storeData.phoneNumber : null),
-      (addressFieldsVisibility.email !== false ? storeData.email : null)
-    ].filter(Boolean).join(' | ')}</p>` : ''}
+  <div class="receipt" style="max-width: 380px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden;">
+    <div class="header" style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); color: #fff; padding: 20px; text-align: center;">
+      ${showLogo && logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px; margin-bottom:8px;" />` : ''}
+      ${showStoreName ? `<h2 style="margin:4px 0; text-transform:uppercase; font-size:16px; font-weight:bold;">${storeData?.name || 'TOKO'}</h2>` : ''}
+      ${
+        showAddress && storeData
+          ? `
+        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.name || ''}</p>
+        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.address || ''}</p>
+        ${storeData.detailLocation ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.detailLocation}</p>` : ''}
+        ${
+          [
+            addressFieldsVisibility.province !== false
+              ? storeData.province
+              : null,
+            addressFieldsVisibility.city !== false ? storeData.city : null,
+            addressFieldsVisibility.district !== false
+              ? storeData.district
+              : null,
+            addressFieldsVisibility.village !== false ? storeData.village : null
+          ].filter(Boolean).length > 0
+            ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${[
+                addressFieldsVisibility.province !== false
+                  ? storeData.province
+                  : null,
+                addressFieldsVisibility.city !== false ? storeData.city : null,
+                addressFieldsVisibility.district !== false
+                  ? storeData.district
+                  : null,
+                addressFieldsVisibility.village !== false
+                  ? storeData.village
+                  : null
+              ]
+                .filter(Boolean)
+                .join(', ')}</p>`
+            : ''
+        }
+        ${addressFieldsVisibility.postalCode !== false && storeData.postalCode ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Kode Pos: ${storeData.postalCode}</p>` : ''}
+        ${addressFieldsVisibility.phone !== false && storeData.phoneNumber ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Telp: ${storeData.phoneNumber}</p>` : ''}
+        ${addressFieldsVisibility.email !== false && storeData.email ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.email}</p>` : ''}
+      `
+          : ''
+      }
     </div>
 
-    <div class="info">
-      <div><span>Invoice</span><strong>${order.orderNumber}</strong></div>
-      <div><span>Tanggal</span><span>${date}</span></div>
-      <div><span>Kasir</span><span>${order.cashierName || '-'}</span></div>
-      ${order.customerName ? `<div><span>Pelanggan</span><span>${order.customerName}</span></div>` : ''}
-      ${order.table?.name ? `<div><span>Meja</span><span>${order.table.name}</span></div>` : ''}
+    <div class="meta" style="display:flex; justify-content:space-between; padding:10px 16px; border-bottom:1px solid #eee; font-size:11px;">
+      <div>
+        <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Invoice</span>
+        <strong>${order.orderNumber}</strong>
+      </div>
+      <div style="text-align: right;">
+        <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">${date}</span>
+      </div>
+    </div>
+
+    <div class="member-info" style="display:flex; justify-content:space-between; padding:8px 16px; border-bottom:1px dashed #ccc; font-size:11px;">
+      <div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Kasir</span><span> ${order.cashierName || '-'}</span></div>
+      ${order.customerName ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Pelanggan</span><span> ${order.customerName}</span></div>` : ''}
+      ${order.table?.name ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Meja</span><span> ${order.table.name}</span></div>` : ''}
       <div style="margin-top:4px">
-        <span class="status-badge ${order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid'}">
+        <span class="status-badge ${order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid'}" style="${order.paymentStatus === 'paid' ? 'background:#d4edda;color:#155724;' : 'background:#fff3cd;color:#856404;'} display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:bold;">
           ${STATUS_LABELS[order.paymentStatus] || order.paymentStatus || 'BELUM DIBAYAR'}
         </span>
       </div>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th><th class="center">Qty</th><th class="right">Harga</th><th class="right">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${itemsHtml}
-      </tbody>
-    </table>
-
-    <div class="totals">
-      <div><span>Subtotal</span><span>${formatPrice(order.subTotal)}</span></div>
-      ${order.discountAmount > 0 ? `<div><span>Diskon</span><span style="color:#c00">-${formatPrice(order.discountAmount)}</span></div>` : ''}
-      ${order.serviceChargeAmount > 0 ? `<div><span>Biaya Layanan</span><span>${formatPrice(order.serviceChargeAmount)}</span></div>` : ''}
-      ${order.taxAmount > 0 ? `<div><span>Pajak</span><span>${formatPrice(order.taxAmount)}</span></div>` : ''}
-      <div class="grand-total"><span>TOTAL</span><span>${formatPrice(order.totalPrice)}</span></div>
-      <div><span>${order.paymentMethod || '-'}</span><span>${formatPrice(order.totalPrice)}</span></div>
+    <div class="table-container" style="padding:0 16px;">
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid #d1d5db;">
+            <th style="text-align:left; font-size:10px; text-transform:uppercase; padding:8px 4px; color:#6b7280; font-weight:600;">Item</th><th class="center" style="text-align:center; font-size:10px; text-transform:uppercase; padding:8px 4px; color:#6b7280; font-weight:600; width:30px;">Qty</th><th class="right" style="text-align:right; font-size:10px; text-transform:uppercase; padding:8px 4px; color:#6b7280; font-weight:600;">Harga</th><th class="right" style="text-align:right; font-size:10px; text-transform:uppercase; padding:8px 4px; color:#6b7280; font-weight:600;">Total</th>
+          </tr>
+        </thead>
+        <tbody>${itemsHtml}</tbody>
+      </table>
     </div>
 
-    <div class="footer">
-      ${footerText}
+    <div class="totals" style="padding:12px 16px;">
+      <div class="summary" style="background:#f9fafb; border-radius:8px; padding:12px;">
+        ${order.subTotal !== undefined ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Subtotal</span><span>${formatPrice(order.subTotal)}</span></div>` : ''}
+        ${order.discountAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Diskon</span><span style="color:#c00">-${formatPrice(order.discountAmount)}</span></div>` : ''}
+        ${order.serviceChargeAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Biaya Layanan</span><span>${formatPrice(order.serviceChargeAmount)}</span></div>` : ''}
+        ${order.taxAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Pajak</span><span>${formatPrice(order.taxAmount)}</span></div>` : ''}
+        <div class="grand-total" style="font-weight:bold; font-size:14px; border-top:1px solid #d1d5db; padding-top:8px; margin-top:4px; display:flex; justify-content:space-between;"><span>TOTAL</span><span>${formatPrice(order.totalPrice)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>${order.paymentMethod || '-'}</span><span>${formatPrice(order.totalPrice)}</span></div>
+      </div>
+    </div>
+
+    <div class="footer" style="padding:16px; text-align:center; font-size:11px; color:#9ca3af; border-top:1px dashed #e5e7eb;">
+      <p class="footer-it" style="font-style:italic; margin:0 0 8px 0;">${footerText}</p>
+      <div class="social" style="display:flex; justify-content:center; gap:12px; margin-top:8px; padding-top:8px; border-top:1px dashed #e5e7eb; font-size:10px; color:#9ca3af;">
+        ${
+          storeData?.socialMedia
+            ? Object.entries(storeData.socialMedia)
+                .map(
+                  ([platform, url]) =>
+                    `<img src="/icon/${platform}.svg" alt="${platform}" style="height:16px;width:auto;" />`
+                )
+                .join('')
+            : ''
+        }
+      </div>
     </div>
 
     <div class="no-print" style="text-align:center;margin-top:20px">

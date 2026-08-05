@@ -53,6 +53,7 @@ router.put(
 // Customer-facing (no auth)
 router.get('/customer-menu', orderController.getCustomerMenu)
 router.get('/customer-member', orderController.getCustomerMember)
+router.get('/customer-orders', orderController.getCustomerOrders)
 router.get('/customer-order/:id', orderController.getCustomerOrder)
 router.post('/customer-create', orderController.createCustomerOrder)
 router.get('/receipt-html/:id', orderController.getReceiptHTML)

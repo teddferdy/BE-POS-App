@@ -60,6 +60,7 @@ const exportMasterRoutes = require('./routes/exportMaster')
 const faq = require('./routes/faq')
 const deliveryRoutes = require('./routes/delivery')
 const queueRoutes = require('./routes/queue')
+const waiterRequestRoutes = require('./routes/waiter-request')
 const supplierPerformanceRoutes = require('./routes/supplierPerformance')
 const promoRoutes = require('./routes/promo')
 const productBundleRoutes = require('./routes/productBundle')
@@ -75,9 +76,15 @@ const corsOptions = {
   origin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
     : [
+        // Production Admin Website
         'https://bisa-nota-demo.vercel.app',
+        // Production Order Website
+        'https://order-app-dun.vercel.app',
+        // Local Development Admin Website
         'http://localhost:3000',
-        'http://localhost:3001'
+        'http://localhost:3001',
+        // Local Development Order Website
+        'http://localhost:5173'
       ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
@@ -166,6 +173,7 @@ const routes = [
   { path: '/faq', route: faq },
   { path: '/delivery', route: deliveryRoutes },
   { path: '/queue', route: queueRoutes },
+  { path: '/waiter-request', route: waiterRequestRoutes },
   { path: '/supplier-performance', route: supplierPerformanceRoutes },
   { path: '/promo', route: promoRoutes },
   { path: '/product-bundle', route: productBundleRoutes },
@@ -297,8 +305,7 @@ function generateESCPOS(data) {
     escposPadBoth('TOTAL', escposPrice(total)) +
     '\n\x1B\x45\x00'
   enc += escposLine('-', w) + '\n'
-  enc +=
-    '\x1B\x61\x01' + footer + '\n'
+  enc += '\x1B\x61\x01' + footer + '\n'
   const vSocial = (socialMedia || []).filter(
     (_, i) => socialMediaVisible && socialMediaVisible[i]
   )

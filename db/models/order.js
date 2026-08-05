@@ -105,6 +105,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('unpaid', 'partial', 'paid'),
         defaultValue: 'unpaid'
       },
+      splitCount: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
       notes: {
         type: DataTypes.TEXT
       },
