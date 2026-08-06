@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
+const batchService = require('../service/batchService')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -800,6 +801,34 @@ const purchaseOrderController = {
                   { stock: product.stock + receiveQty },
                   { transaction }
                 )
+
+                // ponytail: atomic upsert + add per-store stock
+                if (store) {
+                  await db.sequelize.query(
+                    `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+                     VALUES ($1, $2, 0, NOW(), NOW())
+                     ON CONFLICT (product, store) DO NOTHING`,
+                    { bind: [item.product, store], transaction }
+                  )
+                  await db.product_store_stock.update(
+                    { stock: db.sequelize.literal(`stock + ${receiveQty}`) },
+                    {
+                      where: { product: item.product, store },
+                      transaction
+                    }
+                  )
+
+                  // ponytail: FIFO - create a batch per received line
+                  await batchService.addBatchStock({
+                    productId: item.product,
+                    store,
+                    qty: receiveQty,
+                    costPerUnit: Number(item.price) || Number(poItem.price) || 0,
+                    batchCode: `${purchaseOrder.orderNumber}-${poItem.id || item.id}`,
+                    receivedDate: receivedDate || new Date(),
+                    transaction
+                  })
+                }
               }
             }
 
@@ -1020,6 +1049,28 @@ const purchaseOrderController = {
                     { stock: Math.max(qtyBefore - qty, 0) },
                     { transaction: t }
                   )
+                  if (purchaseOrder.store) {
+                    await db.sequelize.query(
+                      `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+                       VALUES ($1, $2, 0, NOW(), NOW())
+                       ON CONFLICT (product, store) DO NOTHING`,
+                      { bind: [grItem.product, purchaseOrder.store], transaction: t }
+                    )
+                    await db.product_store_stock.update(
+                      {
+                        stock: db.sequelize.literal(
+                          `GREATEST(stock - ${qty}, 0)`
+                        )
+                      },
+                      {
+                        where: {
+                          product: grItem.product,
+                          store: purchaseOrder.store
+                        },
+                        transaction: t
+                      }
+                    )
+                  }
                   await db.stock_history.create(
                     {
                       product: grItem.product,

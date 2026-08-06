@@ -58,111 +58,65 @@ exports.addNewTransaction = async (id, order) => {
         lock: t.LOCK.UPDATE
       })
       if (prod) {
-        // Check BOM — if exists, deduct ingredient stock instead of product stock
-        const bom = await db.bom_header.findOne({
-          where: { productId: order[index].idProduct, status: 'active' },
-          include: [{ model: db.bom_line, as: 'lines' }],
-          transaction: t
-        })
-
-        if (bom) {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId, {
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-            if (!ing) continue
-            const deductQty = line.qty * Number(order[index].count)
-            const oldIngStock = Number(ing.stock) || 0
-            if (oldIngStock < deductQty) {
-              throw new Error(
-                `Stok bahan "${ing.name}" tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldIngStock}, dibutuhkan ${deductQty}`
-              )
-            }
-            const qty = Math.floor(Number(deductQty)) || 0
-            const newIngStock = Math.max(oldIngStock - qty, 0)
-            await ing.update(
-              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-              { transaction: t }
-            )
-            await db.stock_history.create(
-              {
-                ingredient: ing.id,
-                ingredientName: ing.name,
-                store: order[index].store,
-                referenceType: 'sale',
-                referenceId: id,
-                quantityBefore: oldIngStock,
-                quantityChange: -(oldIngStock - newIngStock),
-                quantityAfter: newIngStock,
-                unit: line.unit || ing.unit || 'pcs',
-                notes: `Penjualan: ${prod.nameProduct || 'produk'}`,
-                createdBy: order[index].createdBy || null
-              },
-              { transaction: t }
-            )
-          }
-        } else {
-          const oldStock = Number(prod.stock) || 0
-          const qty = Math.floor(Number(order[index].count)) || 0
-          const newStock = oldStock - qty
-          if (newStock < 0) {
-            throw new Error(
-              `Stok tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldStock}, dibutuhkan ${order[index].count}`
-            )
-          }
-          await prod.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-            { transaction: t }
-          )
-
-          // ponytail: atomic upsert + deduct per-store stock
-          if (order[index].store) {
-            await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-              {
-                bind: [order[index].idProduct, order[index].store],
-                transaction: t
-              }
-            )
-            await db.product_store_stock.update(
-              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-              {
-                where: {
-                  product: order[index].idProduct,
-                  store: order[index].store
-                },
-                transaction: t
-              }
-            )
-
-            // ponytail: FIFO - consume oldest batches first
-            await batchService.deductFifo({
-              productId: order[index].idProduct,
-              store: order[index].store,
-              qty,
-              transaction: t
-            })
-          }
-
-          await db.stock_history.create(
-            {
-              product: order[index].idProduct,
-              store: order[index].store,
-              referenceType: 'sale',
-              referenceId: id,
-              quantityBefore: oldStock,
-              quantityChange: -Number(order[index].count),
-              quantityAfter: newStock,
-              unit: prod.unit || 'pcs',
-              notes: `Penjualan: ${prod.nameProduct || 'produk'}`,
-              createdBy: order[index].createdBy || null
-            },
-            { transaction: t }
+        const oldStock = Number(prod.stock) || 0
+        const qty = Math.floor(Number(order[index].count)) || 0
+        const newStock = oldStock - qty
+        if (newStock < 0) {
+          throw new Error(
+            `Stok tidak mencukupi untuk ${prod.nameProduct || 'produk'}: tersedia ${oldStock}, dibutuhkan ${order[index].count}`
           )
         }
+        await prod.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+          { transaction: t }
+        )
+
+        // ponytail: atomic upsert + deduct per-store stock
+        if (order[index].store) {
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            {
+              bind: [order[index].idProduct, order[index].store],
+              transaction: t
+            }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+            {
+              where: {
+                product: order[index].idProduct,
+                store: order[index].store
+              },
+              transaction: t
+            }
+          )
+
+          // ponytail: FIFO - consume oldest batches first
+          await batchService.deductFifo({
+            productId: order[index].idProduct,
+            store: order[index].store,
+            qty,
+            transaction: t
+          })
+        }
+
+        await db.stock_history.create(
+          {
+            product: order[index].idProduct,
+            store: order[index].store,
+            referenceType: 'sale',
+            referenceId: id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(order[index].count),
+            quantityAfter: newStock,
+            unit: prod.unit || 'pcs',
+            notes: `Penjualan: ${prod.nameProduct || 'produk'}`,
+            createdBy: order[index].createdBy || null
+          },
+          { transaction: t }
+        )
       }
     }
     await t.commit()

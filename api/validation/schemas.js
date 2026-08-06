@@ -9,6 +9,7 @@ const strToNum = () =>
     })
     .transform((v) => Number(v))
     .refine((v) => !isNaN(v), { message: 'must be a number' })
+    .refine((v) => v >= 0, { message: 'must not be negative' })
 
 const optionalStrToNum = () =>
   z
@@ -24,6 +25,7 @@ const optionalStrToNum = () =>
       const n = Number(v)
       return isNaN(n) ? null : n
     })
+    .refine((v) => v === null || v >= 0, { message: 'must not be negative' })
 
 const storeParam = () =>
   z

@@ -655,26 +655,6 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // Stock validation — ingredients via BOM (non-bundle items)
-    for (const item of items) {
-      if (item.bundleId) continue
-      const bom = await db.bom_header.findOne({
-        where: { productId: item.product || item.productId, status: 'active' },
-        include: [{ model: db.bom_line, as: 'lines' }]
-      })
-      if (!bom) continue
-      for (const line of bom.lines) {
-        const ing = await db.ingredient.findByPk(line.ingredientId)
-        if (!ing) continue
-        const needed = line.qty * Number(item.quantity)
-        if (Number(ing.stock) < needed) {
-          return res.status(400).json({
-            message: `Stok bahan "${ing.name}" tidak mencukupi untuk "${item.productName}". Tersedia: ${ing.stock}, dibutuhkan: ${needed}`
-          })
-        }
-      }
-    }
-
     const orderData = {
       orderNumber,
       store,
@@ -826,49 +806,6 @@ exports.createOrder = async (req, res) => {
               { transaction: t }
             )
 
-            // BOM ingredient deduction for bundle components
-            const bom = await db.bom_header.findOne({
-              where: { productId: product.id, status: 'active' },
-              include: [{ model: db.bom_line, as: 'lines' }],
-              transaction: t
-            })
-            if (bom) {
-              for (const line of bom.lines) {
-                const ing = await db.ingredient.findByPk(line.ingredientId, {
-                  transaction: t,
-                  lock: t.LOCK.UPDATE
-                })
-                if (!ing) continue
-                const ingDeductQty = line.qty * deductQty
-                const oldIngStock = Number(ing.stock)
-                const ingNewStock = Math.max(oldIngStock - ingDeductQty, 0)
-                await ing.update(
-                  {
-                    stock: db.sequelize.literal(
-                      `GREATEST(stock - ${ingDeductQty}, 0)`
-                    )
-                  },
-                  { transaction: t }
-                )
-                await db.stock_history.create(
-                  {
-                    product: product.id,
-                    ingredient: ing.id,
-                    ingredientName: ing.name,
-                    store,
-                    referenceType: 'sale',
-                    referenceId: order.id,
-                    quantityBefore: oldIngStock,
-                    quantityChange: -(oldIngStock - ingNewStock),
-                    quantityAfter: ingNewStock,
-                    unit: line.unit || ing.unit,
-                    createdBy: req.user?.id
-                  },
-                  { transaction: t }
-                )
-              }
-            }
-
             // Best-selling tracking for bundle components
             const findBs = await db.best_selling.findOne({
               where: {
@@ -912,59 +849,48 @@ exports.createOrder = async (req, res) => {
         })
         if (!product) continue
 
-        const bom = await db.bom_header.findOne({
-          where: {
-            productId: item.product || item.productId,
-            status: 'active'
-          },
-          include: [{ model: db.bom_line, as: 'lines' }],
+        const oldStock = Number(product.stock) || 0
+        const qty = Math.floor(Number(item.quantity)) || 0
+        const newStock = Math.max(oldStock - qty, 0)
+        await product.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+          { transaction: t }
+        )
+
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [product.id, store], transaction: t }
+        )
+        await db.product_store_stock.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+          { where: { product: product.id, store }, transaction: t }
+        )
+
+        // ponytail: FIFO - consume oldest batches first
+        await batchService.deductFifo({
+          productId: product.id,
+          store,
+          qty,
           transaction: t
         })
 
-        if (!bom) {
-          const oldStock = Number(product.stock) || 0
-          const qty = Math.floor(Number(item.quantity)) || 0
-          const newStock = Math.max(oldStock - qty, 0)
-          await product.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-            { transaction: t }
-          )
-
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [product.id, store], transaction: t }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-            { where: { product: product.id, store }, transaction: t }
-          )
-
-          // ponytail: FIFO - consume oldest batches first
-          await batchService.deductFifo({
-            productId: product.id,
+        await db.stock_history.create(
+          {
+            product: product.id,
             store,
-            qty,
-            transaction: t
-          })
-
-          await db.stock_history.create(
-            {
-              product: product.id,
-              store,
-              referenceType: 'sale',
-              referenceId: order.id,
-              quantityBefore: oldStock,
-              quantityChange: -Number(item.quantity),
-              quantityAfter: newStock >= 0 ? newStock : 0,
-              unit: product.unit || 'pcs',
-              notes: `Penjualan: ${orderNumber}`,
-              createdBy: req.user?.id
-            },
-            { transaction: t }
-          )
-        }
+            referenceType: 'sale',
+            referenceId: order.id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(item.quantity),
+            quantityAfter: newStock >= 0 ? newStock : 0,
+            unit: product.unit || 'pcs',
+            notes: `Penjualan: ${orderNumber}`,
+            createdBy: req.user?.id
+          },
+          { transaction: t }
+        )
 
         const findBs = await db.best_selling.findOne({
           where: {
@@ -997,39 +923,6 @@ exports.createOrder = async (req, res) => {
           )
         }
 
-        if (bom) {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId, {
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-            if (!ing) continue
-            const deductQty = line.qty * Number(item.quantity)
-            const oldIngStock = Number(ing.stock)
-            const qty = Math.floor(Number(deductQty)) || 0
-            const newIngStock = Math.max(oldIngStock - qty, 0)
-            await ing.update(
-              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-              { transaction: t }
-            )
-            await db.stock_history.create(
-              {
-                product: product.id,
-                ingredient: ing.id,
-                ingredientName: ing.name,
-                store,
-                referenceType: 'sale',
-                referenceId: order.id,
-                quantityBefore: oldIngStock,
-                quantityChange: -(oldIngStock - newIngStock),
-                quantityAfter: newIngStock,
-                unit: line.unit || ing.unit,
-                createdBy: req.user?.id
-              },
-              { transaction: t }
-            )
-          }
-        }
       }
     })
 
@@ -1205,9 +1098,9 @@ exports.createOrder = async (req, res) => {
       data: fullOrder
     })
   } catch (error) {
-    console.error('Error creating order:', error)
-    return res.status(500).json({
-      error: 'Internal Server Error'
+    console.error('Error:', error)
+    return res.status(error.statusCode || 500).json({
+      error: error.message || 'Internal Server Error'
     })
   }
 }
@@ -1341,200 +1234,153 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     const oldStatus = order.status
+    const oldPaymentStatus = order.paymentStatus
+    const effectiveStore = store || order.store || null
 
-    await order.update({ status })
+    // Reduce stock exactly once when an order transitions to paid. Orders that
+    // were already paid & deducted at creation (paymentStatus 'paid') are skipped.
+    const deductPaidOrderStock = async (t) => {
+      const items = await OrderItem.findAll({
+        where: { order: id },
+        transaction: t
+      })
 
-    await OrderStatus.create({
-      order: id,
-      status,
-      createdBy: changedBy,
-      notes: notes || (changedByName ? `By ${changedByName}` : null)
-    })
-
-    // If transitioning to paid, record payment & reduce stock
-    if (status === 'paid' && oldStatus !== 'paid') {
-      const items = await OrderItem.findAll({ where: { order: id } })
-
-      // Ensure a transaction record exists (e.g. QR/customer orders paid at cashier)
-      const existingTxn = await db.transaction.findOne({ where: { order: id } })
-      if (!existingTxn) {
-        await db.transaction.create({
-          order: id,
-          typePayment: order.paymentMethod || 'cash',
-          amount: Number(order.totalPrice) || 0,
-          createdBy: changedBy || req.user?.id
+      for (const item of items) {
+        const product = await Product.findByPk(item.product, {
+          transaction: t,
+          lock: t.LOCK.UPDATE
         })
-      }
+        if (!product) continue
 
-      await db.sequelize.transaction(async (t) => {
-        for (const item of items) {
-          const product = await Product.findByPk(item.product, {
-            transaction: t,
-            lock: t.LOCK.UPDATE
-          })
-          if (!product) continue
+        const oldStock = Number(product.stock) || 0
+        const qty = Math.floor(Number(item.quantity)) || 0
+        const newStock = Math.max(oldStock - qty, 0)
+        await product.update(
+          {
+            stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+          },
+          { transaction: t }
+        )
 
-          const bom = await db.bom_header.findOne({
-            where: { productId: item.product, status: 'active' },
-            include: [{ model: db.bom_line, as: 'lines' }],
+        // ponytail: atomic upsert + deduct per-store stock
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [item.product, effectiveStore], transaction: t }
+        )
+        await db.product_store_stock.update(
+          {
+            stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+          },
+          {
+            where: { product: item.product, store: effectiveStore },
             transaction: t
-          })
-
-          if (!bom) {
-            const oldStock = Number(product.stock) || 0
-            const qty = Math.floor(Number(item.quantity)) || 0
-            const newStock = Math.max(oldStock - qty, 0)
-            await product.update(
-              {
-                stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-              },
-              { transaction: t }
-            )
-
-            // ponytail: atomic upsert + deduct per-store stock
-            await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-              { bind: [item.product, store], transaction: t }
-            )
-            await db.product_store_stock.update(
-              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-              { where: { product: item.product, store }, transaction: t }
-            )
-
-            // ponytail: FIFO - consume oldest batches first
-            await batchService.deductFifo({
-              productId: product.id,
-              store,
-              qty,
-              transaction: t
-            })
-
-            await db.stock_history.create(
-              {
-                product: product.id,
-                store,
-                referenceType: 'sale',
-                referenceId: order.id,
-                quantityBefore: oldStock,
-                quantityChange: -Number(item.quantity),
-                quantityAfter: newStock,
-                unit: product.unit || 'pcs',
-                notes: `Penjualan: ${order.orderNumber}`,
-                createdBy: changedBy
-              },
-              { transaction: t }
-            )
           }
+        )
 
-          const findBs = await db.best_selling.findOne({
-            where: {
-              productId: product.id,
-              nameProduct: item.productName,
-              store
-            }
-          })
-          if (findBs) {
-            await db.best_selling.update(
-              {
-                totalSelling:
-                  Number(findBs.totalSelling) + Number(item.quantity)
+        // ponytail: FIFO - consume oldest batches first
+        await batchService.deductFifo({
+          productId: product.id,
+          store: effectiveStore,
+          qty,
+          transaction: t
+        })
+
+        await db.stock_history.create(
+          {
+            product: product.id,
+            store: effectiveStore,
+            referenceType: 'sale',
+            referenceId: order.id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(item.quantity),
+            quantityAfter: newStock,
+            unit: product.unit || 'pcs',
+            notes: `Penjualan: ${order.orderNumber}`,
+            createdBy: changedBy
+          },
+          { transaction: t }
+        )
+
+        const findBs = await db.best_selling.findOne({
+          where: {
+            productId: product.id,
+            nameProduct: item.productName,
+            store: effectiveStore
+          },
+          transaction: t
+        })
+        if (findBs) {
+          await db.best_selling.update(
+            {
+              totalSelling:
+                Number(findBs.totalSelling) + Number(item.quantity)
+            },
+            {
+              where: {
+                productId: product.id,
+                nameProduct: item.productName
               },
-              {
-                where: {
-                  productId: product.id,
-                  nameProduct: item.productName
-                }
-              }
-            )
-          } else {
-            await db.best_selling.create({
+              transaction: t
+            }
+          )
+        } else {
+          await db.best_selling.create(
+            {
               productId: product.id,
               nameProduct: item.productName,
               image: product.image || null,
               totalSelling: Number(item.quantity),
-              store
-            })
-          }
-
-          if (bom) {
-            for (const line of bom.lines) {
-              const ing = await db.ingredient.findByPk(line.ingredientId, {
-                transaction: t
-              })
-              if (!ing) continue
-              const deductQty = line.qty * Number(item.quantity)
-              const oldIngStock = Number(ing.stock)
-              const qty = Math.floor(Number(deductQty)) || 0
-              const newIngStock = Math.max(oldIngStock - qty, 0)
-              await ing.update(
-                {
-                  stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-                },
-                { transaction: t }
-              )
-              await db.stock_history.create(
-                {
-                  product: product.id,
-                  ingredient: ing.id,
-                  ingredientName: ing.name,
-                  store,
-                  referenceType: 'sale',
-                  referenceId: order.id,
-                  quantityBefore: oldIngStock,
-                  quantityChange: -(oldIngStock - newIngStock),
-                  quantityAfter: newIngStock,
-                  unit: line.unit || ing.unit,
-                  createdBy: changedBy
-                },
-                { transaction: t }
-              )
-            }
-          }
+              store: effectiveStore
+            },
+            { transaction: t }
+          )
         }
-      })
+
+      }
     }
 
-    // If transitioning to cancelled/void, reverse stock
-    if (
-      ['cancelled', 'void'].includes(status) &&
-      !['cancelled', 'void'].includes(oldStatus)
-    ) {
-      const items = await OrderItem.findAll({ where: { order: id } })
+    // Restore stock when an order is cancelled/voided.
+    const reverseOrderStock = async (t) => {
+      const items = await OrderItem.findAll({
+        where: { order: id },
+        transaction: t
+      })
 
       for (const item of items) {
-        const product = await Product.findByPk(item.product)
+        const product = await Product.findByPk(item.product, {
+          transaction: t
+        })
         if (!product) continue
 
-        const bom = await db.bom_header.findOne({
-          where: { productId: item.product, status: 'active' },
-          include: [{ model: db.bom_line, as: 'lines' }]
-        })
+        const oldStock = Number(product.stock) || 0
+        const qty = Math.floor(Number(item.quantity)) || 0
+        const newStock = oldStock + qty
+        await product.update(
+          { stock: db.sequelize.literal(`stock + ${qty}`) },
+          { transaction: t }
+        )
 
-        if (!bom) {
-          const oldStock = Number(product.stock) || 0
-          const qty = Math.floor(Number(item.quantity)) || 0
-          const newStock = oldStock + qty
-          await product.update({
-            stock: db.sequelize.literal(`stock + ${qty}`)
-          })
+        // ponytail: atomic restore per-store stock
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [item.product, effectiveStore], transaction: t }
+        )
+        await db.product_store_stock.update(
+          { stock: db.sequelize.literal(`stock + ${qty}`) },
+          {
+            where: { product: item.product, store: effectiveStore },
+            transaction: t
+          }
+        )
 
-          // ponytail: atomic restore per-store stock
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [item.product, store] }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`stock + ${qty}`) },
-            { where: { product: item.product, store } }
-          )
-
-          await db.stock_history.create({
+        await db.stock_history.create(
+          {
             product: product.id,
-            store,
+            store: effectiveStore,
             referenceType: 'sale_reversal',
             referenceId: order.id,
             quantityBefore: oldStock,
@@ -1543,11 +1389,17 @@ exports.updateOrderStatus = async (req, res) => {
             unit: product.unit || 'pcs',
             notes: `Pembatalan: ${order.orderNumber}`,
             createdBy: changedBy
-          })
-        }
+          },
+          { transaction: t }
+        )
 
         const findBs = await db.best_selling.findOne({
-          where: { productId: product.id, nameProduct: item.productName, store }
+          where: {
+            productId: product.id,
+            nameProduct: item.productName,
+            store: effectiveStore
+          },
+          transaction: t
         })
         if (findBs) {
           await db.best_selling.update(
@@ -1557,42 +1409,89 @@ exports.updateOrderStatus = async (req, res) => {
                 Number(findBs.totalSelling) - Number(item.quantity)
               )
             },
-            { where: { productId: product.id, nameProduct: item.productName } }
+            {
+              where: {
+                productId: product.id,
+                nameProduct: item.productName
+              },
+              transaction: t
+            }
           )
         }
 
-        if (bom) {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId)
-            if (!ing) continue
-            const restoreQty = line.qty * Number(item.quantity)
-            const oldIngStock = Number(ing.stock)
-            const qty = Math.floor(Number(restoreQty)) || 0
-            await ing.update({ stock: db.sequelize.literal(`stock + ${qty}`) })
-            await db.stock_history.create({
-              product: product.id,
-              ingredient: ing.id,
-              ingredientName: ing.name,
-              store,
-              referenceType: 'sale_reversal',
-              referenceId: order.id,
-              quantityBefore: oldIngStock,
-              quantityChange: restoreQty,
-              quantityAfter: oldIngStock + restoreQty,
-              unit: line.unit || ing.unit,
-              createdBy: changedBy
-            })
-          }
-        }
       }
     }
 
-    if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
-      await Table.update(
-        { status: 'available' },
-        { where: { id: order.tableId } }
+    // Perform the whole status transition atomically.
+    await db.sequelize.transaction(async (t) => {
+      await order.update(
+        {
+          status,
+          ...(status === 'paid' ? { paymentStatus: 'paid' } : {})
+        },
+        { transaction: t }
       )
-    }
+
+      await OrderStatus.create(
+        {
+          order: id,
+          status,
+          createdBy: changedBy,
+          notes: notes || (changedByName ? `By ${changedByName}` : null)
+        },
+        { transaction: t }
+      )
+
+      // If transitioning to paid, record payment & reduce stock exactly once
+      if (status === 'paid' && oldStatus !== 'paid') {
+        const existingTxn = await db.transaction.findOne({
+          where: { order: id },
+          transaction: t
+        })
+        if (!existingTxn) {
+          await db.transaction.create(
+            {
+              order: id,
+              typePayment: order.paymentMethod || 'cash',
+              amount: Number(order.totalPrice) || 0,
+              createdBy: changedBy || req.user?.id
+            },
+            { transaction: t }
+          )
+        }
+
+        // Skip deduction for orders already paid & deducted at creation
+        if (oldPaymentStatus !== 'paid') {
+          await deductPaidOrderStock(t)
+        }
+      }
+
+      // If transitioning to cancelled/void, reverse stock
+      if (
+        ['cancelled', 'void'].includes(status) &&
+        !['cancelled', 'void'].includes(oldStatus)
+      ) {
+        const approvedReturn = await db.sales_return.findOne({
+          where: { order: id, status: 'approved' },
+          transaction: t
+        })
+        if (approvedReturn) {
+          const err = new Error(
+            'Cannot void/cancel this order because it has an approved sales return. Process a separate return reversal first.'
+          )
+          err.statusCode = 400
+          throw err
+        }
+        await reverseOrderStock(t)
+      }
+
+      if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
+        await Table.update(
+          { status: 'available' },
+          { where: { id: order.tableId }, transaction: t }
+        )
+      }
+    })
 
     createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
 
@@ -1602,8 +1501,8 @@ exports.updateOrderStatus = async (req, res) => {
     })
   } catch (error) {
     console.error('Error:', error)
-    return res.status(500).json({
-      error: 'Internal Server Error'
+    return res.status(error.statusCode || 500).json({
+      error: error.message || 'Internal Server Error'
     })
   }
 }
@@ -1921,7 +1820,7 @@ exports.createCustomerOrder = async (req, res) => {
         const costPrice = prod ? Number(prod.costPrice || prod.price || 0) : 0
         orderItems.push({
           product: item.productId,
-          productName: item.productName,
+          productName: item.productName || prod?.nameProduct || 'Item',
           quantity: item.quantity,
           price: item.price,
           totalPrice: subtotal,
@@ -1995,9 +1894,22 @@ exports.createCustomerOrder = async (req, res) => {
       await db.order_item.create({ ...item, order: order.id })
     }
 
-    // Deduct stock
+    // Record payment transaction immediately for orders paid at creation
+    if (qrOrderData.paymentStatus === 'paid') {
+      await db.transaction.create({
+        order: order.id,
+        typePayment: paymentMethod || 'cash',
+        amount: Number(order.totalPrice) || 0,
+        createdBy: req.user?.id
+      })
+    }
+
+    // Deduct stock only when the order is paid immediately. Unpaid orders
+    // have their stock deducted exactly once when they transition to paid.
+    const deductStock = qrOrderData.paymentStatus === 'paid'
     await db.sequelize.transaction(async (t) => {
       for (const item of items) {
+        if (!deductStock) continue
         if (item.bundleId && bundleMap[item.bundleId]) {
           const bundle = bundleMap[item.bundleId]
           const bundleQty = Number(item.quantity) || 1
@@ -2053,48 +1965,6 @@ exports.createCustomerOrder = async (req, res) => {
               },
               { transaction: t }
             )
-
-            const bom = await db.bom_header.findOne({
-              where: { productId: product.id, status: 'active' },
-              include: [{ model: db.bom_line, as: 'lines' }],
-              transaction: t
-            })
-            if (bom) {
-              for (const line of bom.lines) {
-                const ing = await db.ingredient.findByPk(line.ingredientId, {
-                  transaction: t,
-                  lock: t.LOCK.UPDATE
-                })
-                if (!ing) continue
-                const ingDeductQty = line.qty * deductQty
-                const oldIngStock = Number(ing.stock)
-                const ingNewStock = Math.max(oldIngStock - ingDeductQty, 0)
-                await ing.update(
-                  {
-                    stock: db.sequelize.literal(
-                      `GREATEST(stock - ${ingDeductQty}, 0)`
-                    )
-                  },
-                  { transaction: t }
-                )
-                await db.stock_history.create(
-                  {
-                    product: product.id,
-                    ingredient: ing.id,
-                    ingredientName: ing.name,
-                    store,
-                    referenceType: 'sale',
-                    referenceId: order.id,
-                    quantityBefore: oldIngStock,
-                    quantityChange: -(oldIngStock - ingNewStock),
-                    quantityAfter: ingNewStock,
-                    unit: line.unit || ing.unit,
-                    createdBy: req.user?.id
-                  },
-                  { transaction: t }
-                )
-              }
-            }
           }
           continue
         }
@@ -2107,90 +1977,51 @@ exports.createCustomerOrder = async (req, res) => {
           : null
         if (!product) continue
 
-        const bom = await db.bom_header.findOne({
-          where: { productId: item.productId, status: 'active' },
-          include: [{ model: db.bom_line, as: 'lines' }],
+        if (!product) continue
+
+        const oldStock = Number(product.stock) || 0
+        const qty = Math.floor(Number(item.quantity)) || 0
+        const newStock = Math.max(oldStock - qty, 0)
+        await product.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+          { transaction: t }
+        )
+
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [product.id, store], transaction: t }
+        )
+        await db.product_store_stock.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+          { where: { product: product.id, store }, transaction: t }
+        )
+
+        // ponytail: FIFO - consume oldest batches first
+        await batchService.deductFifo({
+          productId: product.id,
+          store,
+          qty,
           transaction: t
         })
 
-        if (!bom) {
-          const oldStock = Number(product.stock) || 0
-          const qty = Math.floor(Number(item.quantity)) || 0
-          const newStock = Math.max(oldStock - qty, 0)
-          await product.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-            { transaction: t }
-          )
-
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [product.id, store], transaction: t }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-            { where: { product: product.id, store }, transaction: t }
-          )
-
-          // ponytail: FIFO - consume oldest batches first
-          await batchService.deductFifo({
-            productId: product.id,
+        await db.stock_history.create(
+          {
+            product: product.id,
             store,
-            qty,
-            transaction: t
-          })
+            referenceType: 'sale',
+            referenceId: order.id,
+            quantityBefore: oldStock,
+            quantityChange: -Number(item.quantity),
+            quantityAfter: newStock >= 0 ? newStock : 0,
+            unit: product.unit || 'pcs',
+            notes: `Penjualan: ${orderNumber}`,
+            createdBy: req.user?.id
+          },
+          { transaction: t }
+        )
 
-          await db.stock_history.create(
-            {
-              product: product.id,
-              store,
-              referenceType: 'sale',
-              referenceId: order.id,
-              quantityBefore: oldStock,
-              quantityChange: -Number(item.quantity),
-              quantityAfter: newStock >= 0 ? newStock : 0,
-              unit: product.unit || 'pcs',
-              notes: `Penjualan: ${orderNumber}`,
-              createdBy: req.user?.id
-            },
-            { transaction: t }
-          )
-        }
-
-        if (bom) {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId, {
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-            if (!ing) continue
-            const deductQty = line.qty * Number(item.quantity)
-            const oldIngStock = Number(ing.stock)
-            const qty = Math.floor(Number(deductQty)) || 0
-            const newIngStock = Math.max(oldIngStock - qty, 0)
-            await ing.update(
-              { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-              { transaction: t }
-            )
-            await db.stock_history.create(
-              {
-                product: product.id,
-                ingredient: ing.id,
-                ingredientName: ing.name,
-                store,
-                referenceType: 'sale',
-                referenceId: order.id,
-                quantityBefore: oldIngStock,
-                quantityChange: -(oldIngStock - newIngStock),
-                quantityAfter: newIngStock,
-                unit: line.unit || ing.unit,
-                createdBy: req.user?.id
-              },
-              { transaction: t }
-            )
-          }
-        }
       }
     })
 
@@ -2682,7 +2513,7 @@ exports.getReceiptHTML = async (req, res) => {
           storeData?.socialMedia
             ? Object.entries(storeData.socialMedia)
                 .map(
-                  ([platform, url]) =>
+                  ([platform, _url]) =>
                     `<img src="/icon/${platform}.svg" alt="${platform}" style="height:16px;width:auto;" />`
                 )
                 .join('')

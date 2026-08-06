@@ -474,15 +474,33 @@ const purchaseReturnController = {
       try {
         // Reverse stock: add back what was deducted on creation
         for (const item of ret.items) {
+          const qty = Math.floor(Number(item.qty)) || 0
           const product = await db.product.findByPk(item.product, {
             transaction
           })
           if (product) {
             const oldStock = Number(product.stock) || 0
             await product.update(
-              { stock: oldStock + item.qty },
+              { stock: oldStock + qty },
               { transaction }
             )
+
+            // ponytail: atomic upsert + restore per-store stock
+            if (ret.store) {
+              await db.sequelize.query(
+                `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+                 VALUES ($1, $2, 0, NOW(), NOW())
+                 ON CONFLICT (product, store) DO NOTHING`,
+                { bind: [item.product, ret.store], transaction }
+              )
+              await db.product_store_stock.update(
+                { stock: db.sequelize.literal(`stock + ${qty}`) },
+                {
+                  where: { product: item.product, store: ret.store },
+                  transaction
+                }
+              )
+            }
 
             await db.stock_history.create(
               {
@@ -490,8 +508,8 @@ const purchaseReturnController = {
                 store: ret.store,
                 referenceType: 'adjustment',
                 quantityBefore: oldStock,
-                quantityChange: item.qty,
-                quantityAfter: oldStock + item.qty,
+                quantityChange: qty,
+                quantityAfter: oldStock + qty,
                 unit: item.unit || 'pcs',
                 notes: `Purchase return rejected: ${ret.reason}`,
                 createdBy: req.user?.id || null
@@ -502,11 +520,19 @@ const purchaseReturnController = {
 
           const ingredient = item.ingredient
             ? await db.ingredient.findByPk(item.ingredient, { transaction })
-            : null
+            : item.ingredientName
+              ? await db.ingredient.findOne({
+                  where: {
+                    name: { [Op.iLike]: item.ingredientName.trim() },
+                    store: ret.store
+                  },
+                  transaction
+                })
+              : null
           if (ingredient) {
             const oldStock = Number(ingredient.stock) || 0
             await ingredient.update(
-              { stock: oldStock + item.qty },
+              { stock: oldStock + qty },
               { transaction }
             )
 
@@ -517,8 +543,8 @@ const purchaseReturnController = {
                 store: ret.store,
                 referenceType: 'adjustment',
                 quantityBefore: oldStock,
-                quantityChange: item.qty,
-                quantityAfter: oldStock + item.qty,
+                quantityChange: qty,
+                quantityAfter: oldStock + qty,
                 unit: item.unit || ingredient.unit || 'pcs',
                 notes: `Purchase return rejected: ${ret.reason}`,
                 createdBy: req.user?.id || null

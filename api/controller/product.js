@@ -879,6 +879,13 @@ exports.editProductByLocationAndId = async (req, res) => {
         { stock: db.sequelize.literal(`GREATEST(stock + ${diff}, 0)`) },
         { where: { product: id, store: storeId } }
       )
+    } else if (!storeId && stockDiff !== 0) {
+      // Super admin without a store context: keep every per-store row in sync
+      // with the absolute product stock.
+      await db.product_store_stock.update(
+        { stock: newStock },
+        { where: { product: id } }
+      )
     }
 
     if (stockDiff !== 0) {

@@ -504,18 +504,25 @@ const productionOrderController = {
           const ingredientId = comp.ingredientId
           const ingredientName = comp.name || comp.ingredientName
 
-          // Try direct product ID first (BOM table), fall back to name lookup (JSONB)
+          // BOM lines reference the ingredient table by PK; JSONB composition may
+          // reference ingredients or products by name. Resolve ingredient first.
           let ingredient = null
           let productComp = null
 
           if (ingredientId) {
-            productComp = await db.product.findByPk(ingredientId, {
+            ingredient = await db.ingredient.findByPk(ingredientId, {
               transaction,
               lock: transaction.LOCK.UPDATE
             })
+            if (!ingredient) {
+              productComp = await db.product.findByPk(ingredientId, {
+                transaction,
+                lock: transaction.LOCK.UPDATE
+              })
+            }
           }
 
-          if (!productComp && ingredientName) {
+          if (!ingredient && !productComp && ingredientName) {
             ingredient = await db.ingredient.findOne({
               where: {
                 name: { [Op.iLike]: ingredientName.trim() },

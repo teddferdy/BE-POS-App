@@ -51,6 +51,219 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
   }
 }
 
+const reverseStock = async (items, store, transaction, userId) => {
+  for (const grItem of items) {
+      const qty = parseInt(grItem.qtyReceived) || 0
+      if (qty <= 0) continue
+
+      const qtyStock =
+        Number(grItem.qtyStock) > 0
+          ? Number(grItem.qtyStock)
+          : qty * (Number(grItem.conversionToBase) || 1)
+
+      if (grItem.purchaseOrderItem) {
+        await db.purchase_order_item.update(
+          {
+            receivedQuantity: db.sequelize.literal(
+              `GREATEST("receivedQuantity" - ${qty}, 0)`
+            )
+          },
+          { where: { id: grItem.purchaseOrderItem }, transaction }
+        )
+      }
+
+      if (grItem.product) {
+        const product = await db.product.findByPk(grItem.product, {
+          transaction
+        })
+        if (product) {
+          const qtyBefore = Number(product.stock) || 0
+          await product.update(
+            { stock: Math.max(qtyBefore - qtyStock, 0) },
+            { transaction }
+          )
+          if (store) {
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [grItem.product, store], transaction }
+            )
+            await db.product_store_stock.update(
+              { stock: db.sequelize.literal(`GREATEST(stock - ${qtyStock}, 0)`) },
+              { where: { product: grItem.product, store }, transaction }
+            )
+          }
+          await db.stock_history.create(
+            {
+              product: grItem.product,
+              store: store || null,
+              referenceType: 'adjustment',
+              quantityBefore: qtyBefore,
+              quantityChange: -qtyStock,
+              quantityAfter: Math.max(qtyBefore - qtyStock, 0),
+              unit: product.unit || grItem.unit || 'pcs',
+              notes: `GR reversal: ${grItem.id || 'update'}`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+
+      const ingName =
+        grItem.ingredientName ||
+        grItem.poItemData?.ingredientName ||
+        grItem.poItemData?.ingredientData?.name
+      if (ingName) {
+        const ingredient = await db.ingredient.findOne({
+          where: {
+            name: { [Op.iLike]: ingName.trim() },
+            store: store || null
+          },
+          transaction
+        })
+        if (ingredient) {
+          const qtyBefore = Number(ingredient.stock) || 0
+          await ingredient.update(
+            { stock: Math.max(qtyBefore - qtyStock, 0) },
+            { transaction }
+          )
+          await db.stock_history.create(
+            {
+              ingredient: ingredient.id,
+              ingredientName: ingredient.name,
+              store: store || null,
+              referenceType: 'adjustment',
+              quantityBefore: qtyBefore,
+              quantityChange: -qtyStock,
+              quantityAfter: Math.max(qtyBefore - qtyStock, 0),
+              unit: ingredient.unit || grItem.unit || 'pcs',
+              notes: `GR reversal: ${grItem.id || 'update'}`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+    }
+  }
+
+
+  const applyStock = async (items, receipt, transaction, userId) => {
+    for (const item of items) {
+      const qty = parseInt(item.qtyReceived) || 0
+      if (qty <= 0) continue
+
+      const conversion =
+        Number(item.conversionToBase) ||
+        Number(item.poItemData?.conversionToBase) ||
+        1
+      const qtyStock = qty * conversion
+
+      if (item.purchaseOrderItem) {
+        await db.purchase_order_item.update(
+          {
+            receivedQuantity: db.sequelize.literal(
+              `"receivedQuantity" + ${qty}`
+            )
+          },
+          {
+            where: {
+              id: item.purchaseOrderItem,
+              purchaseOrder: receipt.purchaseOrderId
+            },
+            transaction
+          }
+        )
+      }
+
+      if (item.product) {
+        const product = await db.product.findByPk(item.product, { transaction })
+        if (product) {
+          const qtyBefore = Number(product.stock) || 0
+          await product.update(
+            { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
+            { transaction }
+          )
+
+          // ponytail: atomic upsert + add per-store stock
+          if (receipt.store) {
+            await db.sequelize.query(
+              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+               VALUES ($1, $2, 0, NOW(), NOW())
+               ON CONFLICT (product, store) DO NOTHING`,
+              { bind: [item.product, receipt.store], transaction }
+            )
+            await db.product_store_stock.update(
+              { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
+              {
+                where: { product: item.product, store: receipt.store },
+                transaction
+              }
+            )
+          }
+
+          await db.stock_history.create(
+            {
+              product: item.product,
+              store: receipt.store,
+              referenceType: 'purchase',
+              quantityBefore: qtyBefore,
+              quantityChange: qtyStock,
+              quantityAfter: qtyBefore + qtyStock,
+              unit: product.unit || item.unit || 'pcs',
+              notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+
+      const ingName =
+        item.ingredientName ||
+        item.poItemData?.ingredientName ||
+        item.poItemData?.ingredientData?.name
+      if (ingName) {
+        const ingredient = await db.ingredient.findOne({
+          where: { name: { [Op.iLike]: ingName.trim() }, store: receipt.store },
+          transaction
+        })
+        if (ingredient) {
+          const qtyBefore = Number(ingredient.stock) || 0
+          await ingredient.update(
+            { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
+            { transaction }
+          )
+          await db.stock_history.create(
+            {
+              ingredient: ingredient.id,
+              ingredientName: ingredient.name,
+              store: receipt.store,
+              referenceType: 'purchase',
+              quantityBefore: qtyBefore,
+              quantityChange: qtyStock,
+              quantityAfter: qtyBefore + qtyStock,
+              unit: ingredient.unit || item.unit || 'pcs',
+              notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
+              createdBy: userId || null
+            },
+            { transaction }
+          )
+        }
+      }
+
+      await applyCostPrice({
+        item,
+        qty,
+        store: receipt.store,
+        transaction
+      })
+    }
+  }
+
+
 const goodsReceiptController = {
   async getAll(req, res) {
     try {
@@ -518,7 +731,12 @@ const goodsReceiptController = {
           await db.goodsReceiptItem.bulkCreate(receiptItems, { transaction })
         }
 
-        const allReceived = allPoItems.every(
+        // ponytail: re-fetch so receivedQuantity reflects this receipt
+        const freshPoItems = await db.purchase_order_item.findAll({
+          where: { purchaseOrder: purchaseOrderId },
+          transaction
+        })
+        const allReceived = freshPoItems.every(
           (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
         )
 
@@ -605,205 +823,6 @@ const goodsReceiptController = {
     }
   },
 
-  async reverseStock(items, transaction, userId) {
-    for (const grItem of items) {
-      const qty = parseInt(grItem.qtyReceived) || 0
-      if (qty <= 0) continue
-
-      const qtyStock =
-        Number(grItem.qtyStock) > 0
-          ? Number(grItem.qtyStock)
-          : qty * (Number(grItem.conversionToBase) || 1)
-
-      if (grItem.purchaseOrderItem) {
-        await db.purchase_order_item.update(
-          {
-            receivedQuantity: db.sequelize.literal(
-              `GREATEST("receivedQuantity" - ${qty}, 0)`
-            )
-          },
-          { where: { id: grItem.purchaseOrderItem }, transaction }
-        )
-      }
-
-      if (grItem.product) {
-        const product = await db.product.findByPk(grItem.product, {
-          transaction
-        })
-        if (product) {
-          const qtyBefore = Number(product.stock) || 0
-          await product.update(
-            { stock: Math.max(qtyBefore - qtyStock, 0) },
-            { transaction }
-          )
-          await db.stock_history.create(
-            {
-              product: grItem.product,
-              store: grItem.store || null,
-              referenceType: 'adjustment',
-              quantityBefore: qtyBefore,
-              quantityChange: -qtyStock,
-              quantityAfter: Math.max(qtyBefore - qtyStock, 0),
-              unit: product.unit || grItem.unit || 'pcs',
-              notes: `GR reversal: ${grItem.id || 'update'}`,
-              createdBy: userId || null
-            },
-            { transaction }
-          )
-        }
-      }
-
-      const ingName =
-        grItem.ingredientName ||
-        grItem.poItemData?.ingredientName ||
-        grItem.poItemData?.ingredientData?.name
-      if (ingName) {
-        const ingredient = await db.ingredient.findOne({
-          where: {
-            name: { [Op.iLike]: ingName.trim() },
-            store: grItem.store || receipt.store
-          },
-          transaction
-        })
-        if (ingredient) {
-          const qtyBefore = Number(ingredient.stock) || 0
-          await ingredient.update(
-            { stock: Math.max(qtyBefore - qtyStock, 0) },
-            { transaction }
-          )
-          await db.stock_history.create(
-            {
-              ingredient: ingredient.id,
-              ingredientName: ingredient.name,
-              store: grItem.store || null,
-              referenceType: 'adjustment',
-              quantityBefore: qtyBefore,
-              quantityChange: -qtyStock,
-              quantityAfter: Math.max(qtyBefore - qtyStock, 0),
-              unit: ingredient.unit || grItem.unit || 'pcs',
-              notes: `GR reversal: ${grItem.id || 'update'}`,
-              createdBy: userId || null
-            },
-            { transaction }
-          )
-        }
-      }
-    }
-  },
-
-  async applyStock(items, receipt, transaction, userId) {
-    for (const item of items) {
-      const qty = parseInt(item.qtyReceived) || 0
-      if (qty <= 0) continue
-
-      const conversion =
-        Number(item.conversionToBase) ||
-        Number(item.poItemData?.conversionToBase) ||
-        1
-      const qtyStock = qty * conversion
-
-      if (item.purchaseOrderItem) {
-        await db.purchase_order_item.update(
-          {
-            receivedQuantity: db.sequelize.literal(
-              `"receivedQuantity" + ${qty}`
-            )
-          },
-          {
-            where: {
-              id: item.purchaseOrderItem,
-              purchaseOrder: receipt.purchaseOrderId
-            },
-            transaction
-          }
-        )
-      }
-
-      if (item.product) {
-        const product = await db.product.findByPk(item.product, { transaction })
-        if (product) {
-          const qtyBefore = Number(product.stock) || 0
-          await product.update(
-            { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
-            { transaction }
-          )
-
-          // ponytail: atomic upsert + add per-store stock
-          if (receipt.store) {
-            await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-              { bind: [item.product, receipt.store], transaction }
-            )
-            await db.product_store_stock.update(
-              { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
-              {
-                where: { product: item.product, store: receipt.store },
-                transaction
-              }
-            )
-          }
-
-          await db.stock_history.create(
-            {
-              product: item.product,
-              store: receipt.store,
-              referenceType: 'purchase',
-              quantityBefore: qtyBefore,
-              quantityChange: qtyStock,
-              quantityAfter: qtyBefore + qtyStock,
-              unit: product.unit || item.unit || 'pcs',
-              notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
-              createdBy: userId || null
-            },
-            { transaction }
-          )
-        }
-      }
-
-      const ingName =
-        item.ingredientName ||
-        item.poItemData?.ingredientName ||
-        item.poItemData?.ingredientData?.name
-      if (ingName) {
-        const ingredient = await db.ingredient.findOne({
-          where: { name: { [Op.iLike]: ingName.trim() }, store: receipt.store },
-          transaction
-        })
-        if (ingredient) {
-          const qtyBefore = Number(ingredient.stock) || 0
-          await ingredient.update(
-            { stock: db.sequelize.literal(`stock + ${qtyStock}`) },
-            { transaction }
-          )
-          await db.stock_history.create(
-            {
-              ingredient: ingredient.id,
-              ingredientName: ingredient.name,
-              store: receipt.store,
-              referenceType: 'purchase',
-              quantityBefore: qtyBefore,
-              quantityChange: qtyStock,
-              quantityAfter: qtyBefore + qtyStock,
-              unit: ingredient.unit || item.unit || 'pcs',
-              notes: `GR: ${receipt.receiptNumber} (PO: ${receipt.purchaseOrderId})`,
-              createdBy: userId || null
-            },
-            { transaction }
-          )
-        }
-      }
-
-      await applyCostPrice({
-        item,
-        qty,
-        store: receipt.store,
-        transaction
-      })
-    }
-  },
-
   async update(req, res) {
     try {
       const { id } = req.params
@@ -874,7 +893,12 @@ const goodsReceiptController = {
 
       const transaction = await db.sequelize.transaction()
       try {
-        await this.reverseStock(oldItems, transaction, req.user?.id)
+        await reverseStock(
+          oldItems,
+          store || receipt.store,
+          transaction,
+          req.user?.id
+        )
 
         await receipt.update(
           {
@@ -973,7 +997,7 @@ const goodsReceiptController = {
 
           if (newItems.length > 0) {
             await db.goodsReceiptItem.bulkCreate(newItems, { transaction })
-            await this.applyStock(newItems, receipt, transaction, req.user?.id)
+            await applyStock(newItems, receipt, transaction, req.user?.id)
           }
         }
 
@@ -1055,7 +1079,12 @@ const goodsReceiptController = {
       const transaction = await db.sequelize.transaction()
       try {
         const oldItems = receipt.items || []
-        await this.reverseStock(oldItems, transaction, req.user?.id)
+        await reverseStock(
+          oldItems,
+          store || receipt.store,
+          transaction,
+          req.user?.id
+        )
 
         await db.goodsReceiptItem.destroy({
           where: { goodsReceipt: id },
@@ -1150,7 +1179,7 @@ const goodsReceiptController = {
             unit: i.unit,
             ingredientName: i.ingredientName
           }))
-          await this.applyStock(items, receipt, transaction, req.user?.id)
+          await applyStock(items, receipt, transaction, req.user?.id)
         }
 
         await receipt.update(

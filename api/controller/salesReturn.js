@@ -178,98 +178,40 @@ const salesReturnController = {
         const product = await db.product.findByPk(item.product, { transaction })
         if (!product) continue
 
-        const bom = await db.bom_header.findOne({
-          where: { productId: item.product, status: 'active' },
-          include: [{ model: db.bom_line, as: 'lines' }],
-          transaction
-        })
+        const oldStock = Number(product.stock) || 0
+        const qty = Math.floor(Number(item.qty)) || 0
+        await product.update(
+          { stock: db.sequelize.literal(`stock + ${qty}`) },
+          { transaction }
+        )
 
-        if (!bom) {
-          const oldStock = Number(product.stock) || 0
-          const qty = Math.floor(Number(item.qty)) || 0
-          await product.update(
-            { stock: db.sequelize.literal(`stock + ${qty}`) },
-            { transaction }
-          )
+        // Update per-store stock
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [item.product, ret.store], transaction }
+        )
+        await db.product_store_stock.update(
+          { stock: db.sequelize.literal(`stock + ${qty}`) },
+          { where: { product: item.product, store: ret.store }, transaction }
+        )
 
-          // Update per-store stock
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [item.product, ret.store], transaction }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`stock + ${qty}`) },
-            { where: { product: item.product, store: ret.store }, transaction }
-          )
-
-          await db.stock_history.create(
-            {
-              product: item.product,
-              store: ret.store,
-              referenceType: 'sale_return',
-              referenceId: ret.id,
-              quantityBefore: oldStock,
-              quantityChange: item.qty,
-              quantityAfter: oldStock + item.qty,
-              unit: item.unit || 'pcs',
-              notes: `Sales return approved: ${ret.reason}`,
-              createdBy: req.user?.id || null
-            },
-            { transaction }
-          )
-        } else {
-          for (const line of bom.lines) {
-            const ing = await db.ingredient.findByPk(line.ingredientId, { transaction })
-            if (!ing) continue
-            const restoreQty = line.qty * Number(item.qty)
-            const oldIngStock = Number(ing.stock)
-            await ing.update(
-              { stock: db.sequelize.literal(`stock + ${restoreQty}`) },
-              { transaction }
-            )
-            await db.stock_history.create(
-              {
-                product: product.id,
-                ingredient: ing.id,
-                ingredientName: ing.name,
-                store: ret.store,
-                referenceType: 'sale_return',
-                referenceId: ret.id,
-                quantityBefore: oldIngStock,
-                quantityChange: restoreQty,
-                quantityAfter: oldIngStock + restoreQty,
-                unit: line.unit || ing.unit || 'pcs',
-                notes: `Sales return approved (BOM): ${ret.reason}`,
-                createdBy: req.user?.id || null
-              },
-              { transaction }
-            )
-          }
-          // Also restore the finished product stock for BOM items
-          const oldProductStock = Number(product.stock) || 0
-          const productQty = Math.floor(Number(item.qty)) || 0
-          await product.update(
-            { stock: db.sequelize.literal(`stock + ${productQty}`) },
-            { transaction }
-          )
-          await db.stock_history.create(
-            {
-              product: product.id,
-              store: ret.store,
-              referenceType: 'sale_return',
-              referenceId: ret.id,
-              quantityBefore: oldProductStock,
-              quantityChange: productQty,
-              quantityAfter: oldProductStock + productQty,
-              unit: product.unit || 'pcs',
-              notes: `Sales return approved (BOM product): ${ret.reason}`,
-              createdBy: req.user?.id || null
-            },
-            { transaction }
-          )
-        }
+        await db.stock_history.create(
+          {
+            product: item.product,
+            store: ret.store,
+            referenceType: 'sale_return',
+            referenceId: ret.id,
+            quantityBefore: oldStock,
+            quantityChange: qty,
+            quantityAfter: oldStock + qty,
+            unit: item.unit || product.unit || 'pcs',
+            notes: `Sales return approved: ${ret.reason}`,
+            createdBy: req.user?.id || null
+          },
+          { transaction }
+        )
       }
 
       // 2. Refund Transaction
