@@ -838,12 +838,11 @@ exports.updatePurchaseReturnSchema =
 
 // ===================== Split Bill =====================
 exports.createSplitBillSchema = z.object({
-  orderId: z.union([z.number(), strToNum()]),
+  order: z.union([z.number(), strToNum()]),
   items: z
     .array(
       z.object({
-        idProduct: z.union([z.number(), strToNum()]),
-        qty: z.union([z.number(), strToNum()])
+        amount: z.union([z.number(), strToNum()])
       })
     )
     .min(1, 'At least one item is required')
