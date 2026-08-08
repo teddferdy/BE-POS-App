@@ -309,6 +309,13 @@ const ingredientController = {
       const store = req.storeId || req.cookies.store || req.user?.store
       const { quantity, type, notes } = req.body
 
+      if (quantity === undefined || quantity === null || isNaN(quantity)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Quantity wajib diisi'
+        })
+      }
+
       const ingredient = await db.ingredient.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
@@ -409,7 +416,6 @@ const ingredientController = {
     try {
       const store = req.storeId || req.cookies.store || req.user?.store
       const categories = await db.ingredientCategory.findAll({
-        where: store ? { store } : {},
         attributes: ['name'],
         order: [['createdAt', 'ASC']]
       })

@@ -5,9 +5,9 @@ const employeePerformanceController = {
   async getPerformance(req, res) {
     try {
       const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
 
-      const where = { store: store || userStore }
+      const where = store || userStore ? { store: store || userStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -46,12 +46,12 @@ const employeePerformanceController = {
     try {
       const { id } = req.params
       const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
 
       const where = {
-        cashier: parseInt(id),
-        store: store || userStore
+        cashier: parseInt(id)
       }
+      if (store || userStore) where.store = store || userStore
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -98,16 +98,16 @@ const employeePerformanceController = {
   async getTopPerformers(req, res) {
     try {
       const { store, startDate, endDate, limit = 10 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
 
-      const where = { store: store || userStore }
+      const where = store || userStore ? { store: store || userStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
         if (endDate) where.report_date[Op.lte] = new Date(endDate)
       }
 
-      const [results] = await db.sequelize.query(`
+      const results = await db.sequelize.query(`
         SELECT 
           cashier,
           SUM(total_sales)::float as total_sales,
@@ -115,9 +115,9 @@ const employeePerformanceController = {
           AVG(accuracy_rate)::float as avg_accuracy,
           COUNT(*) as days_worked
         FROM kasir_performance
-        WHERE store = :store
-          ${startDate ? 'AND report_date >= :startDate' : ''}
-          ${endDate ? 'AND report_date <= :endDate' : ''}
+        ${store || userStore ? 'WHERE store = :store' : ''}
+          ${startDate ? (store || userStore ? 'AND report_date >= :startDate' : 'WHERE report_date >= :startDate') : ''}
+          ${endDate ? (store || userStore || startDate ? 'AND report_date <= :endDate' : 'WHERE report_date <= :endDate') : ''}
         GROUP BY cashier
         ORDER BY total_sales DESC
         LIMIT :limit

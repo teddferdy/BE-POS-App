@@ -153,7 +153,7 @@ const stockHistoryController = {
     try {
       const { page = 1, limit = 20, store, type, search } = req.query
 
-      const [products, ingredients, locations] = await Promise.all([
+      const [products, ingredients, locations, productStores] = await Promise.all([
         db.product.findAll({
           where: {
             status: 'active',
@@ -164,8 +164,7 @@ const stockHistoryController = {
             'nameProduct',
             'stock',
             'minStock',
-            'unit',
-            'store'
+            'unit'
           ]
         }),
         db.ingredient.findAll({
@@ -175,8 +174,17 @@ const stockHistoryController = {
         db.location.findAll({
           where: { status: 'active' },
           attributes: ['id', 'name']
+        }),
+        db.product_store.findAll({
+          attributes: ['product', 'store']
         })
       ])
+
+      const productStoreMap = {}
+      productStores.forEach((ps) => {
+        if (!productStoreMap[ps.product]) productStoreMap[ps.product] = []
+        productStoreMap[ps.product].push(ps.store)
+      })
 
       const storeMap = {}
       locations.forEach((loc) => {
@@ -194,7 +202,7 @@ const stockHistoryController = {
 
       for (const p of products) {
         if (p.stock > p.minStock) continue
-        const storeIds = normalizeStoreIds(p.store)
+        const storeIds = normalizeStoreIds(productStoreMap[p.id])
         if (storeIds.length === 0) {
           rawItems.push({
             type: 'product',

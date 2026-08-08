@@ -106,8 +106,7 @@ const accountsReceivableController = {
               'totalPrice',
               'createdAt',
               'paymentMethod',
-              'cashierName',
-              'items'
+              'cashierName'
             ]
           },
           { model: db.ar_payment, as: 'payments' }

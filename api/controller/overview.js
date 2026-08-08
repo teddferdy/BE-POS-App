@@ -240,7 +240,7 @@ const overviewController = {
       const { store, limit = 5 } = req.query
 
       const members = await db.member.findAll({
-        where: { store },
+        where: store ? { store } : {},
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit)
       })

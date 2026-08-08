@@ -82,7 +82,15 @@ exports.addNewSocialMedia = async (req, res) => {
 
 exports.editSocialMediaById = async (req, res) => {
   const { id } = req.params
-  const body = req.body
+  const body = req.body || {}
+
+  if (!body.name) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nama social media wajib diisi'
+    })
+  }
+
   try {
     const store = body.store || req.user?.store
     const getDuplicate = await SocialMedia.findOne({

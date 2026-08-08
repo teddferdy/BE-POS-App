@@ -582,8 +582,16 @@ exports.lookupByCode = async (req, res) => {
 }
 
 exports.editDiscountById = async (req, res) => {
-  const body = req.body
+  const body = req.body || {}
   const store = body.store || req.user?.store
+
+  if (!body.name) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nama diskon wajib diisi'
+    })
+  }
+
   const safeStartDate =
     body.startDate && !isNaN(Date.parse(body.startDate)) ? body.startDate : null
   const safeEndDate =

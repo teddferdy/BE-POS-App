@@ -43,7 +43,6 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     {
-      paranoid: true,
       freezeTableName: true,
       modelName: 'kasir_performance',
       tableName: 'kasir_performance',

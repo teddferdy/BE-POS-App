@@ -286,7 +286,7 @@ exports.editShiftById = async (req, res) => {
 }
 
 exports.deleteShiftById = async (req, res) => {
-  const { id } = req.body
+  const { id } = req.params
   try {
     // Clean up user.shift references for affected users
     await User.update({ shift: null }, { where: { shift: id } })

@@ -584,6 +584,12 @@ exports.deleteCategoryById = async (req, res) => {
     })
   } catch (error) {
     console.error('Error =>', error)
+    if (error.message === 'Category not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found'
+      })
+    }
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'

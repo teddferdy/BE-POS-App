@@ -46,11 +46,11 @@ exports.userByLocation = async (req, res) => {
     // Fetch users and location data in parallel
     const [users, locationData] = await Promise.all([
       User.findAll({
-        where: { store: location },
+        where: location ? { store: location } : {},
         attributes: { exclude: ['password'] } // Exclude password in query
       }),
       Location.findOne({
-        where: { id: location }
+        where: location ? { id: location } : {}
       })
     ])
 
@@ -492,8 +492,13 @@ exports.editUser = async (req, res) => {
   try {
     const { body } = req
     const imageFile = req.file
+
+    if (!body?.email) {
+      return res.status(400).json({ message: 'Email wajib diisi' })
+    }
+
     const existingUser = await User.findOne({
-      where: { email: body.email, id: req.params.id }
+      where: { email: body.email }
     })
 
     if (!existingUser) {

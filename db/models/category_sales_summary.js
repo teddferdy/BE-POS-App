@@ -39,7 +39,6 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     {
-      paranoid: true,
       freezeTableName: true,
       modelName: 'category_sales_summary',
       tableName: 'category_sales_summary',

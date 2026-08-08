@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const table = sequelize.define(
     'table',
     {
       id: {
@@ -43,4 +43,11 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'table'
     }
   )
+
+  table.associate = (models) => {
+    table.hasMany(models.order, { foreignKey: 'tableId', as: 'orders' })
+    table.belongsTo(models.location, { foreignKey: 'store', as: 'storeData' })
+  }
+
+  return table
 }

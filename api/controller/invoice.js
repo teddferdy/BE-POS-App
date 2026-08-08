@@ -21,9 +21,9 @@ const DEFAULT_TEMPLATE = {
 const invoiceController = {
   async getSetting(req, res) {
     try {
-      const { store } = req.query
+      const store = req.query.store || req.user?.store
       const setting = await db.invoice_setting.findOne({
-        where: { store }
+        where: store ? { store } : {}
       })
 
       if (!setting) {

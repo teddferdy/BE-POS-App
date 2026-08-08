@@ -5,7 +5,7 @@ const reportingController = {
   async getSalesSummary(req, res) {
     try {
       const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
       
       const effectiveStore = store || userStore
       if (!effectiveStore) {
@@ -47,9 +47,9 @@ const reportingController = {
   async getProductSalesSummary(req, res) {
     try {
       const { store, startDate, endDate, page = 1, limit = 50 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
 
-      const where = { store: store || userStore }
+      const where = store || userStore ? { store: store || userStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -82,9 +82,9 @@ const reportingController = {
   async getCategorySalesSummary(req, res) {
     try {
       const { store, startDate, endDate, page = 1, limit = 20 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
 
-      const where = { store: store || userStore }
+      const where = store || userStore ? { store: store || userStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -117,9 +117,9 @@ const reportingController = {
   async getKasirPerformance(req, res) {
     try {
       const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store
+      const userStore = req.cookies?.store || req.user?.store
 
-      const where = { store: store || userStore }
+      const where = store || userStore ? { store: store || userStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)

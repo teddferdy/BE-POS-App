@@ -657,7 +657,7 @@ exports.getProfitPerProduct = async (req, res) => {
        JOIN "order" o ON o.id = oi."order"
        WHERE ${orderConditions}
        GROUP BY oi."product"
-       ORDER BY ("totalSales" - "totalHpp") DESC`,
+       ORDER BY (COALESCE(SUM(oi."totalPrice"), 0) - COALESCE(SUM(COALESCE(oi."hppSnapshot", 0)), 0)) DESC`,
       { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
 

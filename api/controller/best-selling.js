@@ -9,7 +9,8 @@ exports.chartDataByYear = async (req, res) => {
   const { store, year } = query
 
   try {
-    const replacements = { year }
+    const yearVal = parseInt(year, 10) || new Date().getFullYear()
+    const replacements = { year: yearVal }
     let storeCondition = ''
     if (store) {
       storeCondition = 'AND o."store" = :store'
@@ -21,8 +22,8 @@ exports.chartDataByYear = async (req, res) => {
           coalesce(sum(o."totalPrice"), 0) as "totalAmount",
           coalesce(COUNT(o.id), 0) AS "countCheckout"
         FROM generate_series(
-          (DATE :year || '-01-01'), 
-          (DATE :year || '-12-31'), 
+          make_date(:year::int, 1, 1), 
+          make_date(:year::int, 12, 31), 
           '1 month') AS months(month)
         LEFT JOIN "order" o ON date_trunc('month', o."createdAt") = months.month AND o."paymentStatus" = 'paid'
         ${storeCondition}

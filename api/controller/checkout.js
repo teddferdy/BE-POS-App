@@ -234,8 +234,15 @@ exports.checkout = async (req, res) => {
 }
 
 exports.editCheckout = async (req, res) => {
-  const body = req.body
+  const body = req.body || {}
   const checkoutId = req.params.id
+
+  if (!Array.isArray(body.order) || body.order.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Order items required'
+    })
+  }
 
   try {
     await this.addNewTransaction(checkoutId, body?.order)
@@ -295,8 +302,15 @@ exports.editCheckout = async (req, res) => {
 }
 
 exports.deleteCheckout = async (req, res) => {
-  const body = req.body
+  const body = req.body || {}
   const checkoutId = req.params.id
+
+  if (body.store === undefined || body.invoice === undefined) {
+    return res.status(400).json({
+      success: false,
+      message: 'Store and invoice required'
+    })
+  }
 
   try {
     const getId = await Checkout.destroy({

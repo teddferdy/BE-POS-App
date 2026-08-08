@@ -147,7 +147,15 @@ exports.addNewRole = async (req, res) => {
 }
 
 exports.editRoleById = async (req, res) => {
-  const body = req.body
+  const body = req.body || {}
+
+  if (!body.name) {
+    return res.status(400).json({
+      success: false,
+      message: 'Nama role wajib diisi'
+    })
+  }
+
   try {
     const getDuplicate = await Role.findOne({
       where: {
