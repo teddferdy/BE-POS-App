@@ -109,6 +109,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true
       },
+      customerNumber: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
       notes: {
         type: DataTypes.TEXT
       },

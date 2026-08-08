@@ -755,6 +755,26 @@ const goodsReceiptController = {
           include: [{ model: db.goodsReceiptItem, as: 'items' }]
         })
 
+        if ((req.body.status || 'completed') === 'completed') {
+          try {
+            const { postPurchaseJournal } = require('../service/accountingService')
+            await postPurchaseJournal({
+              store: effectiveStore,
+              receiptId: receipt.id,
+              receiptNumber,
+              poId: purchaseOrderId,
+              poNumber: po.orderNumber,
+              totalAmount: po.totalAmount,
+              discount: po.discount,
+              items: created.items || [],
+              date: receivedDate || new Date(),
+              createdBy: req.user?.id
+            })
+          } catch (e) {
+            console.error('Purchase journal skipped:', e.message)
+          }
+        }
+
         await createAudit(
           req,
           'create',
@@ -1204,6 +1224,27 @@ const goodsReceiptController = {
         id,
         'Changed goods_receipt status to ' + status + ': ' + id
       )
+
+      if (status === 'completed') {
+        try {
+          const po = await db.purchase_order.findByPk(receipt.purchaseOrderId)
+          const { postPurchaseJournal } = require('../service/accountingService')
+          await postPurchaseJournal({
+            store: receipt.store,
+            receiptId: receipt.id,
+            receiptNumber: receipt.receiptNumber,
+            poId: receipt.purchaseOrderId,
+            poNumber: po?.orderNumber,
+            totalAmount: po?.totalAmount,
+            discount: po?.discount,
+            items: receipt.items || [],
+            date: new Date(),
+            createdBy: req.user?.id
+          })
+        } catch (e) {
+          console.error('Purchase journal skipped:', e.message)
+        }
+      }
 
       return res.status(200).json({
         success: true,

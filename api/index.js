@@ -47,6 +47,8 @@ const notificationRoutes = require('./routes/notification')
 const currencyRoutes = require('./routes/currency')
 const auditLogRoutes = require('./routes/auditLog')
 const receiptRoutes = require('./routes/receipt')
+const backupRoutes = require('./routes/backup')
+const accountingRoutes = require('./routes/accounting')
 const productionOrderRoutes = require('./routes/productionOrder')
 const goodsReceiptRoutes = require('./routes/goodsReceipt')
 const salesReturnRoutes = require('./routes/salesReturn')
@@ -180,7 +182,9 @@ const routes = [
   { path: '/reports', route: reportingRoutes },
   { path: '/employee', route: employeePerformanceRoutes },
   { path: '/inventory', route: inventoryRoutes },
-  { path: '/thermal-printer', route: thermalPrinterRoutes }
+  { path: '/thermal-printer', route: thermalPrinterRoutes },
+  { path: '/backup', route: backupRoutes },
+  { path: '/accounting', route: accountingRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
@@ -370,6 +374,8 @@ if (!process.env.VERCEL) {
     console.log(`Server running on port ${port}`)
     console.log(`Socket.IO enabled`)
   })
+  const { startBackupScheduler } = require('./service/backupScheduler')
+  startBackupScheduler()
 }
 
 module.exports = app

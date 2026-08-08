@@ -29,6 +29,11 @@ const initSocket = (server) => {
       console.log(`Socket joined store-${storeId}`)
     })
 
+    socket.on('leave-store', (storeId) => {
+      socket.leave(`store-${storeId}`)
+      console.log(`Socket left store-${storeId}`)
+    })
+
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id)
     })
@@ -51,6 +56,7 @@ const emitToStore = (storeId, event, data) => {
 
 const emitNewOrder = (storeId, order) => {
   emitToKitchen(storeId, 'new-order', order)
+  emitToStore(storeId, 'new-order', order)
 }
 
 const emitOrderUpdate = (storeId, order) => {

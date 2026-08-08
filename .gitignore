@@ -17,3 +17,6 @@
 .wwebjs_auth_default/
 .env*
 *.py
+
+# database backups
+/backups

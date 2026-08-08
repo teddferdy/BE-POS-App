@@ -63,6 +63,91 @@ const generateOrderNumber = () => {
   return `ORD${timestamp}${random}`
 }
 
+// Resolve effective stock for a product in a store. Uses the store-specific
+// stock row (product_store_stock) when present, otherwise falls back to the
+// base product stock. This matches how the cashier UI displays stock and how
+// stock is deducted on sale (both base and per-store are kept in sync).
+const getEffectiveStock = async (product, store) => {
+  if (!product || !store) return null
+  const base =
+    product.stock !== null && product.stock !== undefined
+      ? Number(product.stock)
+      : null
+  try {
+    const pss = await db.product_store_stock.findOne({
+      where: { product: product.id, store }
+    })
+    if (pss && pss.stock !== null && pss.stock !== undefined) {
+      return Number(pss.stock)
+    }
+  } catch {
+    // product_store_stock table may not exist; fall back to base stock
+  }
+  return base
+}
+
+// Compute the server-side unit price for an item, including the base product
+// price plus any selected option/modifier markup. The FE only sends the chosen
+// option/modifier names; prices are always re-derived from the product's stored
+// data so the server never trusts client-sent amounts.
+const getServerItemPrice = (prod, item) => {
+  const base = Number(prod.price) || 0
+  let extra = 0
+
+  const optNames = (item.options || [])
+    .map((o) => o && o.name)
+    .filter(Boolean)
+  if (optNames.length) {
+    if (Array.isArray(prod.options)) {
+      for (const group of prod.options) {
+        const groupName = (group && group.name) || ''
+        for (const opt of (group && group.options) || []) {
+          if (!opt || !opt.name) continue
+          if (
+            optNames.includes(opt.name) ||
+            optNames.includes(`${groupName} - ${opt.name}`)
+          ) {
+            extra += Number(opt.price) || 0
+          }
+        }
+      }
+    }
+    // Legacy flat variant list (if exposed by the data source)
+    if (Array.isArray(prod.variant)) {
+      for (const v of prod.variant) {
+        const vName = v && (v.nameVariant || v.name)
+        if (vName && optNames.includes(vName)) {
+          extra += Number(v.price) || 0
+        }
+      }
+    }
+  }
+
+  const modNames = (item.modifiers || [])
+    .map((m) => m && m.name)
+    .filter(Boolean)
+  if (modNames.length && Array.isArray(prod.modifiers)) {
+    for (const m of prod.modifiers) {
+      if (m && m.name && modNames.includes(m.name)) {
+        extra += Number(m.price) || 0
+      }
+    }
+  }
+
+  return base + extra
+}
+
+// ponytail: sequential daily pickup/customer number per store (1, 2, 3...).
+// Uses MAX()+1 so numbers are never reused even when orders are soft-deleted.
+const generateCustomerNumber = async (store) => {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const max = await Order.max('customerNumber', {
+    where: { store, createdAt: { [Op.gte]: start } }
+  })
+  return (max || 0) + 1
+}
+
 const getActiveTaxRate = async (store) => {
   try {
     const taxConfigs = await db.taxConfig.findAll({
@@ -469,11 +554,11 @@ exports.createOrder = async (req, res) => {
           message: `Product not found: ${item.productName || item.product || item.productId}`
         })
       }
-      const serverPrice = Number(prod.price) || 0
+      const serverPrice = getServerItemPrice(prod, item)
+      item.basePrice = Number(prod.price) || 0
       item.price = serverPrice
-      item.basePrice = serverPrice
-      item.subtotal = serverPrice * Number(item.quantity)
       item.unitPrice = serverPrice
+      item.subtotal = serverPrice * Number(item.quantity)
     }
 
     // Pre-load bundles for stock validation
@@ -522,9 +607,10 @@ exports.createOrder = async (req, res) => {
             })
           }
           const needed = bi.quantity * bundleQty
-          if (prod.stock !== null && Number(prod.stock) < needed) {
+          const avail = await getEffectiveStock(prod, store)
+          if (avail !== null && avail < needed) {
             return res.status(400).json({
-              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${prod.stock}, dibutuhkan: ${needed}`
+              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${avail}, dibutuhkan: ${needed}`
             })
           }
         }
@@ -648,9 +734,10 @@ exports.createOrder = async (req, res) => {
           message: `Product not found: ${item.productName || item.product || item.productId}`
         })
       }
-      if (prod.stock !== null && Number(prod.stock) < Number(item.quantity)) {
+      const avail = await getEffectiveStock(prod, store)
+      if (avail !== null && avail < Number(item.quantity)) {
         return res.status(400).json({
-          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${prod.stock}, diminta: ${item.quantity}`
+          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${avail}, diminta: ${item.quantity}`
         })
       }
     }
@@ -664,6 +751,7 @@ exports.createOrder = async (req, res) => {
       customerId,
       customerName,
       customerPhone,
+      customerNumber: await generateCustomerNumber(store),
       notes,
       paymentMethod,
       source: source || 'pos',
@@ -732,7 +820,7 @@ exports.createOrder = async (req, res) => {
           product: item.product || item.productId,
           productName: item.productName,
           quantity: item.quantity,
-          price: item.basePrice || item.price,
+          price: item.price || item.basePrice,
           discountType,
           discountValue,
           discountAmount: itemDiscountAmount,
@@ -1092,6 +1180,32 @@ exports.createOrder = async (req, res) => {
     )
 
     emitNewOrder(store, fullOrder)
+
+    try {
+      const { postOrderJournal, postOrderCogsJournal } = require('../service/accountingService')
+      await postOrderJournal({
+        store,
+        orderId: order.id,
+        orderNumber,
+        subTotal: totals.subTotal,
+        discountAmount: totals.discountAmount,
+        taxAmount: totals.taxAmount,
+        serviceChargeAmount: totals.serviceChargeAmount,
+        totalPrice: totals.totalPrice,
+        date: new Date(),
+        paymentMethod,
+        createdBy: req.user?.id
+      })
+      await postOrderCogsJournal({
+        store,
+        orderId: order.id,
+        orderNumber,
+        date: new Date(),
+        createdBy: req.user?.id
+      })
+    } catch (e) {
+      console.error('Accounting posting skipped:', e.message)
+    }
 
     return res.status(201).json({
       message: 'Order created successfully',
@@ -1493,6 +1607,54 @@ exports.updateOrderStatus = async (req, res) => {
       }
     })
 
+    // Post sales + COGS journals when an order becomes paid (deduped by referenceId).
+    if (status === 'paid' && oldStatus !== 'paid') {
+      try {
+        const { postOrderJournal, postOrderCogsJournal } = require('../service/accountingService')
+        await postOrderJournal({
+          store: effectiveStore,
+          orderId: id,
+          orderNumber: order.orderNumber,
+          subTotal: order.subTotal,
+          discountAmount: order.discountAmount,
+          taxAmount: order.taxAmount,
+          serviceChargeAmount: order.serviceChargeAmount,
+          totalPrice: order.totalPrice,
+          date: new Date(),
+          paymentMethod: order.paymentMethod,
+          createdBy: changedBy || req.user?.id
+        })
+        await postOrderCogsJournal({
+          store: effectiveStore,
+          orderId: id,
+          orderNumber: order.orderNumber,
+          date: new Date(),
+          createdBy: changedBy || req.user?.id
+        })
+      } catch (e) {
+        console.error('Accounting posting skipped:', e.message)
+      }
+    }
+
+    // Reverse revenue + COGS journals when an order is cancelled/voided.
+    if (
+      ['cancelled', 'void'].includes(status) &&
+      !['cancelled', 'void'].includes(oldStatus)
+    ) {
+      try {
+        const { reverseOrderJournals } = require('../service/accountingService')
+        await reverseOrderJournals({
+          store: effectiveStore,
+          orderId: id,
+          orderNumber: order.orderNumber,
+          date: new Date(),
+          createdBy: changedBy || req.user?.id
+        })
+      } catch (e) {
+        console.error('Accounting reversal skipped:', e.message)
+      }
+    }
+
     createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
 
     return res.status(200).json({
@@ -1741,7 +1903,8 @@ exports.createCustomerOrder = async (req, res) => {
             message: `Product not found: ${item.productName || item.productId}`
           })
         }
-        const serverPrice = Number(prod.price) || 0
+        const serverPrice = getServerItemPrice(prod, item)
+        item.basePrice = Number(prod.price) || 0
         item.price = serverPrice
         item.subtotal = serverPrice * Number(item.quantity)
       }
@@ -1760,9 +1923,10 @@ exports.createCustomerOrder = async (req, res) => {
               .json({ message: `Product in bundle "${bundle.name}" not found` })
           }
           const needed = bi.quantity * bundleQty
-          if (prod.stock !== null && Number(prod.stock) < needed) {
+          const avail = await getEffectiveStock(prod, store)
+          if (avail !== null && avail < needed) {
             return res.status(400).json({
-              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${prod.stock}, dibutuhkan: ${needed}`
+              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${avail}, dibutuhkan: ${needed}`
             })
           }
         }
@@ -1780,9 +1944,10 @@ exports.createCustomerOrder = async (req, res) => {
           message: `Product not found: ${item.productName || item.productId}`
         })
       }
-      if (prod.stock !== null && Number(prod.stock) < Number(item.quantity)) {
+      const avail = await getEffectiveStock(prod, store)
+      if (avail !== null && avail < Number(item.quantity)) {
         return res.status(400).json({
-          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${prod.stock}, diminta: ${item.quantity}`
+          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${avail}, diminta: ${item.quantity}`
         })
       }
     }
@@ -1869,6 +2034,7 @@ exports.createCustomerOrder = async (req, res) => {
       cashierId: null,
       cashierName: customerName || 'Customer',
       customerName: customerName || null,
+      customerNumber: await generateCustomerNumber(store),
       notes,
       source: 'qr',
       status: 'pending',
@@ -1902,6 +2068,32 @@ exports.createCustomerOrder = async (req, res) => {
         amount: Number(order.totalPrice) || 0,
         createdBy: req.user?.id
       })
+
+      try {
+        const { postOrderJournal, postOrderCogsJournal } = require('../service/accountingService')
+        await postOrderJournal({
+          store,
+          orderId: order.id,
+          orderNumber,
+          subTotal,
+          discountAmount,
+          taxAmount,
+          serviceChargeAmount: 0,
+          totalPrice,
+          date: new Date(),
+          paymentMethod,
+          createdBy: req.user?.id
+        })
+        await postOrderCogsJournal({
+          store,
+          orderId: order.id,
+          orderNumber,
+          date: new Date(),
+          createdBy: req.user?.id
+        })
+      } catch (e) {
+        console.error('Accounting posting skipped:', e.message)
+      }
     }
 
     // Deduct stock only when the order is paid immediately. Unpaid orders

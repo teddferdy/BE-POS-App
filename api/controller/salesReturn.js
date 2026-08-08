@@ -248,6 +248,23 @@ const salesReturnController = {
       }
 
       await transaction.commit()
+
+      try {
+        const { postSalesReturnJournal } = require('../service/accountingService')
+        await postSalesReturnJournal({
+          store: ret.store,
+          returnId: ret.id,
+          returnNumber: ret.returnNumber,
+          orderId: ret.order,
+          refundAmount: ret.refundAmount,
+          items: ret.items || [],
+          date: new Date(),
+          createdBy: req.user?.id
+        })
+      } catch (e) {
+        console.error('Sales return journal skipped:', e.message)
+      }
+
       await createAudit(req, 'update', 'sales_return', id, 'Approved sales return: ' + ret.returnNumber)
 
       return res.status(200).json({ success: true, message: 'Sales return approved', data: ret })

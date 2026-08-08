@@ -316,6 +316,7 @@ const purchaseReturnController = {
       }
 
       const t = await db.sequelize.transaction()
+      let returnTotal = 0
       try {
         await ret.update({ status: 'approved', resolution }, { transaction: t })
 
@@ -334,7 +335,7 @@ const purchaseReturnController = {
             if (pi.ingredientName) poItemMap[`name-${pi.ingredientName}`] = pi
           })
 
-          let returnTotal = 0
+          returnTotal = 0
           const resolvedItems = ret.items.map((item) => {
             const key = item.ingredient
               ? `ing-${item.ingredient}`
@@ -419,6 +420,22 @@ const purchaseReturnController = {
         }
 
         await t.commit()
+
+        if (returnTotal > 0) {
+          try {
+            const { postPurchaseReturnJournal } = require('../service/accountingService')
+            await postPurchaseReturnJournal({
+              store: ret.store,
+              purchaseReturnId: id,
+              returnNumber: ret.returnNumber,
+              amount: returnTotal,
+              date: new Date(),
+              createdBy: req.user?.id
+            })
+          } catch (e) {
+            console.error('Purchase return journal skipped:', e.message)
+          }
+        }
 
         await createAudit(
           req,

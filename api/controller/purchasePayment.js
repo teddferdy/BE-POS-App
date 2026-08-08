@@ -178,6 +178,20 @@ const purchasePaymentController = {
         createdBy: req.user?.id || null
       })
 
+      try {
+        const { postPurchasePaymentJournal } = require('../service/accountingService')
+        await postPurchasePaymentJournal({
+          store: po.store || store,
+          paymentId: payment.id,
+          poNumber: po.orderNumber,
+          amount: payment.amount,
+          date: payment.paymentDate || new Date(),
+          createdBy: req.user?.id
+        })
+      } catch (e) {
+        console.error('Purchase payment journal skipped:', e.message)
+      }
+
       await createAudit(
         req,
         'create',

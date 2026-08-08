@@ -208,7 +208,13 @@ exports.createOrderSchema = z.object({
 
 exports.updateOrderStatusSchema = z.object({
   id: strToNum(),
-  store: strToNum().optional(),
+  store: z
+    .any()
+    .optional()
+    .nullable()
+    .transform((v) => (v === '' || v === null || v === undefined ? null : Number(v)))
+    .refine((v) => v === null || !isNaN(v), { message: 'must be a number' })
+    .refine((v) => v === null || v >= 0, { message: 'must not be negative' }),
   status: z.enum([
     'pending',
     'confirmed',

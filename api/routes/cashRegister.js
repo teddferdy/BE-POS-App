@@ -38,5 +38,17 @@ router.get(
   validateStoreAccess,
   cashRegisterController.getHistory
 )
+router.get(
+  '/x-report',
+  authorization,
+  validateStoreAccess,
+  cashRegisterController.getXReport
+)
+router.get(
+  '/z-report/:id',
+  authorization,
+  validateStoreAccess,
+  cashRegisterController.getZReport
+)
 
 module.exports = router

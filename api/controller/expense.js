@@ -238,6 +238,28 @@ const expenseController = {
         ]
       })
 
+      if (created.status !== 'pending' && created.status !== 'draft') {
+        try {
+          const { postExpenseJournal } = require('../service/accountingService')
+          await postExpenseJournal({
+            store: store || created.store,
+            expenseId: created.id,
+            expenseNumber: created.expenseNumber,
+            category:
+              created.categoryData?.name ||
+              created.category ||
+              created.description ||
+              null,
+            amount: created.amount,
+            date: created.date || new Date(),
+            paymentMethod: created.paymentMethod,
+            createdBy: req.user?.id
+          })
+        } catch (e) {
+          console.error('Expense journal posting skipped:', e.message)
+        }
+      }
+
       return res.status(201).json({
         success: true,
         message: 'Success create expense',
@@ -339,6 +361,25 @@ const expenseController = {
       }
 
       await expense.update({ status: 'approved' })
+
+      try {
+        const { postExpenseJournal } = require('../service/accountingService')
+        const category = await db.expense_category.findOne({
+          where: { id: expense.category || null }
+        })
+        await postExpenseJournal({
+          store: store || expense.store,
+          expenseId: expense.id,
+          expenseNumber: expense.expenseNumber,
+          category: category?.name || expense.category || expense.description || null,
+          amount: expense.amount,
+          date: expense.date || new Date(),
+          paymentMethod: expense.paymentMethod,
+          createdBy: req.user?.id
+        })
+      } catch (e) {
+        console.error('Expense journal posting skipped:', e.message)
+      }
 
       createAudit(req, 'approve', 'expense', id, `Approved expense: ${id}`)
 

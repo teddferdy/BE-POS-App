@@ -11,6 +11,163 @@ const getStore = (req) =>
   req.cookies.activeStore ||
   req.user?.store
 
+const isCashPayment = (type) => {
+  const t = String(type || '').toLowerCase()
+  return (
+    t.includes('cash') ||
+    t.includes('tunai') ||
+    t.includes('debit') ||
+    t.includes('credit') ||
+    t.includes('other') ||
+    t.includes('points')
+  )
+}
+
+async function buildReportData({
+  register,
+  store,
+  user,
+  openedAt,
+  endAt,
+  storeData,
+  userData
+}) {
+  const replacements = {
+    store,
+    user,
+    openedAt,
+    endAt
+  }
+
+  const [salesAgg, paymentRows, expAgg, expCatRows] = await Promise.all([
+    db.sequelize
+      .query(
+        `SELECT COUNT(*) as "totalTransactions",
+                COALESCE(SUM("subTotal"), 0) as "totalSubtotal",
+                COALESCE(SUM("discountAmount"), 0) as "totalDiscount",
+                COALESCE(SUM("taxAmount"), 0) as "totalTax",
+                COALESCE(SUM("serviceChargeAmount"), 0) as "totalServiceCharge",
+                COALESCE(SUM("totalQuantity"), 0) as "totalQuantity",
+                COALESCE(SUM("totalCovers"), 0) as "totalCovers",
+                COALESCE(SUM("totalPrice"), 0) as "totalSales"
+         FROM "order"
+         WHERE "store" = :store AND "createdBy" = :user
+           AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+           AND "paymentStatus" = 'paid'`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      )
+      .then((r) => r[0]),
+    db.sequelize
+      .query(
+        `SELECT t."typePayment",
+                COALESCE(SUM(t."amount"), 0) as total,
+                COUNT(*)::int as "count"
+         FROM "transaction" t
+         JOIN "order" o ON o.id = t."order"
+         WHERE o."store" = :store AND o."createdBy" = :user
+           AND o."createdAt" >= :openedAt AND o."createdAt" <= :endAt
+           AND o."paymentStatus" = 'paid'
+         GROUP BY t."typePayment"
+         ORDER BY total DESC`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      ),
+    db.sequelize
+      .query(
+        `SELECT COALESCE(SUM("amount"), 0) as "totalExpenses"
+         FROM expense
+         WHERE "store" = :store AND "createdBy" = :user
+           AND "date" >= :openedAt AND "date" <= :endAt
+           AND "status" = 'approved'`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      )
+      .then((r) => r[0]),
+    db.sequelize
+      .query(
+        `SELECT COALESCE(ec.name, 'Lainnya') as "category",
+                COALESCE(SUM(e."amount"), 0) as total,
+                COUNT(*)::int as "count"
+         FROM expense e
+         LEFT JOIN expense_category ec ON ec.id = e."category"
+         WHERE e."store" = :store AND e."createdBy" = :user
+           AND e."date" >= :openedAt AND e."date" <= :endAt
+           AND e."status" = 'approved'
+         GROUP BY ec.name
+         ORDER BY total DESC`,
+        { replacements, type: db.sequelize.QueryTypes.SELECT }
+      )
+  ])
+
+  const totalSales = Number(salesAgg.totalSales || 0)
+  const totalSubtotal = Number(salesAgg.totalSubtotal || 0)
+  const totalDiscount = Number(salesAgg.totalDiscount || 0)
+  const totalTax = Number(salesAgg.totalTax || 0)
+  const totalServiceCharge = Number(salesAgg.totalServiceCharge || 0)
+  const totalExpenses = Number(expAgg.totalExpenses || 0)
+
+  const payments = paymentRows.map((r) => ({
+    type: r.typePayment,
+    amount: Number(r.total || 0),
+    count: Number(r.count || 0)
+  }))
+
+  const totalCashPayment = payments
+    .filter((p) => isCashPayment(p.type))
+    .reduce((s, p) => s + p.amount, 0)
+  const totalNonCashPayment = payments.reduce((s, p) => s + p.amount, 0)
+
+  const openingBalance = Number(register.openingBalance || 0)
+  const closingBalance = Number(register.closingBalance || 0)
+  const expectedCash = openingBalance + totalCashPayment - totalExpenses
+  const variance =
+    register.status === 'closed' ? closingBalance - expectedCash : null
+
+  return {
+    register: {
+      id: register.id,
+      shift: register.shift,
+      status: register.status,
+      openedAt: register.openedAt,
+      closedAt: register.closedAt,
+      notes: register.notes,
+      openingBalance,
+      closingBalance
+    },
+    store: storeData
+      ? {
+          id: storeData.id,
+          name: storeData.name,
+          address: storeData.address,
+          city: storeData.city,
+          phone: storeData.phoneNumber || storeData.phone || null
+        }
+      : null,
+    cashier: userData
+      ? { id: userData.id, fullName: userData.fullName }
+      : { id: user },
+    summary: {
+      totalTransactions: Number(salesAgg.totalTransactions || 0),
+      totalQuantity: Number(salesAgg.totalQuantity || 0),
+      totalCovers: Number(salesAgg.totalCovers || 0),
+      subtotal: totalSubtotal,
+      discount: totalDiscount,
+      tax: totalTax,
+      serviceCharge: totalServiceCharge,
+      totalSales,
+      totalExpenses,
+      totalCashPayment,
+      totalNonCashPayment,
+      expectedCash,
+      variance
+    },
+    payments,
+    expenses: expCatRows.map((r) => ({
+      category: r.category,
+      amount: Number(r.total || 0),
+      count: Number(r.count || 0)
+    }))
+  }
+}
+
 const cashRegisterController = {
   async open(req, res) {
     try {
@@ -387,6 +544,125 @@ const cashRegisterController = {
           limit: parseInt(limit),
           totalPages: Math.ceil(count / parseInt(limit))
         }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getXReport(req, res) {
+    try {
+      const store = getStore(req)
+      const userId = req.user?.id || null
+
+      if (!store) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store not selected'
+        })
+      }
+
+      const register = await db.cashRegister.findOne({
+        where: { store, user: userId, status: 'open' },
+        include: [
+          {
+            model: db.user,
+            as: 'userData',
+            attributes: ['id', 'fullName']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name', 'address', 'city', 'phoneNumber']
+          }
+        ]
+      })
+
+      if (!register) {
+        return res.status(200).json({
+          success: true,
+          message: 'No open cash register',
+          data: null
+        })
+      }
+
+      const data = await buildReportData({
+        register,
+        store,
+        user: userId,
+        openedAt: register.openedAt,
+        endAt: new Date(),
+        storeData: register.storeData,
+        userData: register.userData
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'X report generated',
+        data
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getZReport(req, res) {
+    try {
+      const { id } = req.params
+      const store = getStore(req)
+      const isSuperAdmin = req.user?.roleType === 'super_admin'
+
+      const register = await db.cashRegister.findByPk(id, {
+        include: [
+          {
+            model: db.user,
+            as: 'userData',
+            attributes: ['id', 'fullName']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name', 'address', 'city', 'phoneNumber']
+          }
+        ]
+      })
+
+      if (!register) {
+        return res.status(404).json({
+          success: false,
+          message: 'Cash register not found'
+        })
+      }
+
+      if (!isSuperAdmin && register.store !== Number(store)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden'
+        })
+      }
+
+      const data = await buildReportData({
+        register,
+        store: register.store,
+        user: register.user,
+        openedAt: register.openedAt,
+        endAt: register.closedAt || new Date(),
+        storeData: register.storeData,
+        userData: register.userData
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Z report generated',
+        data
       })
     } catch (error) {
       console.log(error)
