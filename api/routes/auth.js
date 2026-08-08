@@ -2,10 +2,11 @@ const express = require('express')
 const rateLimit = require('express-rate-limit')
 const authController = require('../controller/auth')
 
-// ponytail: 10 login attempts per 15min window, upgrade: per-IP tracking with Redis if multi-instance
+// ponytail: 30 login attempts per 15min window (per-IP; POS terminals behind
+// NAT share one IP, so a store-wide shift change must not lock everyone out)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 30,
   message: {
     success: false,
     message: 'Too many login attempts, try again later.'

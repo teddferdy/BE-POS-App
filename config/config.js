@@ -8,7 +8,7 @@ require('dotenv').config({ path: envPath })
 module.exports = {
   development: {
     username: process.env.DB_DEV_USERNAME || 'postgres',
-    password: process.env.DB_DEV_PASSWORD || 'teddyferdian98',
+    password: process.env.DB_DEV_PASSWORD,
     database: process.env.DB_DEV_DATABASE || 'cashier_app',
     host: process.env.DB_DEV_HOST || '127.0.0.1', // ✅ gunakan 127.0.0.1
     port: process.env.DB_DEV_PORT || 5432, // ✅ jangan pakai string

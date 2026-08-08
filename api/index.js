@@ -101,10 +101,17 @@ const corsOptions = {
   optionsSuccessStatus: 204
 }
 
+// Rate limit only anonymous traffic; authenticated requests are never throttled
+// so a busy POS terminal (many requests per transaction) is not blocked.
+const isAuthenticated = (req) =>
+  Boolean(
+    req.headers?.authorization && req.headers.authorization.startsWith('Bearer ')
+  )
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
-  skip: (req) => req.method === 'OPTIONS',
+  skip: (req) => req.method === 'OPTIONS' || isAuthenticated(req),
   message: {
     success: false,
     message: 'Too many requests, please try again later.'

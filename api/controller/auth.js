@@ -505,6 +505,13 @@ exports.editUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' })
     }
 
+    // Security: users may only edit their own profile
+    if (existingUser.id !== req.user?.id) {
+      return res.status(403).json({
+        message: 'Anda hanya dapat mengubah profil Anda sendiri'
+      })
+    }
+
     let image = existingUser.image
 
     if (imageFile) {

@@ -23,8 +23,7 @@ const DB_CONFIG = () => {
     host: process.env.DB_DEV_HOST || process.env.POSTGRES_HOST || '127.0.0.1',
     port: process.env.DB_DEV_PORT || process.env.POSTGRES_PORT || 5432,
     user: process.env.DB_DEV_USERNAME || process.env.POSTGRES_USER || 'postgres',
-    password:
-      process.env.DB_DEV_PASSWORD || process.env.POSTGRES_PASSWORD || 'teddyferdian98',
+    password: process.env.DB_DEV_PASSWORD || process.env.POSTGRES_PASSWORD,
     database:
       process.env.DB_DEV_DATABASE || process.env.POSTGRES_DATABASE || 'cashier_app'
   }

@@ -33,7 +33,7 @@ const authorization = (req, res, next) => {
   try {
     const decoded = jwt.verify(
       getTokenValue,
-      process.env.JWT_SECRET_KEY || 'secret-key-user'
+      process.env.JWT_SECRET_KEY
     )
     req.user = decoded
     setUserContext(decoded)
@@ -53,7 +53,7 @@ const requireRole = (...roles) => {
         return res.status(401).json({ message: 'User Belum Login' })
       }
       try {
-        req.user = jwt.verify(token, process.env.JWT_SECRET_KEY || 'secret-key-user')
+        req.user = jwt.verify(token, process.env.JWT_SECRET_KEY)
         setUserContext(req.user)
       } catch {
         return res.status(401).json({ message: 'Token Tidak Valid' })
