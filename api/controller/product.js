@@ -544,7 +544,8 @@ exports.postAddProduct = async (req, res) => {
     let parsedStores = []
     if (stores) {
       try {
-        parsedStores = normalizeStores(JSON.parse(stores))
+        const raw = typeof stores === 'string' ? JSON.parse(stores) : stores
+        parsedStores = normalizeStores(Array.isArray(raw) ? raw : [raw])
       } catch {
         parsedStores = []
       }
@@ -763,7 +764,8 @@ exports.editProductByLocationAndId = async (req, res) => {
     let parsedStores = []
     if (stores) {
       try {
-        parsedStores = normalizeStores(JSON.parse(stores))
+        const raw = typeof stores === 'string' ? JSON.parse(stores) : stores
+        parsedStores = normalizeStores(Array.isArray(raw) ? raw : [raw])
       } catch {
         parsedStores = []
       }

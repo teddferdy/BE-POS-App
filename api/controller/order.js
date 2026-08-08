@@ -818,7 +818,7 @@ exports.createOrder = async (req, res) => {
         await OrderItem.create({
           order: order.id,
           product: item.product || item.productId,
-          productName: item.productName,
+          productName: item.productName || product?.nameProduct,
           quantity: item.quantity,
           price: item.price || item.basePrice,
           discountType,
@@ -980,10 +980,11 @@ exports.createOrder = async (req, res) => {
           { transaction: t }
         )
 
+        const sellName = item.productName || product.nameProduct
         const findBs = await db.best_selling.findOne({
           where: {
             productId: product.id,
-            nameProduct: item.productName,
+            nameProduct: sellName,
             store
           },
           transaction: t
@@ -994,7 +995,7 @@ exports.createOrder = async (req, res) => {
               totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
             },
             {
-              where: { productId: product.id, nameProduct: item.productName },
+              where: { productId: product.id, nameProduct: sellName },
               transaction: t
             }
           )
@@ -1002,7 +1003,7 @@ exports.createOrder = async (req, res) => {
           await db.best_selling.create(
             {
               productId: product.id,
-              nameProduct: item.productName,
+              nameProduct: sellName,
               image: product.image || null,
               totalSelling: Number(item.quantity),
               store
@@ -1417,10 +1418,11 @@ exports.updateOrderStatus = async (req, res) => {
           { transaction: t }
         )
 
+        const sellName = item.productName || product.nameProduct
         const findBs = await db.best_selling.findOne({
           where: {
             productId: product.id,
-            nameProduct: item.productName,
+            nameProduct: sellName,
             store: effectiveStore
           },
           transaction: t
@@ -1434,7 +1436,7 @@ exports.updateOrderStatus = async (req, res) => {
             {
               where: {
                 productId: product.id,
-                nameProduct: item.productName
+                nameProduct: sellName
               },
               transaction: t
             }
@@ -1443,7 +1445,7 @@ exports.updateOrderStatus = async (req, res) => {
           await db.best_selling.create(
             {
               productId: product.id,
-              nameProduct: item.productName,
+              nameProduct: sellName,
               image: product.image || null,
               totalSelling: Number(item.quantity),
               store: effectiveStore
@@ -1507,10 +1509,11 @@ exports.updateOrderStatus = async (req, res) => {
           { transaction: t }
         )
 
+        const sellName = item.productName || product.nameProduct
         const findBs = await db.best_selling.findOne({
           where: {
             productId: product.id,
-            nameProduct: item.productName,
+            nameProduct: sellName,
             store: effectiveStore
           },
           transaction: t
@@ -1526,7 +1529,7 @@ exports.updateOrderStatus = async (req, res) => {
             {
               where: {
                 productId: product.id,
-                nameProduct: item.productName
+                nameProduct: sellName
               },
               transaction: t
             }
