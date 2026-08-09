@@ -13,6 +13,16 @@ const loginLimiter = rateLimit({
   }
 })
 
+// Reset-password requests are limited harder to prevent abuse/account probing.
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    success: false,
+    message: 'Too many reset requests, try again later.'
+  }
+})
+
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
@@ -90,8 +100,15 @@ router.get(
   authController.generateEmployeeId
 )
 
-// Reset Password (public - no auth required)
-router.post('/reset-password', authController.resetPassword)
+// Reset Password - step 1: request a reset token (public, rate-limited)
+router.post(
+  '/reset-password/request',
+  resetLimiter,
+  authController.requestResetPassword
+)
+
+// Reset Password - step 2: redeem the emailed token (public, rate-limited)
+router.post('/reset-password', resetLimiter, authController.resetPassword)
 
 // Edit User - based on role
 router.put('/edit-user', authorization, upload, authController.editUser)

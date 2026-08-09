@@ -219,7 +219,8 @@ const salesReturnController = {
         await db.transaction.create(
           {
             order: ret.order,
-            typePayment: 'Refund (Sales Return)',
+            salesReturnId: ret.id,
+            typePayment: ret.refundMethod || 'cash',
             amount: -Math.abs(ret.refundAmount),
             notes: `Refund for return ${ret.returnNumber}`,
             createdBy: req.user?.id || null
@@ -257,6 +258,7 @@ const salesReturnController = {
           returnNumber: ret.returnNumber,
           orderId: ret.order,
           refundAmount: ret.refundAmount,
+          refundMethod: ret.refundMethod,
           items: ret.items || [],
           date: new Date(),
           createdBy: req.user?.id

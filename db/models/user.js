@@ -117,6 +117,14 @@ module.exports = (sequelize, DataTypes) => {
       documents: {
         type: DataTypes.TEXT
       },
+      resetToken: {
+        allowNull: true,
+        type: DataTypes.STRING
+      },
+      resetTokenExpires: {
+        allowNull: true,
+        type: DataTypes.DATE
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },

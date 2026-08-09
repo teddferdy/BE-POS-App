@@ -452,13 +452,13 @@ exports.createOrder = async (req, res) => {
 
     if (tableId) {
       const table = await Table.findOne({ where: { id: tableId, store } })
-      if (table) {
-        if (table.status === 'occupied') {
-          return res.status(400).json({
-            message: 'Table is already occupied'
-          })
-        }
-        await table.update({ status: 'occupied' })
+      if (table && ['occupied', 'reserved', 'maintenance'].includes(table.status)) {
+        return res.status(400).json({
+          message:
+            table.status === 'occupied'
+              ? 'Table is already occupied'
+              : 'Table is not available'
+        })
       }
     }
 
@@ -1844,6 +1844,14 @@ exports.createCustomerOrder = async (req, res) => {
     if (tableId && !table) {
       return res.status(400).json({ message: 'Table not found' })
     }
+    if (table && ['occupied', 'reserved', 'maintenance'].includes(table.status)) {
+      return res.status(400).json({
+        message:
+          table.status === 'occupied'
+            ? 'Table is already occupied'
+            : 'Table is not available'
+      })
+    }
 
     let member = null
     if (customerId) {
@@ -2309,10 +2317,6 @@ exports.createCustomerOrder = async (req, res) => {
       } catch (e) {
         console.error('Point earning error:', e.message)
       }
-    }
-
-    if (table) {
-      await table.update({ status: 'occupied' })
     }
 
     const fullOrder = await db.order.findOne({

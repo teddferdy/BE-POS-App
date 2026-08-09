@@ -759,7 +759,7 @@ const posController = {
     try {
       const { id } = req.params
       const store = req.storeId || req.cookies.store
-      const { items, reason, returnedBy } = req.body
+      const { items, reason, returnedBy, refundMethod } = req.body
 
       if (!items || items.length === 0) {
         return res.status(400).json({
@@ -879,6 +879,7 @@ const posController = {
             returnNumber: `SR-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
             status: 'pending',
             refundAmount: totalRefund,
+            refundMethod: refundMethod || order.paymentMethod || 'cash',
             returnedBy: returnedBy || req.user?.id || null,
             createdBy: req.user?.id || null
           },

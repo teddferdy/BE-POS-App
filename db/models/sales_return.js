@@ -36,6 +36,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 0
       },
+      refundMethod: {
+        type: DataTypes.STRING,
+        defaultValue: 'cash'
+      },
       createdBy: {
         type: DataTypes.INTEGER
       }

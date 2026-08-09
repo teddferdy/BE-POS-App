@@ -6,6 +6,7 @@ const DEFAULT_ACCOUNTS = [
   { code: '1100', name: 'Accounts Receivable', type: 'asset', normalBalance: 'debit', description: 'Piutang usaha' },
   { code: '1200', name: 'Inventory', type: 'asset', normalBalance: 'debit', description: 'Persediaan barang dagang' },
   { code: '1300', name: 'Fixed Assets', type: 'asset', normalBalance: 'debit', description: 'Aset tetap' },
+  { code: '1400', name: 'Bank & E-Wallet', type: 'asset', normalBalance: 'debit', description: 'Kas di bank dan saldo dompet digital' },
   { code: '2000', name: 'Accounts Payable', type: 'liability', normalBalance: 'credit', description: 'Utang usaha' },
   { code: '2100', name: 'Tax Payable', type: 'liability', normalBalance: 'credit', description: 'Utang pajak' },
   { code: '3000', name: 'Owner Capital', type: 'equity', normalBalance: 'credit', description: 'Modal pemilik' },
@@ -246,7 +247,7 @@ async function postOrderCogsJournal({ store, orderId, orderNumber, date, created
 }
 
 // Purchase journal at goods receipt: Dr Inventory, Cr AP (net of PO discount).
-async function postPurchaseJournal({ store, receiptId, receiptNumber, poId, poNumber, totalAmount, discount, items, date, createdBy }) {
+async function postPurchaseJournal({ store, receiptId, receiptNumber, poNumber, totalAmount, discount, items, date, createdBy }) {
   const gross = items.reduce(
     (s, i) => s + Math.round((Number(i.costPrice) || 0) * (Number(i.qtyReceived) || 0)),
     0
@@ -326,7 +327,7 @@ async function postPurchaseReturnJournal({ store, purchaseReturnId, returnNumber
 }
 
 // Sales return reversal: refund revenue, restore inventory at cost.
-async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, refundAmount, items, date, createdBy }) {
+async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, refundAmount, refundMethod, items, date, createdBy }) {
   const refund = toNumber(refundAmount)
 
   let cogsReturned = 0
@@ -347,11 +348,15 @@ async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, 
   const lines = []
   if (refund > 0) {
     const revenueAcc = await findOrCreateAccount(store, '4000')
-    const cashAcc = await findOrCreateAccount(store, '1000')
-    if (!revenueAcc || !cashAcc) return null
+    const isCashRefund = ['cash', 'tunai', 'banknote'].includes(
+      String(refundMethod || 'cash').toLowerCase()
+    )
+    const payoutAcc = await findOrCreateAccount(store, isCashRefund ? '1000' : '1400')
+    if (!revenueAcc || !payoutAcc) return null
+    const payoutName = isCashRefund ? 'Cash' : 'Bank & E-Wallet'
     lines.push(
       { account: revenueAcc.id, debit: refund, credit: 0, description: `Refund revenue for ${returnNumber}` },
-      { account: cashAcc.id, debit: 0, credit: refund, description: `Cash refunded for ${returnNumber}` }
+      { account: payoutAcc.id, debit: 0, credit: refund, description: `${payoutName} refunded for ${returnNumber}` }
     )
   }
   if (cogsReturned > 0) {

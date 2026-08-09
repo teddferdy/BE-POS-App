@@ -1,6 +1,5 @@
 const { ThermalPrinter } = require('../service/thermalPrinter');
 const db = require('../../db/models');
-const { Op } = require('sequelize');
 
 let printerInstance = null;
 
@@ -60,10 +59,17 @@ const thermalPrinterController = {
           footerText: 'Ini adalah test print - Terima kasih!'
         };
       } else {
-        // Fetch order data
-        const order = await db.checkout.findByPk(orderId, {
+        // Fetch order data. The legacy `checkout` table has no detail model,
+        // so use the canonical `order` / `order_item` association.
+        const order = await db.order.findOne({
+          where: { id: orderId, ...(store ? { store } : {}) },
           include: [
-            { model: db.checkoutDetail, as: 'details' }
+            { model: db.order_item, as: 'items' },
+            {
+              model: db.location,
+              as: 'storeData',
+              attributes: ['id', 'name', 'address', 'phoneNumber']
+            }
           ]
         });
 
@@ -74,34 +80,35 @@ const thermalPrinterController = {
           });
         }
 
-        const storeInfo = await db.location.findByPk(store);
-        
+        const storeInfo = order.storeData || (await db.location.findByPk(store));
+        const total = Number(order.totalPrice) || 0;
+
         receiptData = {
           storeName: storeInfo?.name || 'TOKO',
           storeAddress: storeInfo?.address || '',
-          storePhone: storeInfo?.phone || '',
-          invoiceNo: order.invoice,
+          storePhone: storeInfo?.phoneNumber || '',
+          invoiceNo: order.orderNumber || `INV-${order.id}`,
           date: new Date(order.createdAt).toLocaleString('id-ID'),
           cashier: order.cashierName || 'Kasir',
-          items: order.details?.map(d => ({
+          items: (order.items || []).map(d => ({
             nameProduct: d.productName,
             quantity: d.quantity,
             sellingPrice: d.price,
             totalPrice: d.totalPrice,
             variantName: d.options?.[0]?.name,
             notes: d.notes
-          })) || [],
-          subtotal: order.totalPrice / (1 + (order.taxRate || 0)),
-          discount: order.discount || 0,
-          tax: order.taxAmount || 0,
-          total: order.totalPrice,
-          paymentMethod: order.typePayment || 'Tunai',
-          amountPaid: order.paidAmount || order.totalPrice,
-          change: (order.paidAmount || order.totalPrice) - order.totalPrice,
+          })),
+          subtotal: Number(order.subTotal) || 0,
+          discount: Number(order.discountAmount) || 0,
+          tax: Number(order.taxAmount) || 0,
+          total,
+          paymentMethod: order.paymentMethod || 'Tunai',
+          amountPaid: total,
+          change: 0,
           customerName: order.customerName,
           customerPhone: order.customerPhone,
           notes: order.notes,
-          qrCodeData: `${process.env.FRONTEND_URL || 'https://pos.app'}/receipt/${order.invoice}`,
+          qrCodeData: `${process.env.FRONTEND_URL || 'https://pos.app'}/receipt/${order.orderNumber || order.id}`,
           footerText: 'Terima kasih telah berbelanja!'
         };
       }
@@ -141,7 +148,8 @@ const thermalPrinterController = {
     try {
       const printer = getPrinter();
       const connected = await printer.connect().catch(() => false);
-      
+      void connected;
+
       return res.status(200).json({
         success: true,
         data: {

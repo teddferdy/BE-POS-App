@@ -1297,7 +1297,8 @@ const returnItemSchema = z.object({
 exports.createSalesReturnSchema = z.object({
   items: z.array(returnItemSchema).min(1, 'At least one item required'),
   reason: z.string().min(1, 'Reason is required'),
-  returnedBy: z.union([strToNum(), z.string()]).optional()
+  returnedBy: z.union([strToNum(), z.string()]).optional(),
+  refundMethod: z.string().max(50).optional()
 })
 
 exports.approveSalesReturnSchema = z.object({

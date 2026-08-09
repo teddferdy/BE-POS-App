@@ -5,6 +5,7 @@ const Position = db.position
 const generateToken = require('../../utils/jwtConvert')
 const bcrypt = require('bcrypt')
 const moment = require('moment')
+const crypto = require('crypto')
 const { Op } = require('sequelize')
 
 const parseAccessMenu = (menu) => {
@@ -24,6 +25,10 @@ const {
   deleteFromCloudinary
 } = require('../../utils/cloudinaryStorage')
 const { createAudit } = require('../../utils/auditLog')
+const {
+  sendEmail,
+  buildResetPasswordEmail
+} = require('../../utils/emailService')
 
 // Get User By Location
 exports.userByLocation = async (req, res) => {
@@ -574,13 +579,75 @@ exports.editUser = async (req, res) => {
   }
 }
 
-// Reset Password
+const RESET_TOKEN_TTL_MINUTES = 15
+
+const getFrontendUrl = () =>
+  process.env.FRONTEND_URL || 'http://localhost:5173'
+
+// Request Password Reset (step 1): generate a one-time token and email it.
+// Always returns the same response whether or not the email exists so the
+// endpoint does not leak which accounts are registered.
+exports.requestResetPassword = async (req, res) => {
+  const body = req?.body
+  const email = String(body?.email || '').trim().toLowerCase()
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email wajib diisi' })
+  }
+
+  try {
+    const existingUser = await User.findOne({ where: { email } })
+
+    if (existingUser) {
+      const token = crypto.randomBytes(32).toString('hex')
+      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000)
+
+      existingUser.resetToken = token
+      existingUser.resetTokenExpires = expiresAt
+      await existingUser.save()
+
+      const resetUrl = `${getFrontendUrl()}/reset-password?token=${token}&email=${encodeURIComponent(email)}`
+      const mail = buildResetPasswordEmail({
+        name: existingUser.fullName,
+        resetUrl,
+        expiresInMinutes: RESET_TOKEN_TTL_MINUTES
+      })
+
+      try {
+        await sendEmail({ to: email, ...mail })
+      } catch (emailError) {
+        console.error('Reset password email failed to send:', emailError.message)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[DEV] Reset password link for ${email}: ${resetUrl}`)
+        }
+      }
+
+      createAudit(
+        req,
+        'request-reset',
+        'user',
+        existingUser.id,
+        `Requested password reset for user ${existingUser.id}`
+      )
+    }
+
+    return res.status(200).json({
+      message:
+        'Jika email terdaftar, tautan atur ulang kata sandi telah dikirim. Cek kotak masuk Anda.'
+    })
+  } catch (error) {
+    console.error('ERROR requestResetPassword:', error)
+    return res.status(500).json({ error: 'Terjadi Kesalahan Internal Server' })
+  }
+}
+
+// Reset Password (step 2): requires the one-time token emailed in step 1.
 exports.resetPassword = async (req, res) => {
   const body = req?.body
 
-  if (!body?.email || !body?.newPassword || !body?.confirmPassword) {
+  if (!body?.email || !body?.token || !body?.newPassword || !body?.confirmPassword) {
     return res.status(400).json({
-      error: 'Email, New Password, dan Confirm Password harus diisi'
+      error: 'Email, token, New Password, dan Confirm Password harus diisi'
     })
   }
 
@@ -597,18 +664,33 @@ exports.resetPassword = async (req, res) => {
   }
 
   try {
-    const existingUser = await User.findOne({
-      where: { email: body.email.toLowerCase() }
-    })
+    const email = String(body.email).trim().toLowerCase()
+    const existingUser = await User.findOne({ where: { email } })
 
-    if (!existingUser) {
-      return res.status(404).json({
-        error: 'Email tidak ditemukan'
+    if (
+      !existingUser ||
+      !existingUser.resetToken ||
+      existingUser.resetToken !== String(body.token) ||
+      !existingUser.resetTokenExpires ||
+      new Date(existingUser.resetTokenExpires).getTime() < Date.now()
+    ) {
+      return res.status(400).json({
+        error: 'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa. Silakan minta ulang.'
       })
     }
 
     existingUser.password = body.newPassword
+    existingUser.resetToken = null
+    existingUser.resetTokenExpires = null
     await existingUser.save()
+
+    createAudit(
+      req,
+      'reset-password',
+      'user',
+      existingUser.id,
+      `Password reset for user ${existingUser.id}`
+    )
 
     return res.status(200).json({
       message: 'Password berhasil direset. Silakan login dengan password baru.'

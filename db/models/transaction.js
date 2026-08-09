@@ -35,6 +35,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       createdBy: {
         type: DataTypes.INTEGER
+      },
+      salesReturnId: {
+        type: DataTypes.INTEGER
       }
     },
     {
@@ -47,6 +50,7 @@ module.exports = (sequelize, DataTypes) => {
 
   transaction.associate = (models) => {
     transaction.belongsTo(models.order, { foreignKey: 'order', as: 'orderDetail' })
+    transaction.belongsTo(models.sales_return, { foreignKey: 'salesReturnId', as: 'salesReturn' })
   }
 
   return transaction
