@@ -113,6 +113,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true
       },
+      session: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
       notes: {
         type: DataTypes.TEXT
       },

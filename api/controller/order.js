@@ -14,6 +14,7 @@ const batchService = require('../service/batchService')
 let _productStoreExists = null
 let _categoryStoreExists = null
 let _orderPromoCampaignCol = null
+let _orderSessionCol = null
 const hasTable = async (tableName) => {
   if (tableName === 'product_store') {
     if (_productStoreExists !== null) return _productStoreExists
@@ -46,14 +47,32 @@ const hasOrderColumn = async (colName) => {
       return false
     }
   }
+  if (colName === 'session') {
+    if (_orderSessionCol !== null) return _orderSessionCol
+    try {
+      const [results] = await db.sequelize.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = 'order' AND column_name = 'session' LIMIT 1`
+      )
+      _orderSessionCol = results.length > 0
+      return _orderSessionCol
+    } catch {
+      _orderSessionCol = false
+      return false
+    }
+  }
   return true
 }
 
 const getOrderAttributes = async () => {
+  const exclude = []
   if (!(await hasOrderColumn('promoCampaignId'))) {
-    return { exclude: ['promoCampaignId'] }
+    exclude.push('promoCampaignId')
   }
-  return undefined
+  if (!(await hasOrderColumn('session'))) {
+    exclude.push('session')
+  }
+  if (exclude.length === 0) return undefined
+  return { exclude }
 }
 
 const generateOrderNumber = () => {
@@ -1826,7 +1845,7 @@ exports.getCustomerMenu = async (req, res) => {
 }
 
 exports.createCustomerOrder = async (req, res) => {
-  const { store, tableId, items, customerName, notes, customerId, paymentMethod, splitCount } = req.body
+  const { store, tableId, items, customerName, notes, customerId, paymentMethod, splitCount, session } = req.body
 
   try {
     if (!store || !items || !items.length) {
@@ -2064,6 +2083,9 @@ exports.createCustomerOrder = async (req, res) => {
     }
     if (await hasOrderColumn('promoCampaignId')) {
       qrOrderData.promoCampaignId = appliedCampaignId
+    }
+    if (await hasOrderColumn('session')) {
+      qrOrderData.session = session || null
     }
     const order = await db.order.create(qrOrderData)
 
@@ -2432,7 +2454,7 @@ exports.getCustomerOrder = async (req, res) => {
 
 // ——— Public customer orders list (no auth) ———
 exports.getCustomerOrders = async (req, res) => {
-  const { store, tableId, page = 1, limit = 20 } = req.query
+  const { store, tableId, session, page = 1, limit = 20 } = req.query
   try {
     if (!store) {
       return res.status(400).json({ message: 'store is required' })
@@ -2444,6 +2466,9 @@ exports.getCustomerOrders = async (req, res) => {
 
     const where = { store: storeId, source: 'qr' }
     if (tableId) where.tableId = Number(tableId)
+    if (session && (await hasOrderColumn('session'))) {
+      where.session = session
+    }
 
     const offset = (Number(page) - 1) * Number(limit)
 
@@ -2465,6 +2490,7 @@ exports.getCustomerOrders = async (req, res) => {
         'paymentStatus',
         'notes',
         'source',
+        'session',
         'createdAt',
         'tableId',
         'splitCount'
