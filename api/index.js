@@ -69,6 +69,7 @@ const productBundleRoutes = require('./routes/productBundle')
 const reportingRoutes = require('./routes/reporting')
 const inventoryRoutes = require('./routes/inventory')
 const thermalPrinterRoutes = require('./routes/thermalPrinter')
+const goodsRequestRoutes = require('./routes/goodsRequest')
 
 const app = express()
 const server = http.createServer(app)
@@ -170,6 +171,7 @@ const routes = [
   { path: '/receipt', route: receiptRoutes },
   { path: '/production-order', route: productionOrderRoutes },
   { path: '/goods-receipt', route: goodsReceiptRoutes },
+  { path: '/goods-request', route: goodsRequestRoutes },
   { path: '/sales-return', route: salesReturnRoutes },
   { path: '/purchase-return', route: purchaseReturnRoutes },
   { path: '/bom', route: bomRoutes },

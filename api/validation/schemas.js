@@ -466,6 +466,27 @@ exports.createPurchaseOrderSchema = z.object({
 
 exports.updatePurchaseOrderSchema = exports.createPurchaseOrderSchema.partial()
 
+// ===================== Goods Request (Permintaan Barang) =====================
+const goodsRequestItemSchema = z.object({
+  product: strToNum().optional().nullable(),
+  productName: z.string().optional().nullable(),
+  ingredient: strToNum().optional().nullable(),
+  ingredientName: z.string().optional().nullable(),
+  supplier: strToNum().optional().nullable(),
+  qty: strToNum(),
+  unit: z.string().optional().default('pcs'),
+  notes: z.string().optional().nullable()
+})
+
+exports.createGoodsRequestSchema = z.object({
+  store: strToNum().optional().nullable(),
+  items: z.array(goodsRequestItemSchema).min(1, 'At least one item is required'),
+  requestedBy: z.string().optional().default(''),
+  notes: z.string().optional().default('')
+})
+
+exports.updateGoodsRequestSchema = exports.createGoodsRequestSchema.partial()
+
 // ===================== Reservation =====================
 exports.createReservationSchema = z.object({
   store: strToNum(),
