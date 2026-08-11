@@ -183,13 +183,13 @@ const cashRegisterController = {
       }
 
       const openRegister = await db.cashRegister.findOne({
-        where: { store, user: userId, status: 'open' }
+        where: { store, status: 'open' }
       })
 
       if (openRegister) {
         return res.status(400).json({
           success: false,
-          message: 'You already have an open register'
+          message: 'Store already has an open cash register'
         })
       }
 
@@ -544,6 +544,46 @@ const cashRegisterController = {
           limit: parseInt(limit),
           totalPages: Math.ceil(count / parseInt(limit))
         }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
+  async getOpenRegisters(req, res) {
+    try {
+      const store = getStore(req)
+      const where = { status: 'open' }
+      if (store) {
+        where.store = store
+      }
+
+      const openRegisters = await db.cashRegister.findAll({
+        where,
+        attributes: ['id', 'store', 'user', 'status', 'openedAt'],
+        include: [
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name']
+          },
+          {
+            model: db.user,
+            as: 'userData',
+            attributes: ['id', 'fullName']
+          }
+        ],
+        order: [['openedAt', 'ASC']]
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get open registers',
+        data: openRegisters
       })
     } catch (error) {
       console.log(error)

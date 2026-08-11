@@ -35,6 +35,7 @@ const goodsRequestController = {
         startDate,
         endDate,
         search,
+        supplier,
         queryStore
       } = req.query
 
@@ -57,6 +58,15 @@ const goodsRequestController = {
         ]
       }
 
+      if (supplier) {
+        const supplierId = parseInt(supplier, 10)
+        if (!Number.isNaN(supplierId)) {
+          where[Op.and] = db.sequelize.literal(
+            `EXISTS (SELECT 1 FROM goods_request_item gri WHERE gri."goodsRequest" = "goodsRequest"."id" AND gri."supplier" = ${supplierId} AND gri."deletedAt" IS NULL)`
+          )
+        }
+      }
+
       if (startDate || endDate) {
         where.createdAt = {}
         if (startDate) where.createdAt[Op.gte] = new Date(startDate)
@@ -73,7 +83,21 @@ const goodsRequestController = {
               {
                 model: db.goodsRequestItem,
                 as: 'items',
-                attributes: ['id', 'productName', 'ingredientName', 'qty', 'unit']
+                attributes: [
+                  'id',
+                  'supplier',
+                  'productName',
+                  'ingredientName',
+                  'qty',
+                  'unit'
+                ],
+                include: [
+                  {
+                    model: db.supplier,
+                    as: 'supplierData',
+                    attributes: ['id', 'name']
+                  }
+                ]
               },
               {
                 model: db.location,
@@ -193,6 +217,11 @@ const goodsRequestController = {
               {
                 model: db.ingredient,
                 as: 'ingredientData',
+                attributes: ['id', 'name']
+              },
+              {
+                model: db.supplier,
+                as: 'supplierData',
                 attributes: ['id', 'name']
               }
             ]
@@ -479,8 +508,73 @@ const goodsRequestController = {
         if (status === 'approved') {
           const items = request.items || []
 
+          const supplierIds = [...new Set(items.map((it) => it.supplier).filter(Boolean))]
+
+          let priceByProduct = {}
+          let priceByName = {}
+          try {
+            if (supplierIds.length > 0) {
+              const catalog = await db.supplier_product.findAll({
+                where: { supplier: { [Op.in]: supplierIds } },
+                attributes: ['supplier', 'productId', 'name', 'price', 'lastPrice']
+              })
+              priceByProduct = {}
+              priceByName = {}
+              for (const cp of catalog) {
+                const price = Number(cp.price || cp.lastPrice || 0)
+                if (cp.productId) {
+                  const key = `${cp.supplier}:${cp.productId}`
+                  if (!(key in priceByProduct)) priceByProduct[key] = price
+                }
+                const nameKey = String(cp.name || '')
+                  .toLowerCase()
+                  .trim()
+                if (nameKey) {
+                  const key = `${cp.supplier}:${nameKey}`
+                  if (!(key in priceByName)) priceByName[key] = price
+                }
+              }
+            }
+          } catch (catalogError) {
+            priceByProduct = {}
+            priceByName = {}
+          }
+
+          const resolvePrice = (item) => {
+            if (!item.supplier) return 0
+            if (item.product) {
+              const byProduct = priceByProduct[`${item.supplier}:${item.product}`]
+              if (byProduct) return byProduct
+            }
+            const itemName = String(item.ingredientName || item.productName || '')
+              .toLowerCase()
+              .trim()
+            if (itemName) {
+              const byName = priceByName[`${item.supplier}:${itemName}`]
+              if (byName) return byName
+            }
+            return 0
+          }
+
           const orderNumber = generateOrderNumber('PO')
-          const totalAmount = items.reduce((sum, item) => sum + Number(item.qty || 0) * 0, 0)
+          const orderItems = items.map((item) => {
+            const price = resolvePrice(item)
+            const quantity = Number(item.qty || 0)
+            return {
+              product: item.product || null,
+              ingredient: item.ingredient || null,
+              ingredientName: item.ingredientName || item.productName || null,
+              supplier: item.supplier || null,
+              quantity,
+              unit: item.unit || 'pcs',
+              price,
+              total: quantity * price,
+              receivedQuantity: 0,
+              conversionToBase: 1
+            }
+          })
+          const totalAmount = orderItems.reduce((sum, it) => sum + (it.total || 0), 0)
+          const finalAmount = totalAmount
 
           const purchaseOrder = await db.purchase_order.create(
             {
@@ -488,7 +582,7 @@ const goodsRequestController = {
               orderNumber,
               totalAmount,
               discount: 0,
-              finalAmount: totalAmount,
+              finalAmount,
               status: 'draft',
               orderDate: new Date(),
               notes: `Dari Permintaan Barang: ${request.requestNumber}`,
@@ -504,21 +598,10 @@ const goodsRequestController = {
             { transaction }
           )
 
-          const orderItems = items.map((item) => ({
-            purchaseOrder: purchaseOrder.id,
-            product: item.product || null,
-            ingredient: item.ingredient || null,
-            ingredientName: item.ingredientName || item.productName || null,
-            supplier: item.supplier || null,
-            quantity: item.qty,
-            unit: item.unit || 'pcs',
-            price: 0,
-            total: 0,
-            receivedQuantity: 0,
-            conversionToBase: 1
-          }))
-
-          await db.purchase_order_item.bulkCreate(orderItems, { transaction })
+          await db.purchase_order_item.bulkCreate(
+            orderItems.map((item) => ({ ...item, purchaseOrder: purchaseOrder.id })),
+            { transaction }
+          )
 
           await request.update(
             {

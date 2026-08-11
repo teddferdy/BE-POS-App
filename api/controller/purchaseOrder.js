@@ -25,6 +25,7 @@ const purchaseOrderController = {
         endDate,
         search,
         deleted,
+        source,
         page = 1,
         limit = 10
       } = req.query
@@ -35,6 +36,15 @@ const purchaseOrderController = {
         const statuses = status.split(',').map(s => s.trim()).filter(Boolean)
         if (statuses.length === 1) where.status = statuses[0]
         else if (statuses.length > 1) where.status = { [Op.in]: statuses }
+      }
+      if (source === 'goods_request') {
+        where[Op.and] = db.sequelize.literal(
+          'EXISTS (SELECT 1 FROM goods_request gr WHERE gr."purchaseOrderId" = "purchase_order"."id" AND gr."deletedAt" IS NULL)'
+        )
+      } else if (source === 'manual') {
+        where[Op.and] = db.sequelize.literal(
+          'NOT EXISTS (SELECT 1 FROM goods_request gr WHERE gr."purchaseOrderId" = "purchase_order"."id" AND gr."deletedAt" IS NULL)'
+        )
       }
       if (startDate || endDate) {
         where.orderDate = {}
@@ -139,6 +149,16 @@ const purchaseOrderController = {
                   AND poi."deletedAt" IS NULL
               )`),
               'supplierNames'
+            ],
+            [
+              db.Sequelize.literal(`(
+                SELECT 1
+                FROM goods_request gr
+                WHERE gr."purchaseOrderId" = "purchase_order"."id"
+                  AND gr."deletedAt" IS NULL
+                LIMIT 1
+              )`),
+              'isFromGoodsRequest'
             ]
           ]
         },

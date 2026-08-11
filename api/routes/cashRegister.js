@@ -33,6 +33,13 @@ router.get(
   cashRegisterController.getCurrent
 )
 router.get(
+  '/open-registers',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  cashRegisterController.getOpenRegisters
+)
+router.get(
   '/history',
   authorization,
   validateStoreAccess,
