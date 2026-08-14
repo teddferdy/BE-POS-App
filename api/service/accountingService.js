@@ -26,21 +26,25 @@ const findAccount = async (store, code) => {
   })
 }
 
-const findOrCreateAccount = async (store, code, overrides = {}, createdBy = null) => {
-  const existing = await db.account.findOne({ where: { store, code } })
+const findOrCreateAccount = async (store, code, overrides = {}, createdBy = null, options = {}) => {
+  const transaction = options.transaction || undefined
+  const existing = await db.account.findOne({ where: { store, code }, transaction })
   if (existing) return existing
   const defaults = DEFAULT_ACCOUNTS.find((a) => a.code === code)
   if (!defaults && !overrides.name) return null
-  return db.account.create({
-    store,
-    code,
-    name: overrides.name || defaults.name,
-    type: overrides.type || defaults.type,
-    normalBalance: overrides.normalBalance || defaults.normalBalance,
-    description: overrides.description || defaults.description || null,
-    isSystem: true,
-    createdBy
-  })
+  return db.account.create(
+    {
+      store,
+      code,
+      name: overrides.name || defaults.name,
+      type: overrides.type || defaults.type,
+      normalBalance: overrides.normalBalance || defaults.normalBalance,
+      description: overrides.description || defaults.description || null,
+      isSystem: true,
+      createdBy
+    },
+    { transaction }
+  )
 }
 
 async function ensureDefaultAccounts(store, createdBy = null) {
@@ -66,24 +70,26 @@ function makeEntryNumber(store, seq) {
   return `JV-${String(store).padStart(4, '0')}-${pad}`
 }
 
-async function nextSeq(store) {
+async function nextSeq(store, transaction) {
   const last = await db.journal_entry.findOne({
     where: { store },
     order: [['id', 'DESC']],
-    paranoid: false
+    paranoid: false,
+    transaction
   })
   return (last?.id || 0) + 1
 }
 
-async function existingEntry(store, sourceType, referenceId) {
+async function existingEntry(store, sourceType, referenceId, transaction) {
   return db.journal_entry.findOne({
-    where: { store, sourceType, referenceId: referenceId || null }
+    where: { store, sourceType, referenceId: referenceId || null },
+    transaction
   })
 }
 
 // Core double-entry writer: balances lines, dedupes by (sourceType, referenceId)
 // and never throws — callers must not break the primary transaction.
-async function createJournalEntry({ store, date, description, sourceType, referenceId, lines, createdBy }) {
+async function createJournalEntry({ store, date, description, sourceType, referenceId, lines, createdBy, transaction }) {
   try {
     if (!store || !lines || lines.length === 0) return null
     await ensureDefaultAccounts(store, createdBy)
@@ -102,23 +108,29 @@ async function createJournalEntry({ store, date, description, sourceType, refere
     const totalCredit = toNumber(clean.reduce((s, l) => s + l.credit, 0))
     if (totalDebit <= 0 && totalCredit <= 0) return null
 
-    const dup = await existingEntry(store, sourceType, referenceId)
+    const dup = await existingEntry(store, sourceType, referenceId, transaction)
     if (dup) return dup
 
-    const seq = await nextSeq(store)
-    const entry = await db.journal_entry.create({
-      store,
-      entryNumber: makeEntryNumber(store, seq),
-      date: date || new Date(),
-      description: description || sourceType,
-      sourceType,
-      referenceId: referenceId || null,
-      totalDebit,
-      totalCredit,
-      createdBy
-    })
+    const seq = await nextSeq(store, transaction)
+    const entry = await db.journal_entry.create(
+      {
+        store,
+        entryNumber: makeEntryNumber(store, seq),
+        date: date || new Date(),
+        description: description || sourceType,
+        sourceType,
+        referenceId: referenceId || null,
+        totalDebit,
+        totalCredit,
+        createdBy
+      },
+      { transaction }
+    )
     for (const line of clean) {
-      await db.journal_entry_line.create({ ...line, journalEntry: entry.id, createdBy })
+      await db.journal_entry_line.create(
+        { ...line, journalEntry: entry.id, createdBy },
+        { transaction }
+      )
     }
     return entry
   } catch (error) {
@@ -424,16 +436,28 @@ const payoutAccountName = (paymentMethod) => {
   return method === 'cash' ? 'Cash' : 'Bank & E-Wallet'
 }
 
-async function postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy }) {
+async function postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction }) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
-  const expenseAcc = await findOrCreateAccount(store, categoryAccountCode || '6000', {
-    name: category || 'Operating Expenses',
-    type: 'expense',
-    normalBalance: 'debit'
-  })
-  const payoutAcc = await findOrCreateAccount(store, payoutAccountCode(paymentMethod))
+  const expenseAcc = await findOrCreateAccount(
+    store,
+    categoryAccountCode || '6000',
+    {
+      name: category || 'Operating Expenses',
+      type: 'expense',
+      normalBalance: 'debit'
+    },
+    createdBy,
+    { transaction }
+  )
+  const payoutAcc = await findOrCreateAccount(
+    store,
+    payoutAccountCode(paymentMethod),
+    {},
+    createdBy,
+    { transaction }
+  )
   if (!expenseAcc || !payoutAcc) return null
 
   return createJournalEntry({
@@ -446,80 +470,124 @@ async function postExpenseJournal({ store, expenseId, expenseNumber, category, c
       { account: expenseAcc.id, debit: amt, credit: 0, description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim() },
       { account: payoutAcc.id, debit: 0, credit: amt, description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}` }
     ],
-    createdBy
+    createdBy,
+    transaction
   })
 }
 
 // Rewrites the existing expense journal entry (amount, accounts, date) in place.
 // Falls back to posting a new entry when none exists yet.
-async function updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy }) {
+// The line destruction + recreation is atomic: it runs inside a transaction when
+// none is provided by the caller.
+async function updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction }) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
   const existing = await db.journal_entry.findOne({
-    where: { store, sourceType: 'expense', referenceId: expenseId }
+    where: { store, sourceType: 'expense', referenceId: expenseId },
+    transaction
   })
   if (!existing) {
-    return postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy })
+    return postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction })
   }
 
-  const expenseAcc = await findOrCreateAccount(store, categoryAccountCode || '6000', {
-    name: category || 'Operating Expenses',
-    type: 'expense',
-    normalBalance: 'debit'
-  })
-  const payoutAcc = await findOrCreateAccount(store, payoutAccountCode(paymentMethod))
+  const expenseAcc = await findOrCreateAccount(
+    store,
+    categoryAccountCode || '6000',
+    {
+      name: category || 'Operating Expenses',
+      type: 'expense',
+      normalBalance: 'debit'
+    },
+    createdBy,
+    { transaction }
+  )
+  const payoutAcc = await findOrCreateAccount(
+    store,
+    payoutAccountCode(paymentMethod),
+    {},
+    createdBy,
+    { transaction }
+  )
   if (!expenseAcc || !payoutAcc) return null
 
-  await db.journal_entry_line.destroy({ where: { journalEntry: existing.id } })
-  await db.journal_entry_line.create({
-    journalEntry: existing.id,
-    account: expenseAcc.id,
-    debit: amt,
-    credit: 0,
-    description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim(),
-    createdBy
-  })
-  await db.journal_entry_line.create({
-    journalEntry: existing.id,
-    account: payoutAcc.id,
-    debit: 0,
-    credit: amt,
-    description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}`,
-    createdBy
-  })
-  await existing.update({
-    date: date ? new Date(date) : existing.date,
-    description: `Expense ${expenseNumber || ''}`.trim(),
-    totalDebit: amt,
-    totalCredit: amt,
-    modifiedBy: createdBy
-  })
-  return existing
+  const rewrite = async (t) => {
+    await db.journal_entry_line.destroy({
+      where: { journalEntry: existing.id },
+      transaction: t
+    })
+    await db.journal_entry_line.create(
+      {
+        journalEntry: existing.id,
+        account: expenseAcc.id,
+        debit: amt,
+        credit: 0,
+        description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim(),
+        createdBy
+      },
+      { transaction: t }
+    )
+    await db.journal_entry_line.create(
+      {
+        journalEntry: existing.id,
+        account: payoutAcc.id,
+        debit: 0,
+        credit: amt,
+        description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}`,
+        createdBy
+      },
+      { transaction: t }
+    )
+    await existing.update(
+      {
+        date: date ? new Date(date) : existing.date,
+        description: `Expense ${expenseNumber || ''}`.trim(),
+        totalDebit: amt,
+        totalCredit: amt,
+        modifiedBy: createdBy
+      },
+      { transaction: t }
+    )
+    return existing
+  }
+
+  if (transaction) return rewrite(transaction)
+  return db.sequelize.transaction(rewrite)
 }
 
 // Removes the journal entry (+ lines) tied to an expense so the ledger no
 // longer reflects it (used when an approved expense is reverted/edited/deleted).
-async function deleteExpenseJournal({ store, expenseId, createdBy }) {
+// The line destruction + entry removal is atomic.
+async function deleteExpenseJournal({ store, expenseId, createdBy, transaction }) {
   const existing = await db.journal_entry.findOne({
-    where: { store, sourceType: 'expense', referenceId: expenseId }
+    where: { store, sourceType: 'expense', referenceId: expenseId },
+    transaction
   })
   if (!existing) return null
-  await db.journal_entry_line.destroy({ where: { journalEntry: existing.id } })
-  await existing.update({ modifiedBy: createdBy })
-  await existing.destroy()
-  return true
+
+  const remove = async (t) => {
+    await db.journal_entry_line.destroy({
+      where: { journalEntry: existing.id },
+      transaction: t
+    })
+    await existing.update({ modifiedBy: createdBy }, { transaction: t })
+    await existing.destroy({ transaction: t })
+    return true
+  }
+
+  if (transaction) return remove(transaction)
+  return db.sequelize.transaction(remove)
 }
 
 // Keeps the ledger consistent with the expense's current state:
 // approved  -> post (or rewrite) the journal entry
 // otherwise -> remove any existing journal entry
-async function syncExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, status, createdBy }) {
+async function syncExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, status, createdBy, transaction }) {
   if (!store || !expenseId) return null
   if (status === 'approved') {
-    return updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy })
+    return updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction })
   }
-  return deleteExpenseJournal({ store, expenseId, createdBy })
+  return deleteExpenseJournal({ store, expenseId, createdBy, transaction })
 }
 
 module.exports = {

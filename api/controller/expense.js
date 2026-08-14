@@ -1,38 +1,29 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const {
+  generateExpenseNumber,
+  addInterval
+} = require('../../utils/expenseUtil')
+
+const toStoreId = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
 
 const getStore = (req) => {
-  if (req.user?.roleType === 'super_admin') return req.storeId || null
-  return (
-    req.storeId ||
-    req.body.storeId ||
-    req.body.store ||
-    req.query.store ||
-    req.cookies.store ||
-    req.cookies.activeStore ||
-    req.user?.store
-  )
-}
-
-const generateExpenseNumber = () => {
-  const date = new Date()
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const random = Math.floor(Math.random() * 10000)
-    .toString()
-    .padStart(4, '0')
-  return `EXP-${year}${month}${day}-${random}`
-}
-
-const addInterval = (date, frequency) => {
-  const d = new Date(date)
-  if (frequency === 'daily') d.setDate(d.getDate() + 1)
-  else if (frequency === 'weekly') d.setDate(d.getDate() + 7)
-  else if (frequency === 'monthly') d.setMonth(d.getMonth() + 1)
-  else if (frequency === 'yearly') d.setFullYear(d.getFullYear() + 1)
-  return d
+  const raw =
+    req.user?.roleType === 'super_admin'
+      ? req.storeId || null
+      : req.storeId ||
+        req.body.storeId ||
+        req.body.store ||
+        req.query.store ||
+        req.cookies.store ||
+        req.cookies.activeStore ||
+        req.user?.store
+  return toStoreId(raw)
 }
 
 const expenseController = {
@@ -499,8 +490,16 @@ const expenseController = {
         })
       }
 
+      const categoryProvided =
+        categoryId !== undefined
+          ? categoryId
+          : category !== undefined
+            ? category
+            : undefined
       const resolvedCategoryId =
-        categoryId !== undefined ? categoryId || null : expense.category
+        categoryProvided !== undefined
+          ? categoryProvided || null
+          : expense.category
 
       const resolvedFrequency =
         frequency !== undefined
@@ -1043,7 +1042,8 @@ const expenseController = {
     try {
       const store = getStore(req)
       const { month, employeeIds, paymentMethod } = req.body
-      const resolvedStore = store || req.body.storeId || req.body.store
+      const resolvedStore =
+        Number(store || req.body.storeId || req.body.store) || null
 
       if (!resolvedStore) {
         return res.status(400).json({
@@ -1064,91 +1064,106 @@ const expenseController = {
       const end = new Date(year, monthIndex + 1, 1, 0, 0, -1)
       const monthLabel = `${String(monthIndex + 1).padStart(2, '0')}/${year}`
 
-      let category = await db.expense_category.findOne({
-        where: {
-          store: resolvedStore,
-          [Op.or]: [{ name: { [Op.iLike]: 'gaji' } }, { accountCode: '6100' }]
-        }
-      })
-      if (!category) {
-        category = await db.expense_category.create({
-          store: resolvedStore,
-          name: 'Gaji',
-          description: 'Beban gaji karyawan',
-          accountCode: '6100',
-          status: 'active',
-          createdBy: req.user?.id
-        })
-      }
-
-      const empWhere = {
-        userType: 'user',
-        status: 'active',
-        monthlySalary: { [Op.gt]: 0 },
-        store: resolvedStore
-      }
-      if (employeeIds && employeeIds.length > 0) {
-        empWhere.id = employeeIds
-      }
-      const employees = await db.user.findAll({
-        where: empWhere,
-        attributes: ['id', 'fullName', 'monthlySalary']
-      })
-
-      const { syncExpenseJournal } = require('../service/accountingService')
       let created = 0
       let skipped = 0
-      const createdExpenses = []
+      let categoryId = null
 
-      for (const emp of employees) {
-        const dup = await db.expense.findOne({
+      await db.sequelize.transaction(async (transaction) => {
+        let category = await db.expense_category.findOne({
           where: {
             store: resolvedStore,
-            employeeId: emp.id,
-            category: category.id,
-            date: { [Op.gte]: start, [Op.lte]: end }
-          }
+            [Op.or]: [{ name: { [Op.iLike]: 'gaji' } }, { accountCode: '6100' }]
+          },
+          transaction
         })
-        if (dup) {
-          skipped += 1
-          continue
+        if (!category) {
+          category = await db.expense_category.create(
+            {
+              store: resolvedStore,
+              name: 'Gaji',
+              description: 'Beban gaji karyawan',
+              accountCode: '6100',
+              status: 'active',
+              createdBy: req.user?.id
+            },
+            { transaction }
+          )
         }
+        categoryId = category.id
 
-        const expense = await db.expense.create({
-          store: resolvedStore,
-          expenseNumber: generateExpenseNumber(),
-          category: category.id,
-          description: `Gaji ${emp.fullName}`,
-          amount: emp.monthlySalary,
-          date: end,
-          paymentMethod: paymentMethod || 'cash',
-          notes: `Otomatis (penggajian ${monthLabel})`,
-          payee: emp.fullName,
-          employeeId: emp.id,
-          status: 'approved',
-          createdBy: req.user?.id
+        const empWhere = {
+          userType: 'user',
+          status: 'active',
+          monthlySalary: { [Op.gt]: 0 },
+          store: resolvedStore
+        }
+        if (employeeIds && employeeIds.length > 0) {
+          empWhere.id = employeeIds
+        }
+        const employees = await db.user.findAll({
+          where: empWhere,
+          attributes: ['id', 'fullName', 'monthlySalary'],
+          transaction
         })
 
-        try {
-          await syncExpenseJournal({
-            store: resolvedStore,
-            expenseId: expense.id,
-            expenseNumber: expense.expenseNumber,
-            category: category.name,
-            categoryAccountCode: category.accountCode || '6100',
-            amount: expense.amount,
-            date: end,
-            paymentMethod: expense.paymentMethod,
-            status: 'approved',
-            createdBy: req.user?.id
+        const { syncExpenseJournal } = require('../service/accountingService')
+
+        for (const emp of employees) {
+          const dup = await db.expense.findOne({
+            where: {
+              store: resolvedStore,
+              employeeId: emp.id,
+              category: category.id,
+              date: { [Op.gte]: start, [Op.lte]: end }
+            },
+            transaction
           })
-        } catch (e) {
-          console.error('Salary journal posting skipped:', e.message)
-        }
+          if (dup) {
+            skipped += 1
+            continue
+          }
 
-        created += 1
-        createdExpenses.push(expense)
-      }
+          const expense = await db.expense.create(
+            {
+              store: resolvedStore,
+              expenseNumber: generateExpenseNumber(),
+              category: category.id,
+              description: `Gaji ${emp.fullName}`,
+              amount: emp.monthlySalary,
+              date: end,
+              paymentMethod: paymentMethod || 'cash',
+              notes: `Otomatis (penggajian ${monthLabel})`,
+              payee: emp.fullName,
+              employeeId: emp.id,
+              status: 'approved',
+              createdBy: req.user?.id
+            },
+            { transaction }
+          )
+
+          try {
+            await syncExpenseJournal(
+              {
+                store: resolvedStore,
+                expenseId: expense.id,
+                expenseNumber: expense.expenseNumber,
+                category: category.name,
+                categoryAccountCode: category.accountCode || '6100',
+                amount: expense.amount,
+                date: end,
+                paymentMethod: expense.paymentMethod,
+                status: 'approved',
+                createdBy: req.user?.id
+              },
+              { transaction }
+            )
+          } catch (e) {
+            console.error('Salary journal posting skipped:', e.message)
+          }
+
+          created += 1
+        }
+      })
 
       createAudit(
         req,
@@ -1161,7 +1176,7 @@ const expenseController = {
       return res.status(201).json({
         success: true,
         message: `Penggajian ${monthLabel}: ${created} dibuat, ${skipped} dilewati (sudah ada)`,
-        data: { created, skipped, categoryId: category.id }
+        data: { created, skipped, categoryId }
       })
     } catch (error) {
       console.log(error)

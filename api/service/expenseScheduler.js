@@ -1,29 +1,10 @@
 'use strict'
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { generateExpenseNumber, addInterval } = require('../../utils/expenseUtil')
 
 let timer = null
 let running = false
-
-const generateExpenseNumber = () => {
-  const date = new Date()
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const random = Math.floor(Math.random() * 10000)
-    .toString()
-    .padStart(4, '0')
-  return `EXP-${year}${month}${day}-${random}`
-}
-
-const addInterval = (date, frequency) => {
-  const d = new Date(date)
-  if (frequency === 'daily') d.setDate(d.getDate() + 1)
-  else if (frequency === 'weekly') d.setDate(d.getDate() + 7)
-  else if (frequency === 'monthly') d.setMonth(d.getMonth() + 1)
-  else if (frequency === 'yearly') d.setFullYear(d.getFullYear() + 1)
-  return d
-}
 
 const MAX_GENERATIONS_PER_TEMPLATE = 30
 
@@ -50,62 +31,73 @@ async function generateDueRecurringExpenses() {
       guard += 1
       const due = new Date(tpl.nextDueDate)
 
-      const child = await db.expense.create({
-        store: tpl.store,
-        expenseNumber: generateExpenseNumber(),
-        category: tpl.category,
-        description: tpl.description,
-        amount: tpl.amount,
-        date: due,
-        paymentMethod: tpl.paymentMethod,
-        notes: tpl.notes
-          ? `${tpl.notes}\nOtomatis (berulang)`
-          : 'Otomatis (berulang)',
-        payee: tpl.payee,
-        employeeId: tpl.employeeId,
-        status: 'approved',
-        frequency: null,
-        parentId: tpl.id,
-        nextDueDate: null,
-        recurringEndDate: null,
-        createdBy: null
+      await db.sequelize.transaction(async (transaction) => {
+        const child = await db.expense.create(
+          {
+            store: tpl.store,
+            expenseNumber: generateExpenseNumber(),
+            category: tpl.category,
+            description: tpl.description,
+            amount: tpl.amount,
+            date: due,
+            paymentMethod: tpl.paymentMethod,
+            notes: tpl.notes
+              ? `${tpl.notes}\nOtomatis (berulang)`
+              : 'Otomatis (berulang)',
+            payee: tpl.payee,
+            employeeId: tpl.employeeId,
+            status: 'approved',
+            frequency: null,
+            parentId: tpl.id,
+            nextDueDate: null,
+            recurringEndDate: null,
+            createdBy: null
+          },
+          { transaction }
+        )
+
+        try {
+          const { postExpenseJournal } = require('../service/accountingService')
+          const category = await db.expense_category.findOne(
+            {
+              where: { id: tpl.category || null }
+            },
+            { transaction }
+          )
+          await postExpenseJournal(
+            {
+              store: tpl.store,
+              expenseId: child.id,
+              expenseNumber: child.expenseNumber,
+              category:
+                category?.name || tpl.description || child.expenseNumber || null,
+              categoryAccountCode: category?.accountCode || null,
+              amount: child.amount,
+              date: due,
+              paymentMethod: child.paymentMethod,
+              createdBy: null
+            },
+            { transaction }
+          )
+        } catch (e) {
+          console.error('Recurring expense journal skipped:', e.message)
+        }
+
+        tpl.nextDueDate = addInterval(due, tpl.frequency)
+        if (
+          tpl.recurringEndDate &&
+          tpl.nextDueDate &&
+          new Date(tpl.nextDueDate) > new Date(tpl.recurringEndDate)
+        ) {
+          tpl.nextDueDate = null
+        }
+        await tpl.save({ transaction })
       })
 
-      try {
-        const { postExpenseJournal } = require('../service/accountingService')
-        const category = await db.expense_category.findOne({
-          where: { id: tpl.category || null }
-        })
-        await postExpenseJournal({
-          store: tpl.store,
-          expenseId: child.id,
-          expenseNumber: child.expenseNumber,
-          category:
-            category?.name || tpl.description || child.expenseNumber || null,
-          categoryAccountCode: category?.accountCode || null,
-          amount: child.amount,
-          date: due,
-          paymentMethod: child.paymentMethod,
-          createdBy: null
-        })
-      } catch (e) {
-        console.error('Recurring expense journal skipped:', e.message)
-      }
-
-      tpl.nextDueDate = addInterval(due, tpl.frequency)
       generated += 1
     }
 
-    if (
-      tpl.recurringEndDate &&
-      tpl.nextDueDate &&
-      new Date(tpl.nextDueDate) > new Date(tpl.recurringEndDate)
-    ) {
-      tpl.nextDueDate = null
-    }
-
     if (generated > 0) {
-      await tpl.save()
       console.log(
         `Recurring expense ${tpl.expenseNumber}: generated ${generated} expense(s)`
       )
