@@ -7,7 +7,10 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
   createExpenseSchema,
-  updateExpenseSchema
+  updateExpenseSchema,
+  bulkCreateExpensesSchema,
+  generateSalarySchema,
+  markExpensePaidSchema
 } = require('../validation/schemas')
 
 // Get expenses - All authenticated users
@@ -29,6 +32,12 @@ router.get(
   validateStoreAccess,
   expenseController.getSummary
 )
+router.get(
+  '/upcoming-payments',
+  authorization,
+  validateStoreAccess,
+  expenseController.getUpcomingPayments
+)
 
 // Create/Edit/Delete expense - Admin & Super Admin only
 router.post(
@@ -46,6 +55,16 @@ router.put(
   requireRole('super_admin', 'admin'),
   validate(updateExpenseSchema),
   expenseController.update
+)
+
+// Atomic bulk create (single transaction) - Admin & Super Admin only
+router.post(
+  '/bulk-create',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(bulkCreateExpensesSchema),
+  expenseController.bulkCreate
 )
 router.delete(
   '/delete/:id',
@@ -69,6 +88,33 @@ router.put(
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
   expenseController.reject
+)
+
+// Mark expense as paid/unpaid - Admin & Super Admin only
+router.put(
+  '/mark-paid/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(markExpensePaidSchema),
+  expenseController.markPaid
+)
+router.put(
+  '/mark-unpaid/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  expenseController.markUnpaid
+)
+
+// Generate salary expenses - Admin & Super Admin only
+router.post(
+  '/generate-salary',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(generateSalarySchema),
+  expenseController.generateSalary
 )
 
 module.exports = router

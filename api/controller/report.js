@@ -162,13 +162,40 @@ exports.getProfitLoss = async (req, res) => {
       { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
 
+    // Aggregate approved operating expenses in the period
+    const expReplacements = {}
+    let expConditions = `"status" = 'approved'`
+    if (store) {
+      expConditions += ` AND "store" = :store`
+      expReplacements.store = store
+    }
+    if (startDate) {
+      expConditions += ` AND "date" >= :startDate`
+      expReplacements.startDate = replacements.startDate
+    }
+    if (endDate) {
+      expConditions += ` AND "date" <= :endDate`
+      expReplacements.endDate = replacements.endDate
+    }
+
+    const [expAgg] = await db.sequelize.query(
+      `SELECT COALESCE(SUM("amount"), 0) as "totalExpense"
+       FROM expense
+       WHERE ${expConditions}`,
+      { replacements: expReplacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+
     const totalRevenue = Number(orderAgg.totalRevenue || 0)
     const totalDiscount = Number(orderAgg.totalDiscount || 0)
     const netRevenue = totalRevenue - totalDiscount
     const totalHpp = Number(hppAgg.totalHpp || 0)
     const grossProfit = netRevenue - totalHpp
+    const totalExpense = Number(expAgg.totalExpense || 0)
+    const netProfit = grossProfit - totalExpense
     const marginPersen =
       netRevenue > 0 ? Math.round((grossProfit / netRevenue) * 10000) / 100 : 0
+    const netMarginPersen =
+      netRevenue > 0 ? Math.round((netProfit / netRevenue) * 10000) / 100 : 0
 
     res.json({
       success: true,
@@ -178,7 +205,10 @@ exports.getProfitLoss = async (req, res) => {
         netRevenue,
         totalHpp,
         grossProfit,
-        marginPersen
+        totalExpense,
+        netProfit,
+        marginPersen,
+        netMarginPersen
       }
     })
   } catch (err) {

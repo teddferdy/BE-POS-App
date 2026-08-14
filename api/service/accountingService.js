@@ -414,17 +414,27 @@ async function reverseOrderJournals({ store, orderId, orderNumber, date, created
   }
 }
 
-async function postExpenseJournal({ store, expenseId, expenseNumber, category, amount, date, createdBy }) {
+const payoutAccountCode = (paymentMethod) => {
+  const method = String(paymentMethod || 'cash').toLowerCase()
+  return method === 'cash' ? '1000' : '1400'
+}
+
+const payoutAccountName = (paymentMethod) => {
+  const method = String(paymentMethod || 'cash').toLowerCase()
+  return method === 'cash' ? 'Cash' : 'Bank & E-Wallet'
+}
+
+async function postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy }) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
-  const expenseAcc = await findOrCreateAccount(store, '6000', {
-    name: 'Operating Expenses',
+  const expenseAcc = await findOrCreateAccount(store, categoryAccountCode || '6000', {
+    name: category || 'Operating Expenses',
     type: 'expense',
     normalBalance: 'debit'
   })
-  const cashAcc = await findOrCreateAccount(store, '1000')
-  if (!expenseAcc || !cashAcc) return null
+  const payoutAcc = await findOrCreateAccount(store, payoutAccountCode(paymentMethod))
+  if (!expenseAcc || !payoutAcc) return null
 
   return createJournalEntry({
     store,
@@ -434,10 +444,82 @@ async function postExpenseJournal({ store, expenseId, expenseNumber, category, a
     referenceId: expenseId,
     lines: [
       { account: expenseAcc.id, debit: amt, credit: 0, description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim() },
-      { account: cashAcc.id, debit: 0, credit: amt, description: `Payment for ${expenseNumber || 'expense'}` }
+      { account: payoutAcc.id, debit: 0, credit: amt, description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}` }
     ],
     createdBy
   })
+}
+
+// Rewrites the existing expense journal entry (amount, accounts, date) in place.
+// Falls back to posting a new entry when none exists yet.
+async function updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy }) {
+  const amt = toNumber(amount)
+  if (amt <= 0) return null
+
+  const existing = await db.journal_entry.findOne({
+    where: { store, sourceType: 'expense', referenceId: expenseId }
+  })
+  if (!existing) {
+    return postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy })
+  }
+
+  const expenseAcc = await findOrCreateAccount(store, categoryAccountCode || '6000', {
+    name: category || 'Operating Expenses',
+    type: 'expense',
+    normalBalance: 'debit'
+  })
+  const payoutAcc = await findOrCreateAccount(store, payoutAccountCode(paymentMethod))
+  if (!expenseAcc || !payoutAcc) return null
+
+  await db.journal_entry_line.destroy({ where: { journalEntry: existing.id } })
+  await db.journal_entry_line.create({
+    journalEntry: existing.id,
+    account: expenseAcc.id,
+    debit: amt,
+    credit: 0,
+    description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim(),
+    createdBy
+  })
+  await db.journal_entry_line.create({
+    journalEntry: existing.id,
+    account: payoutAcc.id,
+    debit: 0,
+    credit: amt,
+    description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}`,
+    createdBy
+  })
+  await existing.update({
+    date: date ? new Date(date) : existing.date,
+    description: `Expense ${expenseNumber || ''}`.trim(),
+    totalDebit: amt,
+    totalCredit: amt,
+    modifiedBy: createdBy
+  })
+  return existing
+}
+
+// Removes the journal entry (+ lines) tied to an expense so the ledger no
+// longer reflects it (used when an approved expense is reverted/edited/deleted).
+async function deleteExpenseJournal({ store, expenseId, createdBy }) {
+  const existing = await db.journal_entry.findOne({
+    where: { store, sourceType: 'expense', referenceId: expenseId }
+  })
+  if (!existing) return null
+  await db.journal_entry_line.destroy({ where: { journalEntry: existing.id } })
+  await existing.update({ modifiedBy: createdBy })
+  await existing.destroy()
+  return true
+}
+
+// Keeps the ledger consistent with the expense's current state:
+// approved  -> post (or rewrite) the journal entry
+// otherwise -> remove any existing journal entry
+async function syncExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, status, createdBy }) {
+  if (!store || !expenseId) return null
+  if (status === 'approved') {
+    return updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy })
+  }
+  return deleteExpenseJournal({ store, expenseId, createdBy })
 }
 
 module.exports = {
@@ -454,5 +536,8 @@ module.exports = {
   postPurchaseReturnJournal,
   postSalesReturnJournal,
   reverseOrderJournals,
-  postExpenseJournal
+  postExpenseJournal,
+  updateExpenseJournal,
+  deleteExpenseJournal,
+  syncExpenseJournal
 }
