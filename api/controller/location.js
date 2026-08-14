@@ -1,6 +1,7 @@
 const { Op } = require('sequelize')
 const db = require('../../db/models')
 const Location = db.location
+const Region = db.region
 const sequelize = db.sequelize
 const User = db.user
 const BestSelling = db.best_selling
@@ -139,6 +140,30 @@ exports.getAllLocationInTable = async (req, res) => {
 
     await enrichAuditFields(db, locations)
 
+    // Resolve region codes (province/city/district/village) to their names
+    const regionCodes = []
+    for (const loc of locations) {
+      if (loc.province) regionCodes.push(['province', loc.province])
+      if (loc.city) regionCodes.push(['city', loc.city])
+      if (loc.district) regionCodes.push(['district', loc.district])
+      if (loc.village) regionCodes.push(['village', loc.village])
+    }
+    const regionNameMap = {}
+    if (regionCodes.length) {
+      const regions = await Region.findAll({
+        where: {
+          [Op.or]: regionCodes.map(([level, code]) => ({ level, code }))
+        },
+        attributes: ['level', 'code', 'name'],
+        raw: true
+      })
+      for (const r of regions) {
+        regionNameMap[`${r.level}:${r.code}`] = r.name
+      }
+    }
+    const nameFor = (level, code) =>
+      code ? regionNameMap[`${level}:${code}`] || code : null
+
     const data = locations.map((loc) => ({
       id: `loc-${String(loc.id).padStart(3, '0')}`,
       storeId: `ST-${String(loc.id).padStart(3, '0')}`,
@@ -149,9 +174,14 @@ exports.getAllLocationInTable = async (req, res) => {
       image: loc.image,
       isActive: loc.status === 'active',
       status: loc.status,
-      city: loc.city,
       province: loc.province,
+      provinceName: nameFor('province', loc.province),
+      city: loc.city,
+      cityName: nameFor('city', loc.city),
       district: loc.district,
+      districtName: nameFor('district', loc.district),
+      village: loc.village,
+      villageName: nameFor('village', loc.village),
       postalCode: loc.postalCode,
       category: loc.category || 'Main Branch',
       managerName: loc.managerName,

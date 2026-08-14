@@ -70,6 +70,7 @@ const reportingRoutes = require('./routes/reporting')
 const inventoryRoutes = require('./routes/inventory')
 const thermalPrinterRoutes = require('./routes/thermalPrinter')
 const goodsRequestRoutes = require('./routes/goodsRequest')
+const regionRoutes = require('./routes/region')
 
 const app = express()
 const server = http.createServer(app)
@@ -191,7 +192,8 @@ const routes = [
   { path: '/inventory', route: inventoryRoutes },
   { path: '/thermal-printer', route: thermalPrinterRoutes },
   { path: '/backup', route: backupRoutes },
-  { path: '/accounting', route: accountingRoutes }
+  { path: '/accounting', route: accountingRoutes },
+  { path: '/regions', route: regionRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
@@ -383,6 +385,8 @@ if (!process.env.VERCEL) {
   })
   const { startBackupScheduler } = require('./service/backupScheduler')
   startBackupScheduler()
+  const { startExpenseScheduler } = require('./service/expenseScheduler')
+  startExpenseScheduler()
 }
 
 module.exports = app

@@ -30,7 +30,8 @@ async function enrichAuditFields(db, records) {
   if (idSet.size > 0) {
     const users = await db.user.findAll({
       where: { id: { [Op.in]: [...idSet] } },
-      attributes: USER_ATTRS
+      attributes: USER_ATTRS,
+      paranoid: false
     })
     users.forEach((u) => {
       usersById.set(String(u.id), {
@@ -44,7 +45,8 @@ async function enrichAuditFields(db, records) {
   if (userNameSet.size > 0) {
     const users = await db.user.findAll({
       where: { userName: { [Op.in]: [...userNameSet] } },
-      attributes: USER_ATTRS
+      attributes: USER_ATTRS,
+      paranoid: false
     })
     users.forEach((u) => {
       usersByUserName.set(String(u.userName), {

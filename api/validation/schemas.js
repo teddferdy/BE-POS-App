@@ -546,13 +546,67 @@ exports.createExpenseSchema = z.object({
   description: z.string().optional().nullable(),
   date: z.string().optional(),
   notes: z.string().optional().default(''),
+  payee: z.string().optional().nullable(),
+  employeeId: strToNum().optional().nullable(),
+  paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
+  frequency: z
+    .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
+    .optional()
+    .nullable()
+    .transform((v) => (v === 'once' ? null : v)),
+  recurringEndDate: z.string().optional().nullable(),
   status: z
     .enum(['draft', 'pending', 'approved', 'rejected'])
     .optional()
     .default('pending')
-})
+}).passthrough()
 
 exports.updateExpenseSchema = exports.createExpenseSchema.partial()
+
+exports.bulkCreateExpensesSchema = z.object({
+  store: strToNum().optional().nullable(),
+  items: z
+    .array(
+      z
+        .object({
+          store: strToNum().optional().nullable(),
+          categoryId: strToNum().optional().nullable(),
+          category: strToNum().optional().nullable(),
+          amount: strToNum().optional().nullable(),
+          description: z.string().optional().nullable(),
+          date: z.string().optional(),
+          notes: z.string().optional().default(''),
+          payee: z.string().optional().nullable(),
+          employeeId: strToNum().optional().nullable(),
+          paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
+          frequency: z
+            .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
+            .optional()
+            .nullable()
+            .transform((v) => (v === 'once' ? null : v)),
+          recurringEndDate: z.string().optional().nullable(),
+          status: z
+            .enum(['draft', 'pending', 'approved', 'rejected'])
+            .optional()
+            .default('pending')
+        })
+        .passthrough()
+    )
+    .min(1, 'At least one expense item is required')
+}).passthrough()
+
+exports.generateSalarySchema = z.object({
+  store: strToNum().optional().nullable(),
+  month: z.string().optional().default(''),
+  employeeIds: z.array(strToNum()).optional().default([]),
+  paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().default('cash')
+}).passthrough()
+
+exports.markExpensePaidSchema = z.object({
+  paymentDate: z.string().optional().nullable(),
+  paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
+  note: z.string().optional().nullable()
+}).passthrough()
 
 // ===================== Member =====================
 exports.createMemberSchema = z.object({
@@ -778,6 +832,7 @@ exports.createExpenseCategorySchema = z.object({
   name: z.string().min(1, 'name is required'),
   description: z.string().optional().default(''),
   icon: z.string().optional().default(''),
+  accountCode: z.string().optional().default(''),
   status: statusEnum
 })
 exports.updateExpenseCategorySchema =

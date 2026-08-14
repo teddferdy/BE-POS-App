@@ -22,6 +22,9 @@ module.exports = (sequelize, DataTypes) => {
       icon: {
         type: DataTypes.STRING
       },
+      accountCode: {
+        type: DataTypes.STRING(20)
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'active'

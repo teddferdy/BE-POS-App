@@ -1253,6 +1253,786 @@ const posController = {
     }
   },
 
+  // Super Admin global dashboard — multi-store, payments, finance, operations, customers, activity
+  async getSuperAdminDashboard(req, res) {
+    try {
+      const userRole = req.user?.roleType
+      if (userRole !== 'super_admin') {
+        return res.status(403).json({ success: false, message: 'Forbidden' })
+      }
+
+      const store = req.storeId || null
+      let { startDate, endDate } = req.query
+
+      // Default: current month
+      const now = new Date()
+      if (!startDate) {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+      }
+      if (!endDate) {
+        endDate = new Date(
+          now.getFullYear(),
+          now.getMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999
+        ).toISOString()
+      }
+
+      const storeCond = store ? ' AND "store" = :store' : ''
+      const storeCondAlias = store ? ' AND o."store" = :store' : ''
+      const storeCondPP = store ? ' AND pp."store" = :store' : ''
+      const storeCondE = store ? ' AND e."store" = :store' : ''
+      const replacements = { startDate, endDate }
+      if (store) replacements.store = store
+
+      const startDay = startDate.slice(0, 10)
+      const endDay = endDate.slice(0, 10)
+      const today = new Date()
+      const todayStr = today.toISOString().slice(0, 10)
+
+      const stores = await db.location.findAll({
+        where: { status: 'active' },
+        attributes: [
+          'id',
+          'name',
+          'city',
+          'province',
+          'dailyTarget',
+          'managerName',
+          'status'
+        ],
+        order: [['name', 'ASC']]
+      })
+      const storeList = stores.map((s) => s.toJSON())
+      const storeNameMap = {}
+      storeList.forEach((s) => {
+        storeNameMap[s.id] = s.name
+      })
+
+      const [
+        kpiRow,
+        storeSalesRows,
+        dailySalesRows,
+        paymentMethodRows,
+        dailyInflowRows,
+        expenseRows,
+        expenseCatRows,
+        dailyExpenseRows,
+        totalExpenseRow,
+        apPaymentsRow,
+        apOutstandingRows,
+        apOutstandingTotals,
+        arRows,
+        arByCustomer,
+        memberRow,
+        tierRows,
+        topMembers,
+        lowStockProducts,
+        lowStockIngredients,
+        stockValueRows,
+        productionRows,
+        cashRegisterRows,
+        queueRow,
+        reservationRow,
+        recentOrders,
+        recentInPayments,
+        recentOutPayments,
+        recentAudit,
+        prevSalesRow
+      ] = await Promise.all([
+        // 1. KPI aggregate (paid orders in range)
+        db.sequelize.query(
+          `SELECT
+             COALESCE(SUM("totalPrice"),0)::int as revenue,
+             COUNT(*)::int as orders,
+             COALESCE(SUM("totalQuantity"),0)::int as itemsSold,
+             COALESCE(SUM("discountAmount"),0)::int as discount,
+             COALESCE(SUM("taxAmount"),0)::int as tax,
+             COALESCE(SUM("serviceChargeAmount"),0)::int as serviceCharge
+           FROM "order"
+           WHERE "paymentStatus" = 'paid'
+             AND "deletedAt" IS NULL
+             AND "createdAt" >= :startDate AND "createdAt" <= :endDate
+             ${storeCond}`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 2. Per-store sales aggregation
+        db.sequelize.query(
+          `SELECT o."store" as "storeId",
+             COALESCE(SUM(o."totalPrice"),0)::int as revenue,
+             COUNT(DISTINCT o.id)::int as orders,
+             COALESCE(SUM(o."totalQuantity"),0)::int as itemsSold,
+             COALESCE(SUM(o."discountAmount"),0)::int as discount,
+             COALESCE(SUM(o."taxAmount"),0)::int as tax
+           FROM "order" o
+           WHERE o."paymentStatus" = 'paid'
+             AND o."deletedAt" IS NULL
+             AND o."createdAt" >= :startDate AND o."createdAt" <= :endDate
+             ${storeCondAlias}
+           GROUP BY o."store"`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 3. Daily sales trend
+        db.sequelize.query(
+          `SELECT DATE(o."createdAt") as date,
+             COALESCE(SUM(o."totalPrice"),0)::int as revenue,
+             COUNT(DISTINCT o.id)::int as orders,
+             COALESCE(SUM(o."totalQuantity"),0)::int as itemsSold
+           FROM "order" o
+           WHERE o."paymentStatus" = 'paid'
+             AND o."deletedAt" IS NULL
+             AND o."createdAt" >= :startDate AND o."createdAt" <= :endDate
+             ${storeCondAlias}
+           GROUP BY DATE(o."createdAt")
+           ORDER BY date ASC`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 4. Payment method breakdown (from transaction records)
+        db.sequelize.query(
+          `SELECT t."typePayment" as method,
+             COUNT(*)::int as count,
+             COALESCE(SUM(t.amount),0)::int as amount
+           FROM "transaction" t
+           JOIN "order" o ON o.id = t."order"
+           WHERE o."paymentStatus" = 'paid'
+             AND o."deletedAt" IS NULL
+             AND t."deletedAt" IS NULL
+             AND o."createdAt" >= :startDate AND o."createdAt" <= :endDate
+             ${storeCondAlias}
+           GROUP BY t."typePayment"
+           ORDER BY amount DESC`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 5. Daily incoming payment (cashflow inflow)
+        db.sequelize.query(
+          `SELECT DATE(o."createdAt") as date,
+             COALESCE(SUM(t.amount),0)::int as inflow
+           FROM "transaction" t
+           JOIN "order" o ON o.id = t."order"
+           WHERE o."paymentStatus" = 'paid'
+             AND o."deletedAt" IS NULL
+             AND t."deletedAt" IS NULL
+             AND o."createdAt" >= :startDate AND o."createdAt" <= :endDate
+             ${storeCondAlias}
+           GROUP BY DATE(o."createdAt")`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 6. Expense per store
+        db.sequelize.query(
+          `SELECT e."store" as "storeId",
+             COALESCE(SUM(e.amount),0)::int as expense,
+             COUNT(*)::int as count
+           FROM "expense" e
+           WHERE e.status = 'approved'
+             AND e."deletedAt" IS NULL
+             AND e."date" >= :startDate AND e."date" <= :endDate
+             ${storeCond}
+           GROUP BY e."store"`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 7. Expense by category
+        db.sequelize.query(
+          `SELECT COALESCE(ec.name, 'Lainnya') as category,
+             COALESCE(SUM(e.amount),0)::int as amount,
+             COUNT(*)::int as count
+           FROM "expense" e
+           LEFT JOIN "expense_category" ec ON ec.id = e.category
+           WHERE e.status = 'approved'
+             AND e."deletedAt" IS NULL
+             AND e."date" >= :startDate AND e."date" <= :endDate
+             ${storeCondE}
+           GROUP BY ec.name
+           ORDER BY amount DESC`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 8. Daily expense (cashflow outflow)
+        db.sequelize.query(
+          `SELECT DATE(e."date") as date,
+             COALESCE(SUM(e.amount),0)::int as outflow
+           FROM "expense" e
+           WHERE e.status = 'approved'
+             AND e."deletedAt" IS NULL
+             AND e."date" >= :startDate AND e."date" <= :endDate
+             ${storeCond}
+           GROUP BY DATE(e."date")`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 9. Total expense
+        db.sequelize.query(
+          `SELECT COALESCE(SUM(amount),0)::int as amount
+           FROM "expense"
+           WHERE status = 'approved'
+             AND "deletedAt" IS NULL
+             AND "date" >= :startDate AND "date" <= :endDate
+             ${storeCond}`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 10. AP payments (outflow) in range — grouped by day
+        db.sequelize.query(
+          `SELECT "paymentDate" as date,
+             COALESCE(SUM(amount),0)::int as amount,
+             COUNT(*)::int as count
+           FROM "purchase_payment"
+           WHERE "deletedAt" IS NULL
+             AND "paymentDate" >= :startDay AND "paymentDate" <= :endDay
+             ${storeCond}
+           GROUP BY "paymentDate"
+           ORDER BY date ASC`,
+          {
+            replacements: { ...replacements, startDay, endDay },
+            type: db.sequelize.QueryTypes.SELECT
+          }
+        ),
+        // 11. Outstanding AP by PO
+        db.sequelize.query(
+          `SELECT po.id, po."orderNumber", po.store, po."finalAmount",
+             po."dueDate", po.status,
+             COALESCE(SUM(pp.amount),0)::int as paid
+           FROM "purchase_order" po
+           LEFT JOIN "purchase_payment" pp
+             ON pp."purchaseOrder" = po.id AND pp."deletedAt" IS NULL
+           WHERE po.status NOT IN ('cancelled','draft')
+             AND po."deletedAt" IS NULL
+             ${store ? ' AND po."store" = :store' : ''}
+           GROUP BY po.id
+           HAVING po."finalAmount" > COALESCE(SUM(pp.amount),0)
+           ORDER BY (po."finalAmount" - COALESCE(SUM(pp.amount),0)) DESC`,
+          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 12. AP total summary
+        db.sequelize.query(
+          `SELECT COUNT(*)::int as count,
+             COALESCE(SUM(po."finalAmount" - COALESCE((SELECT SUM(pp2.amount) FROM "purchase_payment" pp2 WHERE pp2."purchaseOrder" = po.id AND pp2."deletedAt" IS NULL),0)),0)::int as outstanding,
+             COALESCE(SUM((SELECT COALESCE(SUM(pp3.amount),0) FROM "purchase_payment" pp3 WHERE pp3."purchaseOrder" = po.id AND pp3."deletedAt" IS NULL)),0)::int as paid
+           FROM "purchase_order" po
+           WHERE po.status NOT IN ('cancelled','draft')
+             AND po."deletedAt" IS NULL
+             ${store ? ' AND po."store" = :store' : ''}
+           HAVING SUM(po."finalAmount" - COALESCE((SELECT SUM(pp2.amount) FROM "purchase_payment" pp2 WHERE pp2."purchaseOrder" = po.id AND pp2."deletedAt" IS NULL),0)) > 0`,
+          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 13. AR outstanding summary
+        db.sequelize.query(
+          `SELECT COALESCE(SUM("outstandingAmount"),0)::int as outstanding,
+             COUNT(*)::int as count
+           FROM "accounts_receivable"
+           WHERE status NOT IN ('PAID','CANCELLED')
+             AND "deletedAt" IS NULL
+             ${storeCond}`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 14. AR by customer
+        db.sequelize.query(
+          `SELECT "customerName" as customer,
+             COALESCE(SUM("outstandingAmount"),0)::int as outstanding,
+             COUNT(*)::int as count
+           FROM "accounts_receivable"
+           WHERE status NOT IN ('PAID','CANCELLED')
+             AND "deletedAt" IS NULL
+             ${storeCond}
+           GROUP BY "customerName"
+           ORDER BY outstanding DESC
+           LIMIT 8`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 15. Member totals
+        db.sequelize.query(
+          `SELECT COUNT(*)::int as total,
+             COALESCE(COUNT(*) FILTER (WHERE "createdAt" >= :startDate AND "createdAt" <= :endDate),0)::int as "newMembers"
+           FROM "member"
+           WHERE "deletedAt" IS NULL
+             ${storeCond}`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 16. Member tier distribution
+        db.sequelize.query(
+          `SELECT COALESCE(mt.name, 'Tanpa Tier') as tier,
+             COUNT(m.id)::int as count
+           FROM "member" m
+           LEFT JOIN "member_tier" mt ON mt.id = m.tier
+           WHERE m."deletedAt" IS NULL
+             ${store ? ' AND m."store" = :store' : ''}
+           GROUP BY mt.name
+           ORDER BY count DESC`,
+          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 17. Top members by spend
+        db.sequelize.query(
+          `SELECT o."customerId" as id, m.name, m."phoneNumber",
+             COALESCE(SUM(o."totalPrice"),0)::int as "totalSpend",
+             COUNT(DISTINCT o.id)::int as "orderCount"
+           FROM "order" o
+           JOIN "member" m ON m.id = o."customerId" AND m."deletedAt" IS NULL
+           WHERE o."paymentStatus" = 'paid'
+             AND o."deletedAt" IS NULL
+             AND o."customerId" IS NOT NULL
+             AND o."createdAt" >= :startDate AND o."createdAt" <= :endDate
+             ${storeCondAlias}
+           GROUP BY o."customerId", m.name, m."phoneNumber"
+           ORDER BY "totalSpend" DESC
+           LIMIT 5`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 18. Low stock products
+        db.sequelize.query(
+          `SELECT 'product' as type, p.id, p."nameProduct" as name,
+             NULL as store, p.stock, p."minStock", p.unit
+           FROM "product" p
+           WHERE p.status = 'active'
+             AND p."deletedAt" IS NULL
+             AND p."minStock" > 0
+             AND p."stock" <= p."minStock"
+           ORDER BY (p."minStock" - p.stock) DESC
+           LIMIT 10`,
+          { type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 19. Low stock ingredients
+        db.sequelize.query(
+          `SELECT 'ingredient' as type, i.id, i.name,
+             i.store, i.stock, i."minStock", i.unit
+           FROM "ingredient" i
+           WHERE i.status = 'active'
+             AND i."deletedAt" IS NULL
+             AND i."minStock" > 0
+             AND i."stock" <= i."minStock"
+             ${store ? ' AND i."store" = :store' : ''}
+           ORDER BY (i."minStock" - i.stock) DESC
+           LIMIT 10`,
+          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 20. Stock value (products + ingredients)
+        db.sequelize.query(
+          `SELECT
+             (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "product" WHERE status='active' AND "deletedAt" IS NULL) as productValue,
+             (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "ingredient" WHERE status='active' AND "deletedAt" IS NULL ${store ? ' AND "store" = :store' : ''}) as ingredientValue`,
+          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 21. Production status counts
+        db.sequelize.query(
+          `SELECT status, COUNT(*)::int as count
+           FROM "production_order"
+           WHERE "deletedAt" IS NULL
+             ${storeCond}
+           GROUP BY status`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 22. Cash register status
+        db.sequelize.query(
+          `SELECT status, COUNT(*)::int as count,
+             COALESCE(SUM("totalSales"),0)::int as "totalSales"
+           FROM "cash_register"
+           WHERE "deletedAt" IS NULL
+             ${storeCond}
+           GROUP BY status`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 23. Queue waiting (global)
+        db.sequelize.query(
+          `SELECT COUNT(*)::int as count
+           FROM "queue"
+           WHERE status IN ('waiting','seated')
+             AND "deletedAt" IS NULL
+             AND "checkedInAt" >= :startDate`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 24. Reservation today
+        db.sequelize.query(
+          `SELECT COUNT(*)::int as count
+           FROM "reservation"
+           WHERE "reservationDate" = :todayStr
+             AND status NOT IN ('cancelled','no_show')
+             AND "deletedAt" IS NULL
+             ${storeCond}`,
+          { replacements: { ...replacements, todayStr }, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 25. Recent orders
+        db.sequelize.query(
+          `SELECT o.id, o."orderNumber", o.store, o."cashierName",
+             o."totalPrice", o.status, o."paymentMethod", o."createdAt",
+             l.name as "storeName"
+           FROM "order" o
+           LEFT JOIN "location" l ON l.id = o.store
+           WHERE o."deletedAt" IS NULL
+             ${storeCondAlias}
+           ORDER BY o."createdAt" DESC
+           LIMIT 8`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 26. Recent incoming payments (checkout transactions)
+        db.sequelize.query(
+          `SELECT t.id, 'in' as type, o."orderNumber" as ref,
+             t.amount, t."typePayment" as method, o."createdAt" as date,
+             o.store, COALESCE(o."customerName", o."cashierName", '-') as party, o."cashierName"
+           FROM "transaction" t
+           JOIN "order" o ON o.id = t."order"
+           WHERE t."deletedAt" IS NULL
+             AND o."deletedAt" IS NULL
+             ${storeCondAlias}
+           ORDER BY t."createdAt" DESC
+           LIMIT 6`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 27. Recent outgoing payments (AP payments)
+        db.sequelize.query(
+          `SELECT pp.id, 'out' as type, po."orderNumber" as ref,
+             pp.amount, pp."paymentMethod" as method, pp."paymentDate" as date,
+             pp.store, COALESCE(s.name, '-') as party, NULL as "cashierName"
+           FROM "purchase_payment" pp
+           LEFT JOIN "purchase_order" po ON po.id = pp."purchaseOrder"
+           LEFT JOIN "supplier" s ON s.id = pp."supplier"
+           WHERE pp."deletedAt" IS NULL
+             ${storeCondPP}
+           ORDER BY pp."createdAt" DESC
+           LIMIT 6`,
+          { replacements, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 28. Recent audit log
+        db.sequelize.query(
+          `SELECT id, action, entity, "entityId", description, "userName", store, "createdAt"
+           FROM "auditLog"
+           ${store ? 'WHERE store = :store' : ''}
+           ORDER BY "createdAt" DESC
+           LIMIT 8`,
+          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+        ),
+        // 29-32. Previous period comparisons
+        (async () => {
+          const rangeMs = new Date(endDate).getTime() - new Date(startDate).getTime()
+          const prevEnd = new Date(new Date(startDate).getTime() - 1)
+          const prevStart = new Date(prevEnd.getTime() - rangeMs)
+          const prevRepl = { ...replacements, pStart: prevStart.toISOString(), pEnd: prevEnd.toISOString() }
+          const [sales, orders, expense, members] = await Promise.all([
+            db.sequelize.query(
+              `SELECT COALESCE(SUM("totalPrice"),0)::int as revenue
+               FROM "order" WHERE "paymentStatus"='paid' AND "deletedAt" IS NULL
+                 AND "createdAt" >= :pStart AND "createdAt" <= :pEnd ${storeCond}`,
+              { replacements: prevRepl, type: db.sequelize.QueryTypes.SELECT }
+            ),
+            db.sequelize.query(
+              `SELECT COUNT(*)::int as orders
+               FROM "order" WHERE "paymentStatus"='paid' AND "deletedAt" IS NULL
+                 AND "createdAt" >= :pStart AND "createdAt" <= :pEnd ${storeCond}`,
+              { replacements: prevRepl, type: db.sequelize.QueryTypes.SELECT }
+            ),
+            db.sequelize.query(
+              `SELECT COALESCE(SUM(amount),0)::int as amount
+               FROM "expense" WHERE status='approved' AND "deletedAt" IS NULL
+                 AND "date" >= :pStart AND "date" <= :pEnd ${storeCond}`,
+              { replacements: prevRepl, type: db.sequelize.QueryTypes.SELECT }
+            ),
+            db.sequelize.query(
+              `SELECT COUNT(*)::int as total
+               FROM "member" WHERE "deletedAt" IS NULL
+                 AND "createdAt" >= :pStart AND "createdAt" <= :pEnd ${storeCond}`,
+              { replacements: prevRepl, type: db.sequelize.QueryTypes.SELECT }
+            )
+          ])
+          return {
+            prevRevenue: sales[0]?.revenue || 0,
+            prevOrders: orders[0]?.orders || 0,
+            prevExpense: expense[0]?.amount || 0,
+            prevNewMembers: members[0]?.total || 0
+          }
+        })()
+      ])
+
+      // ---- Assemble ----
+      const kpi = kpiRow[0] || {}
+      const revenue = Number(kpi.revenue || 0)
+      const orders = Number(kpi.orders || 0)
+      const totalExpense = Number(totalExpenseRow[0]?.amount || 0)
+      const totalMembers = Number(memberRow[0]?.total || 0)
+      const newMembers = Number(memberRow[0]?.newMembers || 0)
+
+      const storeSalesMap = {}
+      storeSalesRows.forEach((r) => {
+        storeSalesMap[r.storeId] = r
+      })
+      const expenseStoreMap = {}
+      expenseRows.forEach((r) => {
+        expenseStoreMap[r.storeId] = { expense: Number(r.expense || 0), count: r.count }
+      })
+
+      const storePerformance = storeList.map((s) => {
+        const sales = storeSalesMap[s.id] || {}
+        const exp = expenseStoreMap[s.id] || { expense: 0, count: 0 }
+        const storeRevenue = Number(sales.revenue || 0)
+        const storeOrders = Number(sales.orders || 0)
+        const storeExpense = Number(exp.expense || 0)
+        const target = Number(s.dailyTarget || 0)
+        return {
+          storeId: s.id,
+          storeName: s.name,
+          city: s.city || null,
+          province: s.province || null,
+          managerName: s.managerName || null,
+          revenue: storeRevenue,
+          orders: storeOrders,
+          avgOrderValue: storeOrders > 0 ? Math.round(storeRevenue / storeOrders) : 0,
+          itemsSold: Number(sales.itemsSold || 0),
+          discount: Number(sales.discount || 0),
+          tax: Number(sales.tax || 0),
+          expense: storeExpense,
+          net: storeRevenue - storeExpense,
+          members: null,
+          lowStock: null,
+          target,
+          targetPercent: target > 0 ? Math.min(Math.round((storeRevenue / target) * 100), 999) : null,
+          sharePercent: revenue > 0 ? Math.round((storeRevenue / revenue) * 1000) / 10 : 0
+        }
+      }).sort((a, b) => b.revenue - a.revenue)
+
+      // Payment method classification helper
+      const classifyMethod = (method) => {
+        const m = String(method || '').toLowerCase()
+        if (/(cash|tunai)/.test(m)) return 'cash'
+        if (/(qris|emoney|e-wallet|ewallet|gopay|ovo|dana|shopeepay|linkaja)/.test(m)) return 'ewallet'
+        if (/(transfer|bank|debit|bca|bni|mandiri|bri)/.test(m)) return 'bank'
+        if (/(credit|kartu|visa|master)/.test(m)) return 'card'
+        return 'other'
+      }
+      const byMethod = (paymentMethodRows || []).map((r) => ({
+        method: r.method,
+        count: r.count,
+        amount: Number(r.amount || 0),
+        bucket: classifyMethod(r.method)
+      }))
+      const byTypeMap = {}
+      byMethod.forEach((r) => {
+        byTypeMap[r.bucket] = byTypeMap[r.bucket] || { type: r.bucket, count: 0, amount: 0 }
+        byTypeMap[r.bucket].count += r.count
+        byTypeMap[r.bucket].amount += r.amount
+      })
+      const byType = Object.values(byTypeMap).sort((a, b) => b.amount - a.amount)
+
+      // Build daily timeline with revenue/expense/inflow/outflow
+      const dateMap = {}
+      dailySalesRows.forEach((r) => {
+        const key = new Date(r.date).toISOString().slice(0, 10)
+        dateMap[key] = {
+          date: key,
+          revenue: Number(r.revenue || 0),
+          orders: r.orders,
+          itemsSold: Number(r.itemsSold || 0),
+          expense: 0,
+          inflow: 0,
+          outflow: 0
+        }
+      })
+      dailyExpenseRows.forEach((r) => {
+        const key = new Date(r.date).toISOString().slice(0, 10)
+        dateMap[key] = dateMap[key] || { date: key, revenue: 0, orders: 0, itemsSold: 0, expense: 0, inflow: 0, outflow: 0 }
+        dateMap[key].expense = Number(r.outflow || 0)
+        dateMap[key].outflow += Number(r.outflow || 0)
+      })
+      dailyInflowRows.forEach((r) => {
+        const key = new Date(r.date).toISOString().slice(0, 10)
+        dateMap[key] = dateMap[key] || { date: key, revenue: 0, orders: 0, itemsSold: 0, expense: 0, inflow: 0, outflow: 0 }
+        dateMap[key].inflow = Number(r.inflow || 0)
+      })
+      const apPaymentsInRange = apPaymentsRow.reduce((s, r) => s + Number(r.amount || 0), 0)
+      apPaymentsRow.forEach((r) => {
+        const key = new Date(r.date).toISOString().slice(0, 10)
+        dateMap[key] = dateMap[key] || { date: key, revenue: 0, orders: 0, itemsSold: 0, expense: 0, inflow: 0, outflow: 0 }
+        dateMap[key].outflow += Number(r.amount || 0)
+      })
+      const kpiTrend = Object.values(dateMap).sort((a, b) => (a.date < b.date ? -1 : 1))
+
+      const apOutstanding = Number(apOutstandingTotals[0]?.outstanding || 0)
+      const arOutstanding = Number(arRows[0]?.outstanding || 0)
+      const stockVal = stockValueRows[0] || {}
+      const production = {}
+      productionRows.forEach((r) => {
+        production[r.status] = r.count
+      })
+      const cashRegister = { open: 0, closed: 0, totalSales: 0 }
+      cashRegisterRows.forEach((r) => {
+        if (r.status === 'open') cashRegister.open = r.count
+        else cashRegister.closed = r.count
+        cashRegister.totalSales += Number(r.totalSales || 0)
+      })
+
+      const growth = (curr, prev) =>
+        prev > 0 ? Math.round(((curr - prev) / prev) * 100) : curr > 0 ? 100 : 0
+
+      const lowStockItems = [
+        ...(lowStockProducts || []),
+        ...(lowStockIngredients || [])
+      ].map((r) => ({
+        type: r.type,
+        id: r.id,
+        name: r.name,
+        stock: r.stock,
+        minStock: r.minStock,
+        unit: r.unit,
+        store: r.store,
+        storeName: storeNameMap[r.store] || 'Semua Toko'
+      }))
+      const lowStockCount = lowStockProducts.length + lowStockIngredients.length
+
+      const recentPayments = [
+        ...(recentInPayments || []),
+        ...(recentOutPayments || [])
+      ]
+        .map((r) => ({
+          ...r,
+          storeName: storeNameMap[r.store] || null,
+          amount: Number(r.amount || 0)
+        }))
+        .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0))
+        .slice(0, 10)
+
+      const prevData = prevSalesRow
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success',
+        data: {
+          meta: {
+            storeId: store || null,
+            startDate,
+            endDate,
+            storeCount: storeList.length
+          },
+          summary: {
+            revenue,
+            orders,
+            avgOrderValue: orders > 0 ? Math.round(revenue / orders) : 0,
+            itemsSold: Number(kpi.itemsSold || 0),
+            discount: Number(kpi.discount || 0),
+            tax: Number(kpi.tax || 0),
+            serviceCharge: Number(kpi.serviceCharge || 0),
+            totalExpense,
+            netRevenue: revenue - totalExpense,
+            netMargin: revenue > 0 ? Math.round(((revenue - totalExpense) / revenue) * 1000) / 10 : 0,
+            totalMembers,
+            newMembers,
+            activeProducts: 0,
+            lowStockCount,
+            apOutstanding,
+            arOutstanding,
+            pendingOrders: 0,
+            growth: {
+              revenue: growth(revenue, prevData?.prevRevenue),
+              orders: growth(orders, prevData?.prevOrders),
+              expense: growth(totalExpense, prevData?.prevExpense),
+              newMembers: growth(newMembers, prevData?.prevNewMembers)
+            }
+          },
+          kpiTrend,
+          storePerformance,
+          paymentBreakdown: {
+            byMethod,
+            byType,
+            totalPayments: byMethod.reduce((s, r) => s + r.amount, 0)
+          },
+          finance: {
+            revenue,
+            totalExpense,
+            netRevenue: revenue - totalExpense,
+            netMargin: revenue > 0 ? Math.round(((revenue - totalExpense) / revenue) * 1000) / 10 : 0,
+            discount: Number(kpi.discount || 0),
+            tax: Number(kpi.tax || 0),
+            ap: {
+              outstanding: apOutstanding,
+              count: Number(apOutstandingTotals[0]?.count || 0),
+              paidInRange: apPaymentsInRange
+            },
+            ar: {
+              outstanding: arOutstanding,
+              count: Number(arRows[0]?.count || 0)
+            },
+            expenseByCategory: (expenseCatRows || []).map((r) => ({
+              category: r.category,
+              amount: Number(r.amount || 0),
+              count: r.count
+            })),
+            arByCustomer: (arByCustomer || []).map((r) => ({
+              customer: r.customer,
+              outstanding: Number(r.outstanding || 0),
+              count: r.count
+            })),
+            apOutstandingPOs: (apOutstandingRows || []).slice(0, 10).map((r) => ({
+              id: r.id,
+              orderNumber: r.orderNumber,
+              store: r.store,
+              storeName: storeNameMap[r.store] || null,
+              finalAmount: Number(r.finalAmount || 0),
+              paid: Number(r.paid || 0),
+              outstanding: Number(r.finalAmount - r.paid || 0),
+              dueDate: r.dueDate
+            })),
+            cashFlow: kpiTrend.map((d) => ({
+              date: d.date,
+              inflow: d.inflow + d.revenue,
+              outflow: d.outflow + d.expense,
+              net: d.inflow + d.revenue - d.outflow - d.expense
+            }))
+          },
+          operations: {
+            lowStockCount,
+            lowStockItems,
+            stockValue: Number(stockVal.productValue || 0) + Number(stockVal.ingredientValue || 0),
+            productStockValue: Number(stockVal.productValue || 0),
+            ingredientStockValue: Number(stockVal.ingredientValue || 0),
+            production,
+            cashRegister,
+            queueWaiting: Number(queueRow[0]?.count || 0),
+            reservationsToday: Number(reservationRow[0]?.count || 0)
+          },
+          customers: {
+            totalMembers,
+            newMembers,
+            memberGrowth: growth(newMembers, prevData?.prevNewMembers),
+            tierDistribution: (tierRows || []).map((r) => ({ tier: r.tier, count: r.count })),
+            topMembers: (topMembers || []).map((r) => ({
+              id: r.id,
+              name: r.name,
+              phoneNumber: r.phoneNumber,
+              totalSpend: Number(r.totalSpend || 0),
+              orderCount: r.orderCount
+            }))
+          },
+          activity: {
+            recentOrders: (recentOrders || []).map((r) => ({
+              id: r.id,
+              orderNumber: r.orderNumber,
+              store: r.store,
+              storeName: r.storeName || storeNameMap[r.store] || null,
+              cashierName: r.cashierName || null,
+              totalPrice: Number(r.totalPrice || 0),
+              status: r.status,
+              paymentMethod: r.paymentMethod,
+              createdAt: r.createdAt
+            })),
+            recentPayments,
+            recentAudit: (recentAudit || []).map((r) => ({
+              id: r.id,
+              action: r.action,
+              entity: r.entity,
+              entityId: r.entityId,
+              description: r.description,
+              userName: r.userName,
+              storeName: storeNameMap[r.store] || null,
+              createdAt: r.createdAt
+            }))
+          },
+          stores: storeList,
+          storesWithSales: storePerformance
+        }
+      })
+    } catch (error) {
+      console.error('Error super admin dashboard =>', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
   // Product price by store
   async getPriceByStore(req, res) {
     try {

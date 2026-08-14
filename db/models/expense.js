@@ -33,12 +33,37 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('cash', 'bank', 'e-wallet'),
         defaultValue: 'cash'
       },
+      frequency: {
+        type: DataTypes.STRING(20)
+      },
+      parentId: {
+        type: DataTypes.INTEGER
+      },
+      nextDueDate: {
+        type: DataTypes.DATE
+      },
+      recurringEndDate: {
+        type: DataTypes.DATE
+      },
       status: {
         type: DataTypes.ENUM('pending', 'approved', 'rejected', 'draft'),
         defaultValue: 'pending'
       },
+      isPaid: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+      },
+      paidAt: {
+        type: DataTypes.DATE
+      },
       notes: {
         type: DataTypes.TEXT
+      },
+      payee: {
+        type: DataTypes.STRING
+      },
+      employeeId: {
+        type: DataTypes.INTEGER
       },
       receipt: {
         type: DataTypes.STRING
@@ -66,6 +91,18 @@ module.exports = (sequelize, DataTypes) => {
     expense.belongsTo(models.user, {
       foreignKey: 'createdBy',
       as: 'creator'
+    })
+    expense.belongsTo(models.user, {
+      foreignKey: 'employeeId',
+      as: 'employee'
+    })
+    expense.belongsTo(models.expense, {
+      foreignKey: 'parentId',
+      as: 'parentExpense'
+    })
+    expense.hasMany(models.expense_payment, {
+      foreignKey: 'expenseId',
+      as: 'payments'
     })
   }
 

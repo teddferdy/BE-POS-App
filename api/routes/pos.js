@@ -109,6 +109,15 @@ router.get(
   posController.getDashboardSummary
 )
 
+// Super Admin global dashboard
+router.get(
+  '/dashboard/super-admin',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
+  posController.getSuperAdminDashboard
+)
+
 // Multi-store product price
 router.get(
   '/product/price-by-store',

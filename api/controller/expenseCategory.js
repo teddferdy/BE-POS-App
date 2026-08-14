@@ -59,7 +59,7 @@ const expenseCategoryController = {
   async create(req, res) {
     try {
       const store = req.storeId || req.cookies.store || req.user?.store
-      const { name, description, icon, status } = req.body
+      const { name, description, icon, accountCode, status } = req.body
       const createdBy = req.user?.id || null
 
       if (!name) {
@@ -74,6 +74,7 @@ const expenseCategoryController = {
         name,
         description,
         icon,
+        accountCode: accountCode || null,
         status,
         createdBy
       })
@@ -104,7 +105,7 @@ const expenseCategoryController = {
     try {
       const { id } = req.params
       const store = req.storeId || req.cookies.store || req.user?.store
-      const { name, description, icon, status } = req.body
+      const { name, description, icon, accountCode, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const category = await db.expense_category.findOne({
@@ -123,6 +124,8 @@ const expenseCategoryController = {
         description:
           description !== undefined ? description : category.description,
         icon: icon !== undefined ? icon : category.icon,
+        accountCode:
+          accountCode !== undefined ? accountCode || null : category.accountCode,
         status:
           status !== undefined
             ? status === true
