@@ -28,12 +28,3 @@ module.exports = {
     })
   }
 }
-  },
-
-  down: async (queryInterface, Sequelize) => {
-    await queryInterface.changeColumn('purchase_order_item', 'quantity', {
-      type: Sequelize.INTEGER,
-      allowNull: false
-    })
-  }
-}
