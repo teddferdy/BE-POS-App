@@ -120,37 +120,29 @@ const employeePerformanceController = {
       const userStore = req.cookies?.store || req.user?.store
 
       const safeLimit = Math.min(Math.max(1, parseInt(limit) || 10), 100)
-      const conditions = []
-      const replacements = { limit: safeLimit }
-
       const resolvedStore = store || userStore
-      if (resolvedStore) {
-        conditions.push('store = :store')
-        replacements.store = String(resolvedStore)
-      }
-      if (startDate) {
-        conditions.push('report_date >= :startDate')
-        replacements.startDate = String(startDate)
-      }
-      if (endDate) {
-        conditions.push('report_date <= :endDate')
-        replacements.endDate = String(endDate)
+
+      const where = {}
+      if (resolvedStore) where.store = String(resolvedStore)
+      if (startDate || endDate) {
+        where.report_date = {}
+        if (startDate) where.report_date[Op.gte] = new Date(startDate)
+        if (endDate) where.report_date[Op.lte] = new Date(endDate)
       }
 
-      const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
-
-      const sql =
-        'SELECT cashier, SUM(total_sales)::float as total_sales, ' +
-        'AVG(avg_transaction)::float as avg_transaction, ' +
-        'AVG(accuracy_rate)::float as avg_accuracy, ' +
-        'COUNT(*) as days_worked ' +
-        'FROM kasir_performance ' +
-        whereClause + ' ' +
-        'GROUP BY cashier ORDER BY total_sales DESC LIMIT :limit'
-
-      const results = await db.sequelize.query(sql, {
-        replacements,
-        type: db.sequelize.QueryTypes.SELECT
+      const results = await db.kasir_performance.findAll({
+        where,
+        attributes: [
+          'cashier',
+          [db.sequelize.fn('SUM', db.sequelize.col('total_sales')), 'total_sales'],
+          [db.sequelize.fn('AVG', db.sequelize.col('avg_transaction')), 'avg_transaction'],
+          [db.sequelize.fn('AVG', db.sequelize.col('accuracy_rate')), 'avg_accuracy'],
+          [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'days_worked']
+        ],
+        group: ['cashier'],
+        order: [[db.sequelize.literal('total_sales'), 'DESC']],
+        limit: safeLimit,
+        raw: true
       })
 
       const performersWithNames = await Promise.all(
