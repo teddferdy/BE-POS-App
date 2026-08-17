@@ -1,6 +1,11 @@
 /**
  * Seed master data wilayah Indonesia (provinsi, kab/kota, kecamatan, desa + kode pos).
  *
+ * NOTE: Provinsi & kab/kota (~552 baris) sudah di-seed otomatis via migration seeder
+ *       (db/seeders/20260817000000-seed-regions.js) saat menjalankan `npm run migrate`.
+ *       Script ini dibutuhkan HANYA untuk data kecamatan & desa (~91k baris) yang
+ *       terlalu besar untuk di-bundle dalam migration seeder.
+ *
  * Sumber data:
  *   - Nama & kode wilayah + kode pos: dataset Kemendagri dari
  *     https://github.com/vermaysha/database-wilayah-indonesia (JSON per level, termasuk kode pos).
