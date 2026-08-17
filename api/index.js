@@ -64,6 +64,9 @@ const deliveryRoutes = require('./routes/delivery')
 const queueRoutes = require('./routes/queue')
 const waiterRequestRoutes = require('./routes/waiter-request')
 const supplierPerformanceRoutes = require('./routes/supplierPerformance')
+const supplierCategoryRoutes = require('./routes/supplierCategory')
+const supplierContactRoutes = require('./routes/supplierContact')
+const supplierBankAccountRoutes = require('./routes/supplierBankAccount')
 const promoRoutes = require('./routes/promo')
 const productBundleRoutes = require('./routes/productBundle')
 const reportingRoutes = require('./routes/reporting')
@@ -153,6 +156,9 @@ const routes = [
   { path: '/role', route: roleRoutes },
   { path: '/position', route: positionRoutes },
   { path: '/supplier', route: supplierRoutes },
+  { path: '/supplier-category', route: supplierCategoryRoutes },
+  { path: '/supplier-contact', route: supplierContactRoutes },
+  { path: '/supplier-bank-account', route: supplierBankAccountRoutes },
   { path: '/purchase-order', route: purchaseOrderRoutes },
   { path: '/ingredient', route: ingredientRoutes },
   { path: '/stock-history', route: stockHistoryRoutes },

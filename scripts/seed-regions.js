@@ -270,10 +270,8 @@ async function main() {
   await db.sequelize.sync()
   await ensureLatLongColumns()
 
-  console.log('🧹 Menghapus data region lama...')
-  await db.sequelize.query('TRUNCATE TABLE "region" RESTART IDENTITY')
-
-  let total = 0
+  // Step 1: Download all data into memory first (before truncating!)
+  const allLevelData = []
   for (const { level, file } of FILE_BY_LEVEL) {
     const url = `${BASE_URL}/${file}`
     console.log(`⬇️  Download ${file}...`)
@@ -289,17 +287,23 @@ async function main() {
         rows = rows.filter((r) => r.code.startsWith(provinceFilter))
       }
     }
-    if (rows.length === 0) {
-      console.log(`   (0 baris untuk provinsi ${provinceFilter}, dilewati)`)
-      continue
-    }
+    allLevelData.push({ level, rows })
+    console.log(`✅ ${rows.length.toLocaleString('id-ID')} baris ${level} (di-download)`)
+  }
 
+  // Step 2: Now safe to truncate (all downloads succeeded)
+  console.log('🧹 Menghapus data region lama...')
+  await db.sequelize.query('TRUNCATE TABLE "region" RESTART IDENTITY')
+
+  // Step 3: Insert all data
+  let total = 0
+  for (const { level, rows } of allLevelData) {
+    if (rows.length === 0) continue
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const chunk = rows.slice(i, i + BATCH_SIZE)
       await db.region.bulkCreate(chunk)
     }
     total += rows.length
-    console.log(`✅ ${rows.length.toLocaleString('id-ID')} baris ${level}`)
   }
 
   if (!skipCoords) {

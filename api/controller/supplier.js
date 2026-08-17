@@ -154,6 +154,106 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
   }
 }
 
+const syncSupplierContacts = async (supplierId, contacts) => {
+  if (!Array.isArray(contacts)) return
+
+  const existing = await db.supplier_contact.findAll({
+    where: { supplier: supplierId },
+    attributes: ['id', 'fullName'],
+    raw: true
+  })
+
+  const existingNames = new Set(existing.map((r) => r.fullName.toLowerCase().trim()))
+  const incomingNames = contacts.map((c) => String(c.fullName || '').toLowerCase().trim())
+
+  const toDelete = existing.filter(
+    (r) => !incomingNames.includes(r.fullName.toLowerCase().trim())
+  )
+  if (toDelete.length > 0) {
+    await db.supplier_contact.destroy({
+      where: { supplier: supplierId, id: { [Op.in]: toDelete.map((r) => r.id) } }
+    })
+  }
+
+  for (const item of contacts) {
+    const trimmedName = String(item.fullName || '').trim()
+    if (!trimmedName) continue
+
+    if (existingNames.has(trimmedName)) {
+      const row = existing.find((r) => r.fullName.toLowerCase().trim() === trimmedName)
+      if (row) {
+        await db.supplier_contact.update(
+          {
+            position: item.position?.trim() || null,
+            email: item.email?.trim() || null,
+            phone: item.phone?.trim() || null
+          },
+          { where: { id: row.id } }
+        )
+      }
+    } else {
+      await db.supplier_contact.create({
+        supplier: supplierId,
+        fullName: trimmedName,
+        position: item.position?.trim() || null,
+        email: item.email?.trim() || null,
+        phone: item.phone?.trim() || null
+      })
+    }
+  }
+}
+
+const syncSupplierBankAccounts = async (supplierId, bankAccounts) => {
+  if (!Array.isArray(bankAccounts)) return
+
+  const existing = await db.supplier_bank_account.findAll({
+    where: { supplier: supplierId },
+    attributes: ['id', 'accountNumber'],
+    raw: true
+  })
+
+  const existingNumbers = new Set(existing.map((r) => r.accountNumber.trim()))
+  const incomingNumbers = bankAccounts.map((b) => String(b.accountNumber || '').trim())
+
+  const toDelete = existing.filter(
+    (r) => !incomingNumbers.includes(r.accountNumber.trim())
+  )
+  if (toDelete.length > 0) {
+    await db.supplier_bank_account.destroy({
+      where: { supplier: supplierId, id: { [Op.in]: toDelete.map((r) => r.id) } }
+    })
+  }
+
+  for (const item of bankAccounts) {
+    const trimmedNumber = String(item.accountNumber || '').trim()
+    if (!trimmedNumber) continue
+
+    if (existingNumbers.has(trimmedNumber)) {
+      const row = existing.find((r) => r.accountNumber.trim() === trimmedNumber)
+      if (row) {
+        await db.supplier_bank_account.update(
+          {
+            bankName: item.bankName?.trim() || null,
+            accountName: item.accountName?.trim() || null,
+            isDefault: !!item.isDefault,
+            status: item.status || 'active'
+          },
+          { where: { id: row.id } }
+        )
+      }
+    } else {
+      await db.supplier_bank_account.create({
+        supplier: supplierId,
+        bankName: String(item.bankName || '').trim(),
+        accountNumber: trimmedNumber,
+        accountName: String(item.accountName || '').trim(),
+        isDefault: !!item.isDefault,
+        status: item.status || 'active'
+      })
+    }
+  }
+}
+
 const getSupplierProducts = async (supplierId) => {
   const hasSpTable = await hasSupplierProductTable()
   if (!hasSpTable) return []
@@ -221,6 +321,9 @@ const supplierController = {
 
       let productCount = 0
       let products = []
+      let contacts = []
+      let bankAccounts = []
+      let category = null
       try {
         const result = await Promise.all([
           getSupplierProductCount(id),
@@ -235,6 +338,39 @@ const supplierController = {
           throw e
         }
       }
+
+      try {
+        contacts = await db.supplier_contact.findAll({
+          where: { supplier: id },
+          order: [['fullName', 'ASC']]
+        })
+      } catch (e) {
+        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          throw e
+        }
+      }
+
+      try {
+        bankAccounts = await db.supplier_bank_account.findAll({
+          where: { supplier: id },
+          order: [['isDefault', 'DESC']]
+        })
+      } catch (e) {
+        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          throw e
+        }
+      }
+
+      if (supplier.categoryId) {
+        try {
+          category = await db.supplier_category.findByPk(supplier.categoryId)
+        } catch (e) {
+          if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+            throw e
+          }
+        }
+      }
+
       const storeNames = await resolveStoreNames(supplierStores)
 
       return res.status(200).json({
@@ -244,7 +380,10 @@ const supplierController = {
           ...supplier.toJSON(),
           store: storeNames,
           productCount,
-          products
+          products,
+          contacts,
+          bankAccounts,
+          categoryData: category ? { id: category.id, name: category.name } : null
         }
       })
     } catch (error) {
@@ -289,7 +428,8 @@ const supplierController = {
       if (search) {
         const searchClause = [
           { name: { [Op.iLike]: `%${search}%` } },
-          { phone: { [Op.iLike]: `%${search}%` } }
+          { phone: { [Op.iLike]: `%${search}%` } },
+          { email: { [Op.iLike]: `%${search}%` } }
         ]
         if (where[Op.or]) {
           where[Op.and] = [{ [Op.or]: where[Op.or] }, { [Op.or]: searchClause }]
@@ -373,6 +513,23 @@ const supplierController = {
         }
       }
 
+      const categoryIds = [...new Set(suppliers.map((s) => s.categoryId).filter(Boolean))]
+      const categoryMap = {}
+      if (categoryIds.length > 0) {
+        try {
+          const categories = await db.supplier_category.findAll({
+            where: { id: categoryIds },
+            attributes: ['id', 'name'],
+            raw: true
+          })
+          categories.forEach((c) => { categoryMap[c.id] = c.name })
+        } catch (e) {
+          if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+            throw e
+          }
+        }
+      }
+
       const data = suppliers.map((item) => ({
         ...item.toJSON(),
         store: Array.isArray(item.store)
@@ -381,7 +538,10 @@ const supplierController = {
               name: locationMap[id] || null
             }))
           : [],
-        productCount: productCounts[item.id] || 0
+        productCount: productCounts[item.id] || 0,
+        categoryData: item.categoryId
+          ? { id: item.categoryId, name: categoryMap[item.categoryId] || null }
+          : null
       }))
 
       if (includeProducts === 'true' && supplierIds.length > 0) {
@@ -489,6 +649,9 @@ const supplierController = {
 
       const storeNames = await resolveStoreNames(supplierStores)
       let products = []
+      let contacts = []
+      let bankAccounts = []
+      let category = null
       try {
         products = await getSupplierProducts(id)
       } catch (e) {
@@ -499,13 +662,48 @@ const supplierController = {
         }
       }
 
+      try {
+        contacts = await db.supplier_contact.findAll({
+          where: { supplier: id },
+          order: [['fullName', 'ASC']]
+        })
+      } catch (e) {
+        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          throw e
+        }
+      }
+
+      try {
+        bankAccounts = await db.supplier_bank_account.findAll({
+          where: { supplier: id },
+          order: [['isDefault', 'DESC']]
+        })
+      } catch (e) {
+        if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+          throw e
+        }
+      }
+
+      if (supplier.categoryId) {
+        try {
+          category = await db.supplier_category.findByPk(supplier.categoryId)
+        } catch (e) {
+          if (!(e.name === 'SequelizeDatabaseError' && e.parent?.code === '42P01')) {
+            throw e
+          }
+        }
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Success get supplier',
         data: {
           ...supplier.toJSON(),
           store: storeNames,
-          products
+          products,
+          contacts,
+          bankAccounts,
+          categoryData: category ? { id: category.id, name: category.name } : null
         }
       })
     } catch (error) {
@@ -533,7 +731,24 @@ const supplierController = {
         description,
         isActive,
         status,
-        products
+        products,
+        paymentType,
+        tempoDays,
+        categoryId,
+        mobile,
+        whatsapp,
+        fax,
+        website,
+        taxInclude,
+        taxType,
+        taxNumber,
+        taxName,
+        nitku,
+        taxTransactionType,
+        defaultDiscount,
+        defaultDescription,
+        contacts,
+        bankAccounts
       } = req.body
       const createdBy = req.user?.id || null
 
@@ -610,11 +825,34 @@ const supplierController = {
         address: address?.trim() || null,
         description: description?.trim() || null,
         status: supplierStatus,
+        paymentType: paymentType || 'cbd',
+        tempoDays: tempoDays || 0,
+        categoryId: categoryId || null,
+        mobile: mobile?.trim() || null,
+        whatsapp: whatsapp?.trim() || null,
+        fax: fax?.trim() || null,
+        website: website?.trim() || null,
+        taxInclude: taxInclude !== undefined ? taxInclude : true,
+        taxType: taxType?.trim() || null,
+        taxNumber: taxNumber?.trim() || null,
+        taxName: taxName?.trim() || null,
+        nitku: nitku?.trim() || null,
+        taxTransactionType: taxTransactionType?.trim() || null,
+        defaultDiscount: defaultDiscount || 0,
+        defaultDescription: defaultDescription?.trim() || null,
         createdBy
       })
 
       if (Array.isArray(products) && products.length > 0) {
         await syncSupplierProducts(supplier.id, products, createdBy)
+      }
+
+      if (Array.isArray(contacts) && contacts.length > 0) {
+        await syncSupplierContacts(supplier.id, contacts)
+      }
+
+      if (Array.isArray(bankAccounts) && bankAccounts.length > 0) {
+        await syncSupplierBankAccounts(supplier.id, bankAccounts)
       }
 
       createNotification({
@@ -659,7 +897,24 @@ const supplierController = {
         address,
         description,
         status,
-        products
+        products,
+        paymentType,
+        tempoDays,
+        categoryId,
+        mobile,
+        whatsapp,
+        fax,
+        website,
+        taxInclude,
+        taxType,
+        taxNumber,
+        taxName,
+        nitku,
+        taxTransactionType,
+        defaultDiscount,
+        defaultDescription,
+        contacts,
+        bankAccounts
       } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -754,12 +1009,35 @@ const supplierController = {
                 ? 'inactive'
                 : status
             : supplier.status,
+        paymentType: paymentType !== undefined ? paymentType : supplier.paymentType,
+        tempoDays: tempoDays !== undefined ? tempoDays : supplier.tempoDays,
+        categoryId: categoryId !== undefined ? categoryId : supplier.categoryId,
+        mobile: mobile !== undefined ? mobile?.trim() || null : supplier.mobile,
+        whatsapp: whatsapp !== undefined ? whatsapp?.trim() || null : supplier.whatsapp,
+        fax: fax !== undefined ? fax?.trim() || null : supplier.fax,
+        website: website !== undefined ? website?.trim() || null : supplier.website,
+        taxInclude: taxInclude !== undefined ? taxInclude : supplier.taxInclude,
+        taxType: taxType !== undefined ? taxType?.trim() || null : supplier.taxType,
+        taxNumber: taxNumber !== undefined ? taxNumber?.trim() || null : supplier.taxNumber,
+        taxName: taxName !== undefined ? taxName?.trim() || null : supplier.taxName,
+        nitku: nitku !== undefined ? nitku?.trim() || null : supplier.nitku,
+        taxTransactionType: taxTransactionType !== undefined ? taxTransactionType?.trim() || null : supplier.taxTransactionType,
+        defaultDiscount: defaultDiscount !== undefined ? defaultDiscount : supplier.defaultDiscount,
+        defaultDescription: defaultDescription !== undefined ? defaultDescription?.trim() || null : supplier.defaultDescription,
         ...(newStore !== undefined ? { store: newStore } : {}),
         modifiedBy
       })
 
       if (Array.isArray(products)) {
         await syncSupplierProducts(id, products, modifiedBy)
+      }
+
+      if (Array.isArray(contacts)) {
+        await syncSupplierContacts(id, contacts)
+      }
+
+      if (Array.isArray(bankAccounts)) {
+        await syncSupplierBankAccounts(id, bankAccounts)
       }
 
       createNotification({

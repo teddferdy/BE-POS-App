@@ -33,6 +33,7 @@ const normalizeStores = (stores) => {
 
 const parseStoreField = (val) => {
   if (!val || val === '') return []
+  if (Array.isArray(val)) return normalizeStores(val)
   try {
     const parsed = JSON.parse(val)
     return Array.isArray(parsed) ? normalizeStores(parsed) : [parseInt(val, 10)]

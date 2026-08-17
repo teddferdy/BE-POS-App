@@ -870,25 +870,6 @@ const ingredientController = {
         raw: true
       })
 
-      if (category) {
-        const usedIngredients = await db.ingredient.findAll({
-          where: {
-            supplier: supplierId,
-            category: Number(category)
-          },
-          attributes: ['name'],
-          raw: true
-        })
-        const usedNames = usedIngredients.map((i) =>
-          i.name.toLowerCase().trim()
-        )
-        if (usedNames.length > 0) {
-          products = products.filter((p) =>
-            usedNames.includes(p.name.toLowerCase().trim())
-          )
-        }
-      }
-
       const seen = new Set()
       products = products.filter((p) => {
         const key = p.name.toLowerCase().trim()

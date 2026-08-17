@@ -28,7 +28,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true
       },
       quantity: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         allowNull: false
       },
       unit: {
@@ -44,7 +44,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       receivedQuantity: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       conversionToBase: {

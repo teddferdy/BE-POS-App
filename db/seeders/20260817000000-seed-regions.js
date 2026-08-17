@@ -4976,15 +4976,15 @@ const CITIES = [
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    const [existing] = await queryInterface.sequelize.query(
-      `SELECT level, COUNT(*) as count FROM region WHERE level IN ('province', 'city') GROUP BY level`,
+    const [[{ count: provCount }]] = await queryInterface.sequelize.query(
+      `SELECT COUNT(*) as count FROM region WHERE level = 'province'`,
       { type: Sequelize.QueryTypes.SELECT }
     )
 
     const now = new Date()
     const toInsert = []
 
-    if (!existing || existing.level !== 'province' || parseInt(existing.count) < 34) {
+    if (!provCount || parseInt(provCount) < 34) {
       for (const row of PROVINCES) {
         toInsert.push({ ...row, createdAt: now, updatedAt: now })
       }

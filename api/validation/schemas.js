@@ -59,11 +59,13 @@ const storeArray = () =>
     .union([z.array(z.number().int()), z.array(strToNum()), z.string()])
     .transform((v) => {
       if (typeof v === 'string') {
+        if (v === '' || v === 'null' || v === 'undefined') return null
         try {
           const p = JSON.parse(v)
           return Array.isArray(p) ? p.map(Number) : [Number(p)]
         } catch {
-          return [Number(v)]
+          const num = Number(v)
+          return isNaN(num) || num === 0 ? null : [num]
         }
       }
       return v.map(Number)
@@ -148,6 +150,9 @@ exports.updateProductSchema = exports.createProductSchema.partial().extend({
 exports.createCategorySchema = z.object({
   name: z.string().min(1, 'Category name is required'),
   description: z.string().optional().nullable(),
+  parentId: z.coerce.number().optional().nullable(),
+  color: z.string().optional().nullable(),
+  sortOrder: z.coerce.number().optional().default(0),
   value: z.string().optional(),
   image: z.string().optional().nullable(),
   icon: z.string().optional().nullable(),
@@ -289,6 +294,21 @@ exports.createSupplierSchema = z.object({
   address: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   status: statusEnum,
+  paymentType: z.enum(['cbd', 'cad', 'tempo']).optional().default('cbd'),
+  tempoDays: z.number().optional().default(0),
+  categoryId: z.number().optional().nullable(),
+  mobile: z.string().optional().nullable(),
+  whatsapp: z.string().optional().nullable(),
+  fax: z.string().optional().nullable(),
+  website: z.string().optional().nullable(),
+  taxInclude: z.boolean().optional().default(true),
+  taxType: z.string().optional().nullable(),
+  taxNumber: z.string().optional().nullable(),
+  taxName: z.string().optional().nullable(),
+  nitku: z.string().optional().nullable(),
+  taxTransactionType: z.string().optional().nullable(),
+  defaultDiscount: z.number().optional().default(0),
+  defaultDescription: z.string().optional().nullable(),
   products: z
     .array(
       z
@@ -307,10 +327,47 @@ exports.createSupplierSchema = z.object({
         .passthrough()
     )
     .optional()
+    .nullable(),
+  contacts: z
+    .array(
+      z
+        .object({
+          fullName: z.string().min(1),
+          position: z.string().optional().nullable(),
+          email: z.string().optional().nullable(),
+          phone: z.string().optional().nullable()
+        })
+        .passthrough()
+    )
+    .optional()
+    .nullable(),
+  bankAccounts: z
+    .array(
+      z
+        .object({
+          bankName: z.string().min(1),
+          accountNumber: z.string().min(1),
+          accountName: z.string().min(1),
+          isDefault: z.boolean().optional().default(false),
+          status: statusEnum.optional().default('active')
+        })
+        .passthrough()
+    )
+    .optional()
     .nullable()
 })
 
 exports.updateSupplierSchema = exports.createSupplierSchema.partial()
+
+// ===================== Supplier Category =====================
+exports.createSupplierCategorySchema = z.object({
+  name: z.string().min(1, 'Category name is required'),
+  description: z.string().optional().nullable(),
+  status: statusEnum
+})
+
+exports.updateSupplierCategorySchema =
+  exports.createSupplierCategorySchema.partial()
 
 // ===================== Ingredient =====================
 exports.createIngredientSchema = z.object({
