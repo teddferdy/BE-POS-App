@@ -150,15 +150,19 @@ exports.getAllLocationInTable = async (req, res) => {
     }
     const regionNameMap = {}
     if (regionCodes.length) {
-      const regions = await Region.findAll({
-        where: {
-          [Op.or]: regionCodes.map(([level, code]) => ({ level, code }))
-        },
-        attributes: ['level', 'code', 'name'],
-        raw: true
-      })
-      for (const r of regions) {
-        regionNameMap[`${r.level}:${r.code}`] = r.name
+      try {
+        const regions = await Region.findAll({
+          where: {
+            [Op.or]: regionCodes.map(([level, code]) => ({ level, code }))
+          },
+          attributes: ['level', 'code', 'name'],
+          raw: true
+        })
+        for (const r of regions) {
+          regionNameMap[`${r.level}:${r.code}`] = r.name
+        }
+      } catch (_) {
+        // region table may not exist yet — fall back to raw codes
       }
     }
     const nameFor = (level, code) =>
