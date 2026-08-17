@@ -126,6 +126,26 @@ const employeePerformanceController = {
         if (endDate) where.report_date[Op.lte] = new Date(endDate)
       }
 
+      const safeLimit = Math.min(Math.max(1, parseInt(limit) || 10), 100)
+      const conditions = []
+      const replacements = { limit: safeLimit }
+
+      const resolvedStore = store || userStore
+      if (resolvedStore) {
+        conditions.push('store = :store')
+        replacements.store = String(resolvedStore)
+      }
+      if (startDate) {
+        conditions.push('report_date >= :startDate')
+        replacements.startDate = String(startDate)
+      }
+      if (endDate) {
+        conditions.push('report_date <= :endDate')
+        replacements.endDate = String(endDate)
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
       const results = await db.sequelize.query(
         `
         SELECT 
@@ -135,20 +155,13 @@ const employeePerformanceController = {
           AVG(accuracy_rate)::float as avg_accuracy,
           COUNT(*) as days_worked
         FROM kasir_performance
-        ${store || userStore ? 'WHERE store = :store' : ''}
-          ${startDate ? (store || userStore ? 'AND report_date >= :startDate' : 'WHERE report_date >= :startDate') : ''}
-          ${endDate ? (store || userStore || startDate ? 'AND report_date <= :endDate' : 'WHERE report_date <= :endDate') : ''}
+        ${whereClause}
         GROUP BY cashier
         ORDER BY total_sales DESC
         LIMIT :limit
       `,
         {
-          replacements: {
-            store: store || userStore,
-            startDate,
-            endDate,
-            limit: parseInt(limit)
-          },
+          replacements,
           type: db.sequelize.QueryTypes.SELECT
         }
       )

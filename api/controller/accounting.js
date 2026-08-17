@@ -167,8 +167,9 @@ module.exports = {
       const { code, name, type, normalBalance, parentId, description, status } =
         req.body
       if (code && String(code) !== account.code) {
+        const safeCode = String(code).trim().slice(0, 50)
         const clash = await db.account.findOne({
-          where: { store, code: String(code).trim() }
+          where: { store, code: safeCode }
         })
         if (clash)
           return res.status(400).json({
@@ -321,8 +322,15 @@ module.exports = {
       let totalDebit = 0
       let totalCredit = 0
       for (const line of lines) {
+        const safeAccountId = String(line.account || '').trim()
+        if (!safeAccountId) {
+          return res.status(400).json({
+            success: false,
+            message: 'Account ID is required for each line'
+          })
+        }
         const account = await db.account.findOne({
-          where: { id: line.account, store, status: 'active' }
+          where: { id: safeAccountId, store, status: 'active' }
         })
         if (!account) {
           return res.status(400).json({

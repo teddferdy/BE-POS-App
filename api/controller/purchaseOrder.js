@@ -360,8 +360,9 @@ const purchaseOrderController = {
       data.supplierNames = supplierNames
 
       if (!data.picData) {
+        const safePoId = String(purchaseOrder.id).trim()
         const goodsRequest = await db.goodsRequest.findOne({
-          where: { purchaseOrderId: purchaseOrder.id },
+          where: { purchaseOrderId: safePoId },
           attributes: ['requestedBy']
         })
         if (goodsRequest?.requestedBy) {

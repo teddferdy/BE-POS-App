@@ -100,7 +100,7 @@ const taxConfigController = {
 
   async getById(req, res) {
     try {
-      const { id } = req.params
+      const id = String(req.params.id || '').trim()
       const store =
         req.storeId || req.query.store || req.cookies.store || req.user?.store
 

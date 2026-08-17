@@ -676,8 +676,9 @@ const goodsRequestController = {
 
         if (status === 'cancelled' && request.status === 'approved') {
           if (request.purchaseOrderId) {
+            const safePoId = String(request.purchaseOrderId).trim()
             const po = await db.purchase_order.findOne({
-              where: { id: request.purchaseOrderId },
+              where: { id: safePoId },
               transaction
             })
             if (po && po.status !== 'draft' && po.status !== 'cancelled') {

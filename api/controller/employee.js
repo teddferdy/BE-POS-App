@@ -125,10 +125,11 @@ exports.addEmployee = async (req, res) => {
       ? await db.role.findByPk(body.roleId)
       : await db.role.findOne({ where: { roleType: 'user' } })
 
+    const { randomInt } = require('crypto')
     const employeeId =
       body?.employeeID ||
       body?.employeeId ||
-      String(Math.floor(100000 + Math.random() * 900000))
+      String(randomInt(100000, 999999))
 
     const isDraft = (body?.status || 'active') === 'draft'
     const draftSuffix = isDraft ? `draft-${employeeId}` : null

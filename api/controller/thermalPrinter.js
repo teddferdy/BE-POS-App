@@ -14,16 +14,18 @@ const thermalPrinterController = {
   async printReceipt(req, res) {
     try {
       const { orderId, storeId, printerConfig, testPrint = false } = req.body
+      const safeOrderId = orderId ? String(orderId).trim() : null
 
-      if (!orderId && !testPrint) {
+      if (!safeOrderId && !testPrint) {
         return res.status(400).json({
           success: false,
           message: 'orderId atau testPrint diperlukan'
         })
       }
 
-      const store =
-        storeId || req.storeId || req.cookies?.store || req.user?.store
+      const store = String(
+        storeId || req.storeId || req.cookies?.store || req.user?.store || ''
+      ).trim()
       if (!store) {
         return res.status(400).json({
           success: false,
@@ -68,7 +70,7 @@ const thermalPrinterController = {
         // Fetch order data. The legacy `checkout` table has no detail model,
         // so use the canonical `order` / `order_item` association.
         const order = await db.order.findOne({
-          where: { id: orderId, ...(store ? { store } : {}) },
+          where: { id: safeOrderId, ...(store ? { store } : {}) },
           include: [
             { model: db.order_item, as: 'items' },
             {
@@ -134,7 +136,7 @@ const thermalPrinterController = {
         req,
         'PRINT',
         'receipt',
-        orderId || 'test',
+        safeOrderId || 'test',
         `Printed receipt${testPrint ? ' (test)' : ''}`
       )
 

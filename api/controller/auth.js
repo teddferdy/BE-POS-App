@@ -591,6 +591,7 @@ exports.requestResetPassword = async (req, res) => {
   const email = String(body?.email || '')
     .trim()
     .toLowerCase()
+    .slice(0, 254)
 
   if (!email) {
     return res.status(400).json({ error: 'Email wajib diisi' })
