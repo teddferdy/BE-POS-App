@@ -4,7 +4,7 @@ const { Op } = require('sequelize')
 const DEFAULT_DAYS = 30
 const DEAD_STOCK_THRESHOLD = 60
 const EXPIRY_ALERT_DAYS = 30
-const MS_PER_DAY = 86400000
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 const inventoryService = {
   async calculateDailyConsumption(productId, storeId, days = DEFAULT_DAYS) {

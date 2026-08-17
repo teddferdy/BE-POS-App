@@ -21,9 +21,13 @@ const hasTable = async (t) => {
     if (_cs2 !== null) return _cs2
   }
   try {
-    await db.sequelize.query(`SELECT 1 FROM ${db.sequelize.escape(t).replace(/'/g, '')} LIMIT 1`)
-    if (t === 'product_store') _ps2 = true
-    if (t === 'category_store') _cs2 = true
+    if (t === 'product_store') {
+      await db.sequelize.query('SELECT 1 FROM product_store LIMIT 1')
+      _ps2 = true
+    } else if (t === 'category_store') {
+      await db.sequelize.query('SELECT 1 FROM category_store LIMIT 1')
+      _cs2 = true
+    }
     return true
   } catch {
     if (t === 'product_store') _ps2 = false

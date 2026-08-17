@@ -57,6 +57,66 @@ const buildBalanceMap = async ({ store, dateWhere }) => {
   return { balances, accountByCode }
 }
 
+// Aggregates financial summary from balance map and account data.
+// Returns revenue, expense, net income, and balance sheet totals.
+const aggregateFinancialSummary = ({ balances, accountByCode }) => {
+  const toNumber = (v) => Math.round((Number(v) || 0) * 100) / 100
+  let totalRevenue = 0
+  let totalExpense = 0
+  let cashBank = 0
+  const typeGroups = { asset: [], liability: [], equity: [] }
+
+  for (const acc of accountByCode.values()) {
+    const b = balances.get(acc.code) || { debit: 0, credit: 0 }
+    const net = toNumber(b.debit - b.credit)
+    if (acc.type === 'revenue') {
+      totalRevenue += Math.abs(net)
+    } else if (acc.type === 'expense') {
+      totalExpense += Math.abs(net)
+    } else if (typeGroups[acc.type]) {
+      typeGroups[acc.type].push({
+        code: acc.code,
+        name: acc.name,
+        normalBalance: acc.normalBalance,
+        net
+      })
+    }
+    if (acc.type === 'asset' && (acc.name?.toLowerCase().includes('cash') || acc.name?.toLowerCase().includes('bank'))) {
+      cashBank += net
+    }
+  }
+
+  const revenue = toNumber(totalRevenue)
+  const expense = toNumber(totalExpense)
+  const netIncome = toNumber(revenue - expense)
+
+  const computeBalance = (rows) =>
+    rows.reduce((sum, r) => {
+      if (r.normalBalance === 'debit') return sum + r.net
+      return sum - r.net
+    }, 0)
+
+  const totalAssets = toNumber(computeBalance(typeGroups.asset))
+  const totalLiabilities = toNumber(computeBalance(typeGroups.liability))
+  const totalEquity = toNumber(
+    computeBalance(typeGroups.equity) + netIncome
+  )
+  const totalLiabilitiesEquity = toNumber(totalLiabilities + totalEquity)
+
+  return {
+    cashBank: toNumber(cashBank),
+    totalRevenue: revenue,
+    totalExpense: expense,
+    netIncome,
+    isProfit: netIncome >= 0,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    totalLiabilitiesEquity,
+    balanced: Math.abs(totalAssets - totalLiabilitiesEquity) <= 0.01
+  }
+}
+
 module.exports = {
   async listAccounts(req, res) {
     try {
@@ -321,17 +381,22 @@ module.exports = {
       }
       let totalDebit = 0
       let totalCredit = 0
+      const safeAccountIds = lines.map((line) => String(line.account || '').trim())
+      const missingIds = safeAccountIds.filter((id) => !id)
+      if (missingIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Account ID is required for each line'
+        })
+      }
+      const uniqueAccountIds = [...new Set(safeAccountIds)]
+      const accounts = await db.account.findAll({
+        where: { id: uniqueAccountIds, store, status: 'active' }
+      })
+      const accountMap = new Map(accounts.map((a) => [String(a.id), a]))
       for (const line of lines) {
         const safeAccountId = String(line.account || '').trim()
-        if (!safeAccountId) {
-          return res.status(400).json({
-            success: false,
-            message: 'Account ID is required for each line'
-          })
-        }
-        const account = await db.account.findOne({
-          where: { id: safeAccountId, store, status: 'active' }
-        })
+        const account = accountMap.get(safeAccountId)
         if (!account) {
           return res.status(400).json({
             success: false,
@@ -648,47 +713,7 @@ module.exports = {
         dateWhere
       })
 
-      let totalRevenue = 0
-      let totalExpense = 0
-      let cashBank = 0
-      const typeGroups = { asset: [], liability: [], equity: [] }
-
-      for (const acc of accountByCode.values()) {
-        const b = balances.get(acc.code) || { debit: 0, credit: 0 }
-        const net = toNumber(b.debit - b.credit)
-        if (acc.type === 'revenue') {
-          totalRevenue += Math.abs(net)
-        } else if (acc.type === 'expense') {
-          totalExpense += Math.abs(net)
-        } else if (typeGroups[acc.type]) {
-          typeGroups[acc.type].push({
-            code: acc.code,
-            name: acc.name,
-            normalBalance: acc.normalBalance,
-            net
-          })
-        }
-        if (acc.code === '1000' || acc.code === '1400') {
-          cashBank += net
-        }
-      }
-
-      const revenue = toNumber(totalRevenue)
-      const expense = toNumber(totalExpense)
-      const netIncome = toNumber(revenue - expense)
-
-      const computeBalance = (rows) =>
-        rows.reduce((sum, r) => {
-          if (r.normalBalance === 'debit') return sum + r.net
-          return sum - r.net
-        }, 0)
-
-      const totalAssets = toNumber(computeBalance(typeGroups.asset))
-      const totalLiabilities = toNumber(computeBalance(typeGroups.liability))
-      const totalEquity = toNumber(
-        computeBalance(typeGroups.equity) + netIncome
-      )
-      const totalLiabilitiesEquity = toNumber(totalLiabilities + totalEquity)
+      const summary = aggregateFinancialSummary({ balances, accountByCode })
 
       const journalEntryCount = await db.journal_entry.count({
         where: {
@@ -701,16 +726,7 @@ module.exports = {
       return res.status(200).json({
         success: true,
         data: {
-          cashBank: toNumber(cashBank),
-          totalRevenue: revenue,
-          totalExpense: expense,
-          netIncome,
-          isProfit: netIncome >= 0,
-          totalAssets,
-          totalLiabilities,
-          totalEquity,
-          totalLiabilitiesEquity,
-          balanced: Math.abs(totalAssets - totalLiabilitiesEquity) <= 0.01,
+          ...summary,
           journalEntryCount
         }
       })

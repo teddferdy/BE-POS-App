@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const db = require('../../db/models')
 const User = db.user
 const Location = db.location
@@ -125,11 +126,10 @@ exports.addEmployee = async (req, res) => {
       ? await db.role.findByPk(body.roleId)
       : await db.role.findOne({ where: { roleType: 'user' } })
 
-    const { randomInt } = require('crypto')
     const employeeId =
       body?.employeeID ||
       body?.employeeId ||
-      String(randomInt(100000, 999999))
+      String(crypto.randomInt(100000, 999999))
 
     const isDraft = (body?.status || 'active') === 'draft'
     const draftSuffix = isDraft ? `draft-${employeeId}` : null

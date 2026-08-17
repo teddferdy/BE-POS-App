@@ -119,13 +119,6 @@ const employeePerformanceController = {
       const { store, startDate, endDate, limit = 10 } = req.query
       const userStore = req.cookies?.store || req.user?.store
 
-      const where = store || userStore ? { store: store || userStore } : {}
-      if (startDate || endDate) {
-        where.report_date = {}
-        if (startDate) where.report_date[Op.gte] = new Date(startDate)
-        if (endDate) where.report_date[Op.lte] = new Date(endDate)
-      }
-
       const safeLimit = Math.min(Math.max(1, parseInt(limit) || 10), 100)
       const conditions = []
       const replacements = { limit: safeLimit }
@@ -144,27 +137,21 @@ const employeePerformanceController = {
         replacements.endDate = String(endDate)
       }
 
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+      const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
 
-      const results = await db.sequelize.query(
-        `
-        SELECT 
-          cashier,
-          SUM(total_sales)::float as total_sales,
-          AVG(avg_transaction)::float as avg_transaction,
-          AVG(accuracy_rate)::float as avg_accuracy,
-          COUNT(*) as days_worked
-        FROM kasir_performance
-        ${whereClause}
-        GROUP BY cashier
-        ORDER BY total_sales DESC
-        LIMIT :limit
-      `,
-        {
-          replacements,
-          type: db.sequelize.QueryTypes.SELECT
-        }
-      )
+      const sql =
+        'SELECT cashier, SUM(total_sales)::float as total_sales, ' +
+        'AVG(avg_transaction)::float as avg_transaction, ' +
+        'AVG(accuracy_rate)::float as avg_accuracy, ' +
+        'COUNT(*) as days_worked ' +
+        'FROM kasir_performance ' +
+        whereClause + ' ' +
+        'GROUP BY cashier ORDER BY total_sales DESC LIMIT :limit'
+
+      const results = await db.sequelize.query(sql, {
+        replacements,
+        type: db.sequelize.QueryTypes.SELECT
+      })
 
       const performersWithNames = await Promise.all(
         results.map(async (result) => {
