@@ -148,7 +148,9 @@ const salesReturnController = {
 
       if (!ret) {
         await transaction.rollback()
-        return res.status(404).json({ success: false, message: 'Sales return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Sales return not found' })
       }
 
       if (ret.status !== 'pending') {
@@ -162,14 +164,19 @@ const salesReturnController = {
       const order = await db.order.findByPk(ret.order, { transaction })
       if (!order) {
         await transaction.rollback()
-        return res.status(404).json({ success: false, message: 'Original order not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Original order not found' })
       }
 
       for (const item of ret.items) {
         const product = await db.product.findByPk(item.product, { transaction })
         if (!product) {
           await transaction.rollback()
-          return res.status(404).json({ success: false, message: `Product ${item.product} not found` })
+          return res.status(404).json({
+            success: false,
+            message: `Product ${item.product} not found`
+          })
         }
       }
 
@@ -238,20 +245,28 @@ const salesReturnController = {
         transaction
       })
       if (updatedOrder) {
-        const totalPaid = updatedOrder.transactions.reduce((sum, t) => sum + Number(t.amount), 0)
+        const totalPaid = updatedOrder.transactions.reduce(
+          (sum, t) => sum + Number(t.amount),
+          0
+        )
         let newPaymentStatus = 'unpaid'
         if (totalPaid >= updatedOrder.totalPrice) {
           newPaymentStatus = 'paid'
         } else if (totalPaid > 0) {
           newPaymentStatus = 'partial'
         }
-        await updatedOrder.update({ paymentStatus: newPaymentStatus }, { transaction })
+        await updatedOrder.update(
+          { paymentStatus: newPaymentStatus },
+          { transaction }
+        )
       }
 
       await transaction.commit()
 
       try {
-        const { postSalesReturnJournal } = require('../service/accountingService')
+        const {
+          postSalesReturnJournal
+        } = require('../service/accountingService')
         await postSalesReturnJournal({
           store: ret.store,
           returnId: ret.id,
@@ -267,13 +282,24 @@ const salesReturnController = {
         console.error('Sales return journal skipped:', e.message)
       }
 
-      await createAudit(req, 'update', 'sales_return', id, 'Approved sales return: ' + ret.returnNumber)
+      await createAudit(
+        req,
+        'update',
+        'sales_return',
+        id,
+        'Approved sales return: ' + ret.returnNumber
+      )
 
-      return res.status(200).json({ success: true, message: 'Sales return approved', data: ret })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Sales return approved', data: ret })
     } catch (error) {
       await transaction.rollback()
       console.error(error)
-      return res.status(500).json({ success: false, message: error.message || 'Internal server error' })
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Internal server error'
+      })
     }
   },
 
@@ -288,11 +314,17 @@ const salesReturnController = {
 
       const ret = await db.sales_return.findOne({ where })
       if (!ret) {
-        return res.status(404).json({ success: false, message: 'Sales return not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Sales return not found' })
       }
 
       if (ret.status === 'rejected') {
-        return res.status(200).json({ success: true, message: 'Sales return already rejected', data: ret })
+        return res.status(200).json({
+          success: true,
+          message: 'Sales return already rejected',
+          data: ret
+        })
       }
 
       if (ret.status !== 'pending') {
@@ -303,12 +335,22 @@ const salesReturnController = {
       }
 
       await ret.update({ status: 'rejected' })
-      await createAudit(req, 'update', 'sales_return', id, 'Rejected sales return: ' + ret.returnNumber)
+      await createAudit(
+        req,
+        'update',
+        'sales_return',
+        id,
+        'Rejected sales return: ' + ret.returnNumber
+      )
 
-      return res.status(200).json({ success: true, message: 'Sales return rejected', data: ret })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Sales return rejected', data: ret })
     } catch (error) {
       console.error(error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

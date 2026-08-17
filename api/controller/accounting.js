@@ -62,7 +62,9 @@ module.exports = {
     try {
       const store = getStore(req)
       if (!store && !isSuperAdmin(req)) {
-        return res.status(400).json({ success: false, message: 'Store is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       }
       if (store) await ensureDefaultAccounts(store, req.user?.id)
       const accounts = await db.account.findAll({
@@ -83,26 +85,43 @@ module.exports = {
       return res.status(200).json({ success: true, data })
     } catch (error) {
       console.error('listAccounts error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async createAccount(req, res) {
     try {
       const store = getStore(req)
-      if (!store) return res.status(400).json({ success: false, message: 'Store is required' })
-      const { code, name, type, normalBalance, parentId, description } = req.body
+      if (!store)
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
+      const { code, name, type, normalBalance, parentId, description } =
+        req.body
       if (!code || !name || !type || !normalBalance) {
-        return res.status(400).json({ success: false, message: 'Code, name, type and normalBalance are required' })
+        return res.status(400).json({
+          success: false,
+          message: 'Code, name, type and normalBalance are required'
+        })
       }
       const validTypes = ['asset', 'liability', 'equity', 'revenue', 'expense']
       const validBalances = ['debit', 'credit']
-      if (!validTypes.includes(type) || !validBalances.includes(normalBalance)) {
-        return res.status(400).json({ success: false, message: 'Invalid type or normalBalance' })
+      if (
+        !validTypes.includes(type) ||
+        !validBalances.includes(normalBalance)
+      ) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid type or normalBalance' })
       }
       const existing = await db.account.findOne({ where: { store, code } })
       if (existing) {
-        return res.status(400).json({ success: false, message: `Account code ${code} already exists` })
+        return res.status(400).json({
+          success: false,
+          message: `Account code ${code} already exists`
+        })
       }
       const account = await db.account.create({
         store,
@@ -114,25 +133,48 @@ module.exports = {
         description,
         createdBy: req.user?.id
       })
-      createAudit(req, 'create', 'account', account.id, `Created account: ${code} ${name}`)
-      return res.status(201).json({ success: true, data: account, message: 'Account created' })
+      createAudit(
+        req,
+        'create',
+        'account',
+        account.id,
+        `Created account: ${code} ${name}`
+      )
+      return res
+        .status(201)
+        .json({ success: true, data: account, message: 'Account created' })
     } catch (error) {
       console.error('createAccount error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async updateAccount(req, res) {
     try {
       const store = getStore(req)
-      if (!store) return res.status(400).json({ success: false, message: 'Store is required' })
+      if (!store)
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       const { id } = req.params
       const account = await db.account.findOne({ where: { id, store } })
-      if (!account) return res.status(404).json({ success: false, message: 'Account not found' })
-      const { code, name, type, normalBalance, parentId, description, status } = req.body
+      if (!account)
+        return res
+          .status(404)
+          .json({ success: false, message: 'Account not found' })
+      const { code, name, type, normalBalance, parentId, description, status } =
+        req.body
       if (code && String(code) !== account.code) {
-        const clash = await db.account.findOne({ where: { store, code: String(code).trim() } })
-        if (clash) return res.status(400).json({ success: false, message: `Account code ${code} already exists` })
+        const clash = await db.account.findOne({
+          where: { store, code: String(code).trim() }
+        })
+        if (clash)
+          return res.status(400).json({
+            success: false,
+            message: `Account code ${code} already exists`
+          })
       }
       await account.update({
         ...(code ? { code: String(code).trim() } : {}),
@@ -144,34 +186,64 @@ module.exports = {
         ...(status ? { status } : {}),
         modifiedBy: req.user?.id
       })
-      createAudit(req, 'update', 'account', id, `Updated account: ${account.code} ${account.name}`)
-      return res.status(200).json({ success: true, data: account, message: 'Account updated' })
+      createAudit(
+        req,
+        'update',
+        'account',
+        id,
+        `Updated account: ${account.code} ${account.name}`
+      )
+      return res
+        .status(200)
+        .json({ success: true, data: account, message: 'Account updated' })
     } catch (error) {
       console.error('updateAccount error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async deleteAccount(req, res) {
     try {
       const store = getStore(req)
-      if (!store) return res.status(400).json({ success: false, message: 'Store is required' })
+      if (!store)
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       const { id } = req.params
       const account = await db.account.findOne({ where: { id, store } })
-      if (!account) return res.status(404).json({ success: false, message: 'Account not found' })
+      if (!account)
+        return res
+          .status(404)
+          .json({ success: false, message: 'Account not found' })
       if (account.isSystem) {
-        return res.status(400).json({ success: false, message: 'System accounts cannot be deleted' })
+        return res.status(400).json({
+          success: false,
+          message: 'System accounts cannot be deleted'
+        })
       }
       const used = await db.journal_entry_line.count({ where: { account: id } })
       if (used > 0) {
-        return res.status(400).json({ success: false, message: 'Account has journal activity and cannot be deleted' })
+        return res.status(400).json({
+          success: false,
+          message: 'Account has journal activity and cannot be deleted'
+        })
       }
       await account.destroy()
-      createAudit(req, 'delete', 'account', id, `Deleted account: ${account.code} ${account.name}`)
+      createAudit(
+        req,
+        'delete',
+        'account',
+        id,
+        `Deleted account: ${account.code} ${account.name}`
+      )
       return res.status(200).json({ success: true, message: 'Account deleted' })
     } catch (error) {
       console.error('deleteAccount error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -179,7 +251,9 @@ module.exports = {
     try {
       const store = getStore(req)
       if (!store && !isSuperAdmin(req)) {
-        return res.status(400).json({ success: false, message: 'Store is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       }
       const where = store ? { store } : {}
       if (req.query.sourceType) where.sourceType = req.query.sourceType
@@ -192,47 +266,77 @@ module.exports = {
       const offset = Number(req.query.offset) || 0
       const { rows, count } = await db.journal_entry.findAndCountAll({
         where,
-        order: [['date', 'DESC'], ['id', 'DESC']],
+        order: [
+          ['date', 'DESC'],
+          ['id', 'DESC']
+        ],
         limit,
         offset,
-        include: [{ model: db.journal_entry_line, as: 'lines', include: [accountIncludes()] }]
+        include: [
+          {
+            model: db.journal_entry_line,
+            as: 'lines',
+            include: [accountIncludes()]
+          }
+        ]
       })
       let data = rows
       if (!store) {
-        const locations = await db.location.findAll({ attributes: ['id', 'name'] })
-        const locMap = new Map(locations.map((l) => [String(l.id), l.name || `Toko ${l.id}`]))
+        const locations = await db.location.findAll({
+          attributes: ['id', 'name']
+        })
+        const locMap = new Map(
+          locations.map((l) => [String(l.id), l.name || `Toko ${l.id}`])
+        )
         data = rows.map((row) => {
           const plain = row.get({ plain: true })
-          plain.storeName = locMap.get(String(plain.store)) || `Toko ${plain.store}`
+          plain.storeName =
+            locMap.get(String(plain.store)) || `Toko ${plain.store}`
           return plain
         })
       }
       return res.status(200).json({ success: true, data, count, limit, offset })
     } catch (error) {
       console.error('listJournals error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async createManualJournal(req, res) {
     try {
       const store = getStore(req)
-      if (!store) return res.status(400).json({ success: false, message: 'Store is required' })
+      if (!store)
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       const { date, description, lines } = req.body
       if (!date || !Array.isArray(lines) || lines.length < 2) {
-        return res.status(400).json({ success: false, message: 'Date and at least two lines are required' })
+        return res.status(400).json({
+          success: false,
+          message: 'Date and at least two lines are required'
+        })
       }
       let totalDebit = 0
       let totalCredit = 0
       for (const line of lines) {
-        const account = await db.account.findOne({ where: { id: line.account, store, status: 'active' } })
+        const account = await db.account.findOne({
+          where: { id: line.account, store, status: 'active' }
+        })
         if (!account) {
-          return res.status(400).json({ success: false, message: `Account ${line.account} not found` })
+          return res.status(400).json({
+            success: false,
+            message: `Account ${line.account} not found`
+          })
         }
         const debit = toNumber(line.debit)
         const credit = toNumber(line.credit)
         if (debit < 0 || credit < 0 || (debit === 0 && credit === 0)) {
-          return res.status(400).json({ success: false, message: 'Each line needs a positive debit or credit' })
+          return res.status(400).json({
+            success: false,
+            message: 'Each line needs a positive debit or credit'
+          })
         }
         totalDebit += debit
         totalCredit += credit
@@ -270,31 +374,60 @@ module.exports = {
           createdBy: req.user?.id
         })
       }
-      createAudit(req, 'create', 'journal_entry', entry.id, `Created journal entry: ${entry.entryNumber}`)
-      return res.status(201).json({ success: true, data: entry, message: 'Journal entry created' })
+      createAudit(
+        req,
+        'create',
+        'journal_entry',
+        entry.id,
+        `Created journal entry: ${entry.entryNumber}`
+      )
+      return res
+        .status(201)
+        .json({ success: true, data: entry, message: 'Journal entry created' })
     } catch (error) {
       console.error('createManualJournal error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
   async deleteJournal(req, res) {
     try {
       const store = getStore(req)
-      if (!store) return res.status(400).json({ success: false, message: 'Store is required' })
+      if (!store)
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       const { id } = req.params
       const entry = await db.journal_entry.findOne({ where: { id, store } })
-      if (!entry) return res.status(404).json({ success: false, message: 'Journal entry not found' })
+      if (!entry)
+        return res
+          .status(404)
+          .json({ success: false, message: 'Journal entry not found' })
       if (entry.sourceType !== 'manual') {
-        return res.status(400).json({ success: false, message: 'Only manual journal entries can be deleted' })
+        return res.status(400).json({
+          success: false,
+          message: 'Only manual journal entries can be deleted'
+        })
       }
       await db.journal_entry_line.destroy({ where: { journalEntry: id } })
       await entry.destroy()
-      createAudit(req, 'delete', 'journal_entry', id, `Deleted journal entry: ${entry.entryNumber}`)
-      return res.status(200).json({ success: true, message: 'Journal entry deleted' })
+      createAudit(
+        req,
+        'delete',
+        'journal_entry',
+        id,
+        `Deleted journal entry: ${entry.entryNumber}`
+      )
+      return res
+        .status(200)
+        .json({ success: true, message: 'Journal entry deleted' })
     } catch (error) {
       console.error('deleteJournal error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -302,7 +435,9 @@ module.exports = {
     try {
       const store = getStore(req)
       if (!store && !isSuperAdmin(req)) {
-        return res.status(400).json({ success: false, message: 'Store is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       }
       if (store) await ensureDefaultAccounts(store, req.user?.id)
       const dateWhere = {}
@@ -311,7 +446,10 @@ module.exports = {
         if (req.query.startDate) dateWhere.date[Op.gte] = req.query.startDate
         if (req.query.endDate) dateWhere.date[Op.lte] = req.query.endDate
       }
-      const { balances, accountByCode } = await buildBalanceMap({ store, dateWhere })
+      const { balances, accountByCode } = await buildBalanceMap({
+        store,
+        dateWhere
+      })
       const rows = [...balances.entries()]
         .map(([code, b]) => {
           const acc = accountByCode.get(code)
@@ -337,7 +475,9 @@ module.exports = {
       })
     } catch (error) {
       console.error('getTrialBalance error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -345,7 +485,9 @@ module.exports = {
     try {
       const store = getStore(req)
       if (!store && !isSuperAdmin(req)) {
-        return res.status(400).json({ success: false, message: 'Store is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       }
       if (store) await ensureDefaultAccounts(store, req.user?.id)
       const dateWhere = {}
@@ -354,7 +496,10 @@ module.exports = {
         if (req.query.startDate) dateWhere.date[Op.gte] = req.query.startDate
         if (req.query.endDate) dateWhere.date[Op.lte] = req.query.endDate
       }
-      const { balances, accountByCode } = await buildBalanceMap({ store, dateWhere })
+      const { balances, accountByCode } = await buildBalanceMap({
+        store,
+        dateWhere
+      })
       const revenues = []
       const expenses = []
       let totalRevenue = 0
@@ -375,11 +520,19 @@ module.exports = {
       const netIncome = toNumber(totalRevenue - totalExpense)
       return res.status(200).json({
         success: true,
-        data: { revenues, expenses, totalRevenue: toNumber(totalRevenue), totalExpense: toNumber(totalExpense), netIncome }
+        data: {
+          revenues,
+          expenses,
+          totalRevenue: toNumber(totalRevenue),
+          totalExpense: toNumber(totalExpense),
+          netIncome
+        }
       })
     } catch (error) {
       console.error('getIncomeStatement error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   },
 
@@ -387,12 +540,17 @@ module.exports = {
     try {
       const store = getStore(req)
       if (!store && !isSuperAdmin(req)) {
-        return res.status(400).json({ success: false, message: 'Store is required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
       }
       if (store) await ensureDefaultAccounts(store, req.user?.id)
       const asOf = req.query.asOf || null
       const dateWhere = asOf ? { date: { [Op.lte]: asOf } } : {}
-      const { balances, accountByCode } = await buildBalanceMap({ store, dateWhere })
+      const { balances, accountByCode } = await buildBalanceMap({
+        store,
+        dateWhere
+      })
 
       // Revenue/expense are closed into equity for the balance sheet (current period profit)
       const typeGroups = {
@@ -409,7 +567,12 @@ module.exports = {
         } else if (acc.type === 'expense') {
           currentNetIncome += net // expense net is typically positive (debit)
         } else if (typeGroups[acc.type]) {
-          typeGroups[acc.type].push({ code: acc.code, name: acc.name, normalBalance: acc.normalBalance, net })
+          typeGroups[acc.type].push({
+            code: acc.code,
+            name: acc.name,
+            normalBalance: acc.normalBalance,
+            net
+          })
         }
       }
       const netIncome = toNumber(-currentNetIncome)
@@ -451,7 +614,103 @@ module.exports = {
       })
     } catch (error) {
       console.error('getBalanceSheet error:', error)
-      return res.status(500).json({ success: false, message: 'Internal server error' })
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  async getOverview(req, res) {
+    try {
+      const store = getStore(req)
+      if (!store && !isSuperAdmin(req)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store is required' })
+      }
+      if (store) await ensureDefaultAccounts(store, req.user?.id)
+      const dateWhere = {}
+      if (req.query.startDate || req.query.endDate) {
+        dateWhere.date = {}
+        if (req.query.startDate) dateWhere.date[Op.gte] = req.query.startDate
+        if (req.query.endDate) dateWhere.date[Op.lte] = req.query.endDate
+      }
+      const { balances, accountByCode } = await buildBalanceMap({
+        store,
+        dateWhere
+      })
+
+      let totalRevenue = 0
+      let totalExpense = 0
+      let cashBank = 0
+      const typeGroups = { asset: [], liability: [], equity: [] }
+
+      for (const acc of accountByCode.values()) {
+        const b = balances.get(acc.code) || { debit: 0, credit: 0 }
+        const net = toNumber(b.debit - b.credit)
+        if (acc.type === 'revenue') {
+          totalRevenue += Math.abs(net)
+        } else if (acc.type === 'expense') {
+          totalExpense += Math.abs(net)
+        } else if (typeGroups[acc.type]) {
+          typeGroups[acc.type].push({
+            code: acc.code,
+            name: acc.name,
+            normalBalance: acc.normalBalance,
+            net
+          })
+        }
+        if (acc.code === '1000' || acc.code === '1400') {
+          cashBank += net
+        }
+      }
+
+      const revenue = toNumber(totalRevenue)
+      const expense = toNumber(totalExpense)
+      const netIncome = toNumber(revenue - expense)
+
+      const computeBalance = (rows) =>
+        rows.reduce((sum, r) => {
+          if (r.normalBalance === 'debit') return sum + r.net
+          return sum - r.net
+        }, 0)
+
+      const totalAssets = toNumber(computeBalance(typeGroups.asset))
+      const totalLiabilities = toNumber(computeBalance(typeGroups.liability))
+      const totalEquity = toNumber(
+        computeBalance(typeGroups.equity) + netIncome
+      )
+      const totalLiabilitiesEquity = toNumber(totalLiabilities + totalEquity)
+
+      const journalEntryCount = await db.journal_entry.count({
+        where: {
+          ...(store ? { store } : {}),
+          ...(Object.keys(dateWhere).length ? dateWhere : {}),
+          status: 'posted'
+        }
+      })
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          cashBank: toNumber(cashBank),
+          totalRevenue: revenue,
+          totalExpense: expense,
+          netIncome,
+          isProfit: netIncome >= 0,
+          totalAssets,
+          totalLiabilities,
+          totalEquity,
+          totalLiabilitiesEquity,
+          balanced: Math.abs(totalAssets - totalLiabilitiesEquity) <= 0.01,
+          journalEntryCount
+        }
+      })
+    } catch (error) {
+      console.error('getOverview error:', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
     }
   }
 }

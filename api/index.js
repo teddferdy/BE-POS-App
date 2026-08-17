@@ -106,7 +106,8 @@ const corsOptions = {
 // so a busy POS terminal (many requests per transaction) is not blocked.
 const isAuthenticated = (req) =>
   Boolean(
-    req.headers?.authorization && req.headers.authorization.startsWith('Bearer ')
+    req.headers?.authorization &&
+    req.headers.authorization.startsWith('Bearer ')
   )
 
 const limiter = rateLimit({

@@ -19,7 +19,10 @@ const inventoryService = {
         createdAt: { [Op.gte]: since }
       },
       attributes: [
-        [db.sequelize.fn('SUM', db.sequelize.col('quantityChange')), 'totalSold']
+        [
+          db.sequelize.fn('SUM', db.sequelize.col('quantityChange')),
+          'totalSold'
+        ]
       ]
     })
 
@@ -53,7 +56,10 @@ const inventoryService = {
       forecastedStockoutDate = d.toISOString().split('T')[0]
     }
 
-    const confidence = consumption > 0 ? Math.min(90, Math.round((DEFAULT_DAYS / 30) * 80 + 10)) : 50
+    const confidence =
+      consumption > 0
+        ? Math.min(90, Math.round((DEFAULT_DAYS / 30) * 80 + 10))
+        : 50
 
     return {
       productId,
@@ -197,9 +203,19 @@ const inventoryService = {
     const batches = await db.product_batch.findAll({
       where,
       include: [
-        { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
+        {
+          model: db.product,
+          as: 'productData',
+          attributes: ['id', 'nameProduct']
+        },
         ...(storeId
-          ? [{ model: db.location, as: 'storeData', attributes: ['id', 'name'] }]
+          ? [
+              {
+                model: db.location,
+                as: 'storeData',
+                attributes: ['id', 'name']
+              }
+            ]
           : [])
       ],
       order: [['expiryDate', 'ASC']]
@@ -331,14 +347,14 @@ const inventoryService = {
       method,
       totalValue: Number(totalValue.toFixed(2)),
       totalProducts: productsOut.length,
-      avgCost: totalStock > 0 ? Number((totalValue / totalStock).toFixed(2)) : 0,
+      avgCost:
+        totalStock > 0 ? Number((totalValue / totalStock).toFixed(2)) : 0,
       products: productsOut
     }
   },
 
   async aggregateSupplierPerformance(month = null) {
-    const monthStr =
-      month || new Date().toISOString().slice(0, 7)
+    const monthStr = month || new Date().toISOString().slice(0, 7)
     const monthStart = `${monthStr}-01`
 
     const where = {
@@ -371,24 +387,39 @@ const inventoryService = {
         const recd = new Date(po.receivedDate)
         if (recd <= due) rec.onTime += 1
         else rec.late += 1
-        rec.leadTimes.push(Math.ceil((recd - new Date(po.orderDate)) / 86400000))
+        rec.leadTimes.push(
+          Math.ceil((recd - new Date(po.orderDate)) / 86400000)
+        )
       }
     }
 
     const results = []
     for (const [supId, data] of Object.entries(map)) {
-      const onTimeRate = data.totalOrders > 0
-        ? Number(((data.onTime / data.totalOrders) * 100).toFixed(2))
-        : 0
-      const avgLead = data.leadTimes.length > 0
-        ? Number((data.leadTimes.reduce((s, l) => s + l, 0) / data.leadTimes.length).toFixed(2))
-        : null
-      const score = Math.min(100, Math.round(
-        onTimeRate * 0.6 + (avgLead !== null && avgLead <= 7 ? 20 : 10)
-      ))
+      const onTimeRate =
+        data.totalOrders > 0
+          ? Number(((data.onTime / data.totalOrders) * 100).toFixed(2))
+          : 0
+      const avgLead =
+        data.leadTimes.length > 0
+          ? Number(
+              (
+                data.leadTimes.reduce((s, l) => s + l, 0) /
+                data.leadTimes.length
+              ).toFixed(2)
+            )
+          : null
+      const score = Math.min(
+        100,
+        Math.round(
+          onTimeRate * 0.6 + (avgLead !== null && avgLead <= 7 ? 20 : 10)
+        )
+      )
 
       const monthDate = `${monthStr}-01`
-      await db.supplier_performance.destroy({ where: { supplier: supId, month: monthDate }, force: true })
+      await db.supplier_performance.destroy({
+        where: { supplier: supId, month: monthDate },
+        force: true
+      })
       const perf = await db.supplier_performance.create({
         supplier: supId,
         month: monthDate,

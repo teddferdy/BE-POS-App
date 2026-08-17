@@ -126,7 +126,9 @@ exports.addEmployee = async (req, res) => {
       : await db.role.findOne({ where: { roleType: 'user' } })
 
     const employeeId =
-      body?.employeeID || body?.employeeId || String(Math.floor(100000 + Math.random() * 900000))
+      body?.employeeID ||
+      body?.employeeId ||
+      String(Math.floor(100000 + Math.random() * 900000))
 
     const isDraft = (body?.status || 'active') === 'draft'
     const draftSuffix = isDraft ? `draft-${employeeId}` : null
@@ -230,39 +232,34 @@ exports.getAllEmployee = async (req, res) => {
       whereCondition.store = currentUserStore
     }
 
-    const [
-      employees,
-      total,
-      activeCount,
-      inactiveCount,
-      draftCount
-    ] = await Promise.all([
-      User.findAll({
-        where: whereCondition,
-        attributes: { exclude: ['password'] },
-        include: [
-          { model: Location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: Position, as: 'positionData', attributes: ['id', 'name'] },
-          {
-            model: Department,
-            as: 'departmentData',
-            attributes: ['id', 'name']
-          }
-        ],
-        limit,
-        offset,
-        order: [['createdAt', 'DESC']]
-      }),
-      User.count({ where: whereCondition }),
-      User.count({ where: { ...whereCondition, status: 'active' } }),
-      User.count({ where: { ...whereCondition, status: 'inactive' } }),
-      User.count({ where: { ...whereCondition, status: 'draft' } }),
-      User.findAll({
-        where: { ...whereCondition, store: { [Op.ne]: null } },
-        attributes: ['store'],
-        group: ['store']
-      })
-    ])
+    const [employees, total, activeCount, inactiveCount, draftCount] =
+      await Promise.all([
+        User.findAll({
+          where: whereCondition,
+          attributes: { exclude: ['password'] },
+          include: [
+            { model: Location, as: 'storeData', attributes: ['id', 'name'] },
+            { model: Position, as: 'positionData', attributes: ['id', 'name'] },
+            {
+              model: Department,
+              as: 'departmentData',
+              attributes: ['id', 'name']
+            }
+          ],
+          limit,
+          offset,
+          order: [['createdAt', 'DESC']]
+        }),
+        User.count({ where: whereCondition }),
+        User.count({ where: { ...whereCondition, status: 'active' } }),
+        User.count({ where: { ...whereCondition, status: 'inactive' } }),
+        User.count({ where: { ...whereCondition, status: 'draft' } }),
+        User.findAll({
+          where: { ...whereCondition, store: { [Op.ne]: null } },
+          attributes: ['store'],
+          group: ['store']
+        })
+      ])
 
     const totalPages = Math.ceil(total / limit)
 

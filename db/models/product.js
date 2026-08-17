@@ -123,15 +123,15 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'menu'
       },
       hppPerPorsi: {
-        type: DataTypes.DECIMAL(15,2),
+        type: DataTypes.DECIMAL(15, 2),
         defaultValue: 0
       },
       foodCostPersen: {
-        type: DataTypes.DECIMAL(5,2),
+        type: DataTypes.DECIMAL(5, 2),
         defaultValue: 0
       },
       marginPersen: {
-        type: DataTypes.DECIMAL(5,2),
+        type: DataTypes.DECIMAL(5, 2),
         defaultValue: 0
       },
       isAvailableHariIni: {
@@ -145,7 +145,7 @@ module.exports = (sequelize, DataTypes) => {
       estimationTime: {
         type: DataTypes.INTEGER,
         defaultValue: 0
-      },
+      }
     },
     {
       paranoid: true,

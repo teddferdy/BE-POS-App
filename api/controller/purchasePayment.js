@@ -78,7 +78,10 @@ const purchasePaymentController = {
       if (poIds.length === 0) {
         return res.status(200).json({
           success: true,
-          data: { purchaseOrders: [], summary: { totalOrdered: 0, totalPaid: 0, balance: 0 } }
+          data: {
+            purchaseOrders: [],
+            summary: { totalOrdered: 0, totalPaid: 0, balance: 0 }
+          }
         })
       }
 
@@ -87,9 +90,7 @@ const purchasePaymentController = {
 
       const purchaseOrders = await db.purchase_order.findAll({
         where: poWhere,
-        include: [
-          { model: db.purchase_payment, as: 'payments' }
-        ],
+        include: [{ model: db.purchase_payment, as: 'payments' }],
         order: [['createdAt', 'DESC']]
       })
 
@@ -139,7 +140,7 @@ const purchasePaymentController = {
         notes
       } = req.body
 
-      if (!purchaseOrder || !supplier || !amount || amount <= 0) {
+      if (!purchaseOrder || !amount || amount <= 0) {
         return res.status(400).json({
           success: false,
           message: 'Purchase order, supplier, and amount are required'
@@ -152,6 +153,23 @@ const purchasePaymentController = {
         return res.status(404).json({
           success: false,
           message: 'Purchase order not found'
+        })
+      }
+
+      // Multi-supplier PO: supplier column no longer exists on purchase_order.
+      // Derive from the first PO item when supplier is not supplied explicitly.
+      let effectiveSupplier = supplier || null
+      if (!effectiveSupplier) {
+        const firstItem = await db.purchase_order_item.findOne({
+          where: { purchaseOrder: purchaseOrder }
+        })
+        effectiveSupplier = firstItem?.supplier || null
+      }
+
+      if (!effectiveSupplier) {
+        return res.status(400).json({
+          success: false,
+          message: 'Supplier is required'
         })
       }
 
@@ -169,7 +187,7 @@ const purchasePaymentController = {
       const payment = await db.purchase_payment.create({
         store: po.store || store || null,
         purchaseOrder,
-        supplier,
+        supplier: effectiveSupplier,
         amount: parseInt(amount),
         paymentDate: paymentDate || new Date(),
         paymentMethod: paymentMethod || 'cash',
@@ -179,7 +197,9 @@ const purchasePaymentController = {
       })
 
       try {
-        const { postPurchasePaymentJournal } = require('../service/accountingService')
+        const {
+          postPurchasePaymentJournal
+        } = require('../service/accountingService')
         await postPurchasePaymentJournal({
           store: po.store || store,
           paymentId: payment.id,
@@ -305,7 +325,8 @@ const purchasePaymentController = {
         // Use po.finalAmount directly so return adjustments are reflected
         const poFinalAmount = Number(po.finalAmount || 0)
         const supplierDetails = Object.values(itemsBySupplier).map((detail) => {
-          const ratio = totalItemsAmount > 0 ? detail.itemsAmount / totalItemsAmount : 0
+          const ratio =
+            totalItemsAmount > 0 ? detail.itemsAmount / totalItemsAmount : 0
           const finalAmount = Math.round(poFinalAmount * ratio)
           return {
             ...detail,
@@ -363,7 +384,8 @@ const purchasePaymentController = {
                 ? Math.max(
                     0,
                     Math.floor(
-                      (new Date() - new Date(po.dueDate)) / (1000 * 60 * 60 * 24)
+                      (new Date() - new Date(po.dueDate)) /
+                        (1000 * 60 * 60 * 24)
                     )
                   )
                 : 0

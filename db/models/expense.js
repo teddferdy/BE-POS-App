@@ -49,6 +49,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('pending', 'approved', 'rejected', 'draft'),
         defaultValue: 'pending'
       },
+      isActive: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: true
+      },
       isPaid: {
         type: DataTypes.BOOLEAN,
         defaultValue: false

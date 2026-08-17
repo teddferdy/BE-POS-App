@@ -581,15 +581,16 @@ exports.editUser = async (req, res) => {
 
 const RESET_TOKEN_TTL_MINUTES = 15
 
-const getFrontendUrl = () =>
-  process.env.FRONTEND_URL || 'http://localhost:5173'
+const getFrontendUrl = () => process.env.FRONTEND_URL || 'http://localhost:5173'
 
 // Request Password Reset (step 1): generate a one-time token and email it.
 // Always returns the same response whether or not the email exists so the
 // endpoint does not leak which accounts are registered.
 exports.requestResetPassword = async (req, res) => {
   const body = req?.body
-  const email = String(body?.email || '').trim().toLowerCase()
+  const email = String(body?.email || '')
+    .trim()
+    .toLowerCase()
 
   if (!email) {
     return res.status(400).json({ error: 'Email wajib diisi' })
@@ -600,7 +601,9 @@ exports.requestResetPassword = async (req, res) => {
 
     if (existingUser) {
       const token = crypto.randomBytes(32).toString('hex')
-      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000)
+      const expiresAt = new Date(
+        Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000
+      )
 
       existingUser.resetToken = token
       existingUser.resetTokenExpires = expiresAt
@@ -616,7 +619,10 @@ exports.requestResetPassword = async (req, res) => {
       try {
         await sendEmail({ to: email, ...mail })
       } catch (emailError) {
-        console.error('Reset password email failed to send:', emailError.message)
+        console.error(
+          'Reset password email failed to send:',
+          emailError.message
+        )
         if (process.env.NODE_ENV !== 'production') {
           console.log(`[DEV] Reset password link for ${email}: ${resetUrl}`)
         }
@@ -645,7 +651,12 @@ exports.requestResetPassword = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   const body = req?.body
 
-  if (!body?.email || !body?.token || !body?.newPassword || !body?.confirmPassword) {
+  if (
+    !body?.email ||
+    !body?.token ||
+    !body?.newPassword ||
+    !body?.confirmPassword
+  ) {
     return res.status(400).json({
       error: 'Email, token, New Password, dan Confirm Password harus diisi'
     })
@@ -675,7 +686,8 @@ exports.resetPassword = async (req, res) => {
       new Date(existingUser.resetTokenExpires).getTime() < Date.now()
     ) {
       return res.status(400).json({
-        error: 'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa. Silakan minta ulang.'
+        error:
+          'Tautan atur ulang kata sandi tidak valid atau sudah kedaluwarsa. Silakan minta ulang.'
       })
     }
 

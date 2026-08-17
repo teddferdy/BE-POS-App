@@ -29,7 +29,13 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       status: {
-        type: DataTypes.ENUM('draft', 'pending', 'ordered', 'received', 'cancelled'),
+        type: DataTypes.ENUM(
+          'draft',
+          'pending',
+          'ordered',
+          'received',
+          'cancelled'
+        ),
         defaultValue: 'pending'
       },
       orderDate: {
@@ -90,6 +96,10 @@ module.exports = (sequelize, DataTypes) => {
     purchaseOrder.belongsTo(models.user, {
       foreignKey: 'pic',
       as: 'picData'
+    })
+    purchaseOrder.belongsTo(models.user, {
+      foreignKey: 'createdBy',
+      as: 'createdByUser'
     })
     purchaseOrder.hasMany(models.purchase_order_item, {
       foreignKey: 'purchaseOrder',

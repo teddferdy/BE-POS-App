@@ -22,12 +22,12 @@ const taxConfigController = {
       }
       const taxes = await db.taxConfig.findAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['createdAt', 'DESC']]
       })
       return res.status(200).json({
         success: true,
         message: 'Success get tax configs',
-        data: taxes,
+        data: taxes
       })
     } catch (error) {
       console.error('getPublic error:', error)
@@ -37,7 +37,8 @@ const taxConfigController = {
 
   async getAll(req, res) {
     try {
-      const store = req.storeId || req.query.store || req.cookies.store || req.user?.store
+      const store =
+        req.storeId || req.query.store || req.cookies.store || req.user?.store
       const { page = 1, limit = 10, search, status } = req.query
 
       // Auto-seed default PPh 2026 data if table is empty
@@ -100,7 +101,8 @@ const taxConfigController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.query.store || req.cookies.store || req.user?.store
+      const store =
+        req.storeId || req.query.store || req.cookies.store || req.user?.store
 
       const tax = await db.taxConfig.findOne({
         where: {
@@ -132,7 +134,8 @@ const taxConfigController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
+      const store =
+        req.storeId || req.body.store || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -177,7 +180,8 @@ const taxConfigController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
+      const store =
+        req.storeId || req.body.store || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -317,7 +321,8 @@ const taxConfigController = {
 
   async downloadData(req, res) {
     try {
-      const store = req.storeId || req.query.store || req.cookies.store || req.user?.store
+      const store =
+        req.storeId || req.query.store || req.cookies.store || req.user?.store
       const where = {}
       if (store) where.store = store
 

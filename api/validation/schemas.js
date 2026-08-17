@@ -90,7 +90,7 @@ exports.registerSchema = z
     address: z.string().optional().default(''),
     dateOfBirth: z.string().optional().nullable(),
     placeOfBirth: z.string().optional().default(''),
-  store: optionalStrToNum().nullable(),
+    store: optionalStrToNum().nullable(),
     shift: strToNum().optional().default(0),
     position: strToNum().optional().default(0),
     accessMenu: jsonField().optional().nullable()
@@ -199,7 +199,16 @@ exports.createOrderSchema = z.object({
   taxRate: z.string().optional().default('0'),
   serviceChargeRate: z.string().optional().default('0'),
   paymentMethod: z
-    .enum(['cash', 'qris', 'debit', 'credit', 'other', 'points', 'transfer', 'e-wallet'])
+    .enum([
+      'cash',
+      'qris',
+      'debit',
+      'credit',
+      'other',
+      'points',
+      'transfer',
+      'e-wallet'
+    ])
     .optional(),
   appliedDiscountId: strToNum().optional().nullable(),
   pointDiscountAmount: strToNum().optional().default(0),
@@ -212,7 +221,9 @@ exports.updateOrderStatusSchema = z.object({
     .any()
     .optional()
     .nullable()
-    .transform((v) => (v === '' || v === null || v === undefined ? null : Number(v)))
+    .transform((v) =>
+      v === '' || v === null || v === undefined ? null : Number(v)
+    )
     .refine((v) => v === null || !isNaN(v), { message: 'must be a number' })
     .refine((v) => v === null || v >= 0, { message: 'must not be negative' }),
   status: z.enum([
@@ -280,18 +291,20 @@ exports.createSupplierSchema = z.object({
   status: statusEnum,
   products: z
     .array(
-      z.object({
-        name: z.string().min(1),
-        price: strToNum().optional().default(0),
-        unit: z.string().optional().default('pcs'),
-        leadTime: z.number().optional().default(0),
-        leadTimeUnit: z.string().optional().default('hari'),
-        qualityRating: strToNum().optional().default(0),
-        minOrderQty: z.string().optional().default("1"),
-        notes: z.string().optional().nullable(),
-        lastPrice: z.number().optional().default(0),
-        productId: z.number().optional().nullable()
-      }).passthrough()
+      z
+        .object({
+          name: z.string().min(1),
+          price: strToNum().optional().default(0),
+          unit: z.string().optional().default('pcs'),
+          leadTime: z.number().optional().default(0),
+          leadTimeUnit: z.string().optional().default('hari'),
+          qualityRating: strToNum().optional().default(0),
+          minOrderQty: z.string().optional().default('1'),
+          notes: z.string().optional().nullable(),
+          lastPrice: z.number().optional().default(0),
+          productId: z.number().optional().nullable()
+        })
+        .passthrough()
     )
     .optional()
     .nullable()
@@ -480,8 +493,12 @@ const goodsRequestItemSchema = z.object({
 
 exports.createGoodsRequestSchema = z.object({
   store: strToNum().optional().nullable(),
-  items: z.array(goodsRequestItemSchema).min(1, 'At least one item is required'),
+  items: z
+    .array(goodsRequestItemSchema)
+    .min(1, 'At least one item is required'),
   requestedBy: z.string().optional().default(''),
+  requestDate: z.string().optional().nullable(),
+  neededDate: z.string().optional().nullable(),
   notes: z.string().optional().default('')
 })
 
@@ -539,74 +556,88 @@ exports.createTaxConfigSchema = z.object({
 exports.updateTaxConfigSchema = exports.createTaxConfigSchema.partial()
 
 // ===================== Expense =====================
-exports.createExpenseSchema = z.object({
-  store: strToNum().optional().nullable(),
-  categoryId: strToNum().optional().nullable(),
-  amount: strToNum().optional().nullable(),
-  description: z.string().optional().nullable(),
-  date: z.string().optional(),
-  notes: z.string().optional().default(''),
-  payee: z.string().optional().nullable(),
-  employeeId: strToNum().optional().nullable(),
-  paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
-  frequency: z
-    .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
-    .optional()
-    .nullable()
-    .transform((v) => (v === 'once' ? null : v)),
-  recurringEndDate: z.string().optional().nullable(),
-  status: z
-    .enum(['draft', 'pending', 'approved', 'rejected'])
-    .optional()
-    .default('pending')
-}).passthrough()
+exports.createExpenseSchema = z
+  .object({
+    store: strToNum().optional().nullable(),
+    categoryId: strToNum().optional().nullable(),
+    amount: strToNum().optional().nullable(),
+    description: z.string().optional().nullable(),
+    date: z.string().optional(),
+    notes: z.string().optional().default(''),
+    payee: z.string().optional().nullable(),
+    employeeId: strToNum().optional().nullable(),
+    paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
+    frequency: z
+      .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
+      .optional()
+      .nullable()
+      .transform((v) => (v === 'once' ? null : v)),
+    recurringEndDate: z.string().optional().nullable(),
+    status: z
+      .enum(['draft', 'pending', 'approved', 'rejected'])
+      .optional()
+      .default('pending')
+  })
+  .passthrough()
 
 exports.updateExpenseSchema = exports.createExpenseSchema.partial()
 
-exports.bulkCreateExpensesSchema = z.object({
-  store: strToNum().optional().nullable(),
-  items: z
-    .array(
-      z
-        .object({
-          store: strToNum().optional().nullable(),
-          categoryId: strToNum().optional().nullable(),
-          category: strToNum().optional().nullable(),
-          amount: strToNum().optional().nullable(),
-          description: z.string().optional().nullable(),
-          date: z.string().optional(),
-          notes: z.string().optional().default(''),
-          payee: z.string().optional().nullable(),
-          employeeId: strToNum().optional().nullable(),
-          paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
-          frequency: z
-            .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
-            .optional()
-            .nullable()
-            .transform((v) => (v === 'once' ? null : v)),
-          recurringEndDate: z.string().optional().nullable(),
-          status: z
-            .enum(['draft', 'pending', 'approved', 'rejected'])
-            .optional()
-            .default('pending')
-        })
-        .passthrough()
-    )
-    .min(1, 'At least one expense item is required')
-}).passthrough()
+exports.bulkCreateExpensesSchema = z
+  .object({
+    store: strToNum().optional().nullable(),
+    items: z
+      .array(
+        z
+          .object({
+            store: strToNum().optional().nullable(),
+            categoryId: strToNum().optional().nullable(),
+            category: strToNum().optional().nullable(),
+            amount: strToNum().optional().nullable(),
+            description: z.string().optional().nullable(),
+            date: z.string().optional(),
+            notes: z.string().optional().default(''),
+            payee: z.string().optional().nullable(),
+            employeeId: strToNum().optional().nullable(),
+            paymentMethod: z
+              .enum(['cash', 'bank', 'e-wallet'])
+              .optional()
+              .nullable(),
+            frequency: z
+              .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
+              .optional()
+              .nullable()
+              .transform((v) => (v === 'once' ? null : v)),
+            recurringEndDate: z.string().optional().nullable(),
+            status: z
+              .enum(['draft', 'pending', 'approved', 'rejected'])
+              .optional()
+              .default('pending')
+          })
+          .passthrough()
+      )
+      .min(1, 'At least one expense item is required')
+  })
+  .passthrough()
 
-exports.generateSalarySchema = z.object({
-  store: strToNum().optional().nullable(),
-  month: z.string().optional().default(''),
-  employeeIds: z.array(strToNum()).optional().default([]),
-  paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().default('cash')
-}).passthrough()
+exports.generateSalarySchema = z
+  .object({
+    store: strToNum().optional().nullable(),
+    month: z.string().optional().default(''),
+    employeeIds: z.array(strToNum()).optional().default([]),
+    paymentMethod: z
+      .enum(['cash', 'bank', 'e-wallet'])
+      .optional()
+      .default('cash')
+  })
+  .passthrough()
 
-exports.markExpensePaidSchema = z.object({
-  paymentDate: z.string().optional().nullable(),
-  paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
-  note: z.string().optional().nullable()
-}).passthrough()
+exports.markExpensePaidSchema = z
+  .object({
+    paymentDate: z.string().optional().nullable(),
+    paymentMethod: z.enum(['cash', 'bank', 'e-wallet']).optional().nullable(),
+    note: z.string().optional().nullable()
+  })
+  .passthrough()
 
 // ===================== Member =====================
 exports.createMemberSchema = z.object({
@@ -709,9 +740,11 @@ exports.createDepartmentSchema = z.object({
   status: statusEnum
 })
 
-exports.updateDepartmentSchema = exports.createDepartmentSchema.partial().extend({
-  id: strToNum()
-})
+exports.updateDepartmentSchema = exports.createDepartmentSchema
+  .partial()
+  .extend({
+    id: strToNum()
+  })
 
 exports.createPositionSchema = z.object({
   store: strToNum().optional().nullable(),
@@ -880,10 +913,12 @@ exports.createRoleSchema = z.object({
     .optional()
     .default({})
 })
-exports.updateRoleSchema = exports.createRoleSchema.extend({
-  id: z.union([z.number(), z.string()]),
-  modifiedBy: z.union([z.number(), z.string()]).optional().nullable()
-}).partial()
+exports.updateRoleSchema = exports.createRoleSchema
+  .extend({
+    id: z.union([z.number(), z.string()]),
+    modifiedBy: z.union([z.number(), z.string()]).optional().nullable()
+  })
+  .partial()
 
 // ===================== Purchase Payment =====================
 exports.createPurchasePaymentSchema = z.object({

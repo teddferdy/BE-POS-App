@@ -36,6 +36,7 @@ const expenseController = {
         startDate,
         endDate,
         paymentMethod,
+        isActive,
         page = 1,
         limit = 10,
         search
@@ -43,6 +44,9 @@ const expenseController = {
 
       const where = store ? { store } : {}
       const statsWhere = store ? { store } : {}
+
+      where.isActive = isActive === 'false' ? false : true
+      statsWhere.isActive = true
 
       if (category) where.category = category
       if (status) where.status = status
@@ -112,7 +116,6 @@ const expenseController = {
       const totalAmount = await db.expense.sum('amount', {
         where: { ...statsWhere, status: 'approved' }
       })
-
       return res.status(200).json({
         success: true,
         message: 'Success get expenses',
@@ -195,7 +198,10 @@ const expenseController = {
                 attributes: ['id', 'fullName', 'userName']
               }
             ],
-            order: [['paymentDate', 'DESC'], ['createdAt', 'DESC']]
+            order: [
+              ['paymentDate', 'DESC'],
+              ['createdAt', 'DESC']
+            ]
           }
         ]
       })
@@ -358,7 +364,8 @@ const expenseController = {
         }
 
         const resolvedDate = item.date || new Date()
-        const resolvedFrequency = item.frequency === 'once' ? null : item.frequency || null
+        const resolvedFrequency =
+          item.frequency === 'once' ? null : item.frequency || null
 
         const expense = await db.expense.create(
           {
@@ -412,7 +419,9 @@ const expenseController = {
       for (const expense of records) {
         if (expense.status === 'approved') {
           try {
-            const { syncExpenseJournal } = require('../service/accountingService')
+            const {
+              syncExpenseJournal
+            } = require('../service/accountingService')
             await syncExpenseJournal({
               store: store || expense.store,
               expenseId: expense.id,
@@ -510,10 +519,7 @@ const expenseController = {
 
       let nextDueDate = expense.nextDueDate
       if (frequency !== undefined && frequency !== 'once') {
-        nextDueDate = addInterval(
-          new Date(date || expense.date),
-          frequency
-        )
+        nextDueDate = addInterval(new Date(date || expense.date), frequency)
       } else if (frequency === 'once') {
         nextDueDate = null
       } else if (date && resolvedFrequency) {
@@ -559,12 +565,16 @@ const expenseController = {
           expenseId: expense.id,
           expenseNumber: expense.expenseNumber,
           category:
-            categoryRow?.name || expense.description || expense.expenseNumber || null,
+            categoryRow?.name ||
+            expense.description ||
+            expense.expenseNumber ||
+            null,
           categoryAccountCode: categoryRow?.accountCode || null,
           amount: expense.amount,
           date: expense.date || new Date(),
           paymentMethod: expense.paymentMethod,
           status: expense.status,
+          isActive: expense.isActive,
           createdBy: req.user?.id
         })
       } catch (e) {
@@ -622,12 +632,14 @@ const expenseController = {
           store: store || expense.store,
           expenseId: expense.id,
           expenseNumber: expense.expenseNumber,
-          category: category?.name || expense.category || expense.description || null,
+          category:
+            category?.name || expense.category || expense.description || null,
           categoryAccountCode: category?.accountCode || null,
           amount: expense.amount,
           date: expense.date || new Date(),
           paymentMethod: expense.paymentMethod,
           status: 'approved',
+          isActive: expense.isActive,
           createdBy: req.user?.id
         })
       } catch (e) {
@@ -744,7 +756,10 @@ const expenseController = {
           new Date(expense.nextDueDate || expense.date || new Date()),
           expense.frequency
         )
-        if (expense.recurringEndDate && new Date(next) > new Date(expense.recurringEndDate)) {
+        if (
+          expense.recurringEndDate &&
+          new Date(next) > new Date(expense.recurringEndDate)
+        ) {
           nextDueDate = null
         } else {
           nextDueDate = next
@@ -799,7 +814,13 @@ const expenseController = {
         modifiedBy: createdBy
       })
 
-      createAudit(req, 'update', 'expense', id, `Marked expense as unpaid: ${id}`)
+      createAudit(
+        req,
+        'update',
+        'expense',
+        id,
+        `Marked expense as unpaid: ${id}`
+      )
 
       return res.status(200).json({
         success: true,
@@ -826,6 +847,7 @@ const expenseController = {
       const where = {
         status: 'approved',
         isPaid: false,
+        isActive: true,
         frequency: { [Op.not]: null },
         nextDueDate: { [Op.gte]: now, [Op.lte]: horizon }
       }
@@ -891,6 +913,83 @@ const expenseController = {
     }
   },
 
+  async setActive(req, res) {
+    try {
+      const { id } = req.params
+      const { isActive } = req.body
+      const store = getStore(req)
+
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: 'isActive must be a boolean'
+        })
+      }
+
+      const where = { id }
+      if (store) where.store = store
+
+      const expense = await db.expense.findOne({ where })
+
+      if (!expense) {
+        return res.status(404).json({
+          success: false,
+          message: 'Expense not found'
+        })
+      }
+
+      await expense.update({
+        isActive,
+        modifiedBy: req.user?.id || null
+      })
+
+      try {
+        const { syncExpenseJournal } = require('../service/accountingService')
+        const category = await db.expense_category.findOne({
+          where: { id: expense.category || null }
+        })
+        await syncExpenseJournal({
+          store: store || expense.store,
+          expenseId: expense.id,
+          expenseNumber: expense.expenseNumber,
+          category:
+            category?.name || expense.category || expense.description || null,
+          categoryAccountCode: category?.accountCode || null,
+          amount: expense.amount,
+          date: expense.date || new Date(),
+          paymentMethod: expense.paymentMethod,
+          status: expense.status,
+          isActive,
+          createdBy: req.user?.id
+        })
+      } catch (e) {
+        console.error('Expense journal sync skipped:', e.message)
+      }
+
+      createAudit(
+        req,
+        'update',
+        'expense',
+        id,
+        `${isActive ? 'Activated' : 'Archived'} expense: ${id}`
+      )
+
+      return res.status(200).json({
+        success: true,
+        message: isActive
+          ? 'Success activate expense'
+          : 'Success archive expense',
+        data: { id: expense.id, isActive }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
+    }
+  },
+
   async delete(req, res) {
     try {
       const { id } = req.params
@@ -942,8 +1041,8 @@ const expenseController = {
       const { startDate, endDate } = req.query
 
       const where = store
-        ? { store, status: 'approved' }
-        : { status: 'approved' }
+        ? { store, status: 'approved', isActive: true }
+        : { status: 'approved', isActive: true }
 
       if (startDate || endDate) {
         where.date = {}
@@ -986,7 +1085,11 @@ const expenseController = {
       })
 
       const now = new Date()
-      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const startToday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      )
       const endToday = new Date(startToday.getTime() + 86400000 - 1)
 
       const startWeek = new Date(startToday)
@@ -994,12 +1097,22 @@ const expenseController = {
       const endWeek = new Date(startWeek.getTime() + 7 * 86400000 - 1)
 
       const startMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-      const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      const endMonth = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999
+      )
 
       const startYear = new Date(now.getFullYear(), 0, 1)
       const endYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
 
-      const periodWhere = store ? { store, status: 'approved' } : { status: 'approved' }
+      const periodWhere = store
+        ? { store, status: 'approved', isActive: true }
+        : { status: 'approved', isActive: true }
       const sumPeriod = async (from, to) => {
         const row = await db.expense.sum('amount', {
           where: { ...periodWhere, date: { [Op.gte]: from, [Op.lte]: to } }

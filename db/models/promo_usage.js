@@ -54,9 +54,15 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   PromoUsage.associate = function (models) {
-    PromoUsage.belongsTo(models.promo_campaign, { foreignKey: 'campaignId', as: 'campaign' })
+    PromoUsage.belongsTo(models.promo_campaign, {
+      foreignKey: 'campaignId',
+      as: 'campaign'
+    })
     PromoUsage.belongsTo(models.order, { foreignKey: 'orderId', as: 'order' })
-    PromoUsage.belongsTo(models.member, { foreignKey: 'memberId', as: 'member' })
+    PromoUsage.belongsTo(models.member, {
+      foreignKey: 'memberId',
+      as: 'member'
+    })
   }
 
   return PromoUsage

@@ -18,12 +18,17 @@ const sequelize = new Sequelize({
 })
 
 async function check() {
-  const [meta] = await sequelize.query('SELECT name FROM "SequelizeMeta" ORDER BY name')
+  const [meta] = await sequelize.query(
+    'SELECT name FROM "SequelizeMeta" ORDER BY name'
+  )
   console.log('=== SequelizeMeta entries ===')
   meta.forEach((r) => console.log(r.name))
 
   const tables = [
-    'product_store', 'category_store', 'supplier_product', 'supplier_product_pivot'
+    'product_store',
+    'category_store',
+    'supplier_product',
+    'supplier_product_pivot'
   ]
   for (const t of tables) {
     const [r] = await sequelize.query(
@@ -38,8 +43,16 @@ async function check() {
   )
   const colNames = cols.map((c) => c.column_name)
   console.log('\nOrder columns:')
-  console.log('  promoCampaignId:', colNames.includes('promocampaignid') || colNames.includes('promoCampaignId') ? 'EXISTS' : 'MISSING')
-  console.log('  supplier:', colNames.includes('supplier') ? 'EXISTS' : 'MISSING')
+  console.log(
+    '  promoCampaignId:',
+    colNames.includes('promocampaignid') || colNames.includes('promoCampaignId')
+      ? 'EXISTS'
+      : 'MISSING'
+  )
+  console.log(
+    '  supplier:',
+    colNames.includes('supplier') ? 'EXISTS' : 'MISSING'
+  )
 
   await sequelize.close()
 }

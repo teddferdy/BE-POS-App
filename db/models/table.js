@@ -20,6 +20,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         defaultValue: 4
       },
+      area: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'indoor'
+      },
+      tableType: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'regular'
+      },
       status: {
         type: DataTypes.ENUM(
           'available',

@@ -6,10 +6,12 @@ const reportingController = {
     try {
       const { store, startDate, endDate, page = 1, limit = 30 } = req.query
       const userStore = req.cookies?.store || req.user?.store
-      
+
       const effectiveStore = store || userStore
       if (!effectiveStore) {
-        return res.status(400).json({ success: false, message: 'Store required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store required' })
       }
 
       const where = { store: effectiveStore }
@@ -22,7 +24,9 @@ const reportingController = {
       const offset = (parseInt(page) - 1) * parseInt(limit)
       const { count, rows } = await db.sales_summary.findAndCountAll({
         where,
-        include: [{ model: db.location, as: 'storeData', attributes: ['id', 'name'] }],
+        include: [
+          { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
+        ],
         order: [['report_date', 'DESC']],
         limit: parseInt(limit),
         offset
@@ -60,10 +64,17 @@ const reportingController = {
       const { count, rows } = await db.product_sales_summary.findAndCountAll({
         where,
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
-        order: [['revenue', 'DESC'], ['report_date', 'DESC']],
+        order: [
+          ['revenue', 'DESC'],
+          ['report_date', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })
@@ -71,7 +82,11 @@ const reportingController = {
       return res.status(200).json({
         success: true,
         data: rows,
-        pagination: { total: count, page: parseInt(page), limit: parseInt(limit) }
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit)
+        }
       })
     } catch (error) {
       console.error('Error:', error)
@@ -95,10 +110,17 @@ const reportingController = {
       const { count, rows } = await db.category_sales_summary.findAndCountAll({
         where,
         include: [
-          { model: db.category, as: 'categoryData', attributes: ['id', 'name'] },
+          {
+            model: db.category,
+            as: 'categoryData',
+            attributes: ['id', 'name']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
-        order: [['revenue', 'DESC'], ['report_date', 'DESC']],
+        order: [
+          ['revenue', 'DESC'],
+          ['report_date', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })
@@ -106,7 +128,11 @@ const reportingController = {
       return res.status(200).json({
         success: true,
         data: rows,
-        pagination: { total: count, page: parseInt(page), limit: parseInt(limit) }
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit)
+        }
       })
     } catch (error) {
       console.error('Error:', error)
@@ -130,10 +156,17 @@ const reportingController = {
       const { count, rows } = await db.kasir_performance.findAndCountAll({
         where,
         include: [
-          { model: db.user, as: 'cashierData', attributes: ['id', 'fullName', 'userName'] },
+          {
+            model: db.user,
+            as: 'cashierData',
+            attributes: ['id', 'fullName', 'userName']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
-        order: [['total_sales', 'DESC'], ['report_date', 'DESC']],
+        order: [
+          ['total_sales', 'DESC'],
+          ['report_date', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })
@@ -141,7 +174,11 @@ const reportingController = {
       return res.status(200).json({
         success: true,
         data: rows,
-        pagination: { total: count, page: parseInt(page), limit: parseInt(limit) }
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit)
+        }
       })
     } catch (error) {
       console.error('Error:', error)

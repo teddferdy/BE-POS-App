@@ -107,6 +107,15 @@ router.put(
   expenseController.markUnpaid
 )
 
+// Archive/restore expense - Admin & Super Admin only
+router.put(
+  '/set-active/:id',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  expenseController.setActive
+)
+
 // Generate salary expenses - Admin & Super Admin only
 router.post(
   '/generate-salary',

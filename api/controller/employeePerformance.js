@@ -21,7 +21,10 @@ const employeePerformanceController = {
           { model: db.user, as: 'cashierData', attributes: ['id', 'fullName'] },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
-        order: [['total_sales', 'DESC'], ['report_date', 'DESC']],
+        order: [
+          ['total_sales', 'DESC'],
+          ['report_date', 'DESC']
+        ],
         limit: parseInt(limit),
         offset
       })
@@ -62,7 +65,11 @@ const employeePerformanceController = {
       const { count, rows } = await db.kasir_performance.findAndCountAll({
         where,
         include: [
-          { model: db.user, as: 'cashierData', attributes: ['id', 'fullName', 'userName'] },
+          {
+            model: db.user,
+            as: 'cashierData',
+            attributes: ['id', 'fullName', 'userName']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
         order: [['report_date', 'DESC']],
@@ -71,23 +78,35 @@ const employeePerformanceController = {
       })
 
       if (count === 0) {
-        return res.status(404).json({ success: false, message: 'No performance data found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'No performance data found' })
       }
 
       const summary = {
         employeeId: parseInt(id),
         employeeName: rows[0].cashierData?.fullName,
         totalRecords: count,
-        avgSales: Math.floor(rows.reduce((sum, r) => sum + Number(r.total_sales), 0) / count),
-        avgTransactions: Math.floor(rows.reduce((sum, r) => sum + r.transactions, 0) / count),
-        avgAccuracy: (rows.reduce((sum, r) => sum + Number(r.accuracy_rate), 0) / count).toFixed(2)
+        avgSales: Math.floor(
+          rows.reduce((sum, r) => sum + Number(r.total_sales), 0) / count
+        ),
+        avgTransactions: Math.floor(
+          rows.reduce((sum, r) => sum + r.transactions, 0) / count
+        ),
+        avgAccuracy: (
+          rows.reduce((sum, r) => sum + Number(r.accuracy_rate), 0) / count
+        ).toFixed(2)
       }
 
       return res.status(200).json({
         success: true,
         summary,
         data: rows,
-        pagination: { total: count, page: parseInt(page), limit: parseInt(limit) }
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit)
+        }
       })
     } catch (error) {
       console.error('Error:', error)
@@ -107,7 +126,8 @@ const employeePerformanceController = {
         if (endDate) where.report_date[Op.lte] = new Date(endDate)
       }
 
-      const results = await db.sequelize.query(`
+      const results = await db.sequelize.query(
+        `
         SELECT 
           cashier,
           SUM(total_sales)::float as total_sales,
@@ -121,15 +141,17 @@ const employeePerformanceController = {
         GROUP BY cashier
         ORDER BY total_sales DESC
         LIMIT :limit
-      `, {
-        replacements: {
-          store: store || userStore,
-          startDate,
-          endDate,
-          limit: parseInt(limit)
-        },
-        type: db.sequelize.QueryTypes.SELECT
-      })
+      `,
+        {
+          replacements: {
+            store: store || userStore,
+            startDate,
+            endDate,
+            limit: parseInt(limit)
+          },
+          type: db.sequelize.QueryTypes.SELECT
+        }
+      )
 
       const performersWithNames = await Promise.all(
         results.map(async (result) => {

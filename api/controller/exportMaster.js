@@ -12,8 +12,21 @@ const JUNCTION_TABLE_MODELS = {
 let _ps2 = null
 let _cs2 = null
 const hasTable = async (t) => {
-  if (t === 'product_store') { if (_ps2 !== null) return _ps2 } else if (t === 'category_store') { if (_cs2 !== null) return _cs2 }
-  try { await db.sequelize.query(`SELECT 1 FROM ${t} LIMIT 1`); if (t === 'product_store') _ps2 = true; if (t === 'category_store') _cs2 = true; return true } catch { if (t === 'product_store') _ps2 = false; if (t === 'category_store') _cs2 = false; return false }
+  if (t === 'product_store') {
+    if (_ps2 !== null) return _ps2
+  } else if (t === 'category_store') {
+    if (_cs2 !== null) return _cs2
+  }
+  try {
+    await db.sequelize.query(`SELECT 1 FROM ${t} LIMIT 1`)
+    if (t === 'product_store') _ps2 = true
+    if (t === 'category_store') _cs2 = true
+    return true
+  } catch {
+    if (t === 'product_store') _ps2 = false
+    if (t === 'category_store') _cs2 = false
+    return false
+  }
 }
 
 function getSerializedValue(value) {

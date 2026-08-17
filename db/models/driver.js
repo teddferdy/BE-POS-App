@@ -57,7 +57,10 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   Driver.associate = (models) => {
-    Driver.hasMany(models.delivery_order, { foreignKey: 'driverId', as: 'deliveries' })
+    Driver.hasMany(models.delivery_order, {
+      foreignKey: 'driverId',
+      as: 'deliveries'
+    })
   }
 
   return Driver

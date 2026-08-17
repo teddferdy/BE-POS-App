@@ -22,6 +22,21 @@ module.exports = (sequelize, DataTypes) => {
       image: {
         type: DataTypes.STRING
       },
+      parentId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null
+      },
+      color: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: '#0f172a'
+      },
+      sortOrder: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: 0
+      },
 
       status: {
         type: DataTypes.STRING(20),
@@ -46,6 +61,14 @@ module.exports = (sequelize, DataTypes) => {
     category.hasMany(models.category_store, {
       foreignKey: 'category',
       as: 'storeAssignments'
+    })
+    category.belongsTo(models.category, {
+      foreignKey: 'parentId',
+      as: 'parentCategory'
+    })
+    category.hasMany(models.category, {
+      foreignKey: 'parentId',
+      as: 'childCategories'
     })
   }
 

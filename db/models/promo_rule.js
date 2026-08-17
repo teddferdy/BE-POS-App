@@ -15,7 +15,15 @@ module.exports = (sequelize, DataTypes) => {
       },
       ruleType: {
         allowNull: false,
-        type: DataTypes.ENUM('time', 'birthday', 'buy_x_get_y', 'spend_threshold', 'member_tier', 'first_purchase', 'custom')
+        type: DataTypes.ENUM(
+          'time',
+          'birthday',
+          'buy_x_get_y',
+          'spend_threshold',
+          'member_tier',
+          'first_purchase',
+          'custom'
+        )
       },
       condition: {
         allowNull: false,
@@ -45,7 +53,10 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   PromoRule.associate = function (models) {
-    PromoRule.belongsTo(models.promo_campaign, { foreignKey: 'campaignId', as: 'campaign' })
+    PromoRule.belongsTo(models.promo_campaign, {
+      foreignKey: 'campaignId',
+      as: 'campaign'
+    })
   }
 
   return PromoRule

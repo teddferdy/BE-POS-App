@@ -120,7 +120,10 @@ const invoiceController = {
             ? memberFieldsVisibility
             : (existing?.memberFieldsVisibility ?? null),
         logo: logoUrl,
-        footer: footer !== undefined ? footer : (existing?.footer ?? 'Terima kasih atas kunjungan Anda'),
+        footer:
+          footer !== undefined
+            ? footer
+            : (existing?.footer ?? 'Terima kasih atas kunjungan Anda'),
         modifiedBy: req.user?.id
       }
 

@@ -128,6 +128,9 @@ exports.getCategoryById = async (req, res) => {
         description: category.description,
         value: category.value,
         image: category.image,
+        parentId: category.parentId,
+        color: category.color,
+        sortOrder: category.sortOrder,
         status: category.status,
         productCount,
         store: stores,
@@ -282,6 +285,9 @@ exports.getAllCategoryInTable = async (req, res) => {
       description: item.description,
       value: item.value,
       image: item.image,
+      parentId: item.parentId,
+      color: item.color,
+      sortOrder: item.sortOrder,
       status: item.status,
       productCount: countMap[item.id] || 0,
       store: (categoryStoreMap[item.id] || []).map((id) => ({
@@ -390,6 +396,10 @@ exports.addNewCategory = async (req, res) => {
       description: body?.description || null,
       image: imageUrl,
       value: body?.value || body?.name?.toLowerCase(),
+      parentId: body?.parentId ? parseInt(body.parentId, 10) : null,
+      color: body?.color || '#0f172a',
+      sortOrder:
+        body?.sortOrder !== undefined ? parseInt(body.sortOrder, 10) || 0 : 0,
       status: status,
       createdBy: req.user?.id || null
     })
@@ -490,12 +500,33 @@ exports.editCategoryById = async (req, res) => {
             : 'inactive'
           : 'active'
 
+    if (
+      body.parentId &&
+      parseInt(body.parentId, 10) === parseInt(req.params.id, 10)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Kategori tidak dapat menjadi induk dari dirinya sendiri'
+      })
+    }
+
     const [affectedCount, updatedRows] = await Category.update(
       {
         name: body?.name,
         description: body?.description,
         image: imageUrl,
         value: body?.value || body?.name?.toLowerCase(),
+        parentId:
+          body?.parentId !== undefined
+            ? body?.parentId
+              ? parseInt(body.parentId, 10)
+              : null
+            : category.parentId,
+        color: body?.color !== undefined ? body?.color : category.color,
+        sortOrder:
+          body?.sortOrder !== undefined
+            ? parseInt(body.sortOrder, 10) || 0
+            : category.sortOrder,
         status: status,
         modifiedBy: req.user?.id || null
       },

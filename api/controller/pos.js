@@ -107,7 +107,15 @@ const posController = {
   // Stock transfer antar toko — 3-phase: sent → received / cancelled
   async transfer(req, res) {
     try {
-      const { fromStore, toStore, items, notes, transferredBy } = req.body
+      const {
+        fromStore,
+        toStore,
+        items,
+        notes,
+        transferredBy,
+        reason,
+        expectedArrival
+      } = req.body
 
       if (!fromStore || !toStore || !items || items.length === 0) {
         return res.status(400).json({
@@ -139,6 +147,8 @@ const posController = {
             fromStore,
             toStore,
             notes,
+            reason: reason || null,
+            expectedArrival: expectedArrival || null,
             status: 'sent',
             transferredBy,
             createdBy: req.user?.id || null
@@ -1148,7 +1158,7 @@ const posController = {
         parseInt(lowStockProductCount?.count || 0) +
         parseInt(lowStockIngredientCount?.count || 0)
 
-      const expenseWhere = { status: 'approved' }
+      const expenseWhere = { status: 'approved', isActive: true }
       if (store) expenseWhere.store = store
       if (startDate || endDate) {
         expenseWhere.date = {}
@@ -1500,7 +1510,10 @@ const posController = {
            GROUP BY po.id
            HAVING po."finalAmount" > COALESCE(SUM(pp.amount),0)
            ORDER BY (po."finalAmount" - COALESCE(SUM(pp.amount),0)) DESC`,
-          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: store ? { store } : {},
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 12. AP total summary
         db.sequelize.query(
@@ -1512,7 +1525,10 @@ const posController = {
              AND po."deletedAt" IS NULL
              ${store ? ' AND po."store" = :store' : ''}
            HAVING SUM(po."finalAmount" - COALESCE((SELECT SUM(pp2.amount) FROM "purchase_payment" pp2 WHERE pp2."purchaseOrder" = po.id AND pp2."deletedAt" IS NULL),0)) > 0`,
-          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: store ? { store } : {},
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 13. AR outstanding summary
         db.sequelize.query(
@@ -1557,7 +1573,10 @@ const posController = {
              ${store ? ' AND m."store" = :store' : ''}
            GROUP BY mt.name
            ORDER BY count DESC`,
-          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: store ? { store } : {},
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 17. Top members by spend
         db.sequelize.query(
@@ -1601,14 +1620,20 @@ const posController = {
              ${store ? ' AND i."store" = :store' : ''}
            ORDER BY (i."minStock" - i.stock) DESC
            LIMIT 10`,
-          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: store ? { store } : {},
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 20. Stock value (products + ingredients)
         db.sequelize.query(
           `SELECT
              (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "product" WHERE status='active' AND "deletedAt" IS NULL) as productValue,
              (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "ingredient" WHERE status='active' AND "deletedAt" IS NULL ${store ? ' AND "store" = :store' : ''}) as ingredientValue`,
-          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: store ? { store } : {},
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 21. Production status counts
         db.sequelize.query(
@@ -1646,7 +1671,10 @@ const posController = {
              AND status NOT IN ('cancelled','no_show')
              AND "deletedAt" IS NULL
              ${storeCond}`,
-          { replacements: { ...replacements, todayStr }, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: { ...replacements, todayStr },
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 25. Recent orders
         db.sequelize.query(
@@ -1696,14 +1724,22 @@ const posController = {
            ${store ? 'WHERE store = :store' : ''}
            ORDER BY "createdAt" DESC
            LIMIT 8`,
-          { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
+          {
+            replacements: store ? { store } : {},
+            type: db.sequelize.QueryTypes.SELECT
+          }
         ),
         // 29-32. Previous period comparisons
         (async () => {
-          const rangeMs = new Date(endDate).getTime() - new Date(startDate).getTime()
+          const rangeMs =
+            new Date(endDate).getTime() - new Date(startDate).getTime()
           const prevEnd = new Date(new Date(startDate).getTime() - 1)
           const prevStart = new Date(prevEnd.getTime() - rangeMs)
-          const prevRepl = { ...replacements, pStart: prevStart.toISOString(), pEnd: prevEnd.toISOString() }
+          const prevRepl = {
+            ...replacements,
+            pStart: prevStart.toISOString(),
+            pEnd: prevEnd.toISOString()
+          }
           const [sales, orders, expense, members] = await Promise.all([
             db.sequelize.query(
               `SELECT COALESCE(SUM("totalPrice"),0)::int as revenue
@@ -1753,43 +1789,58 @@ const posController = {
       })
       const expenseStoreMap = {}
       expenseRows.forEach((r) => {
-        expenseStoreMap[r.storeId] = { expense: Number(r.expense || 0), count: r.count }
+        expenseStoreMap[r.storeId] = {
+          expense: Number(r.expense || 0),
+          count: r.count
+        }
       })
 
-      const storePerformance = storeList.map((s) => {
-        const sales = storeSalesMap[s.id] || {}
-        const exp = expenseStoreMap[s.id] || { expense: 0, count: 0 }
-        const storeRevenue = Number(sales.revenue || 0)
-        const storeOrders = Number(sales.orders || 0)
-        const storeExpense = Number(exp.expense || 0)
-        const target = Number(s.dailyTarget || 0)
-        return {
-          storeId: s.id,
-          storeName: s.name,
-          city: s.city || null,
-          province: s.province || null,
-          managerName: s.managerName || null,
-          revenue: storeRevenue,
-          orders: storeOrders,
-          avgOrderValue: storeOrders > 0 ? Math.round(storeRevenue / storeOrders) : 0,
-          itemsSold: Number(sales.itemsSold || 0),
-          discount: Number(sales.discount || 0),
-          tax: Number(sales.tax || 0),
-          expense: storeExpense,
-          net: storeRevenue - storeExpense,
-          members: null,
-          lowStock: null,
-          target,
-          targetPercent: target > 0 ? Math.min(Math.round((storeRevenue / target) * 100), 999) : null,
-          sharePercent: revenue > 0 ? Math.round((storeRevenue / revenue) * 1000) / 10 : 0
-        }
-      }).sort((a, b) => b.revenue - a.revenue)
+      const storePerformance = storeList
+        .map((s) => {
+          const sales = storeSalesMap[s.id] || {}
+          const exp = expenseStoreMap[s.id] || { expense: 0, count: 0 }
+          const storeRevenue = Number(sales.revenue || 0)
+          const storeOrders = Number(sales.orders || 0)
+          const storeExpense = Number(exp.expense || 0)
+          const target = Number(s.dailyTarget || 0)
+          return {
+            storeId: s.id,
+            storeName: s.name,
+            city: s.city || null,
+            province: s.province || null,
+            managerName: s.managerName || null,
+            revenue: storeRevenue,
+            orders: storeOrders,
+            avgOrderValue:
+              storeOrders > 0 ? Math.round(storeRevenue / storeOrders) : 0,
+            itemsSold: Number(sales.itemsSold || 0),
+            discount: Number(sales.discount || 0),
+            tax: Number(sales.tax || 0),
+            expense: storeExpense,
+            net: storeRevenue - storeExpense,
+            members: null,
+            lowStock: null,
+            target,
+            targetPercent:
+              target > 0
+                ? Math.min(Math.round((storeRevenue / target) * 100), 999)
+                : null,
+            sharePercent:
+              revenue > 0 ? Math.round((storeRevenue / revenue) * 1000) / 10 : 0
+          }
+        })
+        .sort((a, b) => b.revenue - a.revenue)
 
       // Payment method classification helper
       const classifyMethod = (method) => {
         const m = String(method || '').toLowerCase()
         if (/(cash|tunai)/.test(m)) return 'cash'
-        if (/(qris|emoney|e-wallet|ewallet|gopay|ovo|dana|shopeepay|linkaja)/.test(m)) return 'ewallet'
+        if (
+          /(qris|emoney|e-wallet|ewallet|gopay|ovo|dana|shopeepay|linkaja)/.test(
+            m
+          )
+        )
+          return 'ewallet'
         if (/(transfer|bank|debit|bca|bni|mandiri|bri)/.test(m)) return 'bank'
         if (/(credit|kartu|visa|master)/.test(m)) return 'card'
         return 'other'
@@ -1802,11 +1853,17 @@ const posController = {
       }))
       const byTypeMap = {}
       byMethod.forEach((r) => {
-        byTypeMap[r.bucket] = byTypeMap[r.bucket] || { type: r.bucket, count: 0, amount: 0 }
+        byTypeMap[r.bucket] = byTypeMap[r.bucket] || {
+          type: r.bucket,
+          count: 0,
+          amount: 0
+        }
         byTypeMap[r.bucket].count += r.count
         byTypeMap[r.bucket].amount += r.amount
       })
-      const byType = Object.values(byTypeMap).sort((a, b) => b.amount - a.amount)
+      const byType = Object.values(byTypeMap).sort(
+        (a, b) => b.amount - a.amount
+      )
 
       // Build daily timeline with revenue/expense/inflow/outflow
       const dateMap = {}
@@ -1824,22 +1881,51 @@ const posController = {
       })
       dailyExpenseRows.forEach((r) => {
         const key = new Date(r.date).toISOString().slice(0, 10)
-        dateMap[key] = dateMap[key] || { date: key, revenue: 0, orders: 0, itemsSold: 0, expense: 0, inflow: 0, outflow: 0 }
+        dateMap[key] = dateMap[key] || {
+          date: key,
+          revenue: 0,
+          orders: 0,
+          itemsSold: 0,
+          expense: 0,
+          inflow: 0,
+          outflow: 0
+        }
         dateMap[key].expense = Number(r.outflow || 0)
         dateMap[key].outflow += Number(r.outflow || 0)
       })
       dailyInflowRows.forEach((r) => {
         const key = new Date(r.date).toISOString().slice(0, 10)
-        dateMap[key] = dateMap[key] || { date: key, revenue: 0, orders: 0, itemsSold: 0, expense: 0, inflow: 0, outflow: 0 }
+        dateMap[key] = dateMap[key] || {
+          date: key,
+          revenue: 0,
+          orders: 0,
+          itemsSold: 0,
+          expense: 0,
+          inflow: 0,
+          outflow: 0
+        }
         dateMap[key].inflow = Number(r.inflow || 0)
       })
-      const apPaymentsInRange = apPaymentsRow.reduce((s, r) => s + Number(r.amount || 0), 0)
+      const apPaymentsInRange = apPaymentsRow.reduce(
+        (s, r) => s + Number(r.amount || 0),
+        0
+      )
       apPaymentsRow.forEach((r) => {
         const key = new Date(r.date).toISOString().slice(0, 10)
-        dateMap[key] = dateMap[key] || { date: key, revenue: 0, orders: 0, itemsSold: 0, expense: 0, inflow: 0, outflow: 0 }
+        dateMap[key] = dateMap[key] || {
+          date: key,
+          revenue: 0,
+          orders: 0,
+          itemsSold: 0,
+          expense: 0,
+          inflow: 0,
+          outflow: 0
+        }
         dateMap[key].outflow += Number(r.amount || 0)
       })
-      const kpiTrend = Object.values(dateMap).sort((a, b) => (a.date < b.date ? -1 : 1))
+      const kpiTrend = Object.values(dateMap).sort((a, b) =>
+        a.date < b.date ? -1 : 1
+      )
 
       const apOutstanding = Number(apOutstandingTotals[0]?.outstanding || 0)
       const arOutstanding = Number(arRows[0]?.outstanding || 0)
@@ -1882,7 +1968,11 @@ const posController = {
           storeName: storeNameMap[r.store] || null,
           amount: Number(r.amount || 0)
         }))
-        .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0))
+        .sort(
+          (a, b) =>
+            new Date(b.date || b.createdAt || 0) -
+            new Date(a.date || a.createdAt || 0)
+        )
         .slice(0, 10)
 
       const prevData = prevSalesRow
@@ -1907,7 +1997,10 @@ const posController = {
             serviceCharge: Number(kpi.serviceCharge || 0),
             totalExpense,
             netRevenue: revenue - totalExpense,
-            netMargin: revenue > 0 ? Math.round(((revenue - totalExpense) / revenue) * 1000) / 10 : 0,
+            netMargin:
+              revenue > 0
+                ? Math.round(((revenue - totalExpense) / revenue) * 1000) / 10
+                : 0,
             totalMembers,
             newMembers,
             activeProducts: 0,
@@ -1933,7 +2026,10 @@ const posController = {
             revenue,
             totalExpense,
             netRevenue: revenue - totalExpense,
-            netMargin: revenue > 0 ? Math.round(((revenue - totalExpense) / revenue) * 1000) / 10 : 0,
+            netMargin:
+              revenue > 0
+                ? Math.round(((revenue - totalExpense) / revenue) * 1000) / 10
+                : 0,
             discount: Number(kpi.discount || 0),
             tax: Number(kpi.tax || 0),
             ap: {
@@ -1955,16 +2051,18 @@ const posController = {
               outstanding: Number(r.outstanding || 0),
               count: r.count
             })),
-            apOutstandingPOs: (apOutstandingRows || []).slice(0, 10).map((r) => ({
-              id: r.id,
-              orderNumber: r.orderNumber,
-              store: r.store,
-              storeName: storeNameMap[r.store] || null,
-              finalAmount: Number(r.finalAmount || 0),
-              paid: Number(r.paid || 0),
-              outstanding: Number(r.finalAmount - r.paid || 0),
-              dueDate: r.dueDate
-            })),
+            apOutstandingPOs: (apOutstandingRows || [])
+              .slice(0, 10)
+              .map((r) => ({
+                id: r.id,
+                orderNumber: r.orderNumber,
+                store: r.store,
+                storeName: storeNameMap[r.store] || null,
+                finalAmount: Number(r.finalAmount || 0),
+                paid: Number(r.paid || 0),
+                outstanding: Number(r.finalAmount - r.paid || 0),
+                dueDate: r.dueDate
+              })),
             cashFlow: kpiTrend.map((d) => ({
               date: d.date,
               inflow: d.inflow + d.revenue,
@@ -1975,7 +2073,9 @@ const posController = {
           operations: {
             lowStockCount,
             lowStockItems,
-            stockValue: Number(stockVal.productValue || 0) + Number(stockVal.ingredientValue || 0),
+            stockValue:
+              Number(stockVal.productValue || 0) +
+              Number(stockVal.ingredientValue || 0),
             productStockValue: Number(stockVal.productValue || 0),
             ingredientStockValue: Number(stockVal.ingredientValue || 0),
             production,
@@ -1987,7 +2087,10 @@ const posController = {
             totalMembers,
             newMembers,
             memberGrowth: growth(newMembers, prevData?.prevNewMembers),
-            tierDistribution: (tierRows || []).map((r) => ({ tier: r.tier, count: r.count })),
+            tierDistribution: (tierRows || []).map((r) => ({
+              tier: r.tier,
+              count: r.count
+            })),
             topMembers: (topMembers || []).map((r) => ({
               id: r.id,
               name: r.name,

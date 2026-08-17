@@ -29,7 +29,13 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 1
       },
       priority: {
-        type: DataTypes.ENUM('normal', 'vip', 'elderly', 'pregnant', 'disabled'),
+        type: DataTypes.ENUM(
+          'normal',
+          'vip',
+          'elderly',
+          'pregnant',
+          'disabled'
+        ),
         defaultValue: 'normal'
       },
       estimatedWaitMinutes: {
@@ -45,7 +51,13 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT
       },
       status: {
-        type: DataTypes.ENUM('waiting', 'seated', 'cancelled', 'no_show', 'expired'),
+        type: DataTypes.ENUM(
+          'waiting',
+          'seated',
+          'cancelled',
+          'no_show',
+          'expired'
+        ),
         defaultValue: 'waiting'
       },
       checkedInAt: {
@@ -78,8 +90,14 @@ module.exports = (sequelize, DataTypes) => {
 
   Queue.associate = function (models) {
     Queue.belongsTo(models.table, { foreignKey: 'tableId', as: 'table' })
-    Queue.belongsTo(models.user, { foreignKey: 'assignedTo', as: 'assignedUser' })
-    Queue.belongsTo(models.user, { foreignKey: 'createdBy', as: 'createdByUser' })
+    Queue.belongsTo(models.user, {
+      foreignKey: 'assignedTo',
+      as: 'assignedUser'
+    })
+    Queue.belongsTo(models.user, {
+      foreignKey: 'createdBy',
+      as: 'createdByUser'
+    })
   }
 
   return Queue

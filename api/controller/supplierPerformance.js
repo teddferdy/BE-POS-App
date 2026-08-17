@@ -144,9 +144,7 @@ const supplierPerformanceController = {
       const { store, supplierId, period, periodStart, periodEnd } = req.body
 
       const isSuperAdmin = req.user?.roleType === 'super_admin'
-      const storeIds = isSuperAdmin
-        ? store
-        : [Number(req.storeId)]
+      const storeIds = isSuperAdmin ? store : [Number(req.storeId)]
       const storeFilter =
         storeIds && storeIds.length > 0 ? { store: { [Op.in]: storeIds } } : {}
 

@@ -21,22 +21,22 @@ module.exports = (sequelize, DataTypes) => {
       ingredientName: {
         type: DataTypes.STRING
       },
-       referenceType: {
-           allowNull: false,
-           type: DataTypes.ENUM(
-             'purchase',
-             'sale',
-             'adjustment',
-             'opname',
-             'purchase_return',
-             'sale_return',
-             'transfer',
-             'production',
-             'sale_return_reversal',
-             'sale_reversal',
-             'production_reversal'
-           )
-         },
+      referenceType: {
+        allowNull: false,
+        type: DataTypes.ENUM(
+          'purchase',
+          'sale',
+          'adjustment',
+          'opname',
+          'purchase_return',
+          'sale_return',
+          'transfer',
+          'production',
+          'sale_return_reversal',
+          'sale_reversal',
+          'production_reversal'
+        )
+      },
       referenceId: {
         type: DataTypes.INTEGER
       },

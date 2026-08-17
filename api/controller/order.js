@@ -113,9 +113,7 @@ const getServerItemPrice = (prod, item) => {
   const base = Number(prod.price) || 0
   let extra = 0
 
-  const optNames = (item.options || [])
-    .map((o) => o && o.name)
-    .filter(Boolean)
+  const optNames = (item.options || []).map((o) => o && o.name).filter(Boolean)
   if (optNames.length) {
     if (Array.isArray(prod.options)) {
       for (const group of prod.options) {
@@ -471,7 +469,10 @@ exports.createOrder = async (req, res) => {
 
     if (tableId) {
       const table = await Table.findOne({ where: { id: tableId, store } })
-      if (table && ['occupied', 'reserved', 'maintenance'].includes(table.status)) {
+      if (
+        table &&
+        ['occupied', 'reserved', 'maintenance'].includes(table.status)
+      ) {
         return res.status(400).json({
           message:
             table.status === 'occupied'
@@ -1030,7 +1031,6 @@ exports.createOrder = async (req, res) => {
             { transaction: t }
           )
         }
-
       }
     })
 
@@ -1202,7 +1202,10 @@ exports.createOrder = async (req, res) => {
     emitNewOrder(store, fullOrder)
 
     try {
-      const { postOrderJournal, postOrderCogsJournal } = require('../service/accountingService')
+      const {
+        postOrderJournal,
+        postOrderCogsJournal
+      } = require('../service/accountingService')
       await postOrderJournal({
         store,
         orderId: order.id,
@@ -1449,8 +1452,7 @@ exports.updateOrderStatus = async (req, res) => {
         if (findBs) {
           await db.best_selling.update(
             {
-              totalSelling:
-                Number(findBs.totalSelling) + Number(item.quantity)
+              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
             },
             {
               where: {
@@ -1472,7 +1474,6 @@ exports.updateOrderStatus = async (req, res) => {
             { transaction: t }
           )
         }
-
       }
     }
 
@@ -1554,7 +1555,6 @@ exports.updateOrderStatus = async (req, res) => {
             }
           )
         }
-
       }
     }
 
@@ -1632,7 +1632,10 @@ exports.updateOrderStatus = async (req, res) => {
     // Post sales + COGS journals when an order becomes paid (deduped by referenceId).
     if (status === 'paid' && oldStatus !== 'paid') {
       try {
-        const { postOrderJournal, postOrderCogsJournal } = require('../service/accountingService')
+        const {
+          postOrderJournal,
+          postOrderCogsJournal
+        } = require('../service/accountingService')
         await postOrderJournal({
           store: effectiveStore,
           orderId: id,
@@ -1845,7 +1848,17 @@ exports.getCustomerMenu = async (req, res) => {
 }
 
 exports.createCustomerOrder = async (req, res) => {
-  const { store, tableId, items, customerName, notes, customerId, paymentMethod, splitCount, session } = req.body
+  const {
+    store,
+    tableId,
+    items,
+    customerName,
+    notes,
+    customerId,
+    paymentMethod,
+    splitCount,
+    session
+  } = req.body
 
   try {
     if (!store || !items || !items.length) {
@@ -1863,7 +1876,10 @@ exports.createCustomerOrder = async (req, res) => {
     if (tableId && !table) {
       return res.status(400).json({ message: 'Table not found' })
     }
-    if (table && ['occupied', 'reserved', 'maintenance'].includes(table.status)) {
+    if (
+      table &&
+      ['occupied', 'reserved', 'maintenance'].includes(table.status)
+    ) {
       return res.status(400).json({
         message:
           table.status === 'occupied'
@@ -2079,7 +2095,7 @@ exports.createCustomerOrder = async (req, res) => {
       totalPrice,
       paymentMethod: paymentMethod || null,
       paymentStatus: paymentMethod ? 'paid' : 'unpaid',
-      splitCount: splitCount || null,
+      splitCount: splitCount || null
     }
     if (await hasOrderColumn('promoCampaignId')) {
       qrOrderData.promoCampaignId = appliedCampaignId
@@ -2103,7 +2119,10 @@ exports.createCustomerOrder = async (req, res) => {
       })
 
       try {
-        const { postOrderJournal, postOrderCogsJournal } = require('../service/accountingService')
+        const {
+          postOrderJournal,
+          postOrderCogsJournal
+        } = require('../service/accountingService')
         await postOrderJournal({
           store,
           orderId: order.id,
@@ -2246,7 +2265,6 @@ exports.createCustomerOrder = async (req, res) => {
           },
           { transaction: t }
         )
-
       }
     })
 

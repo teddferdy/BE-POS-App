@@ -26,10 +26,7 @@ const resetLimiter = rateLimit({
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validate } = require('../middleware/validate')
-const {
-  loginSchema,
-  registerSchema
-} = require('../validation/schemas')
+const { loginSchema, registerSchema } = require('../validation/schemas')
 
 const fs = require('fs')
 const multer = require('multer')

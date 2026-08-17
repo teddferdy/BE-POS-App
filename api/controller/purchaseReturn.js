@@ -423,7 +423,9 @@ const purchaseReturnController = {
 
         if (returnTotal > 0) {
           try {
-            const { postPurchaseReturnJournal } = require('../service/accountingService')
+            const {
+              postPurchaseReturnJournal
+            } = require('../service/accountingService')
             await postPurchaseReturnJournal({
               store: ret.store,
               purchaseReturnId: id,
@@ -445,9 +447,11 @@ const purchaseReturnController = {
           'Approved purchase return: ' + id + ' (' + resolution + ')'
         )
 
-        return res
-          .status(200)
-          .json({ success: true, message: 'Purchase return approved', data: ret })
+        return res.status(200).json({
+          success: true,
+          message: 'Purchase return approved',
+          data: ret
+        })
       } catch (err) {
         await t.rollback()
         throw err
@@ -497,10 +501,7 @@ const purchaseReturnController = {
           })
           if (product) {
             const oldStock = Number(product.stock) || 0
-            await product.update(
-              { stock: oldStock + qty },
-              { transaction }
-            )
+            await product.update({ stock: oldStock + qty }, { transaction })
 
             // ponytail: atomic upsert + restore per-store stock
             if (ret.store) {
@@ -548,10 +549,7 @@ const purchaseReturnController = {
               : null
           if (ingredient) {
             const oldStock = Number(ingredient.stock) || 0
-            await ingredient.update(
-              { stock: oldStock + qty },
-              { transaction }
-            )
+            await ingredient.update({ stock: oldStock + qty }, { transaction })
 
             await db.stock_history.create(
               {

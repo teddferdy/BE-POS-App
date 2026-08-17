@@ -146,7 +146,9 @@ async function writeOffExpired({
       const qty = bs ? Number(bs.quantity) || 0 : Number(batch.qty) || 0
       if (qty <= 0) continue
 
-      const product = await db.product.findByPk(batch.product, { transaction: t })
+      const product = await db.product.findByPk(batch.product, {
+        transaction: t
+      })
       if (!product) continue
 
       const oldStock = Number(product.stock) || 0
@@ -163,7 +165,10 @@ async function writeOffExpired({
       )
       await db.product_store_stock.update(
         { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-        { where: { product: batch.product, store: batch.store }, transaction: t }
+        {
+          where: { product: batch.product, store: batch.store },
+          transaction: t
+        }
       )
 
       if (bs) {

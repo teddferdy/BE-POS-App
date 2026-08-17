@@ -21,7 +21,9 @@ const buildWhere = ({ storeId, productId }) => {
   const clauses = []
   const replacements = {}
   if (storeId) {
-    clauses.push('p.id IN (SELECT DISTINCT "product" FROM "product_store_stock" WHERE "store" = :storeId AND "deletedAt" IS NULL)')
+    clauses.push(
+      'p.id IN (SELECT DISTINCT "product" FROM "product_store_stock" WHERE "store" = :storeId AND "deletedAt" IS NULL)'
+    )
     replacements.storeId = storeId
   }
   if (productId) {
@@ -34,7 +36,11 @@ const buildWhere = ({ storeId, productId }) => {
   }
 }
 
-const getDiscrepancies = async ({ storeId = null, productId = null, minDiff = 1 } = {}) => {
+const getDiscrepancies = async ({
+  storeId = null,
+  productId = null,
+  minDiff = 1
+} = {}) => {
   const { clause, replacements } = buildWhere({ storeId, productId })
   const [rows] = await db.sequelize.query(
     `${DIFF_QUERY}${clause} ORDER BY ABS(p.stock - COALESCE(s.sum_stock, 0)) DESC`,
@@ -47,7 +53,9 @@ const getDiscrepancies = async ({ storeId = null, productId = null, minDiff = 1 
       nameProduct: r.nameProduct,
       globalStock: Number(r.globalStock) || 0,
       perStoreTotal: Number(r.perStoreTotal) || 0,
-      diff: Math.abs((Number(r.globalStock) || 0) - (Number(r.perStoreTotal) || 0))
+      diff: Math.abs(
+        (Number(r.globalStock) || 0) - (Number(r.perStoreTotal) || 0)
+      )
     }))
     .filter((r) => r.diff >= minDiff)
 }
@@ -74,7 +82,8 @@ const logReconcile = async ({
       referenceType: 'reconcile',
       referenceId: null,
       quantityBefore,
-      quantityChange: (Number(quantityAfter) || 0) - (Number(quantityBefore) || 0),
+      quantityChange:
+        (Number(quantityAfter) || 0) - (Number(quantityBefore) || 0),
       quantityAfter,
       unit: 'pcs',
       notes,
@@ -116,7 +125,12 @@ const reconcile = async ({
           createdBy,
           transaction: t
         })
-        changes.push({ productId: pid, field: 'product.stock', before: globalStock, after: perStoreTotal })
+        changes.push({
+          productId: pid,
+          field: 'product.stock',
+          before: globalStock,
+          after: perStoreTotal
+        })
       } else {
         // global-to-store: distribute global stock across the product's store rows
         const rows2 = await getStoreRows(pid, null)

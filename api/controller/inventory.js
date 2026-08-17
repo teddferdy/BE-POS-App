@@ -4,7 +4,11 @@ const reconcileService = require('../service/reconcileService')
 const batchService = require('../service/batchService')
 
 const getStoreId = (req) =>
-  req.query.storeId || req.query.store || req.cookies?.store || req.user?.store || null
+  req.query.storeId ||
+  req.query.store ||
+  req.cookies?.store ||
+  req.user?.store ||
+  null
 
 const inventoryController = {
   async getForecasts(req, res) {
@@ -17,7 +21,11 @@ const inventoryController = {
       const forecasts = await db.stock_forecast.findAll({
         where,
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct', 'sku'] },
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct', 'sku']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
         order: [
@@ -51,7 +59,9 @@ const inventoryController = {
   async runForecast(req, res) {
     try {
       const storeId = getStoreId(req)
-      const productId = req.query.productId ? parseInt(req.query.productId) : null
+      const productId = req.query.productId
+        ? parseInt(req.query.productId)
+        : null
 
       if (productId) {
         const f = await inventoryService.buildForecast(productId, storeId)
@@ -73,7 +83,9 @@ const inventoryController = {
           console.error(`Forecast error product ${p.id}:`, e.message)
         }
       }
-      return res.status(200).json({ success: true, data: results, total: results.length })
+      return res
+        .status(200)
+        .json({ success: true, data: results, total: results.length })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -84,11 +96,15 @@ const inventoryController = {
     try {
       const storeId = getStoreId(req)
       if (!storeId) {
-        return res.status(400).json({ success: false, message: 'storeId/store required' })
+        return res
+          .status(400)
+          .json({ success: false, message: 'storeId/store required' })
       }
       const threshold = parseInt(req.query.threshold || 60)
       const results = await inventoryService.detectDeadStock(storeId, threshold)
-      return res.status(200).json({ success: true, data: results, total: results.length })
+      return res
+        .status(200)
+        .json({ success: true, data: results, total: results.length })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -99,8 +115,13 @@ const inventoryController = {
     try {
       const storeId = getStoreId(req)
       const withinDays = parseInt(req.query.days || 30)
-      const results = await inventoryService.getExpiringBatches(storeId, withinDays)
-      return res.status(200).json({ success: true, data: results, total: results.length })
+      const results = await inventoryService.getExpiringBatches(
+        storeId,
+        withinDays
+      )
+      return res
+        .status(200)
+        .json({ success: true, data: results, total: results.length })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -111,7 +132,9 @@ const inventoryController = {
     try {
       const { method = 'FIFO' } = req.query
       const storeId = getStoreId(req)
-      const productId = req.query.productId ? parseInt(req.query.productId) : null
+      const productId = req.query.productId
+        ? parseInt(req.query.productId)
+        : null
 
       if (productId) {
         const result = await inventoryService.calculateValuation(
@@ -134,7 +157,9 @@ const inventoryController = {
     try {
       const month = req.query.month || null
       const results = await inventoryService.aggregateSupplierPerformance(month)
-      return res.status(200).json({ success: true, data: results, total: results.length })
+      return res
+        .status(200)
+        .json({ success: true, data: results, total: results.length })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -152,14 +177,24 @@ const inventoryController = {
       const batches = await db.product_batch.findAll({
         where,
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.supplier, as: 'supplierData', attributes: ['id', 'name'] },
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name']
+          },
           { model: db.product_batch_stock, as: 'stocks' }
         ],
         order: [['expiryDate', 'ASC']]
       })
-      return res.status(200).json({ success: true, data: batches, total: batches.length })
+      return res
+        .status(200)
+        .json({ success: true, data: batches, total: batches.length })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -171,14 +206,24 @@ const inventoryController = {
       const { id } = req.params
       const batch = await db.product_batch.findByPk(id, {
         include: [
-          { model: db.product, as: 'productData', attributes: ['id', 'nameProduct'] },
+          {
+            model: db.product,
+            as: 'productData',
+            attributes: ['id', 'nameProduct']
+          },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
-          { model: db.supplier, as: 'supplierData', attributes: ['id', 'name'] },
+          {
+            model: db.supplier,
+            as: 'supplierData',
+            attributes: ['id', 'name']
+          },
           { model: db.product_batch_stock, as: 'stocks' }
         ]
       })
       if (!batch) {
-        return res.status(404).json({ success: false, message: 'Batch not found' })
+        return res
+          .status(404)
+          .json({ success: false, message: 'Batch not found' })
       }
       return res.status(200).json({ success: true, data: batch })
     } catch (error) {
@@ -189,15 +234,20 @@ const inventoryController = {
 
   async getReconcile(req, res) {
     try {
-      const storeId = req.query.storeId || req.query.store || req.cookies?.store || null
-      const productId = req.query.productId ? parseInt(req.query.productId) : null
+      const storeId =
+        req.query.storeId || req.query.store || req.cookies?.store || null
+      const productId = req.query.productId
+        ? parseInt(req.query.productId)
+        : null
       const minDiff = Number(req.query.minDiff || 1)
       const rows = await reconcileService.getDiscrepancies({
         storeId,
         productId,
         minDiff
       })
-      return res.status(200).json({ success: true, data: rows, total: rows.length })
+      return res
+        .status(200)
+        .json({ success: true, data: rows, total: rows.length })
     } catch (error) {
       console.error('Error:', error)
       return res.status(500).json({ success: false, message: error.message })
@@ -206,7 +256,8 @@ const inventoryController = {
 
   async postReconcile(req, res) {
     try {
-      const storeId = req.body.storeId || req.body.store || req.cookies?.store || null
+      const storeId =
+        req.body.storeId || req.body.store || req.cookies?.store || null
       const productId = req.body.productId ? parseInt(req.body.productId) : null
       const direction = req.body.direction || 'store-to-global'
       if (!['store-to-global', 'global-to-store'].includes(direction)) {
@@ -230,7 +281,8 @@ const inventoryController = {
 
   async postWriteOffExpired(req, res) {
     try {
-      const storeId = req.body.storeId || req.body.store || req.cookies?.store || null
+      const storeId =
+        req.body.storeId || req.body.store || req.cookies?.store || null
       const productId = req.body.productId ? parseInt(req.body.productId) : null
       const result = await batchService.writeOffExpired({
         storeId,

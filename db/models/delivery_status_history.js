@@ -41,7 +41,10 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   DeliveryStatusHistory.associate = (models) => {
-    DeliveryStatusHistory.belongsTo(models.delivery_order, { foreignKey: 'deliveryOrder', as: 'deliveryOrderData' })
+    DeliveryStatusHistory.belongsTo(models.delivery_order, {
+      foreignKey: 'deliveryOrder',
+      as: 'deliveryOrderData'
+    })
   }
 
   return DeliveryStatusHistory

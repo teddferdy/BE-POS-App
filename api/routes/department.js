@@ -7,7 +7,10 @@ const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
-const { createDepartmentSchema, updateDepartmentSchema } = require('../validation/schemas')
+const {
+  createDepartmentSchema,
+  updateDepartmentSchema
+} = require('../validation/schemas')
 
 // Configure multer for file uploads
 const upload = multer({

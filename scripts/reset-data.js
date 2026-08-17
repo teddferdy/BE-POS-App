@@ -5,7 +5,13 @@ const envFile =
 require('dotenv').config({ path: envFile })
 const db = require('../db/models')
 
-const TABLES_TO_KEEP = ['role', 'type_payment', 'tax_config', 'discount', 'table']
+const TABLES_TO_KEEP = [
+  'role',
+  'type_payment',
+  'tax_config',
+  'discount',
+  'table'
+]
 const SEEDED_USERNAMES = ['super_admin', 'angga', 'febi', 'surya']
 
 async function resetData() {
@@ -24,9 +30,7 @@ async function resetData() {
     const allTables = results.map((r) => r.tablename)
     const tablesToTruncate = allTables.filter(
       (t) =>
-        !TABLES_TO_KEEP.includes(t) &&
-        t !== 'user' &&
-        t !== 'SequelizeMeta'
+        !TABLES_TO_KEEP.includes(t) && t !== 'user' && t !== 'SequelizeMeta'
     )
 
     await db.sequelize.transaction(async (t) => {

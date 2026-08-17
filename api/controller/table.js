@@ -185,7 +185,7 @@ exports.getTableAvailability = async (req, res) => {
 
 exports.createTable = async (req, res) => {
   const store = req.body.store || req.user?.store
-  const { name, capacity } = req.body
+  const { name, capacity, area, tableType } = req.body
 
   try {
     const existingTable = await Table.findOne({
@@ -202,6 +202,8 @@ exports.createTable = async (req, res) => {
       store,
       name,
       capacity: capacity || 4,
+      area: area || 'indoor',
+      tableType: tableType || 'regular',
       status: 'available'
     })
 
@@ -222,7 +224,7 @@ exports.createTable = async (req, res) => {
 exports.updateTable = async (req, res) => {
   const store = req.body.store || req.user?.store
   const id = req.params.id || req.body.id
-  const { name, capacity, status } = req.body
+  const { name, capacity, status, area, tableType } = req.body
 
   try {
     const table = await Table.findOne({
@@ -238,7 +240,9 @@ exports.updateTable = async (req, res) => {
     await table.update({
       name,
       capacity,
-      status
+      status,
+      area: area !== undefined ? area : table.area,
+      tableType: tableType !== undefined ? tableType : table.tableType
     })
 
     createAudit(req, 'update', 'table', id, `Updated table: ${id}`)

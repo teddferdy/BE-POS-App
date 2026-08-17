@@ -230,7 +230,10 @@ exports.downloadData = async (req, res) => {
       filters.store = store
     }
 
-    const discounts = await Discount.findAll({ where: filters, order: [['createdAt', 'ASC']] })
+    const discounts = await Discount.findAll({
+      where: filters,
+      order: [['createdAt', 'ASC']]
+    })
 
     // Generate Excel file
     const workbook = new ExcelJS.Workbook()

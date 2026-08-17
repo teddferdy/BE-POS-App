@@ -15,14 +15,12 @@ const performanceAggregation = {
 
       const orders = await db.order.findAll({
         where,
-        include: [
-          { model: db.sales_return, as: 'returns' }
-        ],
+        include: [{ model: db.sales_return, as: 'returns' }],
         attributes: ['id', 'cashierId', 'totalPrice', 'totalQuantity']
       })
 
       const kasirMap = {}
-      orders.forEach(order => {
+      orders.forEach((order) => {
         const cashierId = order.cashierId
         if (!kasirMap[cashierId]) {
           kasirMap[cashierId] = {
@@ -45,12 +43,14 @@ const performanceAggregation = {
 
       const results = []
       for (const [cashierId, data] of Object.entries(kasirMap)) {
-        const avgTransaction = data.transactions > 0 
-          ? Math.floor(data.totalSales / data.transactions)
-          : 0
-        const accuracyRate = data.transactions > 0
-          ? ((data.transactions - data.returns) / data.transactions * 100)
-          : 100
+        const avgTransaction =
+          data.transactions > 0
+            ? Math.floor(data.totalSales / data.transactions)
+            : 0
+        const accuracyRate =
+          data.transactions > 0
+            ? ((data.transactions - data.returns) / data.transactions) * 100
+            : 100
 
         const [perf] = await db.kasir_performance.findOrCreate({
           where: {

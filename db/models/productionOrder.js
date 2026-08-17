@@ -29,7 +29,13 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       status: {
-        type: DataTypes.ENUM('draft', 'planned', 'in_progress', 'completed', 'cancelled'),
+        type: DataTypes.ENUM(
+          'draft',
+          'planned',
+          'in_progress',
+          'completed',
+          'cancelled'
+        ),
         defaultValue: 'draft'
       },
       scheduledDate: {

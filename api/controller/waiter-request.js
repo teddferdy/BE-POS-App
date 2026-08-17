@@ -35,8 +35,10 @@ const waiterRequestController = {
 
       const requestNumber = generateRequestNumber()
 
-      const tableIdNum = tableId === '' || tableId == null ? null : Number(tableId)
-      const orderIdNum = orderId === '' || orderId == null ? null : Number(orderId)
+      const tableIdNum =
+        tableId === '' || tableId == null ? null : Number(tableId)
+      const orderIdNum =
+        orderId === '' || orderId == null ? null : Number(orderId)
 
       const waiterRequest = await db.waiter_request.create({
         store: [storeId],

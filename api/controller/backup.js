@@ -22,10 +22,13 @@ const DB_CONFIG = () => {
   return {
     host: process.env.DB_DEV_HOST || process.env.POSTGRES_HOST || '127.0.0.1',
     port: process.env.DB_DEV_PORT || process.env.POSTGRES_PORT || 5432,
-    user: process.env.DB_DEV_USERNAME || process.env.POSTGRES_USER || 'postgres',
+    user:
+      process.env.DB_DEV_USERNAME || process.env.POSTGRES_USER || 'postgres',
     password: process.env.DB_DEV_PASSWORD || process.env.POSTGRES_PASSWORD,
     database:
-      process.env.DB_DEV_DATABASE || process.env.POSTGRES_DATABASE || 'cashier_app'
+      process.env.DB_DEV_DATABASE ||
+      process.env.POSTGRES_DATABASE ||
+      'cashier_app'
   }
 }
 
@@ -121,7 +124,9 @@ const writeSchedule = (schedule) => {
 }
 
 const parseCron = (cron) => {
-  const parts = String(cron || '').trim().split(/\s+/)
+  const parts = String(cron || '')
+    .trim()
+    .split(/\s+/)
   if (parts.length !== 5) return null
   const num = (p) => {
     if (p === '*') return []
@@ -165,7 +170,9 @@ exports.setSchedule = async (req, res) => {
       enabled: enabled !== undefined ? !!enabled : current.enabled,
       cron: cron || current.cron,
       retention:
-        retention !== undefined ? Math.max(0, parseInt(retention, 10)) : current.retention
+        retention !== undefined
+          ? Math.max(0, parseInt(retention, 10))
+          : current.retention
     }
     if (schedule.enabled && !parseCron(schedule.cron)) {
       return res.status(400).json({
@@ -259,7 +266,9 @@ exports.downloadBackup = async (req, res) => {
     const { id } = req.params
     const record = await db.db_backup.findByPk(id)
     if (!record) {
-      return res.status(404).json({ success: false, message: 'Backup tidak ditemukan' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Backup tidak ditemukan' })
     }
     const filepath = record.filepath
     if (!fs.existsSync(filepath)) {
@@ -285,7 +294,9 @@ exports.restoreBackup = async (req, res) => {
     const { id } = req.params
     const record = await db.db_backup.findByPk(id)
     if (!record) {
-      return res.status(404).json({ success: false, message: 'Backup tidak ditemukan' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Backup tidak ditemukan' })
     }
     const filepath = record.filepath
     if (!fs.existsSync(filepath)) {
@@ -319,7 +330,9 @@ exports.deleteBackup = async (req, res) => {
     const { id } = req.params
     const record = await db.db_backup.findByPk(id)
     if (!record) {
-      return res.status(404).json({ success: false, message: 'Backup tidak ditemukan' })
+      return res
+        .status(404)
+        .json({ success: false, message: 'Backup tidak ditemukan' })
     }
     if (fs.existsSync(record.filepath)) {
       fs.unlinkSync(record.filepath)
