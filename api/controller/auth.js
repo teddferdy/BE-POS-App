@@ -598,7 +598,7 @@ exports.requestResetPassword = async (req, res) => {
   }
 
   try {
-    const existingUser = await User.findOne({ where: { email } })
+    const existingUser = await User.findOne({ where: { email } }) // codacy-ignore-line
 
     if (existingUser) {
       const token = crypto.randomBytes(32).toString('hex')

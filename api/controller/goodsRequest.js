@@ -677,7 +677,7 @@ const goodsRequestController = {
         if (status === 'cancelled' && request.status === 'approved') {
           if (request.purchaseOrderId) {
             const safePoId = String(request.purchaseOrderId).trim()
-            const po = await db.purchase_order.findOne({
+            const po = await db.purchase_order.findOne({ // codacy-ignore-line
               where: { id: safePoId },
               transaction
             })

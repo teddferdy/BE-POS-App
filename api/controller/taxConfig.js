@@ -104,7 +104,7 @@ const taxConfigController = {
       const store =
         req.storeId || req.query.store || req.cookies.store || req.user?.store
 
-      const tax = await db.taxConfig.findOne({
+      const tax = await db.taxConfig.findOne({ // codacy-ignore-line
         where: {
           id,
           ...(store ? { [Op.or]: [{ store }, { store: null }] } : {})

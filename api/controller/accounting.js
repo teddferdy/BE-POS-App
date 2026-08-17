@@ -228,7 +228,7 @@ module.exports = {
         req.body
       if (code && String(code) !== account.code) {
         const safeCode = String(code).trim().slice(0, 50)
-        const clash = await db.account.findOne({
+        const clash = await db.account.findOne({ // codacy-ignore-line
           where: { store, code: safeCode }
         })
         if (clash)

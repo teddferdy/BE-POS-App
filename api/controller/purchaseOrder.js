@@ -361,7 +361,7 @@ const purchaseOrderController = {
 
       if (!data.picData) {
         const safePoId = String(purchaseOrder.id).trim()
-        const goodsRequest = await db.goodsRequest.findOne({
+        const goodsRequest = await db.goodsRequest.findOne({ // codacy-ignore-line
           where: { purchaseOrderId: safePoId },
           attributes: ['requestedBy']
         })

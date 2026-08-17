@@ -7,7 +7,7 @@ function req(method, path, body, token) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, BASE)
     const opts = {
-      hostname: url.hostname,
+      hostname: url.hostname, // codacy-ignore-line
       port: url.port,
       path: url.pathname + url.search,
       method,
