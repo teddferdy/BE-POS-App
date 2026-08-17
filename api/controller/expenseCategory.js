@@ -6,7 +6,8 @@ const expenseCategoryController = {
   async getAll(req, res) {
     try {
       const { status, search, store: queryStore } = req.query
-      let store = queryStore || req.storeId || req.cookies.store || req.user?.store
+      let store =
+        queryStore || req.storeId || req.cookies.store || req.user?.store
       if (req.user?.roleType !== 'super_admin') {
         store = req.user?.store
       }
@@ -125,7 +126,9 @@ const expenseCategoryController = {
           description !== undefined ? description : category.description,
         icon: icon !== undefined ? icon : category.icon,
         accountCode:
-          accountCode !== undefined ? accountCode || null : category.accountCode,
+          accountCode !== undefined
+            ? accountCode || null
+            : category.accountCode,
         status:
           status !== undefined
             ? status === true

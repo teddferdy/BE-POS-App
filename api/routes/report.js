@@ -12,12 +12,6 @@ router.get(
   reportController.getDailyReport
 )
 router.get(
-  '/profit-loss',
-  authorization,
-  validateStoreAccess,
-  reportController.getProfitLoss
-)
-router.get(
   '/cash-flow',
   authorization,
   validateStoreAccess,

@@ -31,10 +31,7 @@ const authorization = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(
-      getTokenValue,
-      process.env.JWT_SECRET_KEY
-    )
+    const decoded = jwt.verify(getTokenValue, process.env.JWT_SECRET_KEY)
     req.user = decoded
     setUserContext(decoded)
     return next()

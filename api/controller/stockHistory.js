@@ -105,17 +105,48 @@ const stockHistoryController = {
 
   async getLowStock(req, res) {
     try {
-      const store = req.cookies?.store || req.query?.store
+      const store = req.storeId
 
-      const products = await db.product.findAll({
-        where: {
-          status: 'active',
-          minStock: { [Op.gt]: 0 }
-        },
-        attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit']
+      const [products, productStores, locations] = await Promise.all([
+        db.product.findAll({
+          where: {
+            status: 'active',
+            minStock: { [Op.gt]: 0 }
+          },
+          attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit']
+        }),
+        db.product_store.findAll({
+          attributes: ['product', 'store']
+        }),
+        db.location.findAll({
+          where: { status: 'active' },
+          attributes: ['id', 'name']
+        })
+      ])
+
+      const storeMap = {}
+      locations.forEach((loc) => {
+        storeMap[loc.id] = loc.name
       })
 
-      const lowStockProducts = products.filter((p) => p.stock <= p.minStock)
+      const productStoreMap = {}
+      productStores.forEach((ps) => {
+        if (!productStoreMap[ps.product]) productStoreMap[ps.product] = []
+        productStoreMap[ps.product].push(ps.store)
+      })
+
+      const lowStockProducts = products
+        .filter((p) => p.stock <= p.minStock)
+        .map((p) => ({
+          id: p.id,
+          nameProduct: p.nameProduct,
+          stock: p.stock,
+          minStock: p.minStock,
+          unit: p.unit,
+          stores: (productStoreMap[p.id] || []).map(
+            (sid) => storeMap[sid] || `Store #${sid}`
+          )
+        }))
 
       const ingredientWhere = { status: 'active' }
       if (store) {
@@ -123,7 +154,14 @@ const stockHistoryController = {
       }
       const ingredients = await db.ingredient.findAll({
         where: ingredientWhere,
-        attributes: ['id', 'name', 'stock', 'minStock', 'unit']
+        attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'store'],
+        include: [
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'name']
+          }
+        ]
       })
 
       const lowStockIngredients = ingredients.filter(
@@ -153,32 +191,27 @@ const stockHistoryController = {
     try {
       const { page = 1, limit = 20, store, type, search } = req.query
 
-      const [products, ingredients, locations, productStores] = await Promise.all([
-        db.product.findAll({
-          where: {
-            status: 'active',
-            minStock: { [Op.gt]: 0 }
-          },
-          attributes: [
-            'id',
-            'nameProduct',
-            'stock',
-            'minStock',
-            'unit'
-          ]
-        }),
-        db.ingredient.findAll({
-          where: { status: 'active' },
-          attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'store']
-        }),
-        db.location.findAll({
-          where: { status: 'active' },
-          attributes: ['id', 'name']
-        }),
-        db.product_store.findAll({
-          attributes: ['product', 'store']
-        })
-      ])
+      const [products, ingredients, locations, productStores] =
+        await Promise.all([
+          db.product.findAll({
+            where: {
+              status: 'active',
+              minStock: { [Op.gt]: 0 }
+            },
+            attributes: ['id', 'nameProduct', 'stock', 'minStock', 'unit']
+          }),
+          db.ingredient.findAll({
+            where: { status: 'active' },
+            attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'store']
+          }),
+          db.location.findAll({
+            where: { status: 'active' },
+            attributes: ['id', 'name']
+          }),
+          db.product_store.findAll({
+            attributes: ['product', 'store']
+          })
+        ])
 
       const productStoreMap = {}
       productStores.forEach((ps) => {

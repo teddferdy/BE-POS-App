@@ -57,9 +57,8 @@ async function buildReportData({
         { replacements, type: db.sequelize.QueryTypes.SELECT }
       )
       .then((r) => r[0]),
-    db.sequelize
-      .query(
-        `SELECT t."typePayment",
+    db.sequelize.query(
+      `SELECT t."typePayment",
                 COALESCE(SUM(t."amount"), 0) as total,
                 COUNT(*)::int as "count"
          FROM "transaction" t
@@ -69,8 +68,8 @@ async function buildReportData({
            AND o."paymentStatus" = 'paid'
          GROUP BY t."typePayment"
          ORDER BY total DESC`,
-        { replacements, type: db.sequelize.QueryTypes.SELECT }
-      ),
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
+    ),
     db.sequelize
       .query(
         `SELECT COALESCE(SUM("amount"), 0) as "totalExpenses"
@@ -81,9 +80,8 @@ async function buildReportData({
         { replacements, type: db.sequelize.QueryTypes.SELECT }
       )
       .then((r) => r[0]),
-    db.sequelize
-      .query(
-        `SELECT COALESCE(ec.name, 'Lainnya') as "category",
+    db.sequelize.query(
+      `SELECT COALESCE(ec.name, 'Lainnya') as "category",
                 COALESCE(SUM(e."amount"), 0) as total,
                 COUNT(*)::int as "count"
          FROM expense e
@@ -93,8 +91,8 @@ async function buildReportData({
            AND e."status" = 'approved'
          GROUP BY ec.name
          ORDER BY total DESC`,
-        { replacements, type: db.sequelize.QueryTypes.SELECT }
-      )
+      { replacements, type: db.sequelize.QueryTypes.SELECT }
+    )
   ])
 
   const totalSales = Number(salesAgg.totalSales || 0)

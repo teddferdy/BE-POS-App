@@ -30,10 +30,21 @@ const run = (cmd, args, opts = {}) => {
 
 module.exports = async () => {
   // 1. Create the test database if it does not exist yet.
-  const exists = run('psql', [
-    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', 'postgres',
-    '-t', '-A', '-c', `SELECT 1 FROM pg_database WHERE datname = '${TEST_DB}'`
-  ]).trim() === '1'
+  const exists =
+    run('psql', [
+      '-h',
+      DB_HOST,
+      '-p',
+      DB_PORT,
+      '-U',
+      DB_USER,
+      '-d',
+      'postgres',
+      '-t',
+      '-A',
+      '-c',
+      `SELECT 1 FROM pg_database WHERE datname = '${TEST_DB}'`
+    ]).trim() === '1'
 
   if (!exists) {
     run('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, TEST_DB])
@@ -41,15 +52,33 @@ module.exports = async () => {
 
   // 2. Clone the schema from the dev DB on first use.
   const tableCount = run('psql', [
-    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
-    '-t', '-A', '-c',
+    '-h',
+    DB_HOST,
+    '-p',
+    DB_PORT,
+    '-U',
+    DB_USER,
+    '-d',
+    TEST_DB,
+    '-t',
+    '-A',
+    '-c',
     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
   ]).trim()
 
   if (parseInt(tableCount, 10) === 0) {
     const dump = run('pg_dump', [
-      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', SRC_DB,
-      '--schema-only', '--no-owner', '--no-privileges'
+      '-h',
+      DB_HOST,
+      '-p',
+      DB_PORT,
+      '-U',
+      DB_USER,
+      '-d',
+      SRC_DB,
+      '--schema-only',
+      '--no-owner',
+      '--no-privileges'
     ])
     run('psql', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB], {
       input: dump
@@ -58,7 +87,15 @@ module.exports = async () => {
 
   // 3. Truncate every table so each run starts from clean state.
   run('psql', [
-    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB, '-c',
+    '-h',
+    DB_HOST,
+    '-p',
+    DB_PORT,
+    '-U',
+    DB_USER,
+    '-d',
+    TEST_DB,
+    '-c',
     `DO $$
      DECLARE r RECORD;
      BEGIN

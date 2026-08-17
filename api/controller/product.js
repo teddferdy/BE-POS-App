@@ -537,7 +537,10 @@ exports.postAddProduct = async (req, res) => {
       try {
         imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-products')
       } catch (err) {
-        console.warn('Image upload skipped (Cloudinary not configured):', err.message)
+        console.warn(
+          'Image upload skipped (Cloudinary not configured):',
+          err.message
+        )
       }
     }
 
@@ -592,7 +595,8 @@ exports.postAddProduct = async (req, res) => {
       minStock: minStock || 0,
       unit,
       baseUnit: baseUnit || unit || 'pcs',
-      conversionFactor: conversionFactor != null ? parseFloat(conversionFactor) : 1,
+      conversionFactor:
+        conversionFactor != null ? parseFloat(conversionFactor) : 1,
       point: point || 0,
       redeemPoints: redeemPoints || 0,
       barcode: barcode || null,
@@ -1007,17 +1011,20 @@ exports.exportProduct = async (req, res) => {
     let categories
     if (storeIdNum && (await hasCategoryStoreTable())) {
       // Use junction table to find categories assigned to this store
-      const categoryIds = await db.category_store.findAll({
-        where: { store: storeIdNum },
-        attributes: ['category'],
-        raw: true
-      }).then((rows) => rows.map((r) => r.category))
-      categories = categoryIds.length > 0
-        ? await Category.findAll({
-            where: { id: { [Op.in]: categoryIds }, status: 'active' },
-            attributes: ['name']
-          })
-        : []
+      const categoryIds = await db.category_store
+        .findAll({
+          where: { store: storeIdNum },
+          attributes: ['category'],
+          raw: true
+        })
+        .then((rows) => rows.map((r) => r.category))
+      categories =
+        categoryIds.length > 0
+          ? await Category.findAll({
+              where: { id: { [Op.in]: categoryIds }, status: 'active' },
+              attributes: ['name']
+            })
+          : []
     } else {
       categories = await Category.findAll({
         where: { status: 'active' },

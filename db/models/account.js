@@ -23,7 +23,13 @@ module.exports = (sequelize, DataTypes) => {
       },
       type: {
         allowNull: false,
-        type: DataTypes.ENUM('asset', 'liability', 'equity', 'revenue', 'expense')
+        type: DataTypes.ENUM(
+          'asset',
+          'liability',
+          'equity',
+          'revenue',
+          'expense'
+        )
       },
       normalBalance: {
         allowNull: false,

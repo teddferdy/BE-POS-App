@@ -93,7 +93,11 @@ const generateInvoicePdf = (order, storeData, items, settings = null) => {
         const logoPath = s.logo
         if (logoPath) {
           const logoY = doc.y
-          doc.image(logoPath, M, logoY, { width: 40, height: 40, fit: [40, 40] })
+          doc.image(logoPath, M, logoY, {
+            width: 40,
+            height: 40,
+            fit: [40, 40]
+          })
           doc.y = logoY + 45
         }
       } catch (err) {
@@ -114,7 +118,11 @@ const generateInvoicePdf = (order, storeData, items, settings = null) => {
     if (s.showAddress) {
       doc.font('Courier').fontSize(6.5).fillColor('#6B7280')
       if (storeData?.address)
-        center(storeData.address, { size: 6.5, font: 'Courier', color: '#6B7280' })
+        center(storeData.address, {
+          size: 6.5,
+          font: 'Courier',
+          color: '#6B7280'
+        })
       if (storeData?.phoneNumber)
         center('Telp: ' + storeData.phoneNumber, {
           size: 6.5,
@@ -122,7 +130,11 @@ const generateInvoicePdf = (order, storeData, items, settings = null) => {
           color: '#6B7280'
         })
       if (storeData?.email)
-        center(storeData.email, { size: 6.5, font: 'Courier', color: '#6B7280' })
+        center(storeData.email, {
+          size: 6.5,
+          font: 'Courier',
+          color: '#6B7280'
+        })
       doc.moveDown(0.2)
     }
 
@@ -321,7 +333,9 @@ const generateInvoicePdf = (order, storeData, items, settings = null) => {
       doc.moveDown(0.1)
 
       doc.font('Courier').fontSize(5.5).fillColor('#9CA3AF')
-      const smLines = visibleSocials.map((sm) => `${sm.platform}: ${sm.account}`).join('  |  ')
+      const smLines = visibleSocials
+        .map((sm) => `${sm.platform}: ${sm.account}`)
+        .join('  |  ')
       center(smLines, { size: 5.5, font: 'Courier', color: '#9CA3AF' })
     }
   }

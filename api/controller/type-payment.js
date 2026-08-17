@@ -168,7 +168,7 @@ exports.getTypePaymentById = async (req, res) => {
 }
 
 exports.postNewTypePayment = async (req, res) => {
-  const { name, type, icon, status } = req.body
+  const { name, type, icon, status, feeType, fee, tenor, sortOrder } = req.body
   const rawStore = req.body.store ?? req.user?.store
   const stores = resolveStoreIds(rawStore, req.user?.store)
   const statusValue =
@@ -195,6 +195,10 @@ exports.postNewTypePayment = async (req, res) => {
         store: target,
         type: type || 'cash',
         icon: icon || '',
+        feeType: feeType || 'fixed',
+        fee: fee !== undefined ? fee : 0,
+        tenor: tenor !== undefined ? tenor : 0,
+        sortOrder: sortOrder !== undefined ? sortOrder : 0,
         status: statusValue
       })
       created.push(postData)
@@ -253,12 +257,17 @@ exports.editTypePaymentById = async (req, res) => {
     ) {
       return res.status(403).json({
         success: false,
-        message: 'Anda tidak memiliki akses untuk mengedit metode pembayaran ini'
+        message:
+          'Anda tidak memiliki akses untuk mengedit metode pembayaran ini'
       })
     }
 
     const targetStore =
-      stores.length === 1 ? stores[0] : stores.length > 1 ? existing.store : null
+      stores.length === 1
+        ? stores[0]
+        : stores.length > 1
+          ? existing.store
+          : null
     const getDuplicate = await TypePayment.findOne({
       where: {
         name: body.name,
@@ -273,6 +282,11 @@ exports.editTypePaymentById = async (req, res) => {
           ...(targetStore !== undefined && { store: targetStore }),
           type: body.type || existing.type,
           icon: body.icon !== undefined ? body.icon : existing.icon,
+          feeType: body.feeType !== undefined ? body.feeType : existing.feeType,
+          fee: body.fee !== undefined ? body.fee : existing.fee,
+          tenor: body.tenor !== undefined ? body.tenor : existing.tenor,
+          sortOrder:
+            body.sortOrder !== undefined ? body.sortOrder : existing.sortOrder,
           status:
             body.status !== undefined
               ? body.status === true

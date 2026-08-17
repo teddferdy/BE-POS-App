@@ -31,7 +31,8 @@ sequelize.addHook('beforeCreate', (instance) => {
 
   if (rawAttrs.createdBy && !instance.getDataValue('createdBy')) {
     const type = rawAttrs.createdBy.type?.key || ''
-    const value = type === 'STRING' ? (store.userName || store.userId) : store.userId
+    const value =
+      type === 'STRING' ? store.userName || store.userId : store.userId
     instance.setDataValue('createdBy', value)
   }
 })
@@ -44,7 +45,8 @@ sequelize.addHook('beforeSave', (instance) => {
 
   if (rawAttrs.modifiedBy && !instance.getDataValue('modifiedBy')) {
     const type = rawAttrs.modifiedBy.type?.key || ''
-    const value = type === 'STRING' ? (store.userName || store.userId) : store.userId
+    const value =
+      type === 'STRING' ? store.userName || store.userId : store.userId
     instance.setDataValue('modifiedBy', value)
   }
 })
@@ -56,7 +58,8 @@ sequelize.addHook('beforeBulkUpdate', (options) => {
   const rawAttrs = options.model?.rawAttributes || {}
   if (rawAttrs.modifiedBy) {
     const type = rawAttrs.modifiedBy.type?.key || ''
-    const value = type === 'STRING' ? (store.userName || store.userId) : store.userId
+    const value =
+      type === 'STRING' ? store.userName || store.userId : store.userId
     options.attributes = options.attributes || {}
     options.attributes.modifiedBy = value
   }
@@ -132,9 +135,7 @@ const pendingMigrations = [
   },
   {
     table: 'product',
-    columns: [
-      { name: 'estimationTime', definition: 'INTEGER DEFAULT 0' }
-    ]
+    columns: [{ name: 'estimationTime', definition: 'INTEGER DEFAULT 0' }]
   },
   {
     table: 'purchase_order',
@@ -178,9 +179,7 @@ const pendingMigrations = [
   },
   {
     table: 'transaction',
-    columns: [
-      { name: 'salesReturnId', definition: 'INTEGER' }
-    ]
+    columns: [{ name: 'salesReturnId', definition: 'INTEGER' }]
   }
 ]
 
@@ -203,7 +202,9 @@ async function ensureColumns() {
           await sequelize.query(
             `ALTER TABLE "${migration.table}" ADD COLUMN "${col.name}" ${col.definition}`
           )
-          console.log(`[auto-migrate] Added column ${migration.table}.${col.name}`)
+          console.log(
+            `[auto-migrate] Added column ${migration.table}.${col.name}`
+          )
         }
       }
     } catch (e) {
@@ -217,7 +218,9 @@ sequelize.addHook('afterConnect', async () => {
   sequelize._autoMigrateDone = true
   await ensureColumns()
   try {
-    await sequelize.query(`UPDATE role SET "isSystem" = true WHERE "createdBy" IS NULL AND "isSystem" = false`)
+    await sequelize.query(
+      `UPDATE role SET "isSystem" = true WHERE "createdBy" IS NULL AND "isSystem" = false`
+    )
   } catch (e) {
     console.error('[auto-migrate] Error updating role isSystem:', e.message)
   }

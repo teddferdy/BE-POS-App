@@ -75,51 +75,57 @@ const goodsRequestController = {
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const [requests, total, pendingCount, approvedCount, rejectedCount, cancelledCount] =
-        await Promise.all([
-          db.goodsRequest.findAll({
-            where,
-            include: [
-              {
-                model: db.goodsRequestItem,
-                as: 'items',
-                attributes: [
-                  'id',
-                  'supplier',
-                  'productName',
-                  'ingredientName',
-                  'qty',
-                  'unit'
-                ],
-                include: [
-                  {
-                    model: db.supplier,
-                    as: 'supplierData',
-                    attributes: ['id', 'name']
-                  }
-                ]
-              },
-              {
-                model: db.location,
-                as: 'storeData',
-                attributes: ['id', 'name']
-              },
-              {
-                model: db.purchase_order,
-                as: 'purchaseOrderData',
-                attributes: ['id', 'orderNumber', 'status']
-              }
-            ],
-            order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset
-          }),
-          db.goodsRequest.count({ where }),
-          db.goodsRequest.count({ where: { ...where, status: 'pending' } }),
-          db.goodsRequest.count({ where: { ...where, status: 'approved' } }),
-          db.goodsRequest.count({ where: { ...where, status: 'rejected' } }),
-          db.goodsRequest.count({ where: { ...where, status: 'cancelled' } })
-        ])
+      const [
+        requests,
+        total,
+        pendingCount,
+        approvedCount,
+        rejectedCount,
+        cancelledCount
+      ] = await Promise.all([
+        db.goodsRequest.findAll({
+          where,
+          include: [
+            {
+              model: db.goodsRequestItem,
+              as: 'items',
+              attributes: [
+                'id',
+                'supplier',
+                'productName',
+                'ingredientName',
+                'qty',
+                'unit'
+              ],
+              include: [
+                {
+                  model: db.supplier,
+                  as: 'supplierData',
+                  attributes: ['id', 'name']
+                }
+              ]
+            },
+            {
+              model: db.location,
+              as: 'storeData',
+              attributes: ['id', 'name']
+            },
+            {
+              model: db.purchase_order,
+              as: 'purchaseOrderData',
+              attributes: ['id', 'orderNumber', 'status']
+            }
+          ],
+          order: [['createdAt', 'DESC']],
+          limit: parseInt(limit),
+          offset
+        }),
+        db.goodsRequest.count({ where }),
+        db.goodsRequest.count({ where: { ...where, status: 'pending' } }),
+        db.goodsRequest.count({ where: { ...where, status: 'approved' } }),
+        db.goodsRequest.count({ where: { ...where, status: 'rejected' } }),
+        db.goodsRequest.count({ where: { ...where, status: 'cancelled' } })
+      ])
 
       await enrichAuditFields(db, requests)
 
@@ -143,7 +149,10 @@ const goodsRequestController = {
           : null,
         items: request.items || [],
         totalItems: (request.items || []).length,
-        totalQty: (request.items || []).reduce((sum, item) => sum + (item.qty || 0), 0),
+        totalQty: (request.items || []).reduce(
+          (sum, item) => sum + (item.qty || 0),
+          0
+        ),
         createdByUser: request.createdByUser,
         modifiedByUser: request.modifiedByUser,
         approvedByUser: request.approvedByUser,
@@ -251,7 +260,7 @@ const goodsRequestController = {
   async create(req, res) {
     try {
       const store = req.storeId || req.cookies.store
-      const { items, requestedBy, notes } = req.body
+      const { items, requestedBy, notes, requestDate, neededDate } = req.body
       const createdBy = req.user?.id || null
 
       if (!items || items.length === 0) {
@@ -272,6 +281,8 @@ const goodsRequestController = {
             store: store || null,
             status: 'pending',
             requestedBy: requestedBy || '',
+            requestDate: requestDate || null,
+            neededDate: neededDate || null,
             notes: notes || '',
             createdBy
           },
@@ -329,7 +340,7 @@ const goodsRequestController = {
       const { id } = req.params
       const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
-      const { items, requestedBy, notes } = req.body
+      const { items, requestedBy, notes, requestDate, neededDate } = req.body
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -361,7 +372,12 @@ const goodsRequestController = {
       try {
         await request.update(
           {
-            requestedBy: requestedBy !== undefined ? requestedBy : request.requestedBy,
+            requestedBy:
+              requestedBy !== undefined ? requestedBy : request.requestedBy,
+            requestDate:
+              requestDate !== undefined ? requestDate : request.requestDate,
+            neededDate:
+              neededDate !== undefined ? neededDate : request.neededDate,
             notes: notes !== undefined ? notes : request.notes
           },
           { transaction }
@@ -495,7 +511,10 @@ const goodsRequestController = {
           .json({ success: false, message: 'Goods request not found' })
       }
 
-      if (request.status !== 'pending') {
+      const isPending = request.status === 'pending'
+      const isCancelFromApproved =
+        request.status === 'approved' && status === 'cancelled'
+      if (!isPending && !isCancelFromApproved) {
         return res.status(400).json({
           success: false,
           message: `Goods request is already ${request.status}`
@@ -508,7 +527,9 @@ const goodsRequestController = {
         if (status === 'approved') {
           const items = request.items || []
 
-          const supplierIds = [...new Set(items.map((it) => it.supplier).filter(Boolean))]
+          const supplierIds = [
+            ...new Set(items.map((it) => it.supplier).filter(Boolean))
+          ]
 
           let priceByProduct = {}
           let priceByName = {}
@@ -516,7 +537,13 @@ const goodsRequestController = {
             if (supplierIds.length > 0) {
               const catalog = await db.supplier_product.findAll({
                 where: { supplier: { [Op.in]: supplierIds } },
-                attributes: ['supplier', 'productId', 'name', 'price', 'lastPrice']
+                attributes: [
+                  'supplier',
+                  'productId',
+                  'name',
+                  'price',
+                  'lastPrice'
+                ]
               })
               priceByProduct = {}
               priceByName = {}
@@ -543,10 +570,13 @@ const goodsRequestController = {
           const resolvePrice = (item) => {
             if (!item.supplier) return 0
             if (item.product) {
-              const byProduct = priceByProduct[`${item.supplier}:${item.product}`]
+              const byProduct =
+                priceByProduct[`${item.supplier}:${item.product}`]
               if (byProduct) return byProduct
             }
-            const itemName = String(item.ingredientName || item.productName || '')
+            const itemName = String(
+              item.ingredientName || item.productName || ''
+            )
               .toLowerCase()
               .trim()
             if (itemName) {
@@ -573,7 +603,10 @@ const goodsRequestController = {
               conversionToBase: 1
             }
           })
-          const totalAmount = orderItems.reduce((sum, it) => sum + (it.total || 0), 0)
+          const totalAmount = orderItems.reduce(
+            (sum, it) => sum + (it.total || 0),
+            0
+          )
           const finalAmount = totalAmount
 
           const purchaseOrder = await db.purchase_order.create(
@@ -599,7 +632,10 @@ const goodsRequestController = {
           )
 
           await db.purchase_order_item.bulkCreate(
-            orderItems.map((item) => ({ ...item, purchaseOrder: purchaseOrder.id })),
+            orderItems.map((item) => ({
+              ...item,
+              purchaseOrder: purchaseOrder.id
+            })),
             { transaction }
           )
 
@@ -618,7 +654,10 @@ const goodsRequestController = {
             'approve',
             'goods_request',
             request.id,
-            'Approved goods_request: ' + request.id + ' -> PO ' + purchaseOrder.id
+            'Approved goods_request: ' +
+              request.id +
+              ' -> PO ' +
+              purchaseOrder.id
           )
 
           await transaction.commit()
@@ -632,6 +671,57 @@ const goodsRequestController = {
               purchaseOrderId: purchaseOrder.id,
               orderNumber: purchaseOrder.orderNumber
             }
+          })
+        }
+
+        if (status === 'cancelled' && request.status === 'approved') {
+          if (request.purchaseOrderId) {
+            const safePoId = String(request.purchaseOrderId).trim()
+            const po = await db.purchase_order.findOne({ // codacy-ignore-line
+              where: { id: safePoId },
+              transaction
+            })
+            if (po && po.status !== 'draft' && po.status !== 'cancelled') {
+              await transaction.rollback()
+              return res.status(400).json({
+                success: false,
+                message:
+                  'Cannot cancel goods request because its purchase order is no longer a draft'
+              })
+            }
+            if (po) {
+              await db.purchase_order_item.destroy({
+                where: { purchaseOrder: po.id },
+                transaction
+              })
+              await po.destroy({ transaction })
+            }
+          }
+
+          await request.update(
+            {
+              status,
+              approvedBy,
+              approvedAt: new Date(),
+              purchaseOrderId: null
+            },
+            { transaction }
+          )
+
+          await createAudit(
+            req,
+            status,
+            'goods_request',
+            request.id,
+            `cancelled goods_request: ${request.id}, linked purchase order removed`
+          )
+
+          await transaction.commit()
+
+          return res.status(200).json({
+            success: true,
+            message: 'Goods request cancelled, linked purchase order removed',
+            data: { id: request.id, status, purchaseOrderId: null }
           })
         }
 

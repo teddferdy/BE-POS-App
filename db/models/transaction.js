@@ -49,8 +49,14 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   transaction.associate = (models) => {
-    transaction.belongsTo(models.order, { foreignKey: 'order', as: 'orderDetail' })
-    transaction.belongsTo(models.sales_return, { foreignKey: 'salesReturnId', as: 'salesReturn' })
+    transaction.belongsTo(models.order, {
+      foreignKey: 'order',
+      as: 'orderDetail'
+    })
+    transaction.belongsTo(models.sales_return, {
+      foreignKey: 'salesReturnId',
+      as: 'salesReturn'
+    })
   }
 
   return transaction

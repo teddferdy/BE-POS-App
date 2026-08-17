@@ -1,4 +1,7 @@
-const FONNTE_TOKENS = [process.env.FONNTE_TOKEN, process.env.FONNTE_TOKEN_2].filter(Boolean)
+const FONNTE_TOKENS = [
+  process.env.FONNTE_TOKEN,
+  process.env.FONNTE_TOKEN_2
+].filter(Boolean)
 const FONNTE_URL = 'https://api.fonnte.com/send'
 
 const setSocketIO = () => {}
@@ -7,7 +10,10 @@ const getConnectionStatus = async (storeId = 'default') => ({
   ready: FONNTE_TOKENS.length > 0,
   hasQR: false,
   qrBase64: null,
-  error: FONNTE_TOKENS.length > 0 ? null : 'FONNTE_TOKEN not set — daftar di https://fonnte.com',
+  error:
+    FONNTE_TOKENS.length > 0
+      ? null
+      : 'FONNTE_TOKEN not set — daftar di https://fonnte.com',
   phoneNumber: null,
   pushName: null,
   storeId
@@ -17,7 +23,12 @@ const initClient = async () => true
 const logout = async () => {}
 const restartClient = async () => true
 
-const sendDocument = async (phoneNumber, filePath, caption, _storeId = 'default') => {
+const sendDocument = async (
+  phoneNumber,
+  filePath,
+  caption,
+  _storeId = 'default'
+) => {
   if (FONNTE_TOKENS.length === 0) throw new Error('FONNTE_TOKEN not configured')
 
   const cleanPhone = String(phoneNumber).replace(/[^0-9]/g, '')

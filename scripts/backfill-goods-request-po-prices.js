@@ -29,7 +29,9 @@ const main = async () => {
     itemsByPo[it.purchaseOrder].push(it)
   }
 
-  const supplierIds = [...new Set(allItems.map((it) => it.supplier).filter(Boolean))]
+  const supplierIds = [
+    ...new Set(allItems.map((it) => it.supplier).filter(Boolean))
+  ]
   let priceByProduct = {}
   let priceByName = {}
   if (supplierIds.length > 0) {
@@ -45,7 +47,9 @@ const main = async () => {
         const key = `${cp.supplier}:${cp.productId}`
         if (!(key in priceByProduct)) priceByProduct[key] = price
       }
-      const nameKey = String(cp.name || '').toLowerCase().trim()
+      const nameKey = String(cp.name || '')
+        .toLowerCase()
+        .trim()
       if (nameKey) {
         const key = `${cp.supplier}:${nameKey}`
         if (!(key in priceByName)) priceByName[key] = price
@@ -59,7 +63,9 @@ const main = async () => {
       const byProduct = priceByProduct[`${item.supplier}:${item.product}`]
       if (byProduct) return byProduct
     }
-    const itemName = String(item.ingredientName || '').toLowerCase().trim()
+    const itemName = String(item.ingredientName || '')
+      .toLowerCase()
+      .trim()
     if (itemName) {
       const byName = priceByName[`${item.supplier}:${itemName}`]
       if (byName) return byName
@@ -83,7 +89,10 @@ const main = async () => {
           item.price = price
           changed = true
         }
-        if (Number(item.total) !== Number(item.quantity || 0) * Number(item.price)) {
+        if (
+          Number(item.total) !==
+          Number(item.quantity || 0) * Number(item.price)
+        ) {
           item.total = Number(item.quantity || 0) * Number(item.price)
           changed = true
         }
@@ -92,11 +101,19 @@ const main = async () => {
 
       if (changed) {
         for (const item of items) {
-          await item.update({ price: item.price, total: item.total }, { transaction })
+          await item.update(
+            { price: item.price, total: item.total },
+            { transaction }
+          )
           updatedItems++
         }
         await po.update(
-          { totalAmount, finalAmount: totalAmount, discount: 0, additionalCost: 0 },
+          {
+            totalAmount,
+            finalAmount: totalAmount,
+            discount: 0,
+            additionalCost: 0
+          },
           { transaction }
         )
         updatedPos++

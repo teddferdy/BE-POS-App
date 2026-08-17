@@ -8,11 +8,12 @@ const ingredientController = {
   async getAll(req, res) {
     try {
       const storeParam = req.query.store
-      const store = storeParam && !isNaN(Number(storeParam))
-        ? storeParam
-        : req.user?.roleType !== 'super_admin'
-          ? req.user?.store
-          : undefined
+      const store =
+        storeParam && !isNaN(Number(storeParam))
+          ? storeParam
+          : req.user?.roleType !== 'super_admin'
+            ? req.user?.store
+            : undefined
       const {
         search,
         status,
@@ -149,7 +150,8 @@ const ingredientController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
+      const store =
+        req.storeId || req.body.store || req.cookies.store || req.user?.store
       const {
         name,
         category,
@@ -844,7 +846,24 @@ const ingredientController = {
       const supplierId = Number(supplier)
 
       const where = { supplier: supplierId }
-      const productAttrs = ['id', 'supplier', 'productId', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes', 'lastPrice', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt']
+      const productAttrs = [
+        'id',
+        'supplier',
+        'productId',
+        'name',
+        'price',
+        'unit',
+        'leadTime',
+        'leadTimeUnit',
+        'qualityRating',
+        'minOrderQty',
+        'notes',
+        'lastPrice',
+        'createdBy',
+        'modifiedBy',
+        'createdAt',
+        'updatedAt'
+      ]
       let products = await db.supplier_product.findAll({
         where,
         attributes: productAttrs,

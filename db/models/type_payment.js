@@ -23,6 +23,22 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('cash', 'debit', 'credit', 'e-wallet', 'other'),
         defaultValue: 'cash'
       },
+      feeType: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'fixed'
+      },
+      fee: {
+        type: DataTypes.DECIMAL(10, 2),
+        defaultValue: 0
+      },
+      tenor: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
+      sortOrder: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'active'

@@ -46,8 +46,14 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   ProductBundleItem.associate = function (models) {
-    ProductBundleItem.belongsTo(models.product_bundle, { foreignKey: 'bundleId', as: 'bundle' })
-    ProductBundleItem.belongsTo(models.product, { foreignKey: 'product', as: 'productData' })
+    ProductBundleItem.belongsTo(models.product_bundle, {
+      foreignKey: 'bundleId',
+      as: 'bundle'
+    })
+    ProductBundleItem.belongsTo(models.product, {
+      foreignKey: 'product',
+      as: 'productData'
+    })
   }
 
   return ProductBundleItem

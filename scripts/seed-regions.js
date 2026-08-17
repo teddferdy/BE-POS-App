@@ -62,13 +62,37 @@ async function fetchJson(url) {
 function mapRow(level, raw) {
   switch (level) {
     case 'province':
-      return { code: raw.province_id, name: raw.province_name, level, parentCode: null, postalCode: null }
+      return {
+        code: raw.province_id,
+        name: raw.province_name,
+        level,
+        parentCode: null,
+        postalCode: null
+      }
     case 'city':
-      return { code: raw.regency_id, name: raw.regency_name, level, parentCode: raw.province_id, postalCode: null }
+      return {
+        code: raw.regency_id,
+        name: raw.regency_name,
+        level,
+        parentCode: raw.province_id,
+        postalCode: null
+      }
     case 'district':
-      return { code: raw.district_id, name: raw.district_name, level, parentCode: raw.regency_id, postalCode: null }
+      return {
+        code: raw.district_id,
+        name: raw.district_name,
+        level,
+        parentCode: raw.regency_id,
+        postalCode: null
+      }
     case 'village':
-      return { code: raw.village_id, name: raw.village_name, level, parentCode: raw.district_id, postalCode: raw.postal_code || null }
+      return {
+        code: raw.village_id,
+        name: raw.village_name,
+        level,
+        parentCode: raw.district_id,
+        postalCode: raw.postal_code || null
+      }
     default:
       throw new Error(`Level tidak dikenal: ${level}`)
   }
@@ -81,10 +105,14 @@ async function ensureLatLongColumns() {
   )
   const existing = cols.map((c) => c.column_name)
   if (!existing.includes('latitude')) {
-    await db.sequelize.query('ALTER TABLE "region" ADD COLUMN "latitude" DOUBLE PRECISION')
+    await db.sequelize.query(
+      'ALTER TABLE "region" ADD COLUMN "latitude" DOUBLE PRECISION'
+    )
   }
   if (!existing.includes('longitude')) {
-    await db.sequelize.query('ALTER TABLE "region" ADD COLUMN "longitude" DOUBLE PRECISION')
+    await db.sequelize.query(
+      'ALTER TABLE "region" ADD COLUMN "longitude" DOUBLE PRECISION'
+    )
   }
 }
 
@@ -99,7 +127,9 @@ async function augmentCoordinates() {
     const parsed = await fetchJson(COORDS_URL)
     flat = Array.isArray(parsed) ? parsed : parsed.data
   } catch (err) {
-    console.warn(`⚠️  Gagal download koordinat, koordinat dilewati: ${err.message}`)
+    console.warn(
+      `⚠️  Gagal download koordinat, koordinat dilewati: ${err.message}`
+    )
     return
   }
 
@@ -146,21 +176,27 @@ async function augmentCoordinates() {
     }
   }
 
-  console.log(`📦 Koordinat siap: provinsi ${provGeo.size}, kab/kota ${cityGeo.size}, kecamatan ${distGeo.size}`)
+  console.log(
+    `📦 Koordinat siap: provinsi ${provGeo.size}, kab/kota ${cityGeo.size}, kecamatan ${distGeo.size}`
+  )
 
   let updated = 0
   let skipped = 0
 
   const regions = await db.region.findAll({
     attributes: ['id', 'code', 'name', 'level', 'parentCode'],
-    where: { level: { [db.Sequelize.Op.in]: ['province', 'city', 'district'] } },
+    where: {
+      level: { [db.Sequelize.Op.in]: ['province', 'city', 'district'] }
+    },
     raw: true
   })
 
   const provinces = regions.filter((r) => r.level === 'province')
   const cities = regions.filter((r) => r.level === 'city')
 
-  const provinceNameByCode = new Map(provinces.map((p) => [p.code, norm(p.name)]))
+  const provinceNameByCode = new Map(
+    provinces.map((p) => [p.code, norm(p.name)])
+  )
   const cityNameByCode = new Map(cities.map((c) => [c.code, norm(c.name)]))
   const provinceCodeOfCity = new Map(cities.map((c) => [c.code, c.parentCode]))
 
@@ -172,7 +208,10 @@ async function augmentCoordinates() {
       key = name
       const geo = provGeo.get(key) || provGeoCompact.get(compact(key))
       if (geo) {
-        await db.region.update({ latitude: geo.lat, longitude: geo.lon }, { where: { id: region.id } })
+        await db.region.update(
+          { latitude: geo.lat, longitude: geo.lon },
+          { where: { id: region.id } }
+        )
         updated++
       } else {
         skipped++
@@ -182,7 +221,10 @@ async function augmentCoordinates() {
       key = `${provName}||${name}`
       const geo = cityGeo.get(key) || cityGeoCompact.get(compact(key))
       if (geo) {
-        await db.region.update({ latitude: geo.lat, longitude: geo.lon }, { where: { id: region.id } })
+        await db.region.update(
+          { latitude: geo.lat, longitude: geo.lon },
+          { where: { id: region.id } }
+        )
         updated++
       } else {
         skipped++
@@ -195,7 +237,10 @@ async function augmentCoordinates() {
       key = `${provName}||${cityName}||${name}`
       const geo = distGeo.get(key) || distGeoCompact.get(compact(key))
       if (geo) {
-        await db.region.update({ latitude: geo.lat, longitude: geo.lon }, { where: { id: region.id } })
+        await db.region.update(
+          { latitude: geo.lat, longitude: geo.lon },
+          { where: { id: region.id } }
+        )
         updated++
       } else {
         skipped++
@@ -203,7 +248,9 @@ async function augmentCoordinates() {
     }
   }
 
-  console.log(`📍 Koordinat terisi: ${updated.toLocaleString('id-ID')}, tidak cocok: ${skipped.toLocaleString('id-ID')}`)
+  console.log(
+    `📍 Koordinat terisi: ${updated.toLocaleString('id-ID')}, tidak cocok: ${skipped.toLocaleString('id-ID')}`
+  )
 }
 
 async function main() {
@@ -255,7 +302,9 @@ async function main() {
   }
 
   const finalTotal = await db.region.count()
-  console.log(`\n🎉 Selesai! Total data region di database: ${finalTotal.toLocaleString('id-ID')}`)
+  console.log(
+    `\n🎉 Selesai! Total data region di database: ${finalTotal.toLocaleString('id-ID')}`
+  )
 }
 
 main()

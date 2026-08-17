@@ -24,7 +24,14 @@ module.exports = (sequelize, DataTypes) => {
       },
       type: {
         allowNull: false,
-        type: DataTypes.ENUM('happy_hour', 'birthday', 'buy_x_get_y', 'spend_get', 'manual', 'automatic')
+        type: DataTypes.ENUM(
+          'happy_hour',
+          'birthday',
+          'buy_x_get_y',
+          'spend_get',
+          'manual',
+          'automatic'
+        )
       },
       discountType: {
         type: DataTypes.ENUM('percentage', 'fixed', 'free_item', 'buy_x_get_y'),
@@ -59,7 +66,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSONB
       },
       applicableTo: {
-        type: DataTypes.ENUM('all', 'specific_products', 'specific_categories', 'specific_members'),
+        type: DataTypes.ENUM(
+          'all',
+          'specific_products',
+          'specific_categories',
+          'specific_members'
+        ),
         defaultValue: 'all'
       },
       applicableIds: {
@@ -84,7 +96,13 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: false
       },
       status: {
-        type: DataTypes.ENUM('draft', 'active', 'paused', 'expired', 'cancelled'),
+        type: DataTypes.ENUM(
+          'draft',
+          'active',
+          'paused',
+          'expired',
+          'cancelled'
+        ),
         defaultValue: 'draft'
       },
       autoActivate: {
@@ -107,9 +125,18 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   PromoCampaign.associate = function (models) {
-    PromoCampaign.hasMany(models.promo_rule, { foreignKey: 'campaignId', as: 'rules' })
-    PromoCampaign.hasMany(models.promo_reward, { foreignKey: 'campaignId', as: 'rewards' })
-    PromoCampaign.hasMany(models.promo_usage, { foreignKey: 'campaignId', as: 'usages' })
+    PromoCampaign.hasMany(models.promo_rule, {
+      foreignKey: 'campaignId',
+      as: 'rules'
+    })
+    PromoCampaign.hasMany(models.promo_reward, {
+      foreignKey: 'campaignId',
+      as: 'rewards'
+    })
+    PromoCampaign.hasMany(models.promo_usage, {
+      foreignKey: 'campaignId',
+      as: 'usages'
+    })
   }
 
   return PromoCampaign

@@ -2,20 +2,104 @@
 const db = require('../../db/models')
 
 const DEFAULT_ACCOUNTS = [
-  { code: '1000', name: 'Cash', type: 'asset', normalBalance: 'debit', description: 'Kas dan setara kas' },
-  { code: '1100', name: 'Accounts Receivable', type: 'asset', normalBalance: 'debit', description: 'Piutang usaha' },
-  { code: '1200', name: 'Inventory', type: 'asset', normalBalance: 'debit', description: 'Persediaan barang dagang' },
-  { code: '1300', name: 'Fixed Assets', type: 'asset', normalBalance: 'debit', description: 'Aset tetap' },
-  { code: '1400', name: 'Bank & E-Wallet', type: 'asset', normalBalance: 'debit', description: 'Kas di bank dan saldo dompet digital' },
-  { code: '2000', name: 'Accounts Payable', type: 'liability', normalBalance: 'credit', description: 'Utang usaha' },
-  { code: '2100', name: 'Tax Payable', type: 'liability', normalBalance: 'credit', description: 'Utang pajak' },
-  { code: '3000', name: 'Owner Capital', type: 'equity', normalBalance: 'credit', description: 'Modal pemilik' },
-  { code: '3100', name: 'Retained Earnings', type: 'equity', normalBalance: 'credit', description: 'Laba ditahan' },
-  { code: '4000', name: 'Sales Revenue', type: 'revenue', normalBalance: 'credit', description: 'Pendapatan penjualan' },
-  { code: '4100', name: 'Service Charge Revenue', type: 'revenue', normalBalance: 'credit', description: 'Pendapatan service charge' },
-  { code: '5000', name: 'Cost of Goods Sold', type: 'expense', normalBalance: 'debit', description: 'Harga pokok penjualan' },
-  { code: '6000', name: 'Operating Expenses', type: 'expense', normalBalance: 'debit', description: 'Beban operasional' },
-  { code: '6100', name: 'Salaries & Wages', type: 'expense', normalBalance: 'debit', description: 'Beban gaji' }
+  {
+    code: '1000',
+    name: 'Cash',
+    type: 'asset',
+    normalBalance: 'debit',
+    description: 'Kas dan setara kas'
+  },
+  {
+    code: '1100',
+    name: 'Accounts Receivable',
+    type: 'asset',
+    normalBalance: 'debit',
+    description: 'Piutang usaha'
+  },
+  {
+    code: '1200',
+    name: 'Inventory',
+    type: 'asset',
+    normalBalance: 'debit',
+    description: 'Persediaan barang dagang'
+  },
+  {
+    code: '1300',
+    name: 'Fixed Assets',
+    type: 'asset',
+    normalBalance: 'debit',
+    description: 'Aset tetap'
+  },
+  {
+    code: '1400',
+    name: 'Bank & E-Wallet',
+    type: 'asset',
+    normalBalance: 'debit',
+    description: 'Kas di bank dan saldo dompet digital'
+  },
+  {
+    code: '2000',
+    name: 'Accounts Payable',
+    type: 'liability',
+    normalBalance: 'credit',
+    description: 'Utang usaha'
+  },
+  {
+    code: '2100',
+    name: 'Tax Payable',
+    type: 'liability',
+    normalBalance: 'credit',
+    description: 'Utang pajak'
+  },
+  {
+    code: '3000',
+    name: 'Owner Capital',
+    type: 'equity',
+    normalBalance: 'credit',
+    description: 'Modal pemilik'
+  },
+  {
+    code: '3100',
+    name: 'Retained Earnings',
+    type: 'equity',
+    normalBalance: 'credit',
+    description: 'Laba ditahan'
+  },
+  {
+    code: '4000',
+    name: 'Sales Revenue',
+    type: 'revenue',
+    normalBalance: 'credit',
+    description: 'Pendapatan penjualan'
+  },
+  {
+    code: '4100',
+    name: 'Service Charge Revenue',
+    type: 'revenue',
+    normalBalance: 'credit',
+    description: 'Pendapatan service charge'
+  },
+  {
+    code: '5000',
+    name: 'Cost of Goods Sold',
+    type: 'expense',
+    normalBalance: 'debit',
+    description: 'Harga pokok penjualan'
+  },
+  {
+    code: '6000',
+    name: 'Operating Expenses',
+    type: 'expense',
+    normalBalance: 'debit',
+    description: 'Beban operasional'
+  },
+  {
+    code: '6100',
+    name: 'Salaries & Wages',
+    type: 'expense',
+    normalBalance: 'debit',
+    description: 'Beban gaji'
+  }
 ]
 
 const toNumber = (v) => Math.round((Number(v) || 0) * 100) / 100
@@ -26,9 +110,18 @@ const findAccount = async (store, code) => {
   })
 }
 
-const findOrCreateAccount = async (store, code, overrides = {}, createdBy = null, options = {}) => {
+const findOrCreateAccount = async (
+  store,
+  code,
+  overrides = {},
+  createdBy = null,
+  options = {}
+) => {
   const transaction = options.transaction || undefined
-  const existing = await db.account.findOne({ where: { store, code }, transaction })
+  const existing = await db.account.findOne({
+    where: { store, code },
+    transaction
+  })
   if (existing) return existing
   const defaults = DEFAULT_ACCOUNTS.find((a) => a.code === code)
   if (!defaults && !overrides.name) return null
@@ -89,7 +182,16 @@ async function existingEntry(store, sourceType, referenceId, transaction) {
 
 // Core double-entry writer: balances lines, dedupes by (sourceType, referenceId)
 // and never throws — callers must not break the primary transaction.
-async function createJournalEntry({ store, date, description, sourceType, referenceId, lines, createdBy, transaction }) {
+async function createJournalEntry({
+  store,
+  date,
+  description,
+  sourceType,
+  referenceId,
+  lines,
+  createdBy,
+  transaction
+}) {
   try {
     if (!store || !lines || lines.length === 0) return null
     await ensureDefaultAccounts(store, createdBy)
@@ -140,7 +242,15 @@ async function createJournalEntry({ store, date, description, sourceType, refere
 }
 
 // Reverse an existing entry by creating a new entry with swapped debit/credit.
-async function createReversalEntry({ store, originalEntry, description, sourceType, referenceId, date, createdBy }) {
+async function createReversalEntry({
+  store,
+  originalEntry,
+  description,
+  sourceType,
+  referenceId,
+  date,
+  createdBy
+}) {
   const lines = await db.journal_entry_line.findAll({
     where: { journalEntry: originalEntry.id }
   })
@@ -153,7 +263,9 @@ async function createReversalEntry({ store, originalEntry, description, sourceTy
   return createJournalEntry({
     store,
     date,
-    description: description || `Reversal of ${originalEntry.description || originalEntry.sourceType}`,
+    description:
+      description ||
+      `Reversal of ${originalEntry.description || originalEntry.sourceType}`,
     sourceType,
     referenceId: referenceId ?? originalEntry.referenceId,
     lines: reversed,
@@ -161,7 +273,18 @@ async function createReversalEntry({ store, originalEntry, description, sourceTy
   })
 }
 
-async function postOrderJournal({ store, orderId, orderNumber, subTotal, discountAmount, taxAmount, serviceChargeAmount, totalPrice, date, createdBy }) {
+async function postOrderJournal({
+  store,
+  orderId,
+  orderNumber,
+  subTotal,
+  discountAmount,
+  taxAmount,
+  serviceChargeAmount,
+  totalPrice,
+  date,
+  createdBy
+}) {
   const sub = toNumber(subTotal)
   const disc = toNumber(discountAmount)
   const tax = toNumber(taxAmount)
@@ -176,18 +299,40 @@ async function postOrderJournal({ store, orderId, orderNumber, subTotal, discoun
   if (!cashEntry || !revenueEntry) return null
 
   const lines = [
-    { account: cashEntry.id, debit: total, credit: 0, description: `Payment received for ${orderNumber}` }
+    {
+      account: cashEntry.id,
+      debit: total,
+      credit: 0,
+      description: `Payment received for ${orderNumber}`
+    }
   ]
   if (revenueAmount > 0) {
-    lines.push({ account: revenueEntry.id, debit: 0, credit: revenueAmount, description: `Sales revenue for ${orderNumber}` })
+    lines.push({
+      account: revenueEntry.id,
+      debit: 0,
+      credit: revenueAmount,
+      description: `Sales revenue for ${orderNumber}`
+    })
   }
   if (tax > 0) {
     const taxAcc = await findOrCreateAccount(store, '2100')
-    if (taxAcc) lines.push({ account: taxAcc.id, debit: 0, credit: tax, description: `Tax collected for ${orderNumber}` })
+    if (taxAcc)
+      lines.push({
+        account: taxAcc.id,
+        debit: 0,
+        credit: tax,
+        description: `Tax collected for ${orderNumber}`
+      })
   }
   if (sc > 0) {
     const scAcc = await findOrCreateAccount(store, '4100')
-    if (scAcc) lines.push({ account: scAcc.id, debit: 0, credit: sc, description: `Service charge for ${orderNumber}` })
+    if (scAcc)
+      lines.push({
+        account: scAcc.id,
+        debit: 0,
+        credit: sc,
+        description: `Service charge for ${orderNumber}`
+      })
   }
 
   const totalDebit = toNumber(lines.reduce((s, l) => s + l.debit, 0))
@@ -226,7 +371,9 @@ async function computeOrderCogs(orderId) {
       let bundleCost = 0
       for (const c of comps) {
         const p = await db.product.findByPk(c.product)
-        if (p) bundleCost += (Number(c.quantity) || 0) * (Number(p.costPrice || p.price) || 0)
+        if (p)
+          bundleCost +=
+            (Number(c.quantity) || 0) * (Number(p.costPrice || p.price) || 0)
       }
       total += bundleCost * qty
     } else {
@@ -236,7 +383,13 @@ async function computeOrderCogs(orderId) {
   return toNumber(total)
 }
 
-async function postOrderCogsJournal({ store, orderId, orderNumber, date, createdBy }) {
+async function postOrderCogsJournal({
+  store,
+  orderId,
+  orderNumber,
+  date,
+  createdBy
+}) {
   const cogsTotal = await computeOrderCogs(orderId)
   if (cogsTotal <= 0) return null
 
@@ -251,17 +404,38 @@ async function postOrderCogsJournal({ store, orderId, orderNumber, date, created
     sourceType: 'cogs',
     referenceId: orderId,
     lines: [
-      { account: cogsAcc.id, debit: cogsTotal, credit: 0, description: `Cost of goods sold for ${orderNumber}` },
-      { account: inventoryAcc.id, debit: 0, credit: cogsTotal, description: `Inventory consumed for ${orderNumber}` }
+      {
+        account: cogsAcc.id,
+        debit: cogsTotal,
+        credit: 0,
+        description: `Cost of goods sold for ${orderNumber}`
+      },
+      {
+        account: inventoryAcc.id,
+        debit: 0,
+        credit: cogsTotal,
+        description: `Inventory consumed for ${orderNumber}`
+      }
     ],
     createdBy
   })
 }
 
 // Purchase journal at goods receipt: Dr Inventory, Cr AP (net of PO discount).
-async function postPurchaseJournal({ store, receiptId, receiptNumber, poNumber, totalAmount, discount, items, date, createdBy }) {
+async function postPurchaseJournal({
+  store,
+  receiptId,
+  receiptNumber,
+  poNumber,
+  totalAmount,
+  discount,
+  items,
+  date,
+  createdBy
+}) {
   const gross = items.reduce(
-    (s, i) => s + Math.round((Number(i.costPrice) || 0) * (Number(i.qtyReceived) || 0)),
+    (s, i) =>
+      s + Math.round((Number(i.costPrice) || 0) * (Number(i.qtyReceived) || 0)),
     0
   )
   if (gross <= 0) return null
@@ -285,15 +459,32 @@ async function postPurchaseJournal({ store, receiptId, receiptNumber, poNumber, 
     sourceType: 'purchase',
     referenceId: receiptId,
     lines: [
-      { account: inventoryAcc.id, debit: net, credit: 0, description: `Inventory received ${receiptNumber}` },
-      { account: apAcc.id, debit: 0, credit: net, description: `Accounts payable for ${receiptNumber}${disc > 0 ? ` (net of PO discount ${disc})` : ''}` }
+      {
+        account: inventoryAcc.id,
+        debit: net,
+        credit: 0,
+        description: `Inventory received ${receiptNumber}`
+      },
+      {
+        account: apAcc.id,
+        debit: 0,
+        credit: net,
+        description: `Accounts payable for ${receiptNumber}${disc > 0 ? ` (net of PO discount ${disc})` : ''}`
+      }
     ],
     createdBy
   })
 }
 
 // Supplier payment: Dr AP, Cr Cash.
-async function postPurchasePaymentJournal({ store, paymentId, poNumber, amount, date, createdBy }) {
+async function postPurchasePaymentJournal({
+  store,
+  paymentId,
+  poNumber,
+  amount,
+  date,
+  createdBy
+}) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
@@ -308,15 +499,32 @@ async function postPurchasePaymentJournal({ store, paymentId, poNumber, amount, 
     sourceType: 'purchase_payment',
     referenceId: paymentId,
     lines: [
-      { account: apAcc.id, debit: amt, credit: 0, description: `Settle accounts payable ${poNumber || ''}`.trim() },
-      { account: cashAcc.id, debit: 0, credit: amt, description: `Cash paid for PO ${poNumber || ''}`.trim() }
+      {
+        account: apAcc.id,
+        debit: amt,
+        credit: 0,
+        description: `Settle accounts payable ${poNumber || ''}`.trim()
+      },
+      {
+        account: cashAcc.id,
+        debit: 0,
+        credit: amt,
+        description: `Cash paid for PO ${poNumber || ''}`.trim()
+      }
     ],
     createdBy
   })
 }
 
 // Purchase return reversal: goods go back to supplier → Dr AP, Cr Inventory.
-async function postPurchaseReturnJournal({ store, purchaseReturnId, returnNumber, amount, date, createdBy }) {
+async function postPurchaseReturnJournal({
+  store,
+  purchaseReturnId,
+  returnNumber,
+  amount,
+  date,
+  createdBy
+}) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
@@ -331,15 +539,35 @@ async function postPurchaseReturnJournal({ store, purchaseReturnId, returnNumber
     sourceType: 'purchase_return',
     referenceId: purchaseReturnId,
     lines: [
-      { account: apAcc.id, debit: amt, credit: 0, description: `Return credit ${returnNumber}` },
-      { account: inventoryAcc.id, debit: 0, credit: amt, description: `Inventory returned ${returnNumber}` }
+      {
+        account: apAcc.id,
+        debit: amt,
+        credit: 0,
+        description: `Return credit ${returnNumber}`
+      },
+      {
+        account: inventoryAcc.id,
+        debit: 0,
+        credit: amt,
+        description: `Inventory returned ${returnNumber}`
+      }
     ],
     createdBy
   })
 }
 
 // Sales return reversal: refund revenue, restore inventory at cost.
-async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, refundAmount, refundMethod, items, date, createdBy }) {
+async function postSalesReturnJournal({
+  store,
+  returnId,
+  returnNumber,
+  orderId,
+  refundAmount,
+  refundMethod,
+  items,
+  date,
+  createdBy
+}) {
   const refund = toNumber(refundAmount)
 
   let cogsReturned = 0
@@ -363,12 +591,25 @@ async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, 
     const isCashRefund = ['cash', 'tunai', 'banknote'].includes(
       String(refundMethod || 'cash').toLowerCase()
     )
-    const payoutAcc = await findOrCreateAccount(store, isCashRefund ? '1000' : '1400')
+    const payoutAcc = await findOrCreateAccount(
+      store,
+      isCashRefund ? '1000' : '1400'
+    )
     if (!revenueAcc || !payoutAcc) return null
     const payoutName = isCashRefund ? 'Cash' : 'Bank & E-Wallet'
     lines.push(
-      { account: revenueAcc.id, debit: refund, credit: 0, description: `Refund revenue for ${returnNumber}` },
-      { account: payoutAcc.id, debit: 0, credit: refund, description: `${payoutName} refunded for ${returnNumber}` }
+      {
+        account: revenueAcc.id,
+        debit: refund,
+        credit: 0,
+        description: `Refund revenue for ${returnNumber}`
+      },
+      {
+        account: payoutAcc.id,
+        debit: 0,
+        credit: refund,
+        description: `${payoutName} refunded for ${returnNumber}`
+      }
     )
   }
   if (cogsReturned > 0) {
@@ -376,8 +617,18 @@ async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, 
     const cogsAcc = await findOrCreateAccount(store, '5000')
     if (inventoryAcc && cogsAcc) {
       lines.push(
-        { account: inventoryAcc.id, debit: cogsReturned, credit: 0, description: `Stock restored for ${returnNumber}` },
-        { account: cogsAcc.id, debit: 0, credit: cogsReturned, description: `COGS reversed for ${returnNumber}` }
+        {
+          account: inventoryAcc.id,
+          debit: cogsReturned,
+          credit: 0,
+          description: `Stock restored for ${returnNumber}`
+        },
+        {
+          account: cogsAcc.id,
+          debit: 0,
+          credit: cogsReturned,
+          description: `COGS reversed for ${returnNumber}`
+        }
       )
     }
   }
@@ -394,7 +645,13 @@ async function postSalesReturnJournal({ store, returnId, returnNumber, orderId, 
 }
 
 // Reverse revenue + COGS journals when an order is cancelled/voided.
-async function reverseOrderJournals({ store, orderId, orderNumber, date, createdBy }) {
+async function reverseOrderJournals({
+  store,
+  orderId,
+  orderNumber,
+  date,
+  createdBy
+}) {
   const orderEntry = await db.journal_entry.findOne({
     where: { store, sourceType: 'order', referenceId: orderId }
   })
@@ -436,7 +693,18 @@ const payoutAccountName = (paymentMethod) => {
   return method === 'cash' ? 'Cash' : 'Bank & E-Wallet'
 }
 
-async function postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction }) {
+async function postExpenseJournal({
+  store,
+  expenseId,
+  expenseNumber,
+  category,
+  categoryAccountCode,
+  amount,
+  date,
+  paymentMethod,
+  createdBy,
+  transaction
+}) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
@@ -467,8 +735,20 @@ async function postExpenseJournal({ store, expenseId, expenseNumber, category, c
     sourceType: 'expense',
     referenceId: expenseId,
     lines: [
-      { account: expenseAcc.id, debit: amt, credit: 0, description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim() },
-      { account: payoutAcc.id, debit: 0, credit: amt, description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}` }
+      {
+        account: expenseAcc.id,
+        debit: amt,
+        credit: 0,
+        description: category
+          ? `${category}: ${expenseNumber || ''}`.trim()
+          : `Expense ${expenseNumber || ''}`.trim()
+      },
+      {
+        account: payoutAcc.id,
+        debit: 0,
+        credit: amt,
+        description: `${payoutAccountName(paymentMethod)} paid for ${expenseNumber || 'expense'}`
+      }
     ],
     createdBy,
     transaction
@@ -479,7 +759,18 @@ async function postExpenseJournal({ store, expenseId, expenseNumber, category, c
 // Falls back to posting a new entry when none exists yet.
 // The line destruction + recreation is atomic: it runs inside a transaction when
 // none is provided by the caller.
-async function updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction }) {
+async function updateExpenseJournal({
+  store,
+  expenseId,
+  expenseNumber,
+  category,
+  categoryAccountCode,
+  amount,
+  date,
+  paymentMethod,
+  createdBy,
+  transaction
+}) {
   const amt = toNumber(amount)
   if (amt <= 0) return null
 
@@ -488,7 +779,18 @@ async function updateExpenseJournal({ store, expenseId, expenseNumber, category,
     transaction
   })
   if (!existing) {
-    return postExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction })
+    return postExpenseJournal({
+      store,
+      expenseId,
+      expenseNumber,
+      category,
+      categoryAccountCode,
+      amount,
+      date,
+      paymentMethod,
+      createdBy,
+      transaction
+    })
   }
 
   const expenseAcc = await findOrCreateAccount(
@@ -522,7 +824,9 @@ async function updateExpenseJournal({ store, expenseId, expenseNumber, category,
         account: expenseAcc.id,
         debit: amt,
         credit: 0,
-        description: category ? `${category}: ${expenseNumber || ''}`.trim() : `Expense ${expenseNumber || ''}`.trim(),
+        description: category
+          ? `${category}: ${expenseNumber || ''}`.trim()
+          : `Expense ${expenseNumber || ''}`.trim(),
         createdBy
       },
       { transaction: t }
@@ -558,7 +862,12 @@ async function updateExpenseJournal({ store, expenseId, expenseNumber, category,
 // Removes the journal entry (+ lines) tied to an expense so the ledger no
 // longer reflects it (used when an approved expense is reverted/edited/deleted).
 // The line destruction + entry removal is atomic.
-async function deleteExpenseJournal({ store, expenseId, createdBy, transaction }) {
+async function deleteExpenseJournal({
+  store,
+  expenseId,
+  createdBy,
+  transaction
+}) {
   const existing = await db.journal_entry.findOne({
     where: { store, sourceType: 'expense', referenceId: expenseId },
     transaction
@@ -580,12 +889,36 @@ async function deleteExpenseJournal({ store, expenseId, createdBy, transaction }
 }
 
 // Keeps the ledger consistent with the expense's current state:
-// approved  -> post (or rewrite) the journal entry
-// otherwise -> remove any existing journal entry
-async function syncExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, status, createdBy, transaction }) {
+// approved + active  -> post (or rewrite) the journal entry
+// otherwise          -> remove any existing journal entry
+async function syncExpenseJournal({
+  store,
+  expenseId,
+  expenseNumber,
+  category,
+  categoryAccountCode,
+  amount,
+  date,
+  paymentMethod,
+  status,
+  isActive = true,
+  createdBy,
+  transaction
+}) {
   if (!store || !expenseId) return null
-  if (status === 'approved') {
-    return updateExpenseJournal({ store, expenseId, expenseNumber, category, categoryAccountCode, amount, date, paymentMethod, createdBy, transaction })
+  if (status === 'approved' && isActive !== false) {
+    return updateExpenseJournal({
+      store,
+      expenseId,
+      expenseNumber,
+      category,
+      categoryAccountCode,
+      amount,
+      date,
+      paymentMethod,
+      createdBy,
+      transaction
+    })
   }
   return deleteExpenseJournal({ store, expenseId, createdBy, transaction })
 }

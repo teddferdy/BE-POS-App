@@ -1,7 +1,10 @@
 'use strict'
 const db = require('../../db/models')
 const { Op } = require('sequelize')
-const { generateExpenseNumber, addInterval } = require('../../utils/expenseUtil')
+const {
+  generateExpenseNumber,
+  addInterval
+} = require('../../utils/expenseUtil')
 
 let timer = null
 let running = false
@@ -15,7 +18,8 @@ async function generateDueRecurringExpenses() {
     where: {
       frequency: { [Op.not]: null },
       nextDueDate: { [Op.lte]: now },
-      status: 'approved'
+      status: 'approved',
+      isActive: true
     }
   })
 
@@ -70,7 +74,10 @@ async function generateDueRecurringExpenses() {
               expenseId: child.id,
               expenseNumber: child.expenseNumber,
               category:
-                category?.name || tpl.description || child.expenseNumber || null,
+                category?.name ||
+                tpl.description ||
+                child.expenseNumber ||
+                null,
               categoryAccountCode: category?.accountCode || null,
               amount: child.amount,
               date: due,

@@ -58,8 +58,14 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   WaiterRequest.associate = function (models) {
-    WaiterRequest.belongsTo(models.table, { foreignKey: 'tableId', as: 'table' })
-    WaiterRequest.belongsTo(models.order, { foreignKey: 'orderId', as: 'order' })
+    WaiterRequest.belongsTo(models.table, {
+      foreignKey: 'tableId',
+      as: 'table'
+    })
+    WaiterRequest.belongsTo(models.order, {
+      foreignKey: 'orderId',
+      as: 'order'
+    })
     WaiterRequest.belongsTo(models.user, {
       foreignKey: 'resolvedBy',
       as: 'resolvedByUser'

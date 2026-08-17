@@ -9,11 +9,31 @@ const JUNCTION_TABLE_MODELS = {
   product: { table: 'product_store', fk: 'product' }
 }
 
+const ALLOWED_TABLES = new Set(['product_store', 'category_store'])
+
 let _ps2 = null
 let _cs2 = null
 const hasTable = async (t) => {
-  if (t === 'product_store') { if (_ps2 !== null) return _ps2 } else if (t === 'category_store') { if (_cs2 !== null) return _cs2 }
-  try { await db.sequelize.query(`SELECT 1 FROM ${t} LIMIT 1`); if (t === 'product_store') _ps2 = true; if (t === 'category_store') _cs2 = true; return true } catch { if (t === 'product_store') _ps2 = false; if (t === 'category_store') _cs2 = false; return false }
+  if (!ALLOWED_TABLES.has(t)) return false
+  if (t === 'product_store') {
+    if (_ps2 !== null) return _ps2
+  } else if (t === 'category_store') {
+    if (_cs2 !== null) return _cs2
+  }
+  try {
+    if (t === 'product_store') {
+      await db.sequelize.query('SELECT 1 FROM product_store LIMIT 1')
+      _ps2 = true
+    } else if (t === 'category_store') {
+      await db.sequelize.query('SELECT 1 FROM category_store LIMIT 1')
+      _cs2 = true
+    }
+    return true
+  } catch {
+    if (t === 'product_store') _ps2 = false
+    if (t === 'category_store') _cs2 = false
+    return false
+  }
 }
 
 function getSerializedValue(value) {

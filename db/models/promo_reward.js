@@ -15,7 +15,14 @@ module.exports = (sequelize, DataTypes) => {
       },
       rewardType: {
         allowNull: false,
-        type: DataTypes.ENUM('discount_percentage', 'discount_fixed', 'free_item', 'buy_x_get_y', 'points_multiplier', 'cashback')
+        type: DataTypes.ENUM(
+          'discount_percentage',
+          'discount_fixed',
+          'free_item',
+          'buy_x_get_y',
+          'points_multiplier',
+          'cashback'
+        )
       },
       rewardValue: {
         allowNull: false,
@@ -61,8 +68,14 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   PromoReward.associate = function (models) {
-    PromoReward.belongsTo(models.promo_campaign, { foreignKey: 'campaignId', as: 'campaign' })
-    PromoReward.belongsTo(models.product, { foreignKey: 'productId', as: 'product' })
+    PromoReward.belongsTo(models.promo_campaign, {
+      foreignKey: 'campaignId',
+      as: 'campaign'
+    })
+    PromoReward.belongsTo(models.product, {
+      foreignKey: 'productId',
+      as: 'product'
+    })
   }
 
   return PromoReward

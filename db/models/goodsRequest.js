@@ -24,6 +24,14 @@ module.exports = (sequelize, DataTypes) => {
       requestedBy: {
         type: DataTypes.STRING
       },
+      requestDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+      },
+      neededDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+      },
       notes: {
         type: DataTypes.TEXT
       },

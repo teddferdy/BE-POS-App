@@ -80,7 +80,10 @@ module.exports = (sequelize, DataTypes) => {
   )
 
   ProductBundle.associate = function (models) {
-    ProductBundle.hasMany(models.product_bundle_item, { foreignKey: 'bundleId', as: 'items' })
+    ProductBundle.hasMany(models.product_bundle_item, {
+      foreignKey: 'bundleId',
+      as: 'items'
+    })
   }
 
   return ProductBundle

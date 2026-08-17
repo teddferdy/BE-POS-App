@@ -63,7 +63,9 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
     ],
     raw: true
   })
-  const existingMap = new Map(existing.map((r) => [r.name.toLowerCase().trim(), r]))
+  const existingMap = new Map(
+    existing.map((r) => [r.name.toLowerCase().trim(), r])
+  )
 
   const incomingNames = products.map((p) =>
     (typeof p === 'object' ? p.name : p).toLowerCase().trim()
@@ -78,7 +80,7 @@ const syncSupplierProducts = async (supplierId, products, userId) => {
     const leadTimeUnit =
       typeof item === 'object' ? item.leadTimeUnit || 'hari' : 'hari'
     const qualityRating = typeof item === 'object' ? item.qualityRating || 0 : 0
-    const minOrderQty = typeof item === 'object' ? item.minOrderQty || "1" : "1"
+    const minOrderQty = typeof item === 'object' ? item.minOrderQty || '1' : '1'
     const notes = typeof item === 'object' ? item.notes || null : null
     const lastPrice = typeof item === 'object' ? item.lastPrice || 0 : 0
     const productId = typeof item === 'object' ? item.productId || null : null
@@ -1091,7 +1093,16 @@ const supplierController = {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Supplier Product Template')
 
-      worksheet.addRow(['Nama Produk', 'Harga', 'Satuan', 'Lead Time', 'Satuan Lead Time', 'Kualitas (0-5)', 'Min Order', 'Catatan'])
+      worksheet.addRow([
+        'Nama Produk',
+        'Harga',
+        'Satuan',
+        'Lead Time',
+        'Satuan Lead Time',
+        'Kualitas (0-5)',
+        'Min Order',
+        'Catatan'
+      ])
 
       worksheet.getRow(1).font = { bold: true }
       worksheet.getRow(1).fill = {
@@ -1117,7 +1128,17 @@ const supplierController = {
       if (supplier) {
         const existingProducts = await db.supplier_product.findAll({
           where: { supplier: Number(supplier) },
-          attributes: ['id', 'name', 'price', 'unit', 'leadTime', 'leadTimeUnit', 'qualityRating', 'minOrderQty', 'notes'],
+          attributes: [
+            'id',
+            'name',
+            'price',
+            'unit',
+            'leadTime',
+            'leadTimeUnit',
+            'qualityRating',
+            'minOrderQty',
+            'notes'
+          ],
           order: [['name', 'ASC']]
         })
         if (existingProducts.length > 0) {
@@ -1152,7 +1173,9 @@ const supplierController = {
       for (let r = 2; r <= totalRows; r++) {
         worksheet.getCell(`C${r}`).dataValidation = {
           type: 'list',
-          formulae: ['"pcs,buah,kg,gram,liter,ml,meter,cm,lusin,pack,box,karton,krat"'],
+          formulae: [
+            '"pcs,buah,kg,gram,liter,ml,meter,cm,lusin,pack,box,karton,krat"'
+          ],
           allowBlank: true,
           showErrorMessage: true,
           errorTitle: 'Satuan tidak valid',

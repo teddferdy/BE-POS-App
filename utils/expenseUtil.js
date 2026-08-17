@@ -16,11 +16,19 @@ const addInterval = (date, frequency) => {
   else if (frequency === 'weekly') d.setDate(d.getDate() + 7)
   else if (frequency === 'monthly') {
     const day = d.getDate()
-    const lastDayCurrent = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+    const lastDayCurrent = new Date(
+      d.getFullYear(),
+      d.getMonth() + 1,
+      0
+    ).getDate()
     const safeDay = Math.min(day, lastDayCurrent)
     d.setDate(1)
     d.setMonth(d.getMonth() + 1)
-    const lastDayTarget = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+    const lastDayTarget = new Date(
+      d.getFullYear(),
+      d.getMonth() + 1,
+      0
+    ).getDate()
     d.setDate(Math.min(safeDay, lastDayTarget))
   } else if (frequency === 'yearly') {
     const day = d.getDate()

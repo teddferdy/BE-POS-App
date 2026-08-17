@@ -170,7 +170,8 @@ const bundleController = {
           ? ((discountAmount / originalPrice) * 100).toFixed(2)
           : 0
 
-      const effectiveStore = store !== undefined ? store : req.storeId || req.cookies.store || null
+      const effectiveStore =
+        store !== undefined ? store : req.storeId || req.cookies.store || null
 
       const bundle = await db.product_bundle.create({
         store: effectiveStore,

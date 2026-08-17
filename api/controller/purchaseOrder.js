@@ -33,7 +33,10 @@ const purchaseOrderController = {
       const where = {}
       if (deleted) where.deletedAt = { [Op.ne]: null }
       if (status) {
-        const statuses = status.split(',').map(s => s.trim()).filter(Boolean)
+        const statuses = status
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
         if (statuses.length === 1) where.status = statuses[0]
         else if (statuses.length > 1) where.status = { [Op.in]: statuses }
       }
@@ -169,6 +172,11 @@ const purchaseOrderController = {
             attributes: ['id', 'fullName']
           },
           {
+            model: db.user,
+            as: 'createdByUser',
+            attributes: ['id', 'fullName', 'userName']
+          },
+          {
             model: db.location,
             as: 'storeData',
             attributes: ['id', 'name']
@@ -235,6 +243,11 @@ const purchaseOrderController = {
           {
             model: db.user,
             as: 'picData',
+            attributes: ['id', 'fullName']
+          },
+          {
+            model: db.user,
+            as: 'createdByUser',
             attributes: ['id', 'fullName']
           },
           {
@@ -335,6 +348,26 @@ const purchaseOrderController = {
                 ? returnMap[`name-${item.ingredientName}`] || 0
                 : 0
         }))
+      }
+
+      const supplierNames = [
+        ...new Set(
+          (data.items || [])
+            .map((item) => item.supplierData?.name)
+            .filter(Boolean)
+        )
+      ]
+      data.supplierNames = supplierNames
+
+      if (!data.picData) {
+        const safePoId = String(purchaseOrder.id).trim()
+        const goodsRequest = await db.goodsRequest.findOne({ // codacy-ignore-line
+          where: { purchaseOrderId: safePoId },
+          attributes: ['requestedBy']
+        })
+        if (goodsRequest?.requestedBy) {
+          data.picData = { id: null, fullName: goodsRequest.requestedBy }
+        }
       }
 
       return res.status(200).json({
@@ -539,7 +572,7 @@ const purchaseOrderController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId
+      const { store: requestedStore, ...bodyRest } = req.body
       const {
         items,
         discount,
@@ -553,11 +586,15 @@ const purchaseOrderController = {
         dpPercent,
         additionalCost,
         overDeliveryTolerance
-      } = req.body
+      } = bodyRest
       const modifiedBy = req.user?.id || null
+      const userRole = req.user?.roleType
+      const userStore = req.user?.store
 
+      // Super admin may move the PO to any store; other roles are always
+      // scoped to their own store (validateStoreAccess already guards this).
       const where = { id }
-      if (store) where.store = store
+      if (userRole !== 'super_admin' && req.storeId) where.store = req.storeId
 
       const purchaseOrder = await db.purchase_order.findOne({
         where
@@ -570,6 +607,13 @@ const purchaseOrderController = {
         })
       }
 
+      // Only super admin may change the store of an existing PO
+      let finalStore
+      if (requestedStore !== undefined) {
+        finalStore =
+          userRole === 'super_admin' ? requestedStore : userStore || null
+      }
+
       if (
         purchaseOrder.status === 'received' ||
         purchaseOrder.status === 'cancelled'
@@ -580,8 +624,13 @@ const purchaseOrderController = {
         })
       }
 
-      const effectivePaymentMethod = paymentMethod ?? purchaseOrder.paymentMethod
-      if (dueDate !== undefined && !dueDate && effectivePaymentMethod === 'credit') {
+      const effectivePaymentMethod =
+        paymentMethod ?? purchaseOrder.paymentMethod
+      if (
+        dueDate !== undefined &&
+        !dueDate &&
+        effectivePaymentMethod === 'credit'
+      ) {
         return res.status(400).json({
           success: false,
           message: 'Tanggal jatuh tempo wajib diisi'
@@ -684,12 +733,14 @@ const purchaseOrderController = {
             ? paymentMethod
             : purchaseOrder.paymentMethod,
         tenor: tenor !== undefined ? tenor : purchaseOrder.tenor,
-        dpPercent: dpPercent !== undefined ? dpPercent : purchaseOrder.dpPercent,
+        dpPercent:
+          dpPercent !== undefined ? dpPercent : purchaseOrder.dpPercent,
         additionalCost: finalAdditionalCost,
         overDeliveryTolerance:
           overDeliveryTolerance !== undefined
             ? Number(overDeliveryTolerance) || 10
-            : purchaseOrder.overDeliveryTolerance || 10
+            : purchaseOrder.overDeliveryTolerance || 10,
+        ...(finalStore !== undefined ? { store: finalStore } : {})
       })
 
       await createAudit(
@@ -843,7 +894,8 @@ const purchaseOrderController = {
                     productId: item.product,
                     store,
                     qty: receiveQty,
-                    costPerUnit: Number(item.price) || Number(poItem.price) || 0,
+                    costPerUnit:
+                      Number(item.price) || Number(poItem.price) || 0,
                     batchCode: `${purchaseOrder.orderNumber}-${poItem.id || item.id}`,
                     receivedDate: receivedDate || new Date(),
                     transaction
@@ -1074,7 +1126,10 @@ const purchaseOrderController = {
                       `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
                        VALUES ($1, $2, 0, NOW(), NOW())
                        ON CONFLICT (product, store) DO NOTHING`,
-                      { bind: [grItem.product, purchaseOrder.store], transaction: t }
+                      {
+                        bind: [grItem.product, purchaseOrder.store],
+                        transaction: t
+                      }
                     )
                     await db.product_store_stock.update(
                       {

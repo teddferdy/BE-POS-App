@@ -7,13 +7,7 @@ const ExcelJS = require('exceljs')
 const ingredientCategoryController = {
   async getAll(req, res) {
     try {
-      const {
-        search,
-        status,
-        page = 1,
-        limit = 10,
-        supplier
-      } = req.query
+      const { search, status, page = 1, limit = 10, supplier } = req.query
 
       const where = {}
       if (search) {

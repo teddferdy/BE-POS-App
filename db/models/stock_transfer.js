@@ -23,8 +23,23 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       status: {
-        type: DataTypes.ENUM('sent', 'received', 'cancelled', 'pending', 'approved', 'rejected'),
+        type: DataTypes.ENUM(
+          'sent',
+          'received',
+          'cancelled',
+          'pending',
+          'approved',
+          'rejected'
+        ),
         defaultValue: 'sent'
+      },
+      reason: {
+        type: DataTypes.STRING(100),
+        allowNull: true
+      },
+      expectedArrival: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
       },
       notes: {
         type: DataTypes.TEXT
