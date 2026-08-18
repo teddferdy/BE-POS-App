@@ -4976,10 +4976,11 @@ const CITIES = [
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    const [[{ count: provCount }]] = await queryInterface.sequelize.query(
+    const provResult = await queryInterface.sequelize.query(
       `SELECT COUNT(*) as count FROM region WHERE level = 'province'`,
       { type: Sequelize.QueryTypes.SELECT }
     )
+    const provCount = provResult[0]?.count
 
     const now = new Date()
     const toInsert = []
