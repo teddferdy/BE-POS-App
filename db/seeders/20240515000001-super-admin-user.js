@@ -17,40 +17,45 @@ module.exports = {
 
     const superAdminRoleId = roles[0].id
 
-    // Check if super admin user already exists
-    const existingUser = await queryInterface.sequelize.query(
-      `SELECT id FROM "user" WHERE "roleType" = 'super_admin' LIMIT 1;`,
-      { type: Sequelize.QueryTypes.SELECT }
+    const hashedPasswordAngga = await bcrypt.hash('angga123', 10)
+    const hashedPasswordFebi = await bcrypt.hash('febi123', 10)
+    const hashedPasswordSurya = await bcrypt.hash('surya123', 10)
+    const hashedPasswordTegar = await bcrypt.hash('tegar123', 10)
+    const hashedPasswordLuthfi = await bcrypt.hash('luthfi123', 10)
+    const hashedPasswordSuperAdmin = await bcrypt.hash('superadmin123', 10)
+
+    const allUsers = [
+      { userName: 'angga', fullName: 'angga', password: hashedPasswordAngga, email: 'angga@posapp.com', employeeID: 'EMP-0002' },
+      { userName: 'luthfi', fullName: 'luthfi', password: hashedPasswordLuthfi, email: 'luthfi@posapp.com', employeeID: 'EMP-0003' },
+      { userName: 'febi', fullName: 'febi', password: hashedPasswordFebi, email: 'febi@posapp.com', employeeID: 'EMP-0004' },
+      { userName: 'surya', fullName: 'surya', password: hashedPasswordSurya, email: 'surya@posapp.com', employeeID: 'EMP-0005' },
+      { userName: 'tegar', fullName: 'tegar', password: hashedPasswordTegar, email: 'tegar@posapp.com', employeeID: 'EMP-0006' },
+      { userName: 'super_admin', fullName: 'Super Admin', password: hashedPasswordSuperAdmin, email: 'superadmin@posapp.com', employeeID: 'EMP-0001' }
+    ]
+
+    const [existing] = await queryInterface.sequelize.query(
+      `SELECT "userName" FROM "user" WHERE "roleType" = 'super_admin'`
     )
+    const existingNames = existing.map((r) => r.userName)
 
-    if (existingUser.length > 0) {
-      await queryInterface.sequelize.query(
-        `UPDATE "user" SET "fullName" = 'Super Admin' WHERE "roleType" = 'super_admin' AND ("fullName" IS NULL OR "fullName" = '');`
-      )
-      console.log('Super Admin user already exists. Full name updated.')
-      return
+    const toInsert = allUsers
+      .filter((u) => !existingNames.includes(u.userName))
+      .map((u) => ({
+        ...u,
+        roleType: 'super_admin',
+        roleId: superAdminRoleId,
+        userType: 'super_admin',
+        status: 'active',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }))
+
+    if (toInsert.length > 0) {
+      await queryInterface.bulkInsert('user', toInsert)
+      console.log(`Created ${toInsert.length} super admin user(s): ${toInsert.map((u) => u.userName).join(', ')}`)
+    } else {
+      console.log('All super admin users already exist.')
     }
-
-    const hashedPassword = await bcrypt.hash('superadmin123', 10)
-
-    const superAdminUser = {
-      userName: 'super_admin',
-      fullName: 'Super Admin',
-      password: hashedPassword,
-      email: 'superadmin@posapp.com',
-      employeeID: 'EMP-0001',
-      roleType: 'super_admin',
-      roleId: superAdminRoleId,
-      userType: 'super_admin',
-      status: 'active',
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-
-    await queryInterface.bulkInsert('user', [superAdminUser])
-    console.log('Super Admin user created successfully!')
-    console.log('Username: super_admin')
-    console.log('Password: superadmin123')
   },
 
   down: async (queryInterface, Sequelize) => {
