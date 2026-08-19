@@ -1,5 +1,9 @@
 # Bisa Nota - Backend API
 
+[![CI/CD](https://github.com/teddferdy/BE-POS-App/actions/workflows/ci.yml/badge.svg)](https://github.com/teddferdy/BE-POS-App/actions/workflows/ci.yml)
+[![Node.js](https://img.shields.io/badge/Node.js-v18+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
+
 Point of Sale (POS) backend API built with Node.js, Express, and PostgreSQL.
 
 ## Tech Stack

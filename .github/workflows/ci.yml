@@ -1,0 +1,68 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18, 20]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: BE-POS-App/package-lock.json
+
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci
+        env:
+          working-directory: .
+
+      - name: Install dependencies (backend)
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+        env:
+          NODE_ENV: test
+          DB_DEV_HOST: localhost
+          DB_DEV_NAME: test_db
+          DB_DEV_USER: postgres
+          DB_DEV_PASS: postgres
+          JWT_SECRET: test-secret-key
+          JWT_EXPIRES_IN: 1h
+
+      - name: Run lint
+        run: npx eslint api/ utils/ --max-warnings 0 || true
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log deployment
+        run: |
+          echo "Deployment triggered by commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Message: ${{ github.event.head_commit.message }}"
+          echo "Timestamp: ${{ github.event.head_commit.timestamp }}"

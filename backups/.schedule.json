@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "cron": "0 0 * * *",
+  "retention": 7
+}
