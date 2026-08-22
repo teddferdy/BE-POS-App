@@ -16,6 +16,65 @@ const generateReceiptNo = () => {
   return `GR-${year}${month}${day}-${timestamp}`
 }
 
+// ponytail: multiple documentation photos -> Cloudinary, persisted as JSON array of URLs
+// edit mode: req.body.documentation may carry kept old URLs (JSON array string) to merge
+const uploadDocumentation = async (req) => {
+  const files = []
+  if (Array.isArray(req.files) && req.files.length > 0) files.push(...req.files)
+  else if (req.file) files.push(req.file)
+
+  let keptUrls = []
+  const bodyDoc = req.body?.documentation
+  if (Array.isArray(bodyDoc)) {
+    keptUrls = bodyDoc.filter(Boolean)
+  } else if (typeof bodyDoc === 'string' && bodyDoc.trim().startsWith('[')) {
+    try {
+      const arr = JSON.parse(bodyDoc)
+      if (Array.isArray(arr)) keptUrls = arr.filter(Boolean)
+    } catch {
+      // not a JSON array -> treat as single legacy URL
+      if (!files.length && bodyDoc.trim()) return bodyDoc
+    }
+  }
+
+  if (files.length === 0 && keptUrls.length === 0) {
+    // explicit clear / legacy single URL / field absent semantics
+    if (bodyDoc === null) return null
+    if (typeof bodyDoc === 'string') return bodyDoc || null
+    return undefined
+  }
+
+  const urls = [...keptUrls]
+  for (const f of files) {
+    try {
+      const { url } = await uploadToCloudinaryWithDedup(
+        f.path,
+        'pos-app-goods-receipts'
+      )
+      urls.push(url)
+    } catch (cloudErr) {
+      console.error(
+        'Documentation upload skipped (Cloudinary not configured):',
+        cloudErr.message
+      )
+    }
+  }
+  return urls.length > 0 ? JSON.stringify(urls) : null
+}
+
+// ponytail: allocate GR shipping cost proportionally across received lines
+const getShippingShare = (shippingCost, poItemPrice, totalPOValue) => {
+  const shipping = Number(shippingCost) || 0
+  if (
+    shipping <= 0 ||
+    totalPOValue <= 0 ||
+    !poItemPrice ||
+    Number(poItemPrice) <= 0
+  )
+    return 0
+  return Math.round((shipping * Number(poItemPrice)) / totalPOValue)
+}
+
 const picInclude = {
   model: db.user,
   as: 'picData',
@@ -454,7 +513,16 @@ const goodsReceiptController = {
   async create(req, res) {
     try {
       const store = req.storeId || req.cookies.store
-      const { purchaseOrderId, items, receivedDate, notes, pic } = req.body
+      const {
+        purchaseOrderId,
+        items,
+        receivedDate,
+        notes,
+        pic,
+        suratJalan,
+        taxInvoiceNo,
+        shippingCost
+      } = req.body
 
       if (!purchaseOrderId || !items || items.length === 0) {
         return res.status(400).json({
@@ -463,22 +531,10 @@ const goodsReceiptController = {
         })
       }
 
-      // ponytail: documentation photo -> Cloudinary
+      // ponytail: documentation photos -> Cloudinary (JSON array)
       let documentation = req.body.documentation || null
-      if (req.file) {
-        try {
-          const { url } = await uploadToCloudinaryWithDedup(
-            req.file.path,
-            'pos-app-goods-receipts'
-          )
-          documentation = url
-        } catch (cloudErr) {
-          console.error(
-            'Documentation upload skipped (Cloudinary not configured):',
-            cloudErr.message
-          )
-        }
-      }
+      const uploadedDocs = await uploadDocumentation(req)
+      if (uploadedDocs !== undefined) documentation = uploadedDocs
 
       // ponytail: reject duplicate ingredients/products in same GR
       const keys = items
@@ -549,6 +605,9 @@ const goodsReceiptController = {
             notes,
             pic: pic || null,
             documentation,
+            suratJalan: suratJalan || null,
+            taxInvoiceNo: taxInvoiceNo || null,
+            shippingCost: Number(shippingCost) || 0,
             createdBy: req.user?.id || null
           },
           { transaction }
@@ -625,7 +684,12 @@ const goodsReceiptController = {
                   (additionalCost * (Number(poItem.price) || 0)) / totalPOValue
                 )
               : 0
-          const costPrice = baseCost + landed
+          const shippingShare = getShippingShare(
+            shippingCost,
+            poItem?.price,
+            totalPOValue
+          )
+          const costPrice = baseCost + landed + shippingShare
           const qtyStock = qty * conversion
 
           receiptItems.push({
@@ -636,6 +700,8 @@ const goodsReceiptController = {
             unit: item.unit || 'pcs',
             conditionNotes: item.conditionNotes || null,
             ingredientName: item.ingredientName || null,
+            batchNumber: item.batchNumber || null,
+            expiryDate: item.expiryDate || null,
             costPrice,
             landedCost: landed,
             conversionToBase: conversion,
@@ -703,7 +769,8 @@ const goodsReceiptController = {
                 store: effectiveStore,
                 qty: qtyStock,
                 costPerUnit: baseUnitCost,
-                batchCode: `${receiptNumber}-${index + 1}`,
+                batchCode:
+                  item.batchNumber || `${receiptNumber}-${index + 1}`,
                 expiryDate: item.expiryDate || null,
                 supplier: po.supplier || null,
                 receivedDate: receivedDate || new Date(),
@@ -877,23 +944,22 @@ const goodsReceiptController = {
       const { id } = req.params
       const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
-      const { notes, receivedDate, items, status, pic } = req.body
+      const {
+        notes,
+        receivedDate,
+        items,
+        status,
+        pic,
+        suratJalan,
+        taxInvoiceNo,
+        shippingCost
+      } = req.body
 
-      // ponytail: documentation photo -> Cloudinary (or explicit null to clear)
+      // ponytail: documentation photos -> Cloudinary (or explicit null to clear)
       let documentation
-      if (req.file) {
-        try {
-          const { url } = await uploadToCloudinaryWithDedup(
-            req.file.path,
-            'pos-app-goods-receipts'
-          )
-          documentation = url
-        } catch (cloudErr) {
-          console.error(
-            'Documentation upload skipped (Cloudinary not configured):',
-            cloudErr.message
-          )
-        }
+      const uploadedDocs = await uploadDocumentation(req)
+      if (uploadedDocs !== undefined) {
+        documentation = uploadedDocs
       } else if (req.body.documentation !== undefined) {
         documentation = req.body.documentation
       }
@@ -976,6 +1042,14 @@ const goodsReceiptController = {
             pic: pic !== undefined ? pic : receipt.pic,
             documentation:
               documentation !== undefined ? documentation : receipt.documentation,
+            suratJalan:
+              suratJalan !== undefined ? suratJalan : receipt.suratJalan,
+            taxInvoiceNo:
+              taxInvoiceNo !== undefined ? taxInvoiceNo : receipt.taxInvoiceNo,
+            shippingCost:
+              shippingCost !== undefined
+                ? Number(shippingCost) || 0
+                : Number(receipt.shippingCost) || 0,
             modifiedBy: req.user?.id || null
           },
           { transaction }
@@ -1049,7 +1123,12 @@ const goodsReceiptController = {
                       totalPOValue
                   )
                 : 0
-            const costPrice = baseCost + landed
+            const shippingShare = getShippingShare(
+              shippingCost !== undefined ? shippingCost : receipt.shippingCost,
+              poItem?.price,
+              totalPOValue
+            )
+            const costPrice = baseCost + landed + shippingShare
 
             newItems.push({
               goodsReceipt: id,
@@ -1059,6 +1138,8 @@ const goodsReceiptController = {
               unit: item.unit || 'pcs',
               conditionNotes: item.conditionNotes || null,
               ingredientName: item.ingredientName || null,
+              batchNumber: item.batchNumber || null,
+              expiryDate: item.expiryDate || null,
               costPrice,
               landedCost: landed,
               conversionToBase: conversion,

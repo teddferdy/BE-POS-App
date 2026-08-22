@@ -12,7 +12,7 @@ const {
   updateGoodsReceiptSchema
 } = require('../validation/schemas')
 
-// ponytail: documentation photo upload (stored to /tmp then Cloudinary)
+// ponytail: documentation photo uploads (up to 5, stored to /tmp then Cloudinary)
 const uploadDir = '/tmp/uploads'
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true })
@@ -64,7 +64,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  upload.single('file'),
+  upload.array('file', 5),
   validate(createGoodsReceiptSchema),
   goodsReceiptController.create
 )
@@ -73,7 +73,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  upload.single('file'),
+  upload.array('file', 5),
   validate(updateGoodsReceiptSchema),
   goodsReceiptController.update
 )

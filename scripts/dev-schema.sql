@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict KM7ELvhd51QaOahDsLxCvTc5YG1XbeY5BqwcT5fDdmPPCoR8imm3Sdm7yf6uOfm
+\restrict ZlIfEzkdRkAKdQ9bwEEuIobx8uoXKPFw76PG7XpNC5TJchbzVcYncraCZdSQW6N
 
 -- Dumped from database version 14.19 (Homebrew)
 -- Dumped by pg_dump version 14.19 (Homebrew)
@@ -1684,7 +1684,10 @@ CREATE TABLE public.goods_receipt (
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
     pic integer,
-    documentation character varying(255)
+    documentation text,
+    "suratJalan" character varying(255),
+    "taxInvoiceNo" character varying(255),
+    "shippingCost" numeric(12,2) DEFAULT 0 NOT NULL
 );
 
 
@@ -1727,7 +1730,9 @@ CREATE TABLE public.goods_receipt_item (
     "costPrice" integer DEFAULT 0,
     "landedCost" integer DEFAULT 0,
     "conversionToBase" numeric(10,4) DEFAULT 1,
-    "qtyStock" numeric(12,2) DEFAULT 0
+    "qtyStock" numeric(12,2) DEFAULT 0,
+    "batchNumber" character varying(255),
+    "expiryDate" date
 );
 
 
@@ -7837,5 +7842,5 @@ ALTER TABLE ONLY public."user"
 -- PostgreSQL database dump complete
 --
 
-\unrestrict KM7ELvhd51QaOahDsLxCvTc5YG1XbeY5BqwcT5fDdmPPCoR8imm3Sdm7yf6uOfm
+\unrestrict ZlIfEzkdRkAKdQ9bwEEuIobx8uoXKPFw76PG7XpNC5TJchbzVcYncraCZdSQW6N
 

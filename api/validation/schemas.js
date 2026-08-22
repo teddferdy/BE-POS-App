@@ -726,7 +726,9 @@ const grItemSchema = z.object({
   unit: z.string().optional().default('pcs'),
   price: strToNum().optional().default(0),
   costPrice: strToNum().optional().default(0),
-  conversionToBase: strToNum().optional().default(1)
+  conversionToBase: strToNum().optional().default(1),
+  batchNumber: z.string().optional().nullable(),
+  expiryDate: z.string().optional().nullable()
 })
 
 exports.createGoodsReceiptSchema = z.object({
@@ -735,6 +737,9 @@ exports.createGoodsReceiptSchema = z.object({
   supplier: strToNum().optional().nullable(),
   pic: strToNum().optional().nullable(),
   documentation: z.string().optional().nullable(),
+  suratJalan: z.string().optional().nullable(),
+  taxInvoiceNo: z.string().optional().nullable(),
+  shippingCost: strToNum().optional().default(0),
   items: z.array(grItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
   receivedDate: z.string().optional(),
