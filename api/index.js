@@ -78,32 +78,8 @@ const regionRoutes = require('./routes/region')
 const app = express()
 const server = http.createServer(app)
 
-const corsOptions = {
-  origin: process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',')
-    : [
-        // Production Admin Website
-        'https://bisa-nota-demo.vercel.app',
-        // Production Order Website
-        'https://order-app-dun.vercel.app',
-        // Local Development Admin Website
-        'http://localhost:3000',
-        'http://localhost:3001',
-        // Local Development Order Website
-        'http://localhost:5173'
-      ],
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Requested-With',
-    'Accept',
-    'Origin'
-  ],
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-}
+// ponytail: kebijakan CORS bersama (Express + Socket.IO) di utils/corsOptions
+const { corsOptions } = require('./utils/corsOptions')
 
 // Rate limit only anonymous traffic; authenticated requests are never throttled
 // so a busy POS terminal (many requests per transaction) is not blocked.
@@ -385,7 +361,7 @@ app.get('/', (_, res) => {
 const port = process.env.PORT || 5001
 
 if (!process.env.VERCEL) {
-  initSocket(server)
+  const io = initSocket(server)
   server.listen(port, () => {
     console.log(`Server running on port ${port}`)
     console.log(`Socket.IO enabled`)
@@ -394,6 +370,33 @@ if (!process.env.VERCEL) {
   startBackupScheduler()
   const { startExpenseScheduler } = require('./service/expenseScheduler')
   startExpenseScheduler()
+
+  // ponytail: graceful shutdown agar koneksi aktif (HTTP & DB pool) tidak
+  // terputus paksa saat deploy/restart di tengah trafik tinggi
+  const gracefulShutdown = async (signal) => {
+    console.log(`${signal} received, closing server gracefully...`)
+    setTimeout(() => process.exit(1), 10000).unref()
+
+    // ponytail: socket.io (koneksi persisten) ditutup lebih dulu, jika tidak
+    // server.close() tak pernah selesai dan DB pool mati tanpa cleanup
+    try {
+      await Promise.allSettled([
+        new Promise((resolve) => (io ? io.close(resolve) : resolve())),
+        new Promise((resolve) =>
+          server ? server.close(() => resolve()) : resolve()
+        )
+      ])
+      const { sequelize } = require('./models')
+      await sequelize.close()
+      console.log('DB pool closed. Bye.')
+      process.exit(0)
+    } catch (e) {
+      console.error('Error during shutdown:', e.message)
+      process.exit(1)
+    }
+  }
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 }
 
 module.exports = app
