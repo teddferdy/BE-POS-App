@@ -18,7 +18,7 @@ exports.getAllPosition = async (req, res) => {
     const getAllPosition = await Position.findAll({
       where: { status: 'active' },
       include: positionInclude,
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     }).then((records) =>
       records.map((items) => {
         const getData = { ...items.dataValues }
@@ -67,7 +67,7 @@ exports.getAllPositionInTable = async (req, res) => {
         include: positionInclude,
         offset: parseInt(offset),
         limit: parseInt(limit),
-        order: [['createdAt', 'DESC']]
+        order: [['updatedAt', 'DESC']]
       })
     await enrichAuditFields(db, getAllPosition)
 

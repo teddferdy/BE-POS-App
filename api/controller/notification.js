@@ -31,7 +31,7 @@ exports.getAllNotifications = async (req, res) => {
 
     const { count, rows } = await Notification.findAndCountAll({
       where: whereCondition,
-      order: [['createdAt', 'DESC']],
+      order: [['updatedAt', 'DESC']],
       offset,
       limit: parseInt(limit),
       include: [{ model: db.location, as: 'storeData', attributes: ['name'] }]

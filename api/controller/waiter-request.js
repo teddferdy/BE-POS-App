@@ -97,7 +97,7 @@ const waiterRequestController = {
 
       const requests = await db.waiter_request.findAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: Number(limit),
         include: [
           { model: db.table, as: 'table', attributes: ['id', 'name'] },
@@ -135,7 +135,7 @@ const waiterRequestController = {
       const [requests, total] = await Promise.all([
         db.waiter_request.findAll({
           where,
-          order: [['createdAt', 'ASC']],
+          order: [['updatedAt', 'ASC']],
           limit: Number(limit),
           offset,
           include: [
@@ -185,7 +185,7 @@ const waiterRequestController = {
       const [requests, total] = await Promise.all([
         db.waiter_request.findAll({
           where,
-          order: [['createdAt', 'DESC']],
+          order: [['updatedAt', 'DESC']],
           limit: Number(limit),
           offset,
           include: [

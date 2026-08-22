@@ -135,7 +135,7 @@ exports.getAllLocationInTable = async (req, res) => {
       where: whereClause,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     })
 
     await enrichAuditFields(db, locations)

@@ -733,6 +733,8 @@ exports.createGoodsReceiptSchema = z.object({
   store: strToNum().optional().nullable(),
   purchaseOrderId: strToNum().optional().nullable(),
   supplier: strToNum().optional().nullable(),
+  pic: strToNum().optional().nullable(),
+  documentation: z.string().optional().nullable(),
   items: z.array(grItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
   receivedDate: z.string().optional(),

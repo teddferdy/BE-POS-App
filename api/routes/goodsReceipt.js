@@ -1,4 +1,6 @@
 const express = require('express')
+const fs = require('fs')
+const multer = require('multer')
 const router = express.Router()
 const goodsReceiptController = require('../controller/goodsReceipt')
 const authorization = require('../../utils/authorization')
@@ -9,6 +11,28 @@ const {
   createGoodsReceiptSchema,
   updateGoodsReceiptSchema
 } = require('../validation/schemas')
+
+// ponytail: documentation photo upload (stored to /tmp then Cloudinary)
+const uploadDir = '/tmp/uploads'
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true })
+}
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`)
+  }
+})
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true)
+    else cb(new Error('Only image files are allowed'))
+  }
+})
 
 router.get(
   '/get-all',
@@ -40,6 +64,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  upload.single('file'),
   validate(createGoodsReceiptSchema),
   goodsReceiptController.create
 )
@@ -48,6 +73,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  upload.single('file'),
   validate(updateGoodsReceiptSchema),
   goodsReceiptController.update
 )

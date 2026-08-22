@@ -241,7 +241,7 @@ const overviewController = {
 
       const members = await db.member.findAll({
         where: store ? { store } : {},
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit)
       })
 
@@ -282,7 +282,7 @@ const overviewController = {
 
       const categories = await db.category.findAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit)
       })
 
@@ -305,7 +305,7 @@ const overviewController = {
       const limit = parseInt(req.query.limit) || 5
 
       const locations = await db.location.findAll({
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit
       })
 
@@ -346,7 +346,7 @@ const overviewController = {
 
       const products = await db.product.findAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit)
       })
 

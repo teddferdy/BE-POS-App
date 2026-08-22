@@ -108,7 +108,7 @@ exports.getAllTypePayment = async (req, res) => {
       where: queryConditions,
       limit: parseInt(pageSize),
       offset: parseInt(offset),
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     })
 
     const totalTypePayments = await TypePayment.count({

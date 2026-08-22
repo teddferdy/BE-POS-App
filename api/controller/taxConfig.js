@@ -22,7 +22,7 @@ const taxConfigController = {
       }
       const taxes = await db.taxConfig.findAll({
         where,
-        order: [['createdAt', 'DESC']]
+        order: [['updatedAt', 'DESC']]
       })
       return res.status(200).json({
         success: true,
@@ -63,7 +63,7 @@ const taxConfigController = {
       const [taxes, total] = await Promise.all([
         db.taxConfig.findAll({
           where,
-          order: [['createdAt', 'DESC']],
+          order: [['updatedAt', 'DESC']],
           limit: parseInt(limit),
           offset
         }),

@@ -26,7 +26,7 @@ const expenseCategoryController = {
 
       const categories = await db.expense_category.findAll({
         where,
-        order: [['createdAt', 'DESC']]
+        order: [['updatedAt', 'DESC']]
       })
 
       const storeWhere = store ? { store } : {}

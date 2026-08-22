@@ -22,7 +22,7 @@ exports.getTablesByStore = async (req, res) => {
 
     const { count, rows } = await Table.findAndCountAll({
       where: whereClause,
-      order: [['createdAt', 'DESC']],
+      order: [['updatedAt', 'DESC']],
       limit,
       offset
     })

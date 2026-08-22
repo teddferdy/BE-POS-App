@@ -28,7 +28,7 @@ exports.getAll = async (req, res) => {
       where,
       limit,
       offset,
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     })
     await enrichAuditFields(db, rows)
 

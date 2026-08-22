@@ -52,7 +52,7 @@ exports.getAllShift = async (req, res) => {
       where,
       limit: pageSize,
       offset,
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     })
 
     const totalShifts = await Shift.count({ where })

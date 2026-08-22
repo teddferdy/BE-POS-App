@@ -11,9 +11,24 @@ jobs:
     name: Test & Lint
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cashier_app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [20, 22]
 
     steps:
       - name: Checkout repository
@@ -24,27 +39,28 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-          cache-dependency-path: BE-POS-App/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: .
         run: npm ci
-        env:
-          working-directory: .
 
-      - name: Install dependencies (backend)
-        run: npm ci
+      - name: Load dev schema into source DB
+        run: >
+          PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres
+          -d cashier_app -f scripts/dev-schema.sql
 
       - name: Run tests
         run: npm test
         env:
           NODE_ENV: test
           DB_DEV_HOST: localhost
-          DB_DEV_NAME: test_db
-          DB_DEV_USER: postgres
-          DB_DEV_PASS: postgres
-          JWT_SECRET: test-secret-key
-          JWT_EXPIRES_IN: 1h
+          DB_DEV_PORT: 5432
+          DB_DEV_USERNAME: postgres
+          DB_DEV_PASSWORD: postgres
+          DB_DEV_DATABASE: cashier_app
+          DB_TEST_DATABASE: cashier_app_test
+          JWT_SECRET_KEY: test-secret-key
+          JWT_EXPIRED_IN: 1h
 
       - name: Run lint
         run: npx eslint api/ utils/ --max-warnings 0 || true

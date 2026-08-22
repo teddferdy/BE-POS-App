@@ -37,7 +37,7 @@ const memberTierController = {
             ]
           ]
         },
-        order: [['createdAt', 'DESC']]
+        order: [['updatedAt', 'DESC']]
       })
       await enrichAuditFields(db, tiers)
 

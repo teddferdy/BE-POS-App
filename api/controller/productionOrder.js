@@ -54,7 +54,7 @@ const productionOrderController = {
           },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit),
         offset
       })

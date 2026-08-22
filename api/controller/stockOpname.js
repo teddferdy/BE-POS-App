@@ -76,7 +76,7 @@ const stockOpnameController = {
                 attributes: ['id', 'name']
               }
             ],
-            order: [['createdAt', 'DESC']],
+            order: [['updatedAt', 'DESC']],
             limit: parseInt(limit),
             offset
           }),

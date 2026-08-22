@@ -30,7 +30,7 @@ const auditLogController = {
 
       const { count, rows } = await db.auditLog.findAndCountAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit),
         offset
       })
@@ -70,7 +70,7 @@ const auditLogController = {
 
       const { count, rows } = await db.auditLog.findAndCountAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit),
         offset
       })

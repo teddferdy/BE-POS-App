@@ -242,7 +242,7 @@ exports.listBackups = async (req, res) => {
     if (store) where.store = store
     const { rows, count } = await db.db_backup.findAndCountAll({
       where,
-      order: [['createdAt', 'DESC']],
+      order: [['updatedAt', 'DESC']],
       limit: Math.min(parseInt(limit, 10) || 50, 200),
       offset: parseInt(offset, 10) || 0
     })
