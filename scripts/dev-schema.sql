@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ZlIfEzkdRkAKdQ9bwEEuIobx8uoXKPFw76PG7XpNC5TJchbzVcYncraCZdSQW6N
+\restrict WZc702mJS1OSzoS8LyEUnCFU5i1viFXyFafbioRyq76Bdsn6M3qZVY6Q3XQJcXe
 
 -- Dumped from database version 14.19 (Homebrew)
 -- Dumped by pg_dump version 14.19 (Homebrew)
@@ -6643,10 +6643,31 @@ CREATE INDEX order_item_bundle_id ON public.order_item USING btree ("bundleId") 
 
 
 --
+-- Name: order_item_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX order_item_order_idx ON public.order_item USING btree ("order");
+
+
+--
 -- Name: order_promo_campaign_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX order_promo_campaign_id ON public."order" USING btree ("promoCampaignId") WHERE ("deletedAt" IS NULL);
+
+
+--
+-- Name: order_store_createdAt; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX "order_store_createdAt" ON public."order" USING btree (store, "createdAt");
+
+
+--
+-- Name: order_store_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX order_store_status ON public."order" USING btree (store, status);
 
 
 --
@@ -6934,6 +6955,20 @@ CREATE INDEX stock_forecast_product_store ON public.stock_forecast USING btree (
 --
 
 CREATE INDEX stock_history_ingredient ON public.stock_history USING btree (ingredient);
+
+
+--
+-- Name: stock_history_product; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX stock_history_product ON public.stock_history USING btree (product);
+
+
+--
+-- Name: stock_history_store_createdAt; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX "stock_history_store_createdAt" ON public.stock_history USING btree (store, "createdAt");
 
 
 --
@@ -7842,5 +7877,5 @@ ALTER TABLE ONLY public."user"
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ZlIfEzkdRkAKdQ9bwEEuIobx8uoXKPFw76PG7XpNC5TJchbzVcYncraCZdSQW6N
+\unrestrict WZc702mJS1OSzoS8LyEUnCFU5i1viFXyFafbioRyq76Bdsn6M3qZVY6Q3XQJcXe
 

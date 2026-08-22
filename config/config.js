@@ -33,6 +33,12 @@ module.exports = {
     dialect: 'postgres',
     dialectModule: pg,
     protocol: 'postgres',
+    pool: {
+      max: 20,
+      min: 5,
+      acquire: 30000,
+      idle: 10000
+    },
     dialectOptions: {
       ssl: {
         require: true,
