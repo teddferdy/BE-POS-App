@@ -10,7 +10,7 @@ exports.getAllRole = async (req, res) => {
       where: {
         status: 'active'
       },
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     }).then((res) =>
       res.map((items) => {
         const getData = {
@@ -52,7 +52,7 @@ exports.getAllRoleInTable = async (req, res) => {
       where: whereCondition,
       offset: parseInt(offset),
       limit: parseInt(limit),
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     })
 
     const getAllRole = roles.map((items) => {

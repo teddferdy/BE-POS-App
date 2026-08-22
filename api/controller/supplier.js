@@ -455,7 +455,7 @@ const supplierController = {
         await Promise.all([
           db.supplier.findAll({
             where,
-            order: [['createdAt', 'DESC']],
+            order: [['updatedAt', 'DESC']],
             limit: parseInt(limit),
             offset
           }),

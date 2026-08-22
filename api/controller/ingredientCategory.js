@@ -45,7 +45,7 @@ const ingredientCategoryController = {
           where: categoryWhere,
           limit: parseInt(limit),
           offset: parseInt(offset),
-          order: [['createdAt', 'DESC']]
+          order: [['updatedAt', 'DESC']]
         }),
         db.ingredientCategory.count({ where: categoryWhere })
       ])

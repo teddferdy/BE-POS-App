@@ -65,7 +65,7 @@ const ingredientController = {
         ],
         limit: parseInt(limit),
         offset,
-        order: [['createdAt', 'DESC']]
+        order: [['updatedAt', 'DESC']]
       })
 
       await enrichAuditFields(db, ingredients)

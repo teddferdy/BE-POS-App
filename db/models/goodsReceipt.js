@@ -30,6 +30,12 @@ module.exports = (sequelize, DataTypes) => {
       notes: {
         type: DataTypes.TEXT
       },
+      pic: {
+        type: DataTypes.INTEGER
+      },
+      documentation: {
+        type: DataTypes.STRING
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },
@@ -54,11 +60,15 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'purchaseOrderId',
       as: 'purchaseOrderData'
     })
-    goodsReceipt.belongsTo(models.location, {
-      foreignKey: 'store',
-      as: 'storeData'
-    })
-  }
+  goodsReceipt.belongsTo(models.location, {
+    foreignKey: 'store',
+    as: 'storeData'
+  })
+  goodsReceipt.belongsTo(models.user, {
+    foreignKey: 'pic',
+    as: 'picData'
+  })
+}
 
   return goodsReceipt
 }

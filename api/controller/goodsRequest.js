@@ -116,7 +116,7 @@ const goodsRequestController = {
               attributes: ['id', 'orderNumber', 'status']
             }
           ],
-          order: [['createdAt', 'DESC']],
+          order: [['updatedAt', 'DESC']],
           limit: parseInt(limit),
           offset
         }),

@@ -50,7 +50,7 @@ exports.getAllDepartmentInTable = async (req, res) => {
         where: whereCondition,
         offset: parseInt(offset),
         limit: parseInt(limit),
-        order: [['createdAt', 'DESC']]
+        order: [['updatedAt', 'DESC']]
       })
     await enrichAuditFields(db, getAllDepartment)
 

@@ -553,7 +553,7 @@ const posController = {
             attributes: ['id', 'fullName']
           }
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit),
         offset
       })
@@ -1111,7 +1111,7 @@ const posController = {
                 ? { createdAt: orderWhere.createdAt }
                 : {})
             },
-            order: [['createdAt', 'DESC']],
+order: [['updatedAt', 'DESC']],
             limit: pageSize,
             offset: (page - 1) * pageSize,
             distinct: true,

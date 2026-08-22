@@ -103,6 +103,26 @@ exports.getAllDiscount = async (req, res) => {
       }
     )
 
+    await Discount.update(
+      { status: 'active' },
+      {
+        where: {
+          status: 'upcoming',
+          startDate: { [db.Sequelize.Op.lte]: new Date() }
+        }
+      }
+    )
+
+    await Discount.update(
+      { status: 'upcoming' },
+      {
+        where: {
+          status: 'active',
+          startDate: { [db.Sequelize.Op.gt]: new Date() }
+        }
+      }
+    )
+
     const whereDiscount = {}
     if (store) {
       whereDiscount[db.Sequelize.Op.or] = [{ store }, { store: null }]
@@ -114,7 +134,7 @@ exports.getAllDiscount = async (req, res) => {
       where: whereDiscount,
       limit,
       offset,
-      order: [['createdAt', 'DESC']]
+      order: [['updatedAt', 'DESC']]
     })
 
     await enrichAuditFields(db, rows)
@@ -122,10 +142,26 @@ exports.getAllDiscount = async (req, res) => {
     const storeFilter = store
       ? { [db.Sequelize.Op.or]: [{ store }, { store: null }] }
       : {}
-    const [activeCount, draftCount, inactiveCount] = await Promise.all([
+    const now = new Date()
+    const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const [activeCount, draftCount, inactiveCount, upcomingCount, expiringCount] = await Promise.all([
       Discount.count({ where: { ...storeFilter, status: 'active' } }),
       Discount.count({ where: { ...storeFilter, status: 'draft' } }),
-      Discount.count({ where: { ...storeFilter, status: 'inactive' } })
+      Discount.count({ where: { ...storeFilter, status: 'inactive' } }),
+      Discount.count({ where: { ...storeFilter, status: 'upcoming' } }),
+      Discount.count({
+        where: {
+          ...storeFilter,
+          status: 'active',
+          endDate: {
+            [db.Sequelize.Op.and]: [
+              { [db.Sequelize.Op.ne]: null },
+              { [db.Sequelize.Op.gte]: now },
+              { [db.Sequelize.Op.lte]: sevenDaysLater }
+            ]
+          }
+        }
+      })
     ])
 
     const data = await attachStoreData(rows.map((i) => i.dataValues))
@@ -138,10 +174,12 @@ exports.getAllDiscount = async (req, res) => {
       currentPage: parseInt(page),
       data,
       stats: {
-        total: activeCount + draftCount + inactiveCount,
+        total: activeCount + draftCount + inactiveCount + upcomingCount,
         active: activeCount,
         draft: draftCount,
-        inactive: inactiveCount
+        inactive: inactiveCount,
+        upcoming: upcomingCount,
+        expiring: expiringCount
       },
       pagination: {
         total: count,
@@ -488,6 +526,20 @@ exports.postNewDiscount = async (req, res) => {
     })
 
     if (!findOneDiscount) {
+      const requestedStatus =
+        status !== undefined
+          ? status === true || status === 'active'
+            ? 'active'
+            : status === false || status === 'inactive'
+              ? 'inactive'
+              : status
+          : 'active'
+
+      const finalStatus =
+        requestedStatus === 'active' && safeStartDate && new Date(safeStartDate) > new Date()
+          ? 'upcoming'
+          : requestedStatus
+
       const postData = await Discount.create({
         name,
         type: discountType || 'percent',
@@ -500,14 +552,7 @@ exports.postNewDiscount = async (req, res) => {
         code: code || null,
         conditions: conditions || null,
         createdBy: req.user?.id,
-        status:
-          status !== undefined
-            ? status === true || status === 'active'
-              ? 'active'
-              : status === false || status === 'inactive'
-                ? 'inactive'
-                : status
-            : 'active'
+        status: finalStatus
       })
       createAudit(
         req,
@@ -617,6 +662,11 @@ exports.editDiscountById = async (req, res) => {
             : body.status
         : 'active'
 
+    const finalStatus =
+      bodyStatus === 'active' && safeStartDate && new Date(safeStartDate) > new Date()
+        ? 'upcoming'
+        : bodyStatus
+
     if (
       !getDuplicate?.dataValues ||
       getDuplicate?.dataValues?.status !== bodyStatus
@@ -634,14 +684,7 @@ exports.editDiscountById = async (req, res) => {
           code: body.code || null,
           conditions: body.conditions || null,
           modifiedBy: req.user?.id,
-          status:
-            body.status !== undefined
-              ? body.status === true
-                ? 'active'
-                : body.status === false
-                  ? 'inactive'
-                  : body.status
-              : 'active'
+          status: finalStatus
         },
         {
           returning: true,

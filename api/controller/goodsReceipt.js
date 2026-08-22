@@ -2,6 +2,9 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const {
+  uploadToCloudinaryWithDedup
+} = require('../../utils/cloudinaryStorage')
 const batchService = require('../service/batchService')
 
 const generateReceiptNo = () => {
@@ -11,6 +14,12 @@ const generateReceiptNo = () => {
   const day = String(date.getDate()).padStart(2, '0')
   const timestamp = Date.now()
   return `GR-${year}${month}${day}-${timestamp}`
+}
+
+const picInclude = {
+  model: db.user,
+  as: 'picData',
+  attributes: ['id', 'fullName', 'userName']
 }
 
 // ponytail: weighted-average HPP update when GR costPrice differs from PO price
@@ -306,9 +315,10 @@ const goodsReceiptController = {
             attributes: ['id', 'orderNumber', 'status']
           },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
+          picInclude,
           { model: db.goodsReceiptItem, as: 'items' }
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['updatedAt', 'DESC']],
         limit: parseInt(limit),
         offset
       })
@@ -366,6 +376,7 @@ const goodsReceiptController = {
             attributes: ['id', 'orderNumber', 'status']
           },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] },
+          picInclude,
           {
             model: db.goodsReceiptItem,
             as: 'items',
@@ -443,13 +454,30 @@ const goodsReceiptController = {
   async create(req, res) {
     try {
       const store = req.storeId || req.cookies.store
-      const { purchaseOrderId, items, receivedDate, notes } = req.body
+      const { purchaseOrderId, items, receivedDate, notes, pic } = req.body
 
       if (!purchaseOrderId || !items || items.length === 0) {
         return res.status(400).json({
           success: false,
           message: 'Purchase order and items are required'
         })
+      }
+
+      // ponytail: documentation photo -> Cloudinary
+      let documentation = req.body.documentation || null
+      if (req.file) {
+        try {
+          const { url } = await uploadToCloudinaryWithDedup(
+            req.file.path,
+            'pos-app-goods-receipts'
+          )
+          documentation = url
+        } catch (cloudErr) {
+          console.error(
+            'Documentation upload skipped (Cloudinary not configured):',
+            cloudErr.message
+          )
+        }
       }
 
       // ponytail: reject duplicate ingredients/products in same GR
@@ -519,6 +547,8 @@ const goodsReceiptController = {
             receivedDate: receivedDate || new Date(),
             status: req.body.status || 'completed',
             notes,
+            pic: pic || null,
+            documentation,
             createdBy: req.user?.id || null
           },
           { transaction }
@@ -847,7 +877,26 @@ const goodsReceiptController = {
       const { id } = req.params
       const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
-      const { notes, receivedDate, items, status } = req.body
+      const { notes, receivedDate, items, status, pic } = req.body
+
+      // ponytail: documentation photo -> Cloudinary (or explicit null to clear)
+      let documentation
+      if (req.file) {
+        try {
+          const { url } = await uploadToCloudinaryWithDedup(
+            req.file.path,
+            'pos-app-goods-receipts'
+          )
+          documentation = url
+        } catch (cloudErr) {
+          console.error(
+            'Documentation upload skipped (Cloudinary not configured):',
+            cloudErr.message
+          )
+        }
+      } else if (req.body.documentation !== undefined) {
+        documentation = req.body.documentation
+      }
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -924,6 +973,9 @@ const goodsReceiptController = {
             notes: notes !== undefined ? notes : receipt.notes,
             receivedDate: receivedDate || receipt.receivedDate,
             status: status || receipt.status,
+            pic: pic !== undefined ? pic : receipt.pic,
+            documentation:
+              documentation !== undefined ? documentation : receipt.documentation,
             modifiedBy: req.user?.id || null
           },
           { transaction }

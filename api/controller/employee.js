@@ -249,7 +249,7 @@ exports.getAllEmployee = async (req, res) => {
           ],
           limit,
           offset,
-          order: [['createdAt', 'DESC']]
+          order: [['updatedAt', 'DESC']]
         }),
         User.count({ where: whereCondition }),
         User.count({ where: { ...whereCondition, status: 'active' } }),
