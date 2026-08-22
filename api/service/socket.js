@@ -1,41 +1,47 @@
 const { Server } = require('socket.io')
+// ponytail: pakai kebijakan origin yang sama dengan Express REST
+const { corsOriginCheck } = require('../utils/corsOptions')
 
 let io = null
+
+// ponytail: log per-koneksi/join di-gate — ribuan koneksi sekaligus tidak
+// boleh membanjiri stdout (degradasi performa & log tak terbaca)
+const verbose = process.env.NODE_ENV !== 'production'
 
 const initSocket = (server) => {
   io = new Server(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin: corsOriginCheck,
       methods: ['GET', 'POST'],
       credentials: true
     }
   })
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id)
+    if (verbose) console.log('Client connected:', socket.id)
 
     socket.on('join-kitchen', (storeId) => {
       socket.join(`kitchen-${storeId}`)
-      console.log(`Socket joined kitchen-${storeId}`)
+      if (verbose) console.log(`Socket joined kitchen-${storeId}`)
     })
 
     socket.on('leave-kitchen', (storeId) => {
       socket.leave(`kitchen-${storeId}`)
-      console.log(`Socket left kitchen-${storeId}`)
+      if (verbose) console.log(`Socket left kitchen-${storeId}`)
     })
 
     socket.on('join-store', (storeId) => {
       socket.join(`store-${storeId}`)
-      console.log(`Socket joined store-${storeId}`)
+      if (verbose) console.log(`Socket joined store-${storeId}`)
     })
 
     socket.on('leave-store', (storeId) => {
       socket.leave(`store-${storeId}`)
-      console.log(`Socket left store-${storeId}`)
+      if (verbose) console.log(`Socket left store-${storeId}`)
     })
 
     socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id)
+      if (verbose) console.log('Client disconnected:', socket.id)
     })
   })
 

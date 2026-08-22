@@ -1,0 +1,24 @@
+# ponytail: smoke load test — indikatif, bukan pengganti load test produksi.
+# Jalankan: npx artillery run load-test.yaml  (server dev harus hidup di :5001)
+config:
+  target: 'http://localhost:5001'
+  phases:
+    - duration: 20
+      arrivalRate: 20
+      name: 'Warmup'
+    - duration: 40
+      arrivalRate: 100
+      name: 'Ramp normal'
+    - duration: 15
+      arrivalRate: 300
+      name: 'Spike'
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+scenarios:
+  - name: 'Public FAQ search'
+    flow:
+      - get:
+          url: '/faq/faq'
+      - get:
+          url: '/'
