@@ -361,7 +361,7 @@ app.get('/', (_, res) => {
 const port = process.env.PORT || 5001
 
 if (!process.env.VERCEL) {
-  initSocket(server)
+  const io = initSocket(server)
   server.listen(port, () => {
     console.log(`Server running on port ${port}`)
     console.log(`Socket.IO enabled`)
@@ -373,21 +373,27 @@ if (!process.env.VERCEL) {
 
   // ponytail: graceful shutdown agar koneksi aktif (HTTP & DB pool) tidak
   // terputus paksa saat deploy/restart di tengah trafik tinggi
-  const gracefulShutdown = (signal) => {
+  const gracefulShutdown = async (signal) => {
     console.log(`${signal} received, closing server gracefully...`)
-    server.close(async () => {
-      try {
-        const { sequelize } = require('./models')
-        await sequelize.close()
-        console.log('DB pool closed. Bye.')
-        process.exit(0)
-      } catch (e) {
-        console.error('Error during shutdown:', e.message)
-        process.exit(1)
-      }
-    })
-    // force exit jika ada koneksi menggantung
     setTimeout(() => process.exit(1), 10000).unref()
+
+    // ponytail: socket.io (koneksi persisten) ditutup lebih dulu, jika tidak
+    // server.close() tak pernah selesai dan DB pool mati tanpa cleanup
+    try {
+      await Promise.allSettled([
+        new Promise((resolve) => (io ? io.close(resolve) : resolve())),
+        new Promise((resolve) =>
+          server ? server.close(() => resolve()) : resolve()
+        )
+      ])
+      const { sequelize } = require('./models')
+      await sequelize.close()
+      console.log('DB pool closed. Bye.')
+      process.exit(0)
+    } catch (e) {
+      console.error('Error during shutdown:', e.message)
+      process.exit(1)
+    }
   }
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
   process.on('SIGINT', () => gracefulShutdown('SIGINT'))
