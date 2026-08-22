@@ -59,8 +59,8 @@ jobs:
           DB_DEV_PASSWORD: postgres
           DB_DEV_DATABASE: cashier_app
           DB_TEST_DATABASE: cashier_app_test
-          JWT_SECRET: test-secret-key
-          JWT_EXPIRES_IN: 1h
+          JWT_SECRET_KEY: test-secret-key
+          JWT_EXPIRED_IN: 1h
 
       - name: Run lint
         run: npx eslint api/ utils/ --max-warnings 0 || true
