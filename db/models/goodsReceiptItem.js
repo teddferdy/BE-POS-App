@@ -52,6 +52,12 @@ module.exports = (sequelize, DataTypes) => {
       },
       ingredientName: {
         type: DataTypes.STRING
+      },
+      batchNumber: {
+        type: DataTypes.STRING
+      },
+      expiryDate: {
+        type: DataTypes.DATEONLY
       }
     },
     {

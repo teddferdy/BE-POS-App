@@ -34,7 +34,18 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       documentation: {
+        type: DataTypes.TEXT,
+        comment: 'JSON array of photo URLs'
+      },
+      suratJalan: {
         type: DataTypes.STRING
+      },
+      taxInvoiceNo: {
+        type: DataTypes.STRING
+      },
+      shippingCost: {
+        type: DataTypes.DECIMAL(12, 2),
+        defaultValue: 0
       },
       createdBy: {
         type: DataTypes.INTEGER
