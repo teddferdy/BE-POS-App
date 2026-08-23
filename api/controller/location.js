@@ -161,7 +161,7 @@ exports.getAllLocationInTable = async (req, res) => {
         for (const r of regions) {
           regionNameMap[`${r.level}:${r.code}`] = r.name
         }
-      } catch (_) {
+      } catch {
         // region table may not exist yet — fall back to raw codes
       }
     }
@@ -172,7 +172,9 @@ exports.getAllLocationInTable = async (req, res) => {
       id: `loc-${String(loc.id).padStart(3, '0')}`,
       storeId: `ST-${String(loc.id).padStart(3, '0')}`,
       name: loc.name,
-      address: loc.detailLocation,
+      // ponytail: alamat jalan ada di kolom `address`; `detailLocation` adalah
+      // patokan tambahan yang boleh kosong (konsisten dgn endpoint detail)
+      address: loc.address,
       phoneNumber: loc.phoneNumber,
       email: loc.email,
       image: loc.image,
