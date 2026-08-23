@@ -103,6 +103,31 @@ app.set('trust proxy', 1)
 app.use(helmet())
 app.use(compression())
 app.use(cors(corsOptions))
+
+// ponytail: health sebelum rate-limiter — probe monitoring tidak boleh kena throttle
+app.get('/health', async (_, res) => {
+  try {
+    const { sequelize } = require('../db/models')
+    await sequelize.query('SELECT 1')
+    res.status(200).json({
+      success: true,
+      status: 'ok',
+      database: 'up',
+      uptime: Math.round(process.uptime())
+    })
+  } catch {
+    // ponytail: pesan generik — jangan bocorkan detail internal
+    console.log(
+      JSON.stringify({ level: 'error', service: 'pos-api', path: '/health', status: 'db_down' })
+    )
+    res.status(503).json({
+      success: false,
+      status: 'degraded',
+      database: 'down'
+    })
+  }
+})
+
 app.use(limiter)
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
@@ -111,6 +136,29 @@ app.use(express.static('public'))
 
 app.use((req, res, next) => {
   userContext.run({ userId: undefined }, () => next())
+})
+
+// ponytail: structured request log JSON — sumber p95/p99 & error rate,
+// tanpa body/PII; skip OPTIONS (preflight noise)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return next()
+  const start = Date.now()
+  const path = req.originalUrl.split('?')[0]
+  res.on('finish', () => {
+    const status = res.statusCode
+    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info'
+    console.log(
+      JSON.stringify({
+        level,
+        service: 'pos-api',
+        method: req.method,
+        path,
+        status,
+        duration_ms: Date.now() - start
+      })
+    )
+  })
+  next()
 })
 
 const routes = [
@@ -386,7 +434,7 @@ if (!process.env.VERCEL) {
           server ? server.close(() => resolve()) : resolve()
         )
       ])
-      const { sequelize } = require('./models')
+    const { sequelize } = require('../db/models')
       await sequelize.close()
       console.log('DB pool closed. Bye.')
       process.exit(0)
