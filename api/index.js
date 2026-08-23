@@ -103,6 +103,31 @@ app.set('trust proxy', 1)
 app.use(helmet())
 app.use(compression())
 app.use(cors(corsOptions))
+
+// ponytail: health sebelum rate-limiter — probe monitoring tidak boleh kena throttle
+app.get('/health', async (_, res) => {
+  try {
+    const { sequelize } = require('../db/models')
+    await sequelize.query('SELECT 1')
+    res.status(200).json({
+      success: true,
+      status: 'ok',
+      database: 'up',
+      uptime: Math.round(process.uptime())
+    })
+  } catch {
+    // ponytail: pesan generik — jangan bocorkan detail internal
+    console.log(
+      JSON.stringify({ level: 'error', service: 'pos-api', path: '/health', status: 'db_down' })
+    )
+    res.status(503).json({
+      success: false,
+      status: 'degraded',
+      database: 'down'
+    })
+  }
+})
+
 app.use(limiter)
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
@@ -117,10 +142,9 @@ app.use((req, res, next) => {
 // tanpa body/PII; skip OPTIONS (preflight noise)
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return next()
-  const start = process.hrtime.bigint()
+  const start = Date.now()
   const path = req.originalUrl.split('?')[0]
   res.on('finish', () => {
-    const durationMs = Number(process.hrtime.bigint() - start) / 1e6
     const status = res.statusCode
     const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info'
     console.log(
@@ -130,7 +154,7 @@ app.use((req, res, next) => {
         method: req.method,
         path,
         status,
-        duration_ms: Math.round(durationMs * 10) / 10
+        duration_ms: Date.now() - start
       })
     )
   })
@@ -380,27 +404,6 @@ app.get('/', (_, res) => {
     message: 'POS API is running',
     socket: '/socket.io'
   })
-})
-
-// ponytail: health check beneran — verifikasi DB, bukan cuma proses hidup
-app.get('/health', async (_, res) => {
-  try {
-      const { sequelize } = require('../db/models')
-    await sequelize.query('SELECT 1')
-    res.status(200).json({
-      success: true,
-      status: 'ok',
-      database: 'up',
-      uptime: Math.round(process.uptime())
-    })
-  } catch (err) {
-    res.status(503).json({
-      success: false,
-      status: 'degraded',
-      database: 'down',
-      message: err.message
-    })
-  }
 })
 
 const port = process.env.PORT || 5001
