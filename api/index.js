@@ -113,6 +113,30 @@ app.use((req, res, next) => {
   userContext.run({ userId: undefined }, () => next())
 })
 
+// ponytail: structured request log JSON — sumber p95/p99 & error rate,
+// tanpa body/PII; skip OPTIONS (preflight noise)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return next()
+  const start = process.hrtime.bigint()
+  const path = req.originalUrl.split('?')[0]
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - start) / 1e6
+    const status = res.statusCode
+    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info'
+    console.log(
+      JSON.stringify({
+        level,
+        service: 'pos-api',
+        method: req.method,
+        path,
+        status,
+        duration_ms: Math.round(durationMs * 10) / 10
+      })
+    )
+  })
+  next()
+})
+
 const routes = [
   { path: '/auth', route: authRoutes },
   { path: '/product', route: productRoutes },
@@ -358,6 +382,27 @@ app.get('/', (_, res) => {
   })
 })
 
+// ponytail: health check beneran — verifikasi DB, bukan cuma proses hidup
+app.get('/health', async (_, res) => {
+  try {
+      const { sequelize } = require('../db/models')
+    await sequelize.query('SELECT 1')
+    res.status(200).json({
+      success: true,
+      status: 'ok',
+      database: 'up',
+      uptime: Math.round(process.uptime())
+    })
+  } catch (err) {
+    res.status(503).json({
+      success: false,
+      status: 'degraded',
+      database: 'down',
+      message: err.message
+    })
+  }
+})
+
 const port = process.env.PORT || 5001
 
 if (!process.env.VERCEL) {
@@ -386,7 +431,7 @@ if (!process.env.VERCEL) {
           server ? server.close(() => resolve()) : resolve()
         )
       ])
-      const { sequelize } = require('./models')
+    const { sequelize } = require('../db/models')
       await sequelize.close()
       console.log('DB pool closed. Bye.')
       process.exit(0)
