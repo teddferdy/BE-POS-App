@@ -68,6 +68,9 @@ router.delete(
   promoController.deleteCampaign
 )
 
+// ponytail: public endpoint — tampilkan promo aktif untuk customer app (no auth)
+router.get('/customer-active', promoController.getCustomerActivePromos)
+
 // ─── Promo Apply & Usage ──────────────────────────────────────────
 
 router.post(

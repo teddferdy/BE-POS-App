@@ -769,8 +769,12 @@ exports.getDiscountById = async (req, res) => {
         .status(404)
         .json({ success: false, message: 'Discount not found' })
     }
+    // ponytail: hanya order valid yang dihitung — cancelled/void tidak masuk
     const usageCount = await Order.count({
-      where: { discountId: req.params.id }
+      where: {
+        discountId: req.params.id,
+        status: { [Op.notIn]: ['cancelled', 'void'] }
+      }
     })
     return res.status(200).json({
       success: true,

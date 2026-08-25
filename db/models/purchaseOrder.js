@@ -78,6 +78,11 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0,
         comment: 'Landed cost / freight / additional cost allocated to HPP'
       },
+      additionalCostNotes: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Keterangan untuk biaya tambahan (misal: ongkir, admin bank)'
+      },
       overDeliveryTolerance: {
         type: DataTypes.INTEGER,
         defaultValue: 10,

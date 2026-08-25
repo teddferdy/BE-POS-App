@@ -353,10 +353,10 @@ const goodsRequestController = {
           .json({ success: false, message: 'Goods request not found' })
       }
 
-      if (request.status !== 'pending') {
+      if (!['pending', 'cancelled'].includes(request.status)) {
         return res.status(400).json({
           success: false,
-          message: 'Only pending goods request can be updated'
+          message: 'Only pending or cancelled goods request can be updated'
         })
       }
 
@@ -378,7 +378,8 @@ const goodsRequestController = {
               requestDate !== undefined ? requestDate : request.requestDate,
             neededDate:
               neededDate !== undefined ? neededDate : request.neededDate,
-            notes: notes !== undefined ? notes : request.notes
+            notes: notes !== undefined ? notes : request.notes,
+            status: request.status === 'cancelled' ? 'draft' : request.status
           },
           { transaction }
         )
@@ -451,10 +452,10 @@ const goodsRequestController = {
           .json({ success: false, message: 'Goods request not found' })
       }
 
-      if (request.status !== 'pending') {
+      if (!['pending', 'cancelled'].includes(request.status)) {
         return res.status(400).json({
           success: false,
-          message: 'Only pending goods request can be deleted'
+          message: 'Only pending or cancelled goods request can be deleted'
         })
       }
 

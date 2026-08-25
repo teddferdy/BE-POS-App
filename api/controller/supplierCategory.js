@@ -49,9 +49,24 @@ module.exports = {
         return res.status(404).json({ success: false, message: 'Supplier category not found' })
       }
 
+      // ponytail: sertakan supplier yang termasuk kategori ini
+      const suppliers = await db.supplier.findAll({
+        where: { categoryId: id },
+        attributes: ['id', 'name', 'status', 'phone', 'email', 'contactPerson'],
+        order: [['name', 'ASC']]
+      })
+
       await enrichAuditFields(db, [category])
 
-      return res.status(200).json({ success: true, message: 'Success get supplier category', data: category })
+      return res.status(200).json({
+        success: true,
+        message: 'Success get supplier category',
+        data: {
+          ...category.toJSON(),
+          suppliers,
+          supplierCount: suppliers.length
+        }
+      })
     } catch (error) {
       console.log(error)
       return res.status(500).json({ success: false, message: 'Internal server error' })

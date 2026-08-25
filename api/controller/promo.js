@@ -138,6 +138,7 @@ const promoController = {
         priority,
         isCombinable,
         autoActivate,
+        status,
         rules,
         rewards
       } = req.body
@@ -164,7 +165,13 @@ const promoController = {
         priority: priority || 0,
         isCombinable: isCombinable || false,
         autoActivate: autoActivate || false,
-        status: autoActivate ? 'active' : 'draft',
+        // ponytail: FE kirim status eksplisit (Simpan vs Simpan Draft);
+        // fallback ke perilaku lama dari autoActivate
+        status: ['draft', 'active'].includes(status)
+          ? status
+          : autoActivate
+            ? 'active'
+            : 'draft',
         createdBy: req.user?.id
       })
 
@@ -664,6 +671,68 @@ const promoController = {
           activated: activatedCount,
           expired: expiredCount
         }
+      })
+    } catch (error) {
+      console.log(error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
+  // ponytail: public endpoint — tanpa auth, khusus tampilkan promo aktif untuk customer app
+  async getCustomerActivePromos(req, res) {
+    try {
+      const { store } = req.query
+      const now = new Date()
+      const currentDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][now.getDay()]
+      const currentTime = now.toTimeString().slice(0, 8)
+
+      const where = {
+        status: 'active',
+        startDate: { [Op.lte]: now },
+        endDate: { [Op.gte]: now }
+      }
+
+      if (store && store !== '') {
+        const storeId = Number(store)
+        if (!isNaN(storeId)) {
+          where[Op.or] = [
+            { store: { [Op.contains]: [storeId] } },
+            { store: null }
+          ]
+        }
+      }
+
+      const campaigns = await db.promo_campaign.findAll({
+        where,
+        order: [
+          ['priority', 'DESC'],
+          ['createdAt', 'DESC']
+        ],
+        limit: 3,
+        attributes: [
+          'id', 'name', 'description', 'code', 'type',
+          'discountType', 'discountValue', 'maxDiscount', 'minPurchase',
+          'startDate', 'endDate', 'startTime', 'endTime',
+          'daysOfWeek', 'applicableTo', 'priority'
+        ]
+      })
+
+      const filtered = campaigns.filter((c) => {
+        if (c.startTime && c.endTime) {
+          if (currentTime < c.startTime || currentTime > c.endTime) return false
+        }
+        if (c.daysOfWeek && Array.isArray(c.daysOfWeek) && c.daysOfWeek.length > 0) {
+          if (!c.daysOfWeek.includes(currentDay)) return false
+        }
+        return true
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get customer active promos',
+        data: filtered
       })
     } catch (error) {
       console.log(error)

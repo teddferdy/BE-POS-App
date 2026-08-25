@@ -11,6 +11,18 @@ const strToNum = () =>
     .refine((v) => !isNaN(v), { message: 'must be a number' })
     .refine((v) => v >= 0, { message: 'must not be negative' })
 
+// ponytail: null = "semua toko" untuk promo campaign (store column JSONB)
+const strToNumNullable = () =>
+  z
+    .any()
+    .transform((v) => {
+      if (v === '' || v === null || v === undefined) return null
+      return Number(v)
+    })
+    .refine((v) => v === null || (!isNaN(v) && v >= 0), {
+      message: 'must be a valid number or null'
+    })
+
 const optionalStrToNum = () =>
   z
     .any()
@@ -1312,7 +1324,8 @@ exports.updateSupplierScoreNoteSchema = z.object({
 
 // ===================== Automated Promotions =====================
 exports.createPromoCampaignSchema = z.object({
-  store: strToNum(),
+  // ponytail: null = "semua toko" — strToNumNullable agar FE boleh kirim null
+  store: strToNumNullable(),
   name: z.string().min(1, 'Campaign name is required'),
   description: z.string().optional().nullable(),
   code: z.string().optional().nullable(),

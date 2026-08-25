@@ -11,6 +11,17 @@ const { createAudit } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
 const batchService = require('../service/batchService')
 
+// ponytail: validFrom/validUntil opsional — null berarti selalu berlaku
+const isBundleWithinValidityPeriod = (bundle, now = new Date()) => {
+  const validFrom = bundle.validFrom ? new Date(bundle.validFrom) : null
+  const validUntil = bundle.validUntil ? new Date(bundle.validUntil) : null
+  if (validFrom && isNaN(validFrom.getTime())) return true
+  if (validUntil && isNaN(validUntil.getTime())) return true
+  if (validFrom && validFrom > now) return false
+  if (validUntil && validUntil < now) return false
+  return true
+}
+
 let _productStoreExists = null
 let _categoryStoreExists = null
 let _orderPromoCampaignCol = null
@@ -599,7 +610,12 @@ exports.createOrder = async (req, res) => {
             message: `Bundle not found: ${item.bundleName || item.bundleId}`
           })
         }
-        if (!bundle.isAvailable || bundle.status !== 'active') {
+        if (
+          !bundle ||
+          !bundle.isAvailable ||
+          bundle.status !== 'active' ||
+          !isBundleWithinValidityPeriod(bundle)
+        ) {
           return res.status(400).json({
             message: `Bundle "${bundle.name}" is not available`
           })
@@ -804,6 +820,15 @@ exports.createOrder = async (req, res) => {
       if (item.bundleId && bundleMap[item.bundleId]) {
         // Bundle item: create one order_item for the bundle
         const bundle = bundleMap[item.bundleId]
+        // ponytail: HPP bundle = total harga komponen — kalau kosong, laporan
+        // harian fallback ke harga jual sehingga food cost meleset
+        const bundleCost = (bundle.items || []).reduce(
+          (sum, bi) =>
+            sum +
+            Number(bi.productData?.costPrice ?? bi.productData?.price ?? 0) *
+              Number(bi.quantity || 1),
+          0
+        )
         const itemDiscountAmount = Math.max(
           0,
           (item._origSubtotal || 0) - (item.subtotal || 0)
@@ -823,6 +848,7 @@ exports.createOrder = async (req, res) => {
           options: item.options || [],
           modifiers: item.modifiers || [],
           notes: item.notes,
+          hppSnapshot: Math.round(bundleCost),
           status: 'pending'
         })
       } else {
@@ -1925,7 +1951,12 @@ exports.createCustomerOrder = async (req, res) => {
             }
           ]
         })
-        if (!bundle || !bundle.isAvailable || bundle.status !== 'active') {
+        if (
+          !bundle ||
+          !bundle.isAvailable ||
+          bundle.status !== 'active' ||
+          !isBundleWithinValidityPeriod(bundle)
+        ) {
           return res.status(400).json({
             message: `Bundle not available: ${item.bundleName || item.bundleId}`
           })
@@ -2008,6 +2039,15 @@ exports.createCustomerOrder = async (req, res) => {
         const subtotal = bundle.bundlePrice * item.quantity
         subTotal += subtotal
         totalQuantity += item.quantity
+        // ponytail: HPP bundle = total harga komponen — kalau kosong, laporan
+        // harian fallback ke harga jual sehingga food cost meleset
+        const bundleCost = (bundle.items || []).reduce(
+          (sum, bi) =>
+            sum +
+            Number(bi.productData?.costPrice ?? bi.productData?.price ?? 0) *
+              Number(bi.quantity || 1),
+          0
+        )
         orderItems.push({
           product: bundle.items[0]?.product || 0,
           productName: bundle.name,
@@ -2016,6 +2056,7 @@ exports.createCustomerOrder = async (req, res) => {
           bundleId: bundle.id,
           bundleName: bundle.name,
           totalPrice: subtotal,
+          hppSnapshot: Math.round(bundleCost),
           notes: item.notes || null,
           options: item.options || [],
           modifiers: item.modifiers || [],
