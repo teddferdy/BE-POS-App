@@ -3,6 +3,7 @@ const router = express.Router()
 const multer = require('multer')
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 const purchaseReturnController = require('../controller/purchaseReturn')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
@@ -19,7 +20,7 @@ const storage = multer.diskStorage({
     cb(null, uploadDir)
   },
   filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`
+    const unique = `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname)}`
     cb(null, unique)
   }
 })

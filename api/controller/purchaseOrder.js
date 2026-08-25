@@ -376,23 +376,25 @@ const purchaseOrderController = {
 
       // ponytail: sertakan data goods request jika PO berasal dari permintaan barang
       if (data.notes && data.notes.includes('Dari Permintaan Barang:')) {
-        const safePoId = String(purchaseOrder.id).trim()
-        const gr = await db.goodsRequest.findOne({ // codacy-ignore-line
-          where: { purchaseOrderId: safePoId },
-          attributes: [
-            'id', 'requestNumber', 'requestedBy', 'requestDate',
-            'neededDate', 'notes', 'status', 'store'
-          ],
-          include: [
-            {
-              model: db.goodsRequestItem,
-              as: 'items',
-              attributes: ['id', 'ingredientName', 'productName', 'qty', 'unit', 'notes']
-            }
-          ]
-        })
-        if (gr) {
-          data.goodsRequestData = gr.toJSON()
+        const safePoId = parseInt(purchaseOrder.id, 10)
+        if (!Number.isNaN(safePoId)) {
+          const gr = await db.goodsRequest.findOne({
+            where: { purchaseOrderId: safePoId },
+            attributes: [
+              'id', 'requestNumber', 'requestedBy', 'requestDate',
+              'neededDate', 'notes', 'status', 'store'
+            ],
+            include: [
+              {
+                model: db.goodsRequestItem,
+                as: 'items',
+                attributes: ['id', 'ingredientName', 'productName', 'qty', 'unit', 'notes']
+              }
+            ]
+          })
+          if (gr) {
+            data.goodsRequestData = gr.toJSON()
+          }
         }
       }
 
