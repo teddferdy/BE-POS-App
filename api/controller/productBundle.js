@@ -1,6 +1,21 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { uploadToCloudinaryWithDedup } = require('../../utils/cloudinaryStorage')
+
+// ponytail: FE bisa kirim JSON langsung atau FormData (image + data JSON) —
+// sama seperti pola location add/edit
+const parseBundleBody = (req) => {
+  let body = req.body || {}
+  if (body.data) {
+    try {
+      body = typeof body.data === 'string' ? JSON.parse(body.data) : body.data
+    } catch {
+      return null
+    }
+  }
+  return body
+}
 
 const generateBundleSku = (prefix = 'BNDL') => {
   const date = new Date()
@@ -13,6 +28,52 @@ const generateBundleSku = (prefix = 'BNDL') => {
   return `${prefix}-${year}${month}${day}-${random}`
 }
 
+// ponytail: bundle yang sudah lewat validUntil otomatis non-aktif —
+// dipanggil lazy di getAll/getById, pola sama seperti discount.
+// Kasir juga tetap aman karena query di product.js sudah filter validUntil.
+const expireStaleBundles = async (extraWhere = {}) => {
+  try {
+    await db.product_bundle.update(
+      { status: 'inactive' },
+      {
+        where: {
+          ...extraWhere,
+          status: 'active',
+          validUntil: {
+            [Op.and]: [{ [Op.ne]: null }, { [Op.lt]: new Date() }]
+          }
+        }
+      }
+    )
+  } catch (e) {
+    console.error('Expire stale bundles error:', e.message)
+  }
+}
+
+// ponytail: hitung jumlah transaksi (distinct order) yang memakai bundle —
+// order cancelled/void tidak dihitung agar pencatatan akurat
+const countBundleUsage = async (bundleId) => {
+  try {
+    const rows = await db.sequelize.query(
+      `SELECT COUNT(DISTINCT oi."order") AS count
+       FROM order_item oi
+       JOIN "order" o ON o.id = oi."order"
+       WHERE oi."bundleId" = :bundleId
+         AND oi."deletedAt" IS NULL
+         AND o."deletedAt" IS NULL
+         AND o."status" NOT IN ('cancelled', 'void')`,
+      {
+        replacements: { bundleId: Number(bundleId) },
+        type: db.sequelize.QueryTypes.SELECT
+      }
+    )
+    return Number(rows?.[0]?.count || 0)
+  } catch (e) {
+    console.error('Count bundle usage error:', e.message)
+    return 0
+  }
+}
+
 const bundleController = {
   async getAll(req, res) {
     try {
@@ -22,6 +83,11 @@ const bundleController = {
           ? req.storeId || req.query.store || req.cookies.store
           : req.storeId || req.cookies.store
       const { status, search, page = 1, limit = 10 } = req.query
+
+      // ponytail: expire dulu supaya stats & list akurat
+      await expireStaleBundles(
+        effectiveStore ? { store: effectiveStore } : {}
+      )
 
       const where = {}
       if (effectiveStore) where.store = effectiveStore
@@ -93,6 +159,9 @@ const bundleController = {
   async getById(req, res) {
     try {
       const { id } = req.params
+
+      await expireStaleBundles()
+
       const bundle = await db.product_bundle.findByPk(id, {
         include: [
           {
@@ -120,7 +189,12 @@ const bundleController = {
         return res.status(404).json({ message: 'Bundle tidak ditemukan' })
       }
 
-      return res.status(200).json({ message: 'success', data: bundle })
+      // ponytail: jumlah transaksi yang memakai bundle ini (untuk detail page)
+      const usageCount = await countBundleUsage(id)
+      const data = bundle.toJSON()
+      data.usageCount = usageCount
+
+      return res.status(200).json({ message: 'success', data })
     } catch (error) {
       console.error('Bundle getById error:', error)
       return res.status(500).json({ message: error.message })
@@ -129,6 +203,10 @@ const bundleController = {
 
   async create(req, res) {
     try {
+      const body = parseBundleBody(req)
+      if (!body) {
+        return res.status(400).json({ message: 'Invalid JSON format in data field' })
+      }
       const {
         name,
         description,
@@ -142,7 +220,7 @@ const bundleController = {
         minQuantity,
         maxQuantity,
         store
-      } = req.body
+      } = body
 
       if (!items || items.length === 0) {
         return res
@@ -173,12 +251,21 @@ const bundleController = {
       const effectiveStore =
         store !== undefined ? store : req.storeId || req.cookies.store || null
 
+      let imageUrl = image || null
+      if (req.file) {
+        const { url } = await uploadToCloudinaryWithDedup(
+          req.file.path,
+          'pos-app-bundles'
+        )
+        imageUrl = url
+      }
+
       const bundle = await db.product_bundle.create({
         store: effectiveStore,
         name,
         sku,
         description,
-        image,
+        image: imageUrl,
         bundlePrice: bundlePrice || 0,
         originalPrice,
         discountAmount: Math.max(discountAmount, 0),
@@ -220,12 +307,13 @@ const bundleController = {
       })
 
       await createAudit(
+        req,
+        'CREATE',
         'product_bundle',
         bundle.id,
-        'CREATE',
+        'Created bundle: ' + bundle.name,
         null,
-        result.toJSON(),
-        req
+        result.toJSON()
       )
 
       return res
@@ -250,6 +338,10 @@ const bundleController = {
 
       const oldData = bundle.toJSON()
 
+      const body = parseBundleBody(req)
+      if (!body) {
+        return res.status(400).json({ message: 'Invalid JSON format in data field' })
+      }
       const {
         name,
         description,
@@ -263,7 +355,7 @@ const bundleController = {
         minQuantity,
         maxQuantity,
         store
-      } = req.body
+      } = body
 
       let originalPrice = 0
       if (items && items.length > 0) {
@@ -304,11 +396,20 @@ const bundleController = {
           ? ((discountAmount / originalPrice) * 100).toFixed(2)
           : 0
 
+      let imageUrl = image !== undefined ? image : bundle.image
+      if (req.file) {
+        const { url } = await uploadToCloudinaryWithDedup(
+          req.file.path,
+          'pos-app-bundles'
+        )
+        imageUrl = url
+      }
+
       await bundle.update({
         name: name || bundle.name,
         description:
           description !== undefined ? description : bundle.description,
-        image: image !== undefined ? image : bundle.image,
+        image: imageUrl,
         bundlePrice: finalBundlePrice,
         originalPrice,
         discountAmount: Math.max(discountAmount, 0),
@@ -342,12 +443,13 @@ const bundleController = {
       })
 
       await createAudit(
+        req,
+        'UPDATE',
         'product_bundle',
         bundle.id,
-        'UPDATE',
+        'Updated bundle: ' + bundle.name,
         oldData,
-        result.toJSON(),
-        req
+        result.toJSON()
       )
 
       return res
@@ -374,12 +476,13 @@ const bundleController = {
       await bundle.destroy()
 
       await createAudit(
+        req,
+        'DELETE',
         'product_bundle',
         bundle.id,
-        'DELETE',
+        'Deleted bundle: ' + oldData.name,
         oldData,
-        null,
-        req
+        null
       )
 
       return res.status(200).json({ message: 'Bundle berhasil dihapus' })
@@ -392,16 +495,64 @@ const bundleController = {
   async changeStatus(req, res) {
     try {
       const { id } = req.params
-      const { status } = req.body
+      const { status, validFrom, validUntil } = req.body
 
       const bundle = await db.product_bundle.findByPk(id)
       if (!bundle) {
         return res.status(404).json({ message: 'Bundle tidak ditemukan' })
       }
 
+      // ponytail: FE bisa ikut mengirim masa berlaku baru saat aktivasi
+      const updates = {}
+      for (const [key, raw] of [
+        ['validFrom', validFrom],
+        ['validUntil', validUntil]
+      ]) {
+        if (raw === undefined) continue
+        if (raw === null || raw === '') {
+          updates[key] = null
+          continue
+        }
+        const d = new Date(raw)
+        if (isNaN(d.getTime())) {
+          return res
+            .status(400)
+            .json({ message: `${key === 'validFrom' ? 'Tanggal mulai' : 'Tanggal berakhir'} tidak valid` })
+        }
+        updates[key] = d
+      }
+
+      const effectiveFrom =
+        updates.validFrom !== undefined ? updates.validFrom : bundle.validFrom
+      const effectiveUntil =
+        updates.validUntil !== undefined ? updates.validUntil : bundle.validUntil
+
+      // ponytail: bundle yang validUntil-nya sudah lewat tidak boleh
+      // diaktifkan — nanti langsung di-auto-expire lagi di list berikutnya
+      if (
+        status === 'active' &&
+        effectiveUntil &&
+        new Date(effectiveUntil) < new Date()
+      ) {
+        return res.status(400).json({
+          message:
+            'Tanggal berakhir bundle sudah lewat. Perbarui masa berlaku sebelum mengaktifkan.'
+        })
+      }
+
+      if (
+        effectiveFrom &&
+        effectiveUntil &&
+        new Date(effectiveUntil) < new Date(effectiveFrom)
+      ) {
+        return res.status(400).json({
+          message: 'Tanggal berakhir harus setelah tanggal mulai'
+        })
+      }
+
       const oldData = bundle.toJSON()
 
-      await bundle.update({ status })
+      await bundle.update({ status, ...updates })
 
       const result = await db.product_bundle.findByPk(id, {
         include: [
@@ -420,12 +571,13 @@ const bundleController = {
       })
 
       await createAudit(
+        req,
+        'STATUS_CHANGE',
         'product_bundle',
         bundle.id,
-        'STATUS_CHANGE',
+        'Changed bundle status: ' + bundle.name,
         oldData,
-        result.toJSON(),
-        req
+        result.toJSON()
       )
 
       return res

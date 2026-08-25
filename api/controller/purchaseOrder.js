@@ -18,7 +18,8 @@ const generateOrderNumber = (prefix) => {
 const purchaseOrderController = {
   async getAll(req, res) {
     try {
-      const effectiveStore = req.storeId
+      const userRole = req.user?.roleType || req.user?.role
+      const isSuperAdmin = userRole === 'super_admin'
       const {
         status,
         startDate,
@@ -26,6 +27,7 @@ const purchaseOrderController = {
         search,
         deleted,
         source,
+        stores,
         page = 1,
         limit = 10
       } = req.query
@@ -57,10 +59,23 @@ const purchaseOrderController = {
       if (search) {
         where[Op.or] = [{ orderNumber: { [Op.iLike]: `%${search}%` } }]
       }
+      let storeIds = null
+      if (isSuperAdmin && stores) {
+        storeIds = stores.split(',').map(Number).filter(Boolean)
+      } else if (!isSuperAdmin && req.storeId) {
+        storeIds = [parseInt(req.storeId)]
+      }
+      if (storeIds && storeIds.length === 1) {
+        where.store = storeIds[0]
+      } else if (storeIds && storeIds.length > 1) {
+        where.store = { [Op.in]: storeIds }
+      }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
-      const statsWhere = effectiveStore ? { store: effectiveStore } : {}
+      const statsWhere = storeIds
+        ? (storeIds.length === 1 ? { store: storeIds[0] } : { store: { [Op.in]: storeIds } })
+        : {}
       const [
         draftCount,
         pendingCount,
@@ -359,14 +374,25 @@ const purchaseOrderController = {
       ]
       data.supplierNames = supplierNames
 
-      if (!data.picData) {
+      // ponytail: sertakan data goods request jika PO berasal dari permintaan barang
+      if (data.notes && data.notes.includes('Dari Permintaan Barang:')) {
         const safePoId = String(purchaseOrder.id).trim()
-        const goodsRequest = await db.goodsRequest.findOne({ // codacy-ignore-line
+        const gr = await db.goodsRequest.findOne({ // codacy-ignore-line
           where: { purchaseOrderId: safePoId },
-          attributes: ['requestedBy']
+          attributes: [
+            'id', 'requestNumber', 'requestedBy', 'requestDate',
+            'neededDate', 'notes', 'status', 'store'
+          ],
+          include: [
+            {
+              model: db.goodsRequestItem,
+              as: 'items',
+              attributes: ['id', 'ingredientName', 'productName', 'qty', 'unit', 'notes']
+            }
+          ]
         })
-        if (goodsRequest?.requestedBy) {
-          data.picData = { id: null, fullName: goodsRequest.requestedBy }
+        if (gr) {
+          data.goodsRequestData = gr.toJSON()
         }
       }
 
@@ -449,6 +475,7 @@ const purchaseOrderController = {
         tenor,
         dpPercent,
         additionalCost = 0,
+        additionalCostNotes = null,
         overDeliveryTolerance = 10
       } = req.body
       const createdBy = req.user?.id || null
@@ -516,6 +543,7 @@ const purchaseOrderController = {
         tenor: tenor || 0,
         dpPercent: dpPercent || 0,
         additionalCost: Number(additionalCost) || 0,
+        additionalCostNotes: additionalCostNotes || null,
         overDeliveryTolerance: Number(overDeliveryTolerance) || 10
       })
 
@@ -585,6 +613,7 @@ const purchaseOrderController = {
         tenor,
         dpPercent,
         additionalCost,
+        additionalCostNotes,
         overDeliveryTolerance
       } = bodyRest
       const modifiedBy = req.user?.id || null
@@ -736,6 +765,10 @@ const purchaseOrderController = {
         dpPercent:
           dpPercent !== undefined ? dpPercent : purchaseOrder.dpPercent,
         additionalCost: finalAdditionalCost,
+        additionalCostNotes:
+          additionalCostNotes !== undefined
+            ? additionalCostNotes
+            : purchaseOrder.additionalCostNotes,
         overDeliveryTolerance:
           overDeliveryTolerance !== undefined
             ? Number(overDeliveryTolerance) || 10

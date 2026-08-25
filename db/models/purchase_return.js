@@ -36,6 +36,9 @@ module.exports = (sequelize, DataTypes) => {
       returnedBy: {
         type: DataTypes.STRING
       },
+      documentation: {
+        type: DataTypes.TEXT
+      },
       createdBy: {
         type: DataTypes.INTEGER
       }

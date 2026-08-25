@@ -153,11 +153,20 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
     if (store) {
       const storeId = Number(store)
       if (!isNaN(storeId)) {
+        // ponytail: validFrom/validUntil opsional — null berarti selalu berlaku;
+        // store null = Semua Toko; store bisa tersimpan scalar atau array JSONB, cek keduanya
+        const now = new Date()
         const activeBundles = await db.product_bundle.findAll({
           where: {
             status: 'active',
             isAvailable: true,
-            store: { [Op.contains]: [storeId] }
+            validFrom: { [Op.or]: [{ [Op.is]: null }, { [Op.lte]: now }] },
+            validUntil: { [Op.or]: [{ [Op.is]: null }, { [Op.gte]: now }] },
+            [Op.and]: [
+              db.sequelize.literal(
+                `("product_bundle"."store" IS NULL OR "product_bundle"."store"::text = '${storeId}' OR "product_bundle"."store"::jsonb @> '[${storeId}]'::jsonb)`
+              )
+            ]
           },
           include: [
             {

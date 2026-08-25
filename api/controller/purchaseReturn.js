@@ -1,6 +1,9 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const {
+  uploadToCloudinaryWithDedup
+} = require('../../utils/cloudinaryStorage')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -678,6 +681,14 @@ const purchaseReturnController = {
 
   async create(req, res) {
     try {
+      // ponytail: FormData wraps payload in req.body.data
+      if (typeof req.body?.data === 'string') {
+        try {
+          const unwrapped = JSON.parse(req.body.data)
+          req.body = { ...req.body, ...unwrapped }
+          delete req.body.data
+        } catch {}
+      }
       const { purchaseOrder: poId, items, reason, returnedBy } = req.body
       const createdBy = req.user?.id || null
 
@@ -793,6 +804,27 @@ const purchaseReturnController = {
       const rand = Math.random().toString(36).substring(2, 6).toUpperCase()
       const returnNumber = `PR-${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}-${rand}`
 
+      // Upload documentation files to Cloudinary
+      let documentation = null
+      const files = Array.isArray(req.files) ? req.files : []
+      if (files.length > 0) {
+        const urls = []
+        for (const f of files) {
+          try {
+            const { url } = await uploadToCloudinaryWithDedup(
+              f.path,
+              'pos-app/purchase-return'
+            )
+            if (url) urls.push(url)
+          } catch (uploadErr) {
+            console.error('Upload failed:', uploadErr.message)
+          } finally {
+            try { require('fs').unlinkSync(f.path) } catch {}
+          }
+        }
+        if (urls.length > 0) documentation = JSON.stringify(urls)
+      }
+
       const t = await db.sequelize.transaction()
       try {
         const ret = await db.purchase_return.create(
@@ -803,6 +835,7 @@ const purchaseReturnController = {
             status: 'pending',
             reason: reason || null,
             returnedBy: returnedBy || null,
+            documentation,
             createdBy
           },
           { transaction: t }

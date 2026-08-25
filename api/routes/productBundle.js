@@ -1,9 +1,32 @@
 const express = require('express')
 const router = express.Router()
+const fs = require('fs')
+const multer = require('multer')
 const bundleController = require('../controller/productBundle')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+
+const uploadDir = '/tmp/uploads'
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true })
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + '-' + file.originalname)
+  }
+})
+
+// ponytail: image bundle diupload multipart 'image' — sama seperti location
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }
+}).single('image')
 
 router.get(
   '/get-all',
@@ -24,6 +47,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  upload,
   bundleController.create
 )
 
@@ -32,6 +56,7 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
+  upload,
   bundleController.update
 )
 

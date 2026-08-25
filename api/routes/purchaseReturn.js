@@ -1,11 +1,36 @@
 const express = require('express')
 const router = express.Router()
+const multer = require('multer')
+const fs = require('fs')
+const path = require('path')
 const purchaseReturnController = require('../controller/purchaseReturn')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const { createPurchaseReturnSchema } = require('../validation/schemas')
+
+const uploadDir = '/tmp/uploads'
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true })
+}
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, uploadDir)
+  },
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`
+    cb(null, unique)
+  }
+})
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true)
+    else cb(new Error('Only image files are allowed'), false)
+  }
+})
 
 router.get(
   '/get-all',
@@ -31,7 +56,7 @@ router.post(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  validate(createPurchaseReturnSchema),
+  upload.array('file', 5),
   purchaseReturnController.create
 )
 

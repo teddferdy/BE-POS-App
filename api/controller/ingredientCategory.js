@@ -97,10 +97,21 @@ const ingredientCategoryController = {
         })
       }
 
+      // ponytail: sertakan bahan baku yang termasuk kategori ini
+      const ingredients = await db.ingredient.findAll({
+        where: { category: id },
+        attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'status', 'costPrice'],
+        order: [['updatedAt', 'DESC']]
+      })
+
       return res.status(200).json({
         success: true,
         message: 'Success get ingredient category',
-        data: category
+        data: {
+          ...category.toJSON(),
+          ingredients,
+          ingredientCount: ingredients.length
+        }
       })
     } catch (error) {
       console.error(error)
