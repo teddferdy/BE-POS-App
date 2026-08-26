@@ -220,7 +220,7 @@ const ingredientController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = req.storeId || req.body.store || req.cookies.store || req.user?.store
       const {
         name,
         category,
