@@ -4,10 +4,7 @@ const { z } = require('zod')
 const strToNum = () =>
   z
     .any()
-    .refine((v) => v !== '' && v !== null && v !== undefined, {
-      message: 'required'
-    })
-    .transform((v) => Number(v))
+    .transform((v) => (v === '' || v === null || v === undefined ? 0 : Number(v)))
     .refine((v) => !isNaN(v), { message: 'must be a number' })
     .refine((v) => v >= 0, { message: 'must not be negative' })
 

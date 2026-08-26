@@ -21,10 +21,14 @@ const validate = (schema, source = 'body') => {
       next()
     } catch (error) {
       if (error instanceof ZodError) {
-        const messages = error.issues.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message
-        }))
+        const messages = error.issues.map((e) => {
+          let field = e.path.join('.');
+          if (field === 'costPrice') field = 'Harga Beli';
+          return {
+            field: field,
+            message: e.message
+          };
+        });
         return res.status(400).json({
           success: false,
           message: messages.map((m) => `${m.field}: ${m.message}`).join('; '),
