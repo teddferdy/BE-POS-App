@@ -790,7 +790,7 @@ exports.updateStockOpnameSchema = exports.createStockOpnameSchema.partial()
 
 // ===================== Shift =====================
 exports.createShiftSchema = z.object({
-  store: strToNum().optional().nullable(),
+  store: z.any().optional().nullable(),
   nama_shift: z.string().min(1, 'Shift name is required'),
   tipe_shift: z.string().optional().default(''),
   jam_mulai: z.string().min(1, 'Start time is required'),
@@ -814,6 +814,22 @@ exports.createDepartmentSchema = z.object({
 })
 
 exports.updateDepartmentSchema = exports.createDepartmentSchema
+  .partial()
+  .extend({
+    id: strToNum()
+  })
+
+// ===================== Shift Template =====================
+exports.createShiftTemplateSchema = z.object({
+  store: strToNum().optional().nullable(),
+  name: z.string().min(1, 'Template name is required'),
+  startTime: z.string().min(1, 'Start time is required'),
+  endTime: z.string().min(1, 'End time is required'),
+  description: z.string().optional().nullable(),
+  status: statusEnum
+})
+
+exports.updateShiftTemplateSchema = exports.createShiftTemplateSchema
   .partial()
   .extend({
     id: strToNum()
@@ -1492,4 +1508,20 @@ exports.approveSalesReturnSchema = z.object({
 
 exports.rejectSalesReturnSchema = z.object({
   id: strToNum()
+})
+
+// ===================== Shift Swap (Ubah Jadwal) =====================
+exports.createShiftSwapSchema = z.object({
+  store: strToNumNullable().optional(),
+  requesterId: strToNumNullable().optional(),
+  targetId: strToNumNullable(),
+  requesterShiftId: strToNumNullable(),
+  targetShiftId: strToNumNullable(),
+  tanggal_mulai: z.string().optional().nullable(),
+  tanggal_selesai: z.string().optional().nullable(),
+  note: z.string().optional().nullable()
+})
+
+exports.updateShiftSwapStatusSchema = z.object({
+  status: z.enum(['approved', 'rejected'])
 })

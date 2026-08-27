@@ -1,62 +1,61 @@
 const express = require('express')
 const router = express.Router()
 
-const shiftController = require('../controller/shift')
+const shiftTemplateController = require('../controller/shiftTemplate')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
-  createShiftSchema,
-  updateShiftSchema
+  createShiftTemplateSchema,
+  updateShiftTemplateSchema
 } = require('../validation/schemas')
 
-// Get All Shift - All authenticated users
 router.get(
-  '/get-shift',
+  '/get-shift-template',
   authorization,
   validateStoreAccess,
-  shiftController.getAllShift
+  shiftTemplateController.getAllShiftTemplate
 )
 
 router.get(
-  '/get-shift/:id',
+  '/get-shift-template-all',
   authorization,
   validateStoreAccess,
-  shiftController.getShiftById
+  shiftTemplateController.getAllShiftTemplateInTable
 )
 
-// Get Shift Dropdown
 router.get(
-  '/dropdown',
+  '/get-shift-template/:id',
   authorization,
   validateStoreAccess,
-  shiftController.getShiftDropdown
+  shiftTemplateController.getShiftTemplateById
 )
 
-// Add/Edit/Delete Shift - Admin & Super Admin only
 router.post(
-  '/add-new-shift',
+  '/add-new-shift-template',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  validate(createShiftSchema),
-  shiftController.postNewShift
+  validate(createShiftTemplateSchema),
+  shiftTemplateController.addNewShiftTemplate
 )
+
 router.put(
-  '/edit-shift/:id',
+  '/edit-shift-template/:id',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  validate(updateShiftSchema),
-  shiftController.editShiftById
+  validate(updateShiftTemplateSchema),
+  shiftTemplateController.editShiftTemplateById
 )
+
 router.delete(
-  '/delete-shift/:id',
+  '/delete-shift-template/:id',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  shiftController.deleteShiftById
+  shiftTemplateController.deleteShiftTemplateById
 )
 
 module.exports = router

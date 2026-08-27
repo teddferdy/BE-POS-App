@@ -74,6 +74,8 @@ const inventoryRoutes = require('./routes/inventory')
 const thermalPrinterRoutes = require('./routes/thermalPrinter')
 const goodsRequestRoutes = require('./routes/goodsRequest')
 const regionRoutes = require('./routes/region')
+const shiftTemplateRoutes = require('./routes/shiftTemplate')
+const shiftSwapRoutes = require('./routes/shiftSwap')
 
 const app = express()
 const server = http.createServer(app)
@@ -224,7 +226,9 @@ const routes = [
   { path: '/thermal-printer', route: thermalPrinterRoutes },
   { path: '/backup', route: backupRoutes },
   { path: '/accounting', route: accountingRoutes },
-  { path: '/regions', route: regionRoutes }
+  { path: '/regions', route: regionRoutes },
+  { path: '/shift-template', route: shiftTemplateRoutes },
+  { path: '/shift-swap', route: shiftSwapRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))

@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'shift',
+  const ShiftTemplate = sequelize.define(
+    'shift_template',
     {
       id: {
         allowNull: false,
@@ -24,21 +24,8 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.TIME
       },
-      tipe_shift: {
-        type: DataTypes.STRING(20),
-        defaultValue: ''
-      },
-      tanggal_mulai: {
-        type: DataTypes.DATEONLY,
-        allowNull: true
-      },
-      tanggal_selesai: {
-        type: DataTypes.DATEONLY,
-        allowNull: true
-      },
-      karyawan: {
-        type: DataTypes.JSONB,
-        defaultValue: []
+      description: {
+        type: DataTypes.STRING
       },
       status: {
         type: DataTypes.STRING(20),
@@ -54,15 +41,10 @@ module.exports = (sequelize, DataTypes) => {
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'shift',
-      tableName: 'shift'
+      modelName: 'shift_template',
+      tableName: 'shift_template'
     }
   )
 
-  Shift.associate = (models) => {
-    Shift.belongsTo(models.user, { foreignKey: 'createdBy', as: 'createdByUser' })
-    Shift.belongsTo(models.user, { foreignKey: 'modifiedBy', as: 'modifiedByUser' })
-  }
-
-  return Shift
+  return ShiftTemplate
 }
