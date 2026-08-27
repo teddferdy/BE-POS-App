@@ -209,7 +209,8 @@ exports.getAllEmployee = async (req, res) => {
       page: rawPage = 1,
       limit: rawLimit = 10,
       search,
-      status
+      status,
+      location
     } = req.query
     const page = Math.max(1, parseInt(rawPage) || 1)
     const limit = Math.max(1, Math.min(100, parseInt(rawLimit) || 10))
@@ -229,7 +230,9 @@ exports.getAllEmployee = async (req, res) => {
       ]
     }
 
-    if (currentUserRole === 'admin') {
+    if (location) {
+      whereCondition.store = location
+    } else if (currentUserRole === 'admin') {
       whereCondition.store = currentUserStore
     }
 

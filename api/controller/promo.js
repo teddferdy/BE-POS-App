@@ -10,12 +10,19 @@ const promoController = {
       const store = req.query.store || req.user?.store
 
       const where = {}
-      if (req.user?.roleType !== 'super_admin') {
-        if (req.user?.store) {
-          where.store = { [Op.contains]: [Number(req.user.store)] }
-        }
-      } else if (store && store !== '') {
-        where.store = { [Op.contains]: [Number(store)] }
+      const andConditions = []
+
+      const storeFilter = req.user?.roleType !== 'super_admin'
+        ? (req.user?.store ? Number(req.user.store) : null)
+        : (store && store !== '' ? Number(store) : null)
+
+      if (storeFilter) {
+        andConditions.push({
+          [Op.or]: [
+            { store: { [Op.contains]: [storeFilter] } },
+            { store: null }
+          ]
+        })
       }
 
       if (status && status !== 'all') {
@@ -25,11 +32,17 @@ const promoController = {
         where.type = type
       }
       if (search) {
-        where[Op.or] = [
-          { name: { [Op.iLike]: `%${search}%` } },
-          { code: { [Op.iLike]: `%${search}%` } },
-          { description: { [Op.iLike]: `%${search}%` } }
-        ]
+        andConditions.push({
+          [Op.or]: [
+            { name: { [Op.iLike]: `%${search}%` } },
+            { code: { [Op.iLike]: `%${search}%` } },
+            { description: { [Op.iLike]: `%${search}%` } }
+          ]
+        })
+      }
+
+      if (andConditions.length > 0) {
+        where[Op.and] = andConditions
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -155,8 +168,8 @@ const promoController = {
         minPurchase: minPurchase || 0,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
-        startTime,
-        endTime,
+        startTime: startTime || null,
+        endTime: endTime || null,
         daysOfWeek,
         applicableTo: applicableTo || 'all',
         applicableIds,
@@ -243,6 +256,9 @@ const promoController = {
       if (updateData.startDate)
         updateData.startDate = new Date(updateData.startDate)
       if (updateData.endDate) updateData.endDate = new Date(updateData.endDate)
+
+      if (updateData.startTime === '') updateData.startTime = null
+      if (updateData.endTime === '') updateData.endTime = null
 
       updateData.modifiedBy = req.user?.id
 
@@ -381,12 +397,14 @@ const promoController = {
         endDate: { [Op.gte]: now }
       }
 
-      if (req.user?.roleType !== 'super_admin') {
-        if (req.user?.store) {
-          where.store = { [Op.contains]: [Number(req.user.store)] }
-        }
-      } else if (store) {
-        where.store = { [Op.contains]: [Number(store)] }
+      const storeFilter = req.user?.roleType !== 'super_admin'
+        ? (req.user?.store ? Number(req.user.store) : null)
+        : (store ? Number(store) : null)
+
+      if (storeFilter) {
+        where[Op.and] = [
+          { [Op.or]: [{ store: { [Op.contains]: [storeFilter] } }, { store: null }] }
+        ]
       }
 
       if (code) {
@@ -594,21 +612,27 @@ const promoController = {
       const store = req.query.store || req.user?.store
 
       const where = {}
-      if (req.user?.roleType !== 'super_admin') {
-        if (req.user?.store) {
-          where.store = { [Op.contains]: [Number(req.user.store)] }
-        }
-      } else if (store && store !== '') {
-        where.store = { [Op.contains]: [Number(store)] }
+      const storeFilter = req.user?.roleType !== 'super_admin'
+        ? (req.user?.store ? Number(req.user.store) : null)
+        : (store && store !== '' ? Number(store) : null)
+
+      if (storeFilter) {
+        where[Op.and] = [
+          { [Op.or]: [{ store: { [Op.contains]: [storeFilter] } }, { store: null }] }
+        ]
       }
+
+      const usageWhere = storeFilter
+        ? { store: { [Op.contains]: [storeFilter] } }
+        : {}
 
       const [totalCampaigns, activeCampaigns, totalUsage, totalDiscountGiven] =
         await Promise.all([
           db.promo_campaign.count({ where }),
           db.promo_campaign.count({ where: { ...where, status: 'active' } }),
-          db.promo_usage.count({ where: { store: where.store } }),
+          db.promo_usage.count({ where: usageWhere }),
           db.promo_usage.sum('discountApplied', {
-            where: { store: where.store }
+            where: usageWhere
           })
         ])
 

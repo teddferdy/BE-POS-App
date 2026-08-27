@@ -3,6 +3,7 @@ const db = require('../../db/models')
 const Shift = db.shift
 const User = db.user
 const { createAudit } = require('../../utils/auditLog')
+const { enrichAuditFields } = require('../../utils/auditFields')
 
 const serializeShift = (shift) => ({
   id: shift.id,
@@ -15,6 +16,10 @@ const serializeShift = (shift) => ({
   tanggal_selesai: shift.tanggal_selesai,
   karyawan: shift.karyawan || [],
   status: shift.status,
+  createdBy: shift.createdBy,
+  modifiedBy: shift.modifiedBy,
+  createdByUser: shift.createdByUser || null,
+  modifiedByUser: shift.modifiedByUser || null,
   createdAt: shift.createdAt,
   updatedAt: shift.updatedAt
 })
@@ -26,17 +31,50 @@ const validateTimeRange = (startTime, endTime) => {
     : null
 }
 
+const toStoreArray = (raw) => {
+  if (Array.isArray(raw)) return raw.map(Number).filter((n) => !isNaN(n))
+  if (raw !== undefined && raw !== null && raw !== '') return [Number(raw)]
+  return []
+}
+
+const todayStr = () => {
+  const d = new Date()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
+const autoExpireShifts = async () => {
+  const today = todayStr()
+  const [count] = await Shift.update(
+    { status: 'inactive' },
+    {
+      where: {
+        status: 'active',
+        tanggal_selesai: { [Op.ne]: null, [Op.lt]: today }
+      }
+    }
+  )
+  if (count > 0) {
+    console.log(`[shift] ${count} shift expired -> status inactive (${today})`)
+  }
+  return count
+}
+
 exports.getAllShift = async (req, res) => {
   const {
     page: rawPage,
     pageSize: rawPageSize,
     status = 'all',
-    search
+    search,
+    store: queryStore
   } = req.query
   const page = Math.max(1, parseInt(rawPage) || 1)
   const pageSize = Math.max(1, parseInt(rawPageSize) || 10)
 
   try {
+    await autoExpireShifts()
+
     const offset = (page - 1) * pageSize
 
     let statusCondition = {}
@@ -45,7 +83,8 @@ exports.getAllShift = async (req, res) => {
     }
 
     const where = { ...statusCondition }
-    if (req.storeId) where.store = req.storeId
+    const effectiveStore = req.storeId || (queryStore ? Number(queryStore) : null)
+    if (effectiveStore) where.store = effectiveStore
     if (search) where.name = { [Op.iLike]: `%${search}%` }
 
     const shiftCategory = await Shift.findAll({
@@ -62,6 +101,8 @@ exports.getAllShift = async (req, res) => {
       Shift.count({ where: { ...where, status: 'draft' } }),
       Shift.count({ where: { ...where, status: 'inactive' } })
     ])
+
+    await enrichAuditFields(db, shiftCategory)
 
     return res.status(200).json({
       success: true,
@@ -89,8 +130,10 @@ exports.getShiftDropdown = async (req, res) => {
   const { status } = req.query
 
   try {
+    await autoExpireShifts()
+
     const whereCondition = {}
-    if (req.storeId) whereCondition.store = req.storeId
+    if (req.storeId) whereCondition.store = Number(req.storeId)
     if (status === 'active') {
       whereCondition.status = 'active'
     } else if (status === 'inactive') {
@@ -147,7 +190,8 @@ exports.postNewShift = async (req, res) => {
       karyawan,
       status
     } = req.body
-    const store = req.body.store || req.storeId || req.user?.store
+    const rawStore = req.body.store || req.storeId || req.user?.store
+    const stores = toStoreArray(rawStore)
 
     const rangeError = validateTimeRange(jam_mulai, jam_selesai)
     if (rangeError) {
@@ -157,42 +201,93 @@ exports.postNewShift = async (req, res) => {
       })
     }
 
-    const findOneShift = await Shift?.findOne({
-      where: { name: nama_shift }
-    })
-    if (!findOneShift?.getDataValue) {
-      const postData = await Shift.create({
-        name: nama_shift,
-        tipe_shift: tipe_shift || '',
-        startTime: jam_mulai,
-        endTime: jam_selesai,
-        tanggal_mulai,
-        tanggal_selesai,
-        karyawan: karyawan || [],
-        status: status || 'active',
-        store,
-        createdBy: req.user?.id
-      })
+    if (stores.length === 0) {
+      const existing = await Shift.findOne({ where: { name: nama_shift, store: null } })
+      if (existing) {
+        return res.status(403).json({ success: false, message: 'Shift Sudah Terdaftar' })
+      }
+const postData = await Shift.create({
+         name: nama_shift,
+         tipe_shift: tipe_shift || '',
+         startTime: jam_mulai,
+         endTime: jam_selesai,
+         tanggal_mulai,
+         tanggal_selesai,
+         karyawan: karyawan || [],
+         status: status || 'active',
+         store: null,
+         createdBy: req.user?.id
+       })
 
-      createAudit(
-        req,
-        'create',
-        'shift',
-        postData.id,
-        `Created shift: ${postData.id}`
-      )
+       createAudit(req, 'create', 'shift', postData.id, `Created shift: ${postData.id}`)
 
-      return res.status(200).json({
-        success: true,
-        message: 'Success',
-        data: serializeShift(postData)
-      })
-    } else {
-      return res.status(403).json({
-        success: false,
-        message: 'Shift Sudah Terdaftar'
-      })
+       await enrichAuditFields(db, [postData])
+
+       return res.status(200).json({
+         success: true,
+         message: 'Success',
+         data: serializeShift(postData)
+       })
     }
+
+    if (stores.length === 1) {
+      const existing = await Shift.findOne({ where: { name: nama_shift, store: stores[0] } })
+      if (existing) {
+        return res.status(403).json({ success: false, message: 'Shift Sudah Terdaftar' })
+      }
+const postData = await Shift.create({
+         name: nama_shift,
+         tipe_shift: tipe_shift || '',
+         startTime: jam_mulai,
+         endTime: jam_selesai,
+         tanggal_mulai,
+         tanggal_selesai,
+         karyawan: karyawan || [],
+         status: status || 'active',
+         store: stores[0],
+         createdBy: req.user?.id
+       })
+
+       createAudit(req, 'create', 'shift', postData.id, `Created shift: ${postData.id}`)
+
+       await enrichAuditFields(db, [postData])
+
+       return res.status(200).json({
+         success: true,
+         message: 'Success',
+         data: serializeShift(postData)
+       })
+    }
+
+    const created = []
+    for (const storeId of stores) {
+      const existing = await Shift.findOne({ where: { name: nama_shift, store: storeId } })
+      if (existing) continue
+const postData = await Shift.create({
+         name: nama_shift,
+         tipe_shift: tipe_shift || '',
+         startTime: jam_mulai,
+         endTime: jam_selesai,
+         tanggal_mulai,
+         tanggal_selesai,
+         karyawan: karyawan || [],
+         status: status || 'active',
+         store: storeId,
+         createdBy: req.user?.id
+       })
+
+       createAudit(req, 'create', 'shift', postData.id, `Created shift: ${postData.id}`)
+
+       await enrichAuditFields(db, [postData])
+
+       created.push(serializeShift(postData))
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: created.length === 1 ? created[0] : created
+    })
   } catch (error) {
     console.error('Error =>', error)
     return res.status(500).json({
@@ -206,6 +301,7 @@ exports.editShiftById = async (req, res) => {
   const {
     id,
     nama_shift,
+    store,
     tipe_shift,
     jam_mulai,
     jam_selesai,
@@ -247,34 +343,68 @@ exports.editShiftById = async (req, res) => {
       })
     }
 
-    const editShift = await Shift?.update(
-      {
-        name: nama_shift,
-        tipe_shift: tipe_shift ?? existingShift.tipe_shift,
-        startTime: jam_mulai,
-        endTime: jam_selesai,
-        tanggal_mulai: tanggal_mulai ?? existingShift.tanggal_mulai,
-        tanggal_selesai: tanggal_selesai ?? existingShift.tanggal_selesai,
-        karyawan: karyawan ?? existingShift.karyawan,
-        status: status ?? existingShift.status,
-        modifiedBy: req.user?.id
-      },
-      {
-        returning: true,
-        where: {
-          id: id
-        }
-      }
-    ).then(([_, data]) => {
-      return data[0]
-    })
+    const stores = toStoreArray(store)
 
-    createAudit(req, 'update', 'shift', id, `Updated shift: ${id}`)
+    if (stores.length <= 1) {
+const editShift = await Shift?.update(
+         {
+           name: nama_shift,
+           store: stores.length === 1 ? stores[0] : existingShift.store,
+           tipe_shift: tipe_shift ?? existingShift.tipe_shift,
+           startTime: jam_mulai,
+           endTime: jam_selesai,
+           tanggal_mulai: tanggal_mulai ?? existingShift.tanggal_mulai,
+           tanggal_selesai: tanggal_selesai !== undefined ? tanggal_selesai : existingShift.tanggal_selesai,
+           karyawan: karyawan ?? existingShift.karyawan,
+           status: status ?? existingShift.status,
+           modifiedBy: req.user?.id
+         },
+         {
+           returning: true,
+           where: { id }
+         }
+       ).then(([_, data]) => data[0])
+
+       createAudit(req, 'update', 'shift', id, `Updated shift: ${id}`)
+
+       await enrichAuditFields(db, [editShift])
+
+       return res.status(200).json({
+         success: true,
+         message: 'Sukses Ubah Shift',
+         data: serializeShift(editShift)
+       })
+    }
+
+    const baseData = {
+      name: nama_shift,
+      tipe_shift: tipe_shift ?? existingShift.tipe_shift,
+      startTime: jam_mulai,
+      endTime: jam_selesai,
+      tanggal_mulai: tanggal_mulai ?? existingShift.tanggal_mulai,
+      tanggal_selesai: tanggal_selesai !== undefined ? tanggal_selesai : existingShift.tanggal_selesai,
+      karyawan: karyawan ?? existingShift.karyawan,
+      status: status ?? existingShift.status,
+      modifiedBy: req.user?.id
+    }
+
+    await Shift.destroy({ where: { id } })
+
+    const created = []
+    for (const storeId of stores) {
+const postData = await Shift.create({ ...baseData, store: storeId, createdBy: existingShift.createdBy })
+
+       createAudit(req, 'update', 'shift', postData.id, `Updated shift: ${postData.id}`)
+
+       await enrichAuditFields(db, [postData])
+
+       created.push(serializeShift(postData))
+    }
 
     return res.status(200).json({
       success: true,
       message: 'Sukses Ubah Shift',
-      data: serializeShift(editShift?.dataValues)
+      data: created.length === 1 ? created[0] : created
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -288,7 +418,6 @@ exports.editShiftById = async (req, res) => {
 exports.deleteShiftById = async (req, res) => {
   const { id } = req.params
   try {
-    // Clean up user.shift references for affected users
     await User.update({ shift: null }, { where: { shift: id } })
 
     const getId = await Shift.destroy({
@@ -309,6 +438,34 @@ exports.deleteShiftById = async (req, res) => {
         message: 'Hapus Shift Gagal'
       })
     }
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.getShiftById = async (req, res) => {
+  const { id } = req.params
+  try {
+    await autoExpireShifts()
+
+    const shift = await Shift.findByPk(id)
+    if (!shift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shift Tidak Ditemukan'
+      })
+    }
+
+    await enrichAuditFields(db, [shift])
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: serializeShift(shift)
+    })
   } catch (error) {
     console.error('Error =>', error)
     return res.status(500).json({
