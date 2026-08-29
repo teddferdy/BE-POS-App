@@ -14,7 +14,7 @@ const getStore = (req) =>
   req.user?.store
 
 const MAX_ACCURACY_M = 150
-const ORIGIN_EPSILON = 1e-6
+const ORIGIN_EPSILON = 1 / 1000000
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v)
