@@ -2511,7 +2511,87 @@ exports.getCustomerOrder = async (req, res) => {
   }
 }
 
-// ——— Public customer orders list (no auth) ———
+// ——— Public customer review (no auth) ———
+exports.createCustomerReview = async (req, res) => {
+  const { name, userName, productId, store, storeId, rating, comment, orderId } =
+    req.body
+  try {
+    if (!productId || !rating) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'productId and rating are required' })
+    }
+    const product = await Product.findByPk(Number(productId))
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' })
+    }
+    const ratingNum = Number(rating)
+    if (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'rating must be an integer between 1 and 5'
+      })
+    }
+    const reviewName = (name || userName || 'Anonim')
+      .toString()
+      .trim()
+      .slice(0, 100)
+    const storeNum = Number(store ?? storeId) || null
+    const review = await db.product_review.create({
+      productId: Number(productId),
+      store: storeNum,
+      userName: reviewName,
+      rating: ratingNum,
+      comment: (comment || '').toString().trim(),
+      orderId: orderId ? Number(orderId) : null,
+      status: 'published'
+    })
+    return res.status(201).json({
+      success: true,
+      message: 'Review submitted',
+      data: review
+    })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ success: false, error: 'Internal Server Error' })
+  }
+}
+
+exports.getProductReviews = async (req, res) => {
+  const { productId, store } = req.query
+  try {
+    if (!productId) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'productId is required' })
+    }
+    const where = { productId: Number(productId), status: 'published' }
+    if (store) where.store = Number(store)
+    const reviews = await db.product_review.findAll({
+      where,
+      order: [['createdAt', 'DESC']]
+    })
+    const totalReviews = reviews.length
+    const averageRating = totalReviews
+      ? reviews.reduce((sum, r) => sum + Number(r.rating), 0) / totalReviews
+      : 0
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: {
+        productId: String(productId),
+        reviews,
+        averageRating: Number(averageRating.toFixed(1)),
+        totalReviews
+      }
+    })
+  } catch (error) {
+    console.error('Error:', error)
+    return res.status(500).json({ success: false, error: 'Internal Server Error' })
+  }
+}
+
+// ——— Public customer order list (no auth) ———
 exports.getCustomerOrders = async (req, res) => {
   const { store, tableId, session, page = 1, limit = 20 } = req.query
   try {

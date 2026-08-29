@@ -1066,7 +1066,8 @@ const posController = {
         totalMembers,
         salesChart,
         bestSellers,
-        recentOrders
+        recentOrders,
+        paymentMethods
       ] = await Promise.all([
         db.order.sum('totalPrice', { where: orderWhere }),
         db.order.count({ where: orderWhere }),
@@ -1137,7 +1138,24 @@ order: [['updatedAt', 'DESC']],
                 table: json.table?.name || null
               }
             })
-          }))
+          })),
+        db.sequelize.query(
+          `
+          SELECT COALESCE("paymentMethod", 'cash') AS method,
+                 COUNT(*)::int AS orders,
+                 SUM("totalPrice") AS sales
+          FROM "order"
+          WHERE "paymentStatus" = 'paid'
+          ${startDate && endDate ? 'AND "createdAt" >= :startDate AND "createdAt" <= :endDate' : ''}
+          ${store ? 'AND "store" = :store' : ''}
+          GROUP BY 1
+          ORDER BY sales DESC
+        `,
+          {
+            replacements: chartReplacements,
+            type: db.sequelize.QueryTypes.SELECT
+          }
+        )
       ])
 
       const [lowStockProductCount] = await db.sequelize.query(
@@ -1220,28 +1238,53 @@ order: [['updatedAt', 'DESC']],
         }
       })
 
+      let storeInfo = null
+      let dailyTarget = 0
+      if (store) {
+        const loc = await db.location.findByPk(store, {
+          attributes: [
+            'id',
+            'name',
+            'city',
+            'address',
+            'status',
+            'dailyTarget'
+          ]
+        })
+        if (loc) {
+          storeInfo = {
+            id: loc.id,
+            name: loc.name,
+            city: loc.city,
+            address: loc.address,
+            status: loc.status
+          }
+          dailyTarget = loc.dailyTarget || 0
+        }
+      } else {
+        try {
+          dailyTarget =
+            (await db.location.sum('dailyTarget', {
+              where: { status: 'active' }
+            })) || 0
+        } catch {
+          dailyTarget = 0
+        }
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Success',
         data: {
           totalSales: totalSales || 0,
-          dailyTarget: store
-            ? (
-                await db.location.findByPk(store, {
-                  attributes: ['dailyTarget']
-                })
-              )?.dailyTarget || 0
-            : (async () => {
-                try {
-                  return (
-                    (await db.location.sum('dailyTarget', {
-                      where: { status: 'active' }
-                    })) || 0
-                  )
-                } catch {
-                  return 0
-                }
-              })(),
+          dailyTarget,
+          averageOrderValue:
+            totalOrders > 0
+              ? Math.round((totalSales || 0) / totalOrders)
+              : 0,
+          netSales: (totalSales || 0) - (totalExpense || 0),
+          paymentMethods: paymentMethods || [],
+          storeInfo,
           totalOrders: totalOrders || 0,
           totalProducts: totalProducts || 0,
           totalMembers: totalMembers || 0,

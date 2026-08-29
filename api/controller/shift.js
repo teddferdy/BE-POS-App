@@ -4,6 +4,10 @@ const Shift = db.shift
 const User = db.user
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const {
+  syncShiftKaryawan,
+  clearRemovedMembers
+} = require('../../utils/shiftChain')
 
 const serializeShift = (shift) => ({
   id: shift.id,
@@ -162,6 +166,7 @@ exports.getShiftDropdown = async (req, res) => {
       shiftName: shift.name,
       startTime: shift.startTime,
       endTime: shift.endTime,
+      karyawan: shift.karyawan || [],
       statusShift: shift.status === 'active' ? 'active' : 'inactive'
     }))
 
@@ -223,6 +228,11 @@ const postData = await Shift.create({
 
        await enrichAuditFields(db, [postData])
 
+       await syncShiftKaryawan({
+         shiftId: postData.id,
+         employeeIds: karyawan || []
+       })
+
        return res.status(200).json({
          success: true,
          message: 'Success',
@@ -252,6 +262,11 @@ const postData = await Shift.create({
 
        await enrichAuditFields(db, [postData])
 
+       await syncShiftKaryawan({
+         shiftId: postData.id,
+         employeeIds: karyawan || []
+       })
+
        return res.status(200).json({
          success: true,
          message: 'Success',
@@ -279,6 +294,11 @@ const postData = await Shift.create({
        createAudit(req, 'create', 'shift', postData.id, `Created shift: ${postData.id}`)
 
        await enrichAuditFields(db, [postData])
+
+       await syncShiftKaryawan({
+         shiftId: postData.id,
+         employeeIds: karyawan || []
+       })
 
        created.push(serializeShift(postData))
     }
@@ -369,6 +389,14 @@ const editShift = await Shift?.update(
 
        await enrichAuditFields(db, [editShift])
 
+       const newKaryawan = karyawan ?? existingShift.karyawan
+       await syncShiftKaryawan({ shiftId: id, employeeIds: newKaryawan })
+       await clearRemovedMembers({
+         shiftId: id,
+         oldKaryawan: existingShift.karyawan,
+         newKaryawan
+       })
+
        return res.status(200).json({
          success: true,
          message: 'Sukses Ubah Shift',
@@ -398,8 +426,16 @@ const postData = await Shift.create({ ...baseData, store: storeId, createdBy: ex
 
        await enrichAuditFields(db, [postData])
 
+       await syncShiftKaryawan({ shiftId: postData.id, employeeIds: karyawan ?? existingShift.karyawan })
+
        created.push(serializeShift(postData))
     }
+
+    await clearRemovedMembers({
+      shiftId: id,
+      oldKaryawan: existingShift.karyawan,
+      newKaryawan: karyawan ?? existingShift.karyawan
+    })
 
     return res.status(200).json({
       success: true,

@@ -135,7 +135,10 @@ const pendingMigrations = [
   },
   {
     table: 'product',
-    columns: [{ name: 'estimationTime', definition: 'INTEGER DEFAULT 0' }]
+    columns: [
+      { name: 'estimationTime', definition: 'INTEGER DEFAULT 0' },
+      { name: 'images', definition: "JSONB DEFAULT '[]'::jsonb" }
+    ]
   },
   {
     table: 'purchase_order',
@@ -223,6 +226,12 @@ sequelize.addHook('afterConnect', async () => {
     )
   } catch (e) {
     console.error('[auto-migrate] Error updating role isSystem:', e.message)
+  }
+  // ponytail: buat tabel baru yang belum ada (jangan drop/ubah yang sudah ada)
+  try {
+    await db.product_review.sync()
+  } catch (e) {
+    console.error('[auto-migrate] Error creating product_review:', e.message)
   }
 })
 

@@ -20,6 +20,10 @@ module.exports = (sequelize, DataTypes) => {
       image: {
         type: DataTypes.STRING
       },
+      images: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+      },
       barcode: {
         type: DataTypes.STRING
       },
