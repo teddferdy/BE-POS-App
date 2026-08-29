@@ -235,9 +235,17 @@ const ingredientController = {
       } = req.body
       const modifiedBy = req.user?.id || null
 
-      const ingredient = await db.ingredient.findOne({
+      const isSuperAdmin = req.user?.roleType === 'super_admin'
+
+      let ingredient = await db.ingredient.findOne({
         where: { id, ...(store ? { store } : {}) }
       })
+
+      if (!ingredient && isSuperAdmin) {
+        ingredient = await db.ingredient.findOne({
+          where: { id }
+        })
+      }
 
       if (!ingredient) {
         return res.status(404).json({
