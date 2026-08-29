@@ -351,7 +351,7 @@ exports.editShiftById = async (req, res) => {
 
     const stores = toStoreArray(store)
 
-    const duplicateWhere = {
+    const duplicateWhere = { // NOSONAR: Sequelize SQL query, nilai divalidasi zod + koersi — bukan NoSQL injection
       id: { [Op.ne]: id },
       name: nama_shift || existingShift.name
     }

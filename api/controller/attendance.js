@@ -14,6 +14,8 @@ const getStore = (req) =>
   req.user?.store
 
 const MAX_ACCURACY_M = 150
+const ORIGIN_EPSILON = 1e-6
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v)
 
@@ -24,7 +26,10 @@ const validateCoordinate = (latitude, longitude) => {
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
     return 'Koordinat lokasi di luar jangkauan'
   }
-  if (Math.abs(latitude) < 0.000001 && Math.abs(longitude) < 0.000001) {
+  if (
+    Math.abs(latitude) < ORIGIN_EPSILON &&
+    Math.abs(longitude) < ORIGIN_EPSILON
+  ) {
     return 'Koordinat lokasi tidak valid (0,0)'
   }
   return null
@@ -48,7 +53,7 @@ const dayRange = (dateStr) => {
     dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
       ? new Date(`${dateStr}T00:00:00`)
       : new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const end = new Date(base.getTime() + 86400000)
+  const end = new Date(base.getTime() + DAY_MS)
   return { start: base, end }
 }
 
@@ -115,7 +120,7 @@ exports.clock = async (req, res) => {
 
     const now = new Date()
     const { start, end } = dayRange()
-    const existing = await Attendance.findOne({
+    const existing = await Attendance.findOne({ // NOSONAR: Sequelize SQL query — tidak rentan NoSQL injection
       where: {
         userId: req.user.id,
         type: String(type).toLowerCase(),
