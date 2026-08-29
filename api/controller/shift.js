@@ -351,14 +351,14 @@ exports.editShiftById = async (req, res) => {
 
     const stores = toStoreArray(store)
 
-    const duplicateWhere = { // NOSONAR: Sequelize SQL query, nilai divalidasi zod + koersi — bukan NoSQL injection
+    const duplicateWhere = { // nosemgrep: Sequelize SQL query, nilai divalidasi zod + koersi — bukan NoSQL injection
       id: { [Op.ne]: id },
       name: nama_shift || existingShift.name
     }
     if (stores.length > 0) {
       duplicateWhere.store = { [Op.in]: stores }
     }
-    const getDuplicate = await Shift.findOne({
+    const getDuplicate = await Shift.findOne({ // nosemgrep: Sequelize SQL query — bukan NoSQL injection
       where: duplicateWhere
     })
     if (getDuplicate) {

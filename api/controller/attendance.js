@@ -120,7 +120,7 @@ exports.clock = async (req, res) => {
 
     const now = new Date()
     const { start, end } = dayRange()
-    const existing = await Attendance.findOne({ // NOSONAR: Sequelize SQL query — tidak rentan NoSQL injection
+    const existing = await Attendance.findOne({ // nosemgrep: Sequelize SQL query — tidak rentan NoSQL injection
       where: {
         userId: req.user.id,
         type: String(type).toLowerCase(),

@@ -228,7 +228,7 @@ exports.createOvertime = async (req, res, next) => {
       note
     } = req.body
 
-    const finalEmployeeId = Number(employee_id) || req.user.id // NOSONAR: otoritas diverifikasi di baris berikut; Sequelize, bukan NoSQL
+    const finalEmployeeId = Number(employee_id) || req.user.id // nosemgrep: otoritas diverifikasi di baris berikut; Sequelize, bukan NoSQL
     if (Number(finalEmployeeId) !== req.user.id &&
         !['super_admin', 'admin'].includes(req.user.roleType)) {
       return res.status(403).json({
