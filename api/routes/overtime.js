@@ -1,39 +1,40 @@
 const express = require('express')
 const router = express.Router()
 
-const shiftSwapController = require('../controller/shiftSwap')
+const overtimeController = require('../controller/overtime')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
-  createShiftSwapSchema,
-  updateShiftSwapStatusSchema
+  createOvertimeSchema,
+  updateOvertimeStatusSchema,
+  postOvertimePayrollSchema
 } = require('../validation/schemas')
 
 router.get(
-  '/get-swap',
+  '/get-overtime',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin', 'user'),
-  shiftSwapController.getShiftSwaps
+  overtimeController.getOvertimes
 )
 
 router.post(
-  '/create-swap',
+  '/create-overtime',
   authorization,
   validateStoreAccess,
-  validate(createShiftSwapSchema),
-  shiftSwapController.createShiftSwap
+  validate(createOvertimeSchema),
+  overtimeController.createOvertime
 )
 
 router.put(
-  '/update-swap-status/:id',
+  '/update-status/:id',
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin'),
-  validate(updateShiftSwapStatusSchema),
-  shiftSwapController.updateShiftSwapStatus
+  validate(updateOvertimeStatusSchema),
+  overtimeController.updateOvertimeStatus
 )
 
 router.put(
@@ -41,7 +42,16 @@ router.put(
   authorization,
   validateStoreAccess,
   requireRole('super_admin', 'admin', 'user'),
-  shiftSwapController.cancelShiftSwap
+  overtimeController.cancelOvertime
+)
+
+router.post(
+  '/post-payroll',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(postOvertimePayrollSchema),
+  overtimeController.postOvertimePayroll
 )
 
 module.exports = router

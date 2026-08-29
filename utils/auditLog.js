@@ -11,22 +11,26 @@ const auditLog = async ({
   oldValues,
   newValues,
   ipAddress,
-  userAgent
+  userAgent,
+  transaction
 }) => {
   try {
-    await db.auditLog.create({
-      store,
-      userId,
-      userName,
-      action,
-      entity,
-      entityId,
-      description,
-      oldValues: oldValues || null,
-      newValues: newValues || null,
-      ipAddress: ipAddress || null,
-      userAgent: userAgent || null
-    })
+    await db.auditLog.create(
+      {
+        store,
+        userId,
+        userName,
+        action,
+        entity,
+        entityId,
+        description,
+        oldValues: oldValues || null,
+        newValues: newValues || null,
+        ipAddress: ipAddress || null,
+        userAgent: userAgent || null
+      },
+      { transaction: transaction || undefined }
+    )
   } catch (error) {
     console.error('Audit log error:', error)
   }
@@ -39,7 +43,8 @@ const createAudit = (
   entityId,
   description,
   oldValues,
-  newValues
+  newValues,
+  transaction
 ) => {
   return auditLog({
     store: req.cookies?.store || req.user?.store,
@@ -52,7 +57,8 @@ const createAudit = (
     oldValues,
     newValues,
     ipAddress: req.ip,
-    userAgent: req.get('User-Agent')
+    userAgent: req.get('User-Agent'),
+    transaction
   })
 }
 

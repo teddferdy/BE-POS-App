@@ -14,6 +14,9 @@ const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { syncEmployeeShift } = require('../../utils/shiftChain')
 
+const dateOrNull = (value, fallback) =>
+  value === undefined ? fallback : value ? value : null
+
 const parseAccessMenu = (menu) => {
   if (Array.isArray(menu)) return menu
   if (typeof menu === 'string') {
@@ -504,8 +507,8 @@ exports.updateEmployee = async (req, res) => {
       department: body?.department ?? employee.department,
       departmentId: body?.departmentId ?? employee.departmentId,
       employmentType: body?.employmentType ?? employee.employmentType,
-      startDate: body?.startDate ?? employee.startDate,
-      dateOfBirth: body?.dateOfBirth ?? employee.dateOfBirth,
+      startDate: dateOrNull(body?.startDate, employee.startDate),
+      dateOfBirth: dateOrNull(body?.dateOfBirth, employee.dateOfBirth),
       placeOfBirth: body?.placeOfBirth ?? employee.placeOfBirth,
       status:
         body?.status ||
@@ -526,7 +529,7 @@ exports.updateEmployee = async (req, res) => {
         : employee.accessMenu,
       roleId: body?.roleId ?? employee.roleId,
       contractDuration: body?.contractDuration ?? employee.contractDuration,
-      endDate: body?.endDate ?? employee.endDate,
+      endDate: dateOrNull(body?.endDate, employee.endDate),
       monthlySalary: body?.monthlySalary ?? employee.monthlySalary,
       dailySalary: body?.dailySalary ?? employee.dailySalary,
       documents:

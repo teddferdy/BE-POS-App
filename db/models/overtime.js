@@ -1,7 +1,7 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  const ShiftSwap = sequelize.define(
-    'shift_swap',
+  const Overtime = sequelize.define(
+    'overtime',
     {
       id: {
         allowNull: false,
@@ -12,29 +12,30 @@ module.exports = (sequelize, DataTypes) => {
       store: {
         type: DataTypes.INTEGER
       },
-      requesterId: {
+      shift_id: {
         allowNull: false,
         type: DataTypes.INTEGER
       },
-      targetId: {
+      employee_id: {
         allowNull: false,
         type: DataTypes.INTEGER
       },
-      requesterShiftId: {
+      date: {
         allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.DATEONLY
       },
-      targetShiftId: {
+      start_time: {
         allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.TIME
       },
-      tanggal_mulai: {
-        type: DataTypes.DATEONLY,
-        allowNull: true
+      end_time: {
+        allowNull: false,
+        type: DataTypes.TIME
       },
-      tanggal_selesai: {
-        type: DataTypes.DATEONLY,
-        allowNull: true
+      duration_hours: {
+        allowNull: false,
+        type: DataTypes.DECIMAL(10, 2),
+        defaultValue: 0
       },
       note: {
         type: DataTypes.TEXT
@@ -51,10 +52,19 @@ module.exports = (sequelize, DataTypes) => {
       },
       status_history: {
         type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: []
+      },
+      accounting_status: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'unposted'
+      },
+      postedAt: {
+        type: DataTypes.DATE,
         allowNull: true
       },
-      expires_at: {
-        type: DataTypes.DATE,
+      journalId: {
+        type: DataTypes.INTEGER,
         allowNull: true
       },
       createdBy: {
@@ -67,30 +77,26 @@ module.exports = (sequelize, DataTypes) => {
     {
       paranoid: true,
       freezeTableName: true,
-      modelName: 'shift_swap',
-      tableName: 'shift_swap'
+      modelName: 'overtime',
+      tableName: 'overtime'
     }
   )
 
-  ShiftSwap.associate = (models) => {
-    ShiftSwap.belongsTo(models.user, {
-      foreignKey: 'requesterId',
-      as: 'requesterUser'
+  Overtime.associate = (models) => {
+    Overtime.belongsTo(models.shift, { foreignKey: 'shift_id', as: 'shift' })
+    Overtime.belongsTo(models.user, {
+      foreignKey: 'employee_id',
+      as: 'employee'
     })
-    ShiftSwap.belongsTo(models.user, { foreignKey: 'targetId', as: 'targetUser' })
-    ShiftSwap.belongsTo(models.shift, {
-      foreignKey: 'requesterShiftId',
-      as: 'requesterShift'
-    })
-    ShiftSwap.belongsTo(models.shift, {
-      foreignKey: 'targetShiftId',
-      as: 'targetShift'
-    })
-    ShiftSwap.belongsTo(models.user, {
+    Overtime.belongsTo(models.user, {
       foreignKey: 'decidedBy',
       as: 'decidedByUser'
     })
+    Overtime.belongsTo(models.location, {
+      foreignKey: 'store',
+      as: 'storeData'
+    })
   }
 
-  return ShiftSwap
+  return Overtime
 }

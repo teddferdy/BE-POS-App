@@ -76,6 +76,8 @@ const goodsRequestRoutes = require('./routes/goodsRequest')
 const regionRoutes = require('./routes/region')
 const shiftTemplateRoutes = require('./routes/shiftTemplate')
 const shiftSwapRoutes = require('./routes/shiftSwap')
+const attendanceRoutes = require('./routes/attendance')
+const overtimeRoutes = require('./routes/overtime')
 
 const app = express()
 const server = http.createServer(app)
@@ -228,7 +230,9 @@ const routes = [
   { path: '/accounting', route: accountingRoutes },
   { path: '/regions', route: regionRoutes },
   { path: '/shift-template', route: shiftTemplateRoutes },
-  { path: '/shift-swap', route: shiftSwapRoutes }
+  { path: '/shift-swap', route: shiftSwapRoutes },
+  { path: '/attendance', route: attendanceRoutes },
+  { path: '/overtime', route: overtimeRoutes }
 ]
 
 routes.forEach(({ path, route }) => app.use(path, route))
@@ -422,6 +426,8 @@ if (!process.env.VERCEL) {
   startBackupScheduler()
   const { startExpenseScheduler } = require('./service/expenseScheduler')
   startExpenseScheduler()
+  const { startShiftSwapScheduler } = require('./service/shiftSwapScheduler')
+  startShiftSwapScheduler()
 
   // ponytail: graceful shutdown agar koneksi aktif (HTTP & DB pool) tidak
   // terputus paksa saat deploy/restart di tengah trafik tinggi

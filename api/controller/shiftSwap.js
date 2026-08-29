@@ -3,11 +3,14 @@
 const { Op } = require('sequelize')
 const db = require('../../db/models')
 const { createAudit } = require('../../utils/auditLog')
+const { createNotification } = require('../../utils/createNotification')
+const { shiftEvents } = require('../../utils/shiftEvents')
 
 const ShiftSwap = db.shift_swap
 const User = db.user
 const Shift = db.shift
 const Location = db.location
+const Attendance = db.attendance
 
 const USER_INCLUDE = [
   {
@@ -76,13 +79,127 @@ const getSwapWhere = (req, { includeStatus = true } = {}) => {
   const store = resolveStore(req)
   if (store) where.store = store
 
-  const { status } = req.query
+  const { status, mine } = req.query
+  if (mine) {
+    where[Op.or] = [{ requesterId: req.user.id }, { targetId: req.user.id }]
+  }
   if (includeStatus && status) {
-    if (['pending', 'approved', 'rejected', 'cancelled'].includes(status)) {
+    if (['pending', 'approved', 'rejected', 'cancelled', 'expired'].includes(status)) {
       where.status = status
     }
   }
+
+  // Filter rentang tanggal (createdAt) untuk laporan audit 30 hari terakhir
+  const { from, to } = req.query
+  if (from || to) {
+    where.createdAt = {}
+    if (from) where.createdAt[Op.gte] = new Date(from)
+    if (to) where.createdAt[Op.lte] = new Date(`${to}T23:59:59.999`)
+  }
   return where
+}
+
+const normId = (v) => Number(v)
+
+const toDateStr = (d) => {
+  if (!d) return null
+  const dt = new Date(`${String(d).slice(0, 10)}T00:00:00`)
+  if (isNaN(dt.getTime())) return null
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
+    dt.getDate()
+  ).padStart(2, '0')}`
+}
+
+const isOverlap = (aStart, aEnd, bStart, bEnd) => {
+  const a1 = toDateStr(aStart)
+  const a2 = toDateStr(aEnd) || a1
+  const b1 = toDateStr(bStart)
+  const b2 = toDateStr(bEnd) || b1
+  if (!a1 || !b1) return false
+  return a1 <= (b2 || a2) && (a2 || a1) >= b1
+}
+
+// Cek apakah seorang karyawan sudah punya shift LAGI (atau absensi) pada
+// rentang tanggal yang diminta. excludeShiftIds = shift yang justru sedang
+// ditukar (jangan dianggap bentrok).
+const findDoubleShift = async ({ userId, tanggal_mulai, tanggal_selesai, excludeShiftIds = [] }) => {
+  const id = normId(userId)
+  if (isNaN(id)) return null
+
+  const b1 = toDateStr(tanggal_mulai)
+  const b2 = toDateStr(tanggal_selesai) || b1
+  if (!b1) return null
+
+  const shifts = await Shift.findAll({
+    where: { karyawan: { [Op.contains]: [id] } }
+  })
+
+  const conflictingShift = shifts.find((s) => {
+    if (excludeShiftIds.includes(normId(s.id))) return false
+    if (s.status && s.status !== 'active' && s.status !== 'draft') return false
+    return isOverlap(s.tanggal_mulai, s.tanggal_selesai, b1, b2)
+  })
+  if (conflictingShift) {
+    return {
+      reason: 'shift',
+      detail: conflictingShift.name || `Shift #${conflictingShift.id}`
+    }
+  }
+
+  const dayStart = new Date(`${b1}T00:00:00`)
+  const dayEnd = new Date(`${b2}T00:00:00`)
+  dayEnd.setDate(dayEnd.getDate() + 1)
+
+  const attendance = await Attendance.findOne({
+    where: {
+      userId: id,
+      absenAt: { [Op.gte]: dayStart, [Op.lt]: dayEnd },
+      status: { [Op.ne]: 'cancelled' }
+    }
+  })
+  if (attendance) {
+    return { reason: 'attendance', detail: b1 }
+  }
+  return null
+}
+
+// Pindahkan seorang karyawan dari semua shift ke shift tujuan di dalam satu
+// transaksi. Dipakai saat approval untuk benar-benar menukar jadwal.
+const relocateEmployeeInTx = async (t, userId, toShiftId) => {
+  const id = normId(userId)
+  if (isNaN(id)) return
+
+  const containing = await Shift.findAll({
+    where: { karyawan: { [Op.contains]: [id] } },
+    transaction: t,
+    lock: t.LOCK.UPDATE
+  })
+  for (const shift of containing) {
+    const karyawan = shift.karyawan || []
+    const next = karyawan.filter((k) => normId(k) !== id)
+    if (next.length !== karyawan.length) {
+      await shift.update({ karyawan: next }, { transaction: t })
+    }
+  }
+
+  const targetShiftId = normId(toShiftId)
+  if (!isNaN(targetShiftId)) {
+    const target = await Shift.findByPk(targetShiftId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE
+    })
+    if (target) {
+      const karyawan = target.karyawan || []
+      if (!karyawan.some((k) => normId(k) === id)) {
+        await target.update({ karyawan: [...karyawan, id] }, { transaction: t })
+      }
+    }
+  }
+
+  await User.update(
+    { shift: isNaN(targetShiftId) ? null : targetShiftId },
+    { where: { id }, transaction: t }
+  )
 }
 
 exports.getShiftSwaps = async (req, res, next) => {
@@ -110,11 +227,13 @@ exports.getShiftSwaps = async (req, res, next) => {
     const pendingWhere = { ...where, status: 'pending' }
     const approvedWhere = { ...where, status: 'approved' }
     const rejectedWhere = { ...where, status: 'rejected' }
+    const expiredWhere = { ...where, status: 'expired' }
 
-    const [pending, approved, rejectedTotal, total] = await Promise.all([
+    const [pending, approved, rejectedTotal, expiredTotal, total] = await Promise.all([
       ShiftSwap.count({ where: pendingWhere }),
       ShiftSwap.count({ where: approvedWhere }),
       ShiftSwap.count({ where: rejectedWhere }),
+      ShiftSwap.count({ where: expiredWhere }),
       ShiftSwap.count({ where })
     ])
 
@@ -132,6 +251,7 @@ exports.getShiftSwaps = async (req, res, next) => {
         pending,
         approved,
         rejected: rejectedTotal,
+        expired: expiredTotal,
         total
       }
     })
@@ -214,6 +334,52 @@ exports.createShiftSwap = async (req, res, next) => {
       })
     }
 
+    // Double Shift Detection: tolak pengajuan jika target sudah punya shift
+    // lain (atau absensi) pada rentang tanggal yang sama. Shift yang sedang
+    // ditukar (milik masing-masing) dikecualikan dari pengecekan.
+    const swapDates = tanggal_mulai || tanggal_selesai
+    if (swapDates) {
+      const targetConflict = await findDoubleShift({
+        userId: targetId,
+        tanggal_mulai: tanggal_mulai || swapDates,
+        tanggal_selesai: tanggal_selesai || swapDates,
+        excludeShiftIds: [requesterShiftId, targetShiftId]
+      })
+      if (targetConflict) {
+        return res.status(409).json({
+          success: false,
+          message:
+            targetConflict.reason === 'shift'
+              ? `${
+                  targetUser.fullName || `Karyawan #${targetId}`
+                } sudah memiliki shift lain pada tanggal tersebut: ${targetConflict.detail}`
+              : `${
+                  targetUser.fullName || `Karyawan #${targetId}`
+                } sudah memiliki absensi pada tanggal ${targetConflict.detail}`
+        })
+      }
+
+      const requesterConflict = await findDoubleShift({
+        userId: finalRequesterId,
+        tanggal_mulai: tanggal_mulai || swapDates,
+        tanggal_selesai: tanggal_selesai || swapDates,
+        excludeShiftIds: [requesterShiftId, targetShiftId]
+      })
+      if (requesterConflict) {
+        return res.status(409).json({
+          success: false,
+          message:
+            requesterConflict.reason === 'shift'
+              ? `${
+                  requesterUser?.fullName || `Karyawan #${finalRequesterId}`
+                } sudah memiliki shift lain pada tanggal tersebut: ${requesterConflict.detail}`
+              : `${
+                  requesterUser?.fullName || `Karyawan #${finalRequesterId}`
+                } sudah memiliki absensi pada tanggal ${requesterConflict.detail}`
+        })
+      }
+    }
+
     const swapData = {
       store: targetStore,
       requesterId: finalRequesterId,
@@ -223,7 +389,11 @@ exports.createShiftSwap = async (req, res, next) => {
       tanggal_mulai: tanggal_mulai || null,
       tanggal_selesai: tanggal_selesai || null,
       note: note || null,
-      status: 'pending'
+      status: 'pending',
+      status_history: [
+        { status: 'pending', by: req.user.id, at: new Date().toISOString() }
+      ],
+      expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000)
     }
 
     const created = await ShiftSwap.create(swapData)
@@ -236,6 +406,19 @@ exports.createShiftSwap = async (req, res, next) => {
       `Permintaan ubah jadwal dibuat: ${requesterUser?.fullName || finalRequesterId} <-> ${targetUser.fullName}`
     )
 
+    await createNotification({
+      type: 'shift_swap_requested',
+      store: targetStore,
+      referenceId: created.id,
+      referenceType: 'shift_swap',
+      params: [
+        requesterUser?.fullName || `Karyawan #${finalRequesterId}`,
+        targetUser.fullName || `Karyawan #${targetId}`,
+        tanggal_mulai || undefined
+      ],
+      createdBy: req.user.id
+    })
+
     res.status(201).json({
       success: true,
       message: 'Permintaan ubah jadwal berhasil diajukan',
@@ -247,15 +430,19 @@ exports.createShiftSwap = async (req, res, next) => {
 }
 
 exports.updateShiftSwapStatus = async (req, res, next) => {
-  try {
-    const { id } = req.params
-    const { status } = req.body
+  const { id } = req.params
+  const { status } = req.body
 
+  const t = await db.sequelize.transaction()
+  try {
+    // Lock baris swap (tanpa include agar FOR UPDATE valid pada inner join)
     const swap = await ShiftSwap.findByPk(id, {
-      include: [...USER_INCLUDE, ...SHIFT_INCLUDE]
+      transaction: t,
+      lock: t.LOCK.UPDATE
     })
 
     if (!swap) {
+      await t.rollback()
       return res.status(404).json({
         success: false,
         message: 'Permintaan ubah jadwal tidak ditemukan'
@@ -263,6 +450,7 @@ exports.updateShiftSwapStatus = async (req, res, next) => {
     }
 
     if (swap.status !== 'pending') {
+      await t.rollback()
       return res.status(400).json({
         success: false,
         message: 'Permintaan ini sudah diputuskan sebelumnya'
@@ -270,31 +458,181 @@ exports.updateShiftSwapStatus = async (req, res, next) => {
     }
 
     if (!['approved', 'rejected'].includes(status)) {
+      await t.rollback()
       return res.status(400).json({
         success: false,
         message: 'Status harus approved atau rejected'
       })
     }
 
-    swap.status = status
-    swap.decidedBy = req.user.id
-    swap.decidedAt = new Date()
-    await swap.save()
+    const statusHistory = Array.isArray(swap.status_history)
+      ? swap.status_history
+      : []
+
+    if (status === 'approved') {
+      // Eksekusi perpindahan jadwal (ACID): pemohon ke shift target, target ke shift pemohon
+      await relocateEmployeeInTx(t, swap.requesterId, swap.targetShiftId)
+      await relocateEmployeeInTx(t, swap.targetId, swap.requesterShiftId)
+    }
+
+    await swap.update(
+      {
+        status,
+        decidedBy: req.user.id,
+        decidedAt: new Date(),
+        status_history: [
+          ...statusHistory,
+          { status, by: req.user.id, at: new Date().toISOString() }
+        ]
+      },
+      { transaction: t }
+    )
+
+    // Data lengkap untuk respons di-fetch SETELAH update (dalam transaksi yang sama)
+    const fullSwap = await ShiftSwap.findByPk(id, {
+      transaction: t,
+      include: [...USER_INCLUDE, ...SHIFT_INCLUDE, ...DECIDER_INCLUDE]
+    })
 
     await createAudit(
       req,
       'update',
       'shift_swap',
       swap.id,
-      `Permintaan ubah jadwal ${status}: ${swap.requesterUser?.fullName || swap.requesterId} <-> ${swap.targetUser?.fullName || swap.targetId}`
+      `Permintaan ubah jadwal ${status}: ${fullSwap?.requesterUser?.fullName || swap.requesterId} <-> ${fullSwap?.targetUser?.fullName || swap.targetId}`,
+      { status: 'pending' },
+      { status, decidedBy: req.user.id },
+      t
     )
+
+    await t.commit()
+
+    // Event bus: konsumen (mis. payroll) bisa mendengar perpindahan jadwal
+    if (status === 'approved') {
+      shiftEvents.emit('shift:swapped', {
+        swapId: swap.id,
+        requesterId: swap.requesterId,
+        targetId: swap.targetId,
+        requesterShiftId: swap.requesterShiftId,
+        targetShiftId: swap.targetShiftId
+      })
+    }
+
+    // Notifikasi setelah commit (jangan di-inject ke transaksi)
+    const requesterName = fullSwap?.requesterUser?.fullName || `Karyawan #${swap.requesterId}`
+    const targetName = fullSwap?.targetUser?.fullName || `Karyawan #${swap.targetId}`
+    await createNotification({
+      type: status === 'approved' ? 'shift_swap_approved' : 'shift_swap_rejected',
+      store: swap.store,
+      referenceId: swap.id,
+      referenceType: 'shift_swap',
+      params: [requesterName, targetName],
+      createdBy: req.user.id
+    })
 
     res.json({
       success: true,
       message: status === 'approved' ? 'Permintaan disetujui' : 'Permintaan ditolak',
-      data: swap
+      data: fullSwap
     })
   } catch (error) {
+    await t.rollback()
+    next(error)
+  }
+}
+
+exports.cancelShiftSwap = async (req, res, next) => {
+  const { id } = req.params
+  const t = await db.sequelize.transaction()
+  try {
+    const swap = await ShiftSwap.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE
+    })
+
+    if (!swap) {
+      await t.rollback()
+      return res.status(404).json({
+        success: false,
+        message: 'Permintaan ubah jadwal tidak ditemukan'
+      })
+    }
+
+    if (swap.status !== 'pending') {
+      await t.rollback()
+      return res.status(400).json({
+        success: false,
+        message: 'Permintaan ini sudah diputuskan sebelumnya'
+      })
+    }
+
+    const isAdmin =
+      req.user.roleType === 'super_admin' || req.user.roleType === 'admin'
+    const involved =
+      String(req.user.id) === String(swap.requesterId) ||
+      String(req.user.id) === String(swap.targetId)
+    if (!isAdmin && !involved) {
+      await t.rollback()
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak berhak membatalkan permintaan ini'
+      })
+    }
+
+    const statusHistory = Array.isArray(swap.status_history)
+      ? swap.status_history
+      : []
+
+    await swap.update(
+      {
+        status: 'cancelled',
+        decidedBy: req.user.id,
+        decidedAt: new Date(),
+        status_history: [
+          ...statusHistory,
+          { status: 'cancelled', by: req.user.id, at: new Date().toISOString() }
+        ]
+      },
+      { transaction: t }
+    )
+
+    const fullSwap = await ShiftSwap.findByPk(id, {
+      transaction: t,
+      include: [...USER_INCLUDE, ...SHIFT_INCLUDE, ...DECIDER_INCLUDE]
+    })
+
+    await createAudit(
+      req,
+      'update',
+      'shift_swap',
+      swap.id,
+      `Permintaan ubah jadwal dibatalkan: ${fullSwap?.requesterUser?.fullName || swap.requesterId} <-> ${fullSwap?.targetUser?.fullName || swap.targetId}`,
+      { status: 'pending' },
+      { status: 'cancelled', decidedBy: req.user.id },
+      t
+    )
+
+    await t.commit()
+
+    // Notifikasi setelah commit (jangan di-inject ke transaksi)
+    const requesterName = fullSwap?.requesterUser?.fullName || `Karyawan #${swap.requesterId}`
+    const targetName = fullSwap?.targetUser?.fullName || `Karyawan #${swap.targetId}`
+    await createNotification({
+      type: 'shift_swap_cancelled',
+      store: swap.store,
+      referenceId: swap.id,
+      referenceType: 'shift_swap',
+      params: [requesterName, targetName],
+      createdBy: req.user.id
+    })
+
+    res.json({
+      success: true,
+      message: 'Permintaan dibatalkan',
+      data: fullSwap
+    })
+  } catch (error) {
+    await t.rollback()
     next(error)
   }
 }
