@@ -2,6 +2,7 @@ const { Op } = require('sequelize')
 const db = require('../../db/models')
 const Shift = db.shift
 const User = db.user
+const { DEFAULT_SHIFT_TYPE, SHIFT_TYPES } = require('../../utils/shiftConstants')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const {
@@ -13,7 +14,7 @@ const serializeShift = (shift) => ({
   id: shift.id,
   store: shift.store,
   nama_shift: shift.name,
-  tipe_shift: shift.tipe_shift || '',
+  tipe_shift: SHIFT_TYPES.includes(shift.tipe_shift) ? shift.tipe_shift : DEFAULT_SHIFT_TYPE,
   jam_mulai: shift.startTime,
   jam_selesai: shift.endTime,
   tanggal_mulai: shift.tanggal_mulai,
@@ -213,7 +214,7 @@ exports.postNewShift = async (req, res) => {
       }
 const postData = await Shift.create({
          name: nama_shift,
-         tipe_shift: tipe_shift || '',
+         tipe_shift: SHIFT_TYPES.includes(tipe_shift) ? tipe_shift : DEFAULT_SHIFT_TYPE,
          startTime: jam_mulai,
          endTime: jam_selesai,
          tanggal_mulai,
@@ -247,7 +248,7 @@ const postData = await Shift.create({
       }
 const postData = await Shift.create({
          name: nama_shift,
-         tipe_shift: tipe_shift || '',
+         tipe_shift: SHIFT_TYPES.includes(tipe_shift) ? tipe_shift : DEFAULT_SHIFT_TYPE,
          startTime: jam_mulai,
          endTime: jam_selesai,
          tanggal_mulai,
@@ -280,7 +281,7 @@ const postData = await Shift.create({
       if (existing) continue
 const postData = await Shift.create({
          name: nama_shift,
-         tipe_shift: tipe_shift || '',
+         tipe_shift: SHIFT_TYPES.includes(tipe_shift) ? tipe_shift : DEFAULT_SHIFT_TYPE,
          startTime: jam_mulai,
          endTime: jam_selesai,
          tanggal_mulai,
@@ -348,13 +349,17 @@ exports.editShiftById = async (req, res) => {
       })
     }
 
-    const getDuplicate = await Shift.findOne({
-      where: {
-        [Op.and]: [
-          { id: { [Op.ne]: id } },
-          { name: nama_shift || existingShift.name }
-        ]
-      }
+    const stores = toStoreArray(store)
+
+    const duplicateWhere = { // nosemgrep: Sequelize SQL query, nilai divalidasi zod + koersi — bukan NoSQL injection
+      id: { [Op.ne]: id },
+      name: nama_shift || existingShift.name
+    }
+    if (stores.length > 0) {
+      duplicateWhere.store = { [Op.in]: stores }
+    }
+    const getDuplicate = await Shift.findOne({ // nosemgrep: Sequelize SQL query — bukan NoSQL injection
+      where: duplicateWhere
     })
     if (getDuplicate) {
       return res.status(403).json({
@@ -362,8 +367,6 @@ exports.editShiftById = async (req, res) => {
         message: 'Shift Sudah Tersedia'
       })
     }
-
-    const stores = toStoreArray(store)
 
     if (stores.length <= 1) {
 const editShift = await Shift?.update(

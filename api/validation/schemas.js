@@ -790,10 +790,15 @@ exports.createStockOpnameSchema = z.object({
 exports.updateStockOpnameSchema = exports.createStockOpnameSchema.partial()
 
 // ===================== Shift =====================
+const { SHIFT_TYPES } = require('../../utils/shiftConstants')
+const shiftTypeSchema = z.enum(SHIFT_TYPES, {
+  message: `Tipe shift harus salah satu dari: ${SHIFT_TYPES.join(', ')}`
+})
+
 exports.createShiftSchema = z.object({
   store: z.any().optional().nullable(),
   nama_shift: z.string().min(1, 'Shift name is required'),
-  tipe_shift: z.string().optional().default(''),
+  tipe_shift: shiftTypeSchema.optional().default(SHIFT_TYPES[0]),
   jam_mulai: z.string().min(1, 'Start time is required'),
   jam_selesai: z.string().min(1, 'End time is required'),
   tanggal_mulai: z.string().optional().nullable(),
@@ -1525,4 +1530,31 @@ exports.createShiftSwapSchema = z.object({
 
 exports.updateShiftSwapStatusSchema = z.object({
   status: z.enum(['approved', 'rejected'])
+})
+
+// ===================== Overtime (Lembur) =====================
+const timeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, 'Format waktu HH:MM')
+
+exports.createOvertimeSchema = z.object({
+  store: strToNumNullable().optional(),
+  shift_id: strToNumNullable(),
+  employee_id: strToNumNullable().optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Tanggal harus format YYYY-MM-DD'),
+  start_time: timeSchema,
+  end_time: timeSchema,
+  note: z.string().optional().nullable()
+})
+
+exports.updateOvertimeStatusSchema = z.object({
+  status: z.enum(['approved', 'rejected']),
+  note: z.string().optional().nullable()
+})
+
+exports.postOvertimePayrollSchema = z.object({
+  store: strToNumNullable().optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/, 'Bulan harus format YYYY-MM')
 })

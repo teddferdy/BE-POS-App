@@ -183,6 +183,23 @@ const pendingMigrations = [
   {
     table: 'transaction',
     columns: [{ name: 'salesReturnId', definition: 'INTEGER' }]
+  },
+  {
+    table: 'shift_swap',
+    columns: [
+      {
+        name: 'status_history',
+        definition: "JSONB DEFAULT '[]'::jsonb"
+      },
+      { name: 'expires_at', definition: 'TIMESTAMP' }
+    ]
+  },
+  {
+    table: 'user',
+    columns: [
+      { name: 'overtimeRate', definition: 'DECIMAL(15,2) DEFAULT 0' },
+      { name: 'overtimeFactor', definition: 'DECIMAL(10,2) DEFAULT 1.5' }
+    ]
   }
 ]
 
@@ -232,6 +249,16 @@ sequelize.addHook('afterConnect', async () => {
     await db.product_review.sync()
   } catch (e) {
     console.error('[auto-migrate] Error creating product_review:', e.message)
+  }
+  try {
+    await db.attendance.sync()
+  } catch (e) {
+    console.error('[auto-migrate] Error creating attendance:', e.message)
+  }
+  try {
+    await db.overtime.sync()
+  } catch (e) {
+    console.error('[auto-migrate] Error creating overtime:', e.message)
   }
 })
 

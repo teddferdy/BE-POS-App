@@ -95,6 +95,56 @@ const notificationTypes = {
   discount_created: {
     title: 'New Discount',
     description: (name) => `Discount "${name}" has been created.`
+  },
+  shift_swap_requested: {
+    title: 'Permintaan Tukar Shift',
+    description: (requesterName, targetName, date) =>
+      `${requesterName || 'Seseorang'} ingin bertukar shift dengan ${
+        targetName || 'rekan kerja'
+      }${date ? ` pada ${date}` : ''}.`
+  },
+  shift_swap_approved: {
+    title: 'Pertukaran Shift Disetujui',
+    description: (requesterName, targetName) =>
+      `Pertukaran shift antara ${requesterName || 'Kamu'} dan ${
+        targetName || 'rekan kerja'
+      } telah disetujui.`
+  },
+  shift_swap_rejected: {
+    title: 'Pertukaran Shift Ditolak',
+    description: (requesterName, targetName) =>
+      `Permintaan pertukaran shift antara ${requesterName || 'Kamu'} dan ${
+        targetName || 'rekan kerja'
+      } telah ditolak.`
+  },
+  shift_swap_cancelled: {
+    title: 'Pertukaran Shift Dibatalkan',
+    description: (requesterName, targetName) =>
+      `Permintaan pertukaran shift antara ${requesterName || 'Kamu'} dan ${
+        targetName || 'rekan kerja'
+      } telah dibatalkan.`
+  },
+  shift_swap_expired: {
+    title: 'Pertukaran Shift Kedaluwarsa',
+    description: (requesterName, targetName) =>
+      `Permintaan pertukaran shift antara ${requesterName || 'Kamu'} dan ${
+        targetName || 'rekan kerja'
+      } kedaluwarsa karena tanggal shift sudah lewat.`
+  },
+  overtime_requested: {
+    title: 'Pengajuan Lembur Baru',
+    description: (employeeName, date, duration) =>
+      `${employeeName || 'Karyawan'} mengajukan lembur ${date || ''}${duration ? ` selama ${duration} jam` : ''}.`
+  },
+  overtime_approved: {
+    title: 'Lembur Disetujui',
+    description: (employeeName, date, note) =>
+      `Lembur ${employeeName || 'Kamu'} pada ${date || ''} telah disetujui${note ? `. Catatan: ${note}` : '.'}`
+  },
+  overtime_rejected: {
+    title: 'Lembur Ditolak',
+    description: (employeeName, date, note) =>
+      `Lembur ${employeeName || 'Kamu'} pada ${date || ''} ditolak${note ? `. Catatan: ${note}` : '.'}`
   }
 }
 

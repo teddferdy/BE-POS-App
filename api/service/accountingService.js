@@ -52,6 +52,13 @@ const DEFAULT_ACCOUNTS = [
     description: 'Utang pajak'
   },
   {
+    code: '2200',
+    name: 'Salaries Payable',
+    type: 'liability',
+    normalBalance: 'credit',
+    description: 'Hutang gaji & lembur'
+  },
+  {
     code: '3000',
     name: 'Owner Capital',
     type: 'equity',
@@ -888,6 +895,50 @@ async function deleteExpenseJournal({
   return db.sequelize.transaction(remove)
 }
 
+// Overtime payroll closing: agregasi approved lembur satu bulan per employee,
+// menghasilkan jurnal Dr Beban Gaji (6100) ↔ Cr Hutang Gaji (2200), dan
+// mencegah double posting lewat (sourceType, referenceId) periode YYYYMM.
+async function postOvertimePayrollJournal({
+  store,
+  period,
+  lines,
+  date,
+  createdBy,
+  transaction
+}) {
+  const total = toNumber(lines.reduce((s, l) => s + toNumber(l.amount), 0))
+  if (!store || total <= 0 || lines.length === 0) return null
+
+  const expenseAcc = await findOrCreateAccount(store, '6100')
+  const payableAcc = await findOrCreateAccount(store, '2200')
+  if (!expenseAcc || !payableAcc) return null
+
+  const clean = lines.filter((l) => toNumber(l.amount) > 0)
+  const journalLines = clean.map((l) => ({
+    account: expenseAcc.id,
+    debit: toNumber(l.amount),
+    credit: 0,
+    description: `Lembur ${l.employeeName || `#${l.employeeId}`} (${String(l.hours).replace('.', ',')} jam) — ${period}`
+  }))
+  journalLines.push({
+    account: payableAcc.id,
+    debit: 0,
+    credit: total,
+    description: `Hutang lembur periode ${period}`
+  })
+
+  return createJournalEntry({
+    store,
+    date,
+    description: `Payroll lembur ${period}`,
+    sourceType: 'overtime_payroll',
+    referenceId: toNumber(period.replace('-', '')) || null,
+    lines: journalLines,
+    createdBy,
+    transaction
+  })
+}
+
 // Keeps the ledger consistent with the expense's current state:
 // approved + active  -> post (or rewrite) the journal entry
 // otherwise          -> remove any existing journal entry
@@ -940,5 +991,6 @@ module.exports = {
   postExpenseJournal,
   updateExpenseJournal,
   deleteExpenseJournal,
-  syncExpenseJournal
+  syncExpenseJournal,
+  postOvertimePayrollJournal
 }

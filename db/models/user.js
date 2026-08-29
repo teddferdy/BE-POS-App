@@ -114,6 +114,14 @@ module.exports = (sequelize, DataTypes) => {
       dailySalary: {
         type: DataTypes.DECIMAL(15, 2)
       },
+      overtimeRate: {
+        type: DataTypes.DECIMAL(15, 2),
+        defaultValue: 0
+      },
+      overtimeFactor: {
+        type: DataTypes.DECIMAL(10, 2),
+        defaultValue: 1.5
+      },
       documents: {
         type: DataTypes.TEXT
       },
