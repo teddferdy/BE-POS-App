@@ -25,6 +25,67 @@ const normalizeStores = (stores) => {
   })
 }
 
+const parseJSON = (val, fallback = null) => {
+  if (val == null || val === '') return fallback
+  if (typeof val !== 'string') return val
+  try {
+    return JSON.parse(val)
+  } catch {
+    return fallback
+  }
+}
+
+// ponytail: multi-image support — uploads all `images` files (multer.fields) and a
+// legacy single `image` file. Returns uploaded URLs + the legacy primary URL.
+const uploadProductFiles = async (req) => {
+  const multiFiles = req.files?.images || []
+  const legacyFile = req.files?.image?.[0] || req.file || null
+  const urls = []
+  if (multiFiles.length > 0) {
+    for (const f of multiFiles) {
+      try {
+        urls.push(await uploadToCloudinary(f.path, 'pos-app-products'))
+      } catch (err) {
+        console.warn(
+          'Image upload skipped (Cloudinary not configured):',
+          err.message
+        )
+      }
+    }
+  }
+  let primaryUrl = null
+  if (legacyFile && multiFiles.length === 0) {
+    try {
+      primaryUrl = await uploadToCloudinary(
+        legacyFile.path,
+        'pos-app-products'
+      )
+    } catch (err) {
+      console.warn(
+        'Image upload skipped (Cloudinary not configured):',
+        err.message
+      )
+    }
+  }
+  return { urls, primaryUrl }
+}
+
+// Resolves the ordered gallery from an `imageOrder` manifest:
+// plain strings = retained/existing URLs, "file:N" = N-th newly uploaded file.
+const resolveImageGallery = (rawOrder, uploadedUrls) => {
+  if (!Array.isArray(rawOrder)) return []
+  return rawOrder
+    .map((item) => {
+      if (typeof item !== 'string') return null
+      if (item.startsWith('file:')) {
+        const idx = Number(item.slice(5))
+        return Number.isInteger(idx) ? uploadedUrls[idx] : null
+      }
+      return item || null
+    })
+    .filter((u) => typeof u === 'string' && u.length > 0)
+}
+
 let _productStoreExists = null
 let _categoryStoreExists = null
 const hasProductStoreTable = async () => {
@@ -495,10 +556,11 @@ exports.postAddProduct = async (req, res) => {
     isAvailable,
     createdBy,
     image,
+    imageOrder,
     stores,
     supplier,
     tax,
-    _priceTiers,
+    priceTiers,
     currencyId,
     currencyCode,
     tipeProduk,
@@ -539,19 +601,19 @@ exports.postAddProduct = async (req, res) => {
       })
     }
 
-    const imageFile = req.file
-    let imageUrl = null
-
-    if (imageFile) {
-      try {
-        imageUrl = await uploadToCloudinary(imageFile.path, 'pos-app-products')
-      } catch (err) {
-        console.warn(
-          'Image upload skipped (Cloudinary not configured):',
-          err.message
-        )
-      }
+    const { urls: uploadedUrls, primaryUrl } = await uploadProductFiles(req)
+    const rawOrder = parseJSON(imageOrder)
+    let gallery = []
+    if (Array.isArray(rawOrder) && rawOrder.length > 0) {
+      gallery = resolveImageGallery(rawOrder, uploadedUrls)
+    } else if (uploadedUrls.length > 0) {
+      gallery = uploadedUrls
+    } else if (primaryUrl) {
+      gallery = [primaryUrl]
+    } else if (typeof image === 'string' && image) {
+      gallery = [image]
     }
+    const imageUrl = gallery[0] || primaryUrl || null
 
     let parsedStores = []
     if (stores) {
@@ -564,6 +626,14 @@ exports.postAddProduct = async (req, res) => {
     }
 
     let parsedPriceTiers = []
+    if (priceTiers) {
+      try {
+        parsedPriceTiers =
+          typeof priceTiers === 'string' ? JSON.parse(priceTiers) : priceTiers
+      } catch {
+        parsedPriceTiers = []
+      }
+    }
     let normalizedCategory = toIntOrNull(category)
     if (normalizedCategory === null && status !== 'draft') {
       return res.status(400).json({
@@ -627,6 +697,7 @@ exports.postAddProduct = async (req, res) => {
       createdBy,
       tipeProduk,
       image: imageUrl || image,
+      images: gallery,
       supplier: normalizedSupplier,
       tax: normalizedTax,
       priceTiers: parsedPriceTiers,
@@ -726,6 +797,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     options,
     isAvailable,
     image: _newImage,
+    imageOrder,
     stores,
     supplier,
     tax,
@@ -749,6 +821,10 @@ exports.editProductByLocationAndId = async (req, res) => {
     return Number.isNaN(n) ? null : n
   }
 
+  // ponytail: modifiedBy TIDAK terisi dari reqBody & hook beforeBulkUpdate
+  // terbukti tidak jalan untuk Model.update — set eksplisit dari JWT (trusted).
+  const actorId = toIntOrNull(req.user?.id ?? req.body.modifiedBy)
+
   try {
     const getAllProductByIdAndLocation = await Product.findOne({
       where: {
@@ -763,15 +839,37 @@ exports.editProductByLocationAndId = async (req, res) => {
       })
     }
 
-    const oldImage = getAllProductByIdAndLocation.image
-    let imageUrl = oldImage
+    const existingImages = Array.isArray(getAllProductByIdAndLocation.images)
+      ? getAllProductByIdAndLocation.images.filter(Boolean)
+      : getAllProductByIdAndLocation.image
+        ? [getAllProductByIdAndLocation.image]
+        : []
 
-    if (req.file) {
-      if (oldImage) {
-        await deleteFromCloudinary(oldImage)
-      }
+    const { urls: uploadedUrls, primaryUrl } = await uploadProductFiles(req)
+    const rawOrder = parseJSON(imageOrder)
+    const manifestProvided =
+      imageOrder !== undefined &&
+      imageOrder !== null &&
+      imageOrder !== ''
 
-      imageUrl = await uploadToCloudinary(req.file.path, 'pos-app-products')
+    let gallery = null
+    if (manifestProvided) {
+      gallery = resolveImageGallery(rawOrder, uploadedUrls)
+      const removed = existingImages.filter((u) => !gallery.includes(u))
+      await Promise.allSettled(
+        removed.map((u) => deleteFromCloudinary(u).catch(() => {}))
+      )
+    }
+
+    let imageUrl = getAllProductByIdAndLocation.image
+    if (manifestProvided) {
+      imageUrl = gallery?.[0] || null
+    } else if (uploadedUrls.length > 0) {
+      imageUrl = uploadedUrls[0]
+    } else if (primaryUrl) {
+      imageUrl = primaryUrl
+    } else if (_newImage) {
+      imageUrl = _newImage
     }
 
     let parsedStores = []
@@ -811,6 +909,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     const reqBody = {
       nameProduct,
       image: imageUrl,
+      ...(gallery ? { images: gallery } : {}),
       category: category !== undefined ? toIntOrNull(category) : undefined,
       description,
       price,
@@ -851,7 +950,8 @@ exports.editProductByLocationAndId = async (req, res) => {
       currencyCode: currencyCode || null,
       tipeProduk,
       composition: composition || [],
-      estimationTime: estimationTime || 0
+      estimationTime: estimationTime || 0,
+      ...(actorId !== null && actorId > 0 ? { modifiedBy: actorId } : {})
     }
 
     const oldStock = Number(getAllProductByIdAndLocation.stock) || 0

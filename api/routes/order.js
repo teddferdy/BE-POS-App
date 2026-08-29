@@ -58,5 +58,7 @@ router.get('/customer-order/:id', orderController.getCustomerOrder)
 router.post('/customer-create', orderController.createCustomerOrder)
 router.get('/receipt-html/:id', orderController.getReceiptHTML)
 router.get('/customer-tax-rate', orderController.getCustomerTaxRate)
+router.get('/customer-reviews', orderController.getProductReviews)
+router.post('/customer-review', orderController.createCustomerReview)
 
 module.exports = router

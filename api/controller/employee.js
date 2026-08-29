@@ -12,6 +12,7 @@ const {
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { syncEmployeeShift } = require('../../utils/shiftChain')
 
 const parseAccessMenu = (menu) => {
   if (Array.isArray(menu)) return menu
@@ -155,7 +156,7 @@ exports.addEmployee = async (req, res) => {
       placeOfBirth: body?.placeOfBirth || '',
       status: isDraft ? 'draft' : body?.status || 'active',
       store: body?.store || null,
-      shift: body?.shift || null,
+      shift: body?.shift ? Number(body.shift) : null,
       position: body?.position || null,
       accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : null,
       contractDuration: body?.contractDuration || null,
@@ -165,6 +166,13 @@ exports.addEmployee = async (req, res) => {
       documents: documentUrls.length > 0 ? JSON.stringify(documentUrls) : null,
       createdBy: req.user?.id || null
     })
+
+    if (body?.shift) {
+      await syncEmployeeShift({
+        userId: createUser.id,
+        newShiftId: Number(body.shift)
+      })
+    }
 
     createAudit(
       req,
@@ -232,7 +240,7 @@ exports.getAllEmployee = async (req, res) => {
 
     if (location) {
       whereCondition.store = location
-    } else if (currentUserRole === 'admin') {
+    } else if (currentUserRole !== 'super_admin' && currentUserStore != null) {
       whereCondition.store = currentUserStore
     }
 
@@ -507,7 +515,11 @@ exports.updateEmployee = async (req, res) => {
             : 'inactive'
           : employee.status),
       store: body?.store ?? employee.store,
-      shift: body?.shift ?? employee.shift,
+      shift: body?.shift !== undefined
+        ? body?.shift
+          ? Number(body.shift)
+          : null
+        : employee.shift,
       position: body?.position ?? employee.position,
       accessMenu: body?.accessMenu
         ? parseAccessMenu(body.accessMenu)
@@ -536,6 +548,13 @@ exports.updateEmployee = async (req, res) => {
     }
 
     await employee.update(updateData)
+
+    if (body?.shift !== undefined) {
+      await syncEmployeeShift({
+        userId: employeeId,
+        newShiftId: body?.shift ? Number(body.shift) : null
+      })
+    }
 
     createAudit(
       req,
@@ -587,6 +606,8 @@ exports.deleteEmployee = async (req, res) => {
     if (employee.image) {
       await deleteFromCloudinary(employee.image)
     }
+
+    await syncEmployeeShift({ userId: id, newShiftId: null })
 
     await User.destroy({ where: { id } })
 
