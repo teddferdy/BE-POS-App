@@ -240,6 +240,70 @@ routine.
 
 ---
 
+## Annex A — Report surfaces & Excel-template ↔ form-schema alignment
+
+Owner requirement: document which pages produce **laporan** (FE and BE), and
+make every **Download Template** column align with the matching **Add/Edit
+form schema** so a user can fill the template from what the form shows (and
+bulk-import round-trips without silent data loss).
+
+### A1. Report / export / print surfaces (current state)
+
+| Page | FE file | Trigger | Output | BE endpoint |
+|---|---|---|---|---|
+| Invoice | `page/invoice/InvoicePage.jsx` | Cetak / Print | 58mm print + server PDF | `/pos` print-invoice |
+| X/Z Report | `page/cash-register/XZReport.jsx` | Cetak X / Cetak Z | 58mm print (client) | `/pos` reports (X/Z) |
+| Sales Report | `page/report/SalesReportPage.jsx` | Export | client xlsx | `GET /report/sales-summary` |
+| Best Selling | `page/report/BestSellingReportPage.jsx` | Export | client xlsx | `GET /report/best-seller` |
+| Advanced Reporting | `page/advanced-reporting/AdvancedReporting.jsx` | Export (sales tab) | client xlsx | `GET /reports/*` |
+| Daily / Cash Flow / Profit per Product | `page/report/{DailyReport,CashFlowReport,ProfitPerProduct}.jsx` | none (view-only) | — | `GET /report/daily\|cash-flow\|profit-per-product` |
+| Master Data Export | `page/backup/BackupPage.jsx` | Export master data | server xlsx multi-sheet | `GET /export/master-data` |
+| Goods Receipt | `page/goods-receipt/GoodsReceiptList.jsx` / `DetailGoodsReceipt.jsx` | Export / Cetak | client xlsx / print | goods-receipt queries |
+| Goods Request | `page/goods-request/GoodsRequestList.jsx` | Export | client xlsx | goods-request queries |
+| Purchase Order | `page/purchase-order/DetailPurchaseOrder.jsx` | Export Excel / PDF | xlsx + jsPDF | `GET /purchase-order/get-by-id/:id` |
+
+No export/print found: AccountingPage (ledger CRUD), supplier-performance,
+audit-log, stock-history, sales/purchase return lists, dashboards.
+
+### A2. Excel template ↔ form schema alignment (policy)
+
+For every entity with a bulk import flow: the template headers MUST map to
+real Add/Edit form fields; every required form field is either a template
+column or optional-with-default on import; the import parser MUST
+header-validate (pattern used by department/position/ingredient/stock-opname);
+no silent drop of a template column; template and download-data headers stay
+consistent. Each flow must expose all four triggers in the UI: download
+template, download data, upload Excel, and (for list pages) the import modal.
+
+### A3. Known alignment gaps (to fix within the program)
+
+1. **Discount (HIGH):** BE import/export + FE services exist but
+   `DiscountList.jsx` has no template/upload/download UI at all; template
+   only covers the classic subset vs multi-promo form (bogo/bundling/
+   happyHour/category).
+2. **Purchase Order (HIGH):** `/purchase-order/template` service exists but
+   no button; import creates one PO per row, items are `ingredientName` only
+   (`product: null`), and drops dates/payment/tenor/discount/PIC.
+3. **Advanced Reporting (MEDIUM):** `period` selector (Harian/Mingguan/
+   Bulanan) not forwarded to `/reports/*` queries.
+4. **Type Payment (MEDIUM):** template `Description` never imported;
+   template vs download-data headers differ.
+5. **Category (MEDIUM):** positional import with no header validation;
+   parentId/color/sortOrder/image/icon form-only.
+6. **Tax config (LOW):** template vocabulary PPN/PPh/Non-Pajak remapped to
+   `ppn/other/service_charge` diverging from form `type` values.
+7. **Product (LOW):** legacy 7-col `exportProduct` dead code; form-only
+   brand/isAvailable/variant/modifier uncovered.
+8. **Stock Opname (LOW):** one route serves template & export with differing
+   filenames; client COLUMN_MAP (9 cols) narrower than the 12-header
+   template.
+
+Gap fixes land with P1 (import flows reshaped while moving runtime) and P3
+(report/query work); P0 does not carry feature work. Each fix includes a
+round-trip test: template → parse → DB fields identical to form submit.
+
+---
+
 ## Tier matrix (to be finalized in P1/P4 plans)
 
 | Tier | API | Redis | Backup cadence | Envelope |
