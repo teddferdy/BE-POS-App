@@ -23,6 +23,10 @@ module.exports = (sequelize, DataTypes) => {
       },
       modifiedBy: {
         type: DataTypes.INTEGER
+      },
+      deletedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
       }
     },
     {
