@@ -19,7 +19,6 @@ const filename = () => 'laporan-harian'
 const label = 'Laporan Harian'
 
 const getData = async (req) => {
-  const { Op } = require('sequelize')
   const { store, startDate, endDate } = req.query
   const replacements = {}
   let orderConditions = `"paymentStatus" = 'paid'`
