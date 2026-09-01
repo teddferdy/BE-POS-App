@@ -36,4 +36,12 @@ describe('renderCsv', () => {
     const csv = renderCsv(spec)
     expect(csv).toContain('"a,b""c"')
   })
+
+  test('empty rows produce header only, no totals row', () => {
+    const csv = renderCsv({ columns: spec.columns, rows: [], totals: spec.totals })
+    const lines = csv.replace(/^\uFEFF/, '').split('\r\n').filter(Boolean)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toBe('Tanggal,Total Penjualan,Catatan')
+    expect(csv).not.toContain('\r\nTotal')
+  })
 })

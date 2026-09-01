@@ -22,7 +22,7 @@ const renderCsv = ({ columns, rows, totals }) => {
     lines.push(cells.join(','))
   }
 
-  if (totals && totals.length > 0) {
+  if (totals && totals.length > 0 && rows && rows.length > 0) {
     const rowAcc = {}
     for (const row of rows || []) {
       for (const key of totals) {
