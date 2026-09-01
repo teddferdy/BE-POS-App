@@ -30,14 +30,14 @@ const getData = async (req) => {
     { replacements, type: db.sequelize.QueryTypes.SELECT }
   )
 
-  let penerimaanTunai = 0, penerimaanQris = 0, penerimaanTransfer = 0, lainnya = 0
+  let penerimaanTunai = 0, penerimaanQris = 0, penerimaanTransfer = 0, _lainnya = 0
   for (const row of paymentRows) {
     const type = (row.typePayment || '').toLowerCase()
     const amount = Number(row.total || 0)
     if (type.includes('cash') || type === 'tunai' || type.includes('debit') || type.includes('credit') || type.includes('other') || type.includes('points')) penerimaanTunai += amount
     else if (type.includes('qris') || type.includes('e-wallet')) penerimaanQris += amount
     else if (type.includes('transfer')) penerimaanTransfer += amount
-    else lainnya += amount
+    else _lainnya += amount
   }
 
   const expReplacements = {}
@@ -93,9 +93,6 @@ const getData = async (req) => {
     { replacements: refReplacements, type: db.sequelize.QueryTypes.SELECT }
   )
   const penerimaanReturPembelian = Number(refAgg.total || 0)
-
-  const totalPengeluaran = pengeluaranExpense + pengeluaranPurchasePayment
-  const totalKasMasuk = penerimaanTunai + penerimaanQris + penerimaanTransfer + lainnya + penerimaanReturPembelian
 
   const rows = [
     { keterangan: 'Penerimaan Tunai', nominal: penerimaanTunai },

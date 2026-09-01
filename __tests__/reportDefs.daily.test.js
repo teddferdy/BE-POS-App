@@ -1,4 +1,4 @@
-const db = require('../db/models')
+const _db = require('../db/models')
 const daily = require('../api/service/reportDefs/daily')
 
 jest.mock('../db/models')

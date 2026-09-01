@@ -38,7 +38,7 @@ const getData = async (req) => {
   if (store) orderWhere.store = store
   if (dateRange[Op.gte]) orderWhere.createdAt = dateRange
 
-  const [totalSales, totalOrders, activeLocations, totalMembers] = await Promise.all([
+  const [] = await Promise.all([
     db.order.sum('totalPrice', { where: orderWhere }),
     db.order.count({ where: orderWhere }),
     db.location.count({ where: { status: 'active', ...(store ? { id: store } : {}) } }),

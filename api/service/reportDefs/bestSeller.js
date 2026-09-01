@@ -20,7 +20,7 @@ const getData = async (req) => {
 
   const where = store ? { store } : {}
 
-  const [bestSelling, productCount, productRevenues] = await Promise.all([
+  const [bestSelling, , productRevenues] = await Promise.all([
     db.best_selling.findAll({
       where,
       order: [['totalSelling', 'DESC']],

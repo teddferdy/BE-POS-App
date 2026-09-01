@@ -1,12 +1,11 @@
 'use strict'
 const db = require('../../db/models')
 const reportDefs = require('../service/reportDefs')
-const { exportReport, getExtension } = require('../service/reportExporter')
-const { formatValue } = require('../service/reportExporter/formatters')
+const { exportReport } = require('../service/reportExporter')
 
 const VALID_FORMATS = ['excel', 'pdf', 'csv']
 
-const loadBrand = async (req) => {
+const loadBrand = async () => {
   const loc = await db.location.findOne({ where: { mainBranch: true }, order: [['id', 'ASC']] })
   if (loc) {
     return {
@@ -44,7 +43,7 @@ const exportOne = async (req, res) => {
     const data = await def.getData(req)
     const configRow = await db.reportConfig.findOne({ where: { key } })
     const config = configRow?.config || null
-    const brand = await loadBrand(req)
+    const brand = await loadBrand()
     const spec = buildSpecFromDef(def, data, config, brand)
 
     await exportReport({ format, spec, filename: def.filename(req), res })
