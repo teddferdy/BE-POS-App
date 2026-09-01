@@ -2061,7 +2061,11 @@ CREATE TABLE public.invoice_setting (
     "socialMediaVisibility" text,
     "addressFieldsVisibility" text,
     "memberFieldsVisibility" text,
-    footer character varying(255) DEFAULT NULL::character varying
+    footer character varying(255) DEFAULT NULL::character varying,
+    "paperSize" character varying(20) DEFAULT '58mm'::character varying,
+    "fontSize" character varying(20) DEFAULT 'normal'::character varying,
+    "fontFamily" character varying(30) DEFAULT 'monospace'::character varying,
+    "lineSpacing" character varying(20) DEFAULT 'normal'::character varying
 );
 
 

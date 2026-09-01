@@ -54,6 +54,26 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true
       },
+      paperSize: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: '58mm'
+      },
+      fontSize: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: 'normal'
+      },
+      fontFamily: {
+        type: DataTypes.STRING(30),
+        allowNull: true,
+        defaultValue: 'monospace'
+      },
+      lineSpacing: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        defaultValue: 'normal'
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'active'

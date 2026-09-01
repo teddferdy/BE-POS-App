@@ -734,6 +734,32 @@ exports.getLocationById = async (req, res) => {
 
     await enrichAuditFields(db, [location])
 
+    const regionCodes = []
+    if (location.province) regionCodes.push(['province', location.province])
+    if (location.city) regionCodes.push(['city', location.city])
+    if (location.district) regionCodes.push(['district', location.district])
+    if (location.village) regionCodes.push(['village', location.village])
+
+    const regionNameMap = {}
+    if (regionCodes.length) {
+      try {
+        const regions = await Region.findAll({
+          where: {
+            [Op.or]: regionCodes.map(([level, code]) => ({ level, code }))
+          },
+          attributes: ['level', 'code', 'name'],
+          raw: true
+        })
+        for (const r of regions) {
+          regionNameMap[`${r.level}:${r.code}`] = r.name
+        }
+      } catch {
+        // region table may not exist yet — fall back to raw codes
+      }
+    }
+    const nameFor = (level, code) =>
+      code ? regionNameMap[`${level}:${code}`] || code : null
+
     const data = {
       id: `loc-${String(location.id).padStart(3, '0')}`,
       storeId: `ST-${String(location.id).padStart(3, '0')}`,
@@ -746,9 +772,13 @@ exports.getLocationById = async (req, res) => {
       isActive: location.status === 'active',
       status: location.status,
       city: location.city,
+      cityName: nameFor('city', location.city),
       province: location.province,
+      provinceName: nameFor('province', location.province),
       district: location.district,
+      districtName: nameFor('district', location.district),
       village: location.village,
+      villageName: nameFor('village', location.village),
       postalCode: location.postalCode,
       category: location.category || 'Main Branch',
       managerName: location.managerName,

@@ -15,7 +15,11 @@ const DEFAULT_TEMPLATE = {
   addressFieldsVisibility: null,
   memberFieldsVisibility: null,
   logo: null,
-  footer: 'Terima kasih atas kunjungan Anda'
+  footer: 'Terima kasih atas kunjungan Anda',
+  paperSize: '58mm',
+  fontSize: 'normal',
+  fontFamily: 'monospace',
+  lineSpacing: 'normal'
 }
 
 const invoiceController = {
@@ -61,6 +65,10 @@ const invoiceController = {
         addressFieldsVisibility,
         memberFieldsVisibility,
         footer,
+        paperSize,
+        fontSize,
+        fontFamily,
+        lineSpacing,
         removeLogo
       } = req.body
 
@@ -124,6 +132,22 @@ const invoiceController = {
           footer !== undefined
             ? footer
             : (existing?.footer ?? 'Terima kasih atas kunjungan Anda'),
+        paperSize:
+          paperSize !== undefined
+            ? paperSize
+            : (existing?.paperSize ?? '58mm'),
+        fontSize:
+          fontSize !== undefined
+            ? fontSize
+            : (existing?.fontSize ?? 'normal'),
+        fontFamily:
+          fontFamily !== undefined
+            ? fontFamily
+            : (existing?.fontFamily ?? 'monospace'),
+        lineSpacing:
+          lineSpacing !== undefined
+            ? lineSpacing
+            : (existing?.lineSpacing ?? 'normal'),
         modifiedBy: req.user?.id
       }
 
