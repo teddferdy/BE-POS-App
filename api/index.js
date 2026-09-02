@@ -70,6 +70,8 @@ const supplierBankAccountRoutes = require('./routes/supplierBankAccount')
 const promoRoutes = require('./routes/promo')
 const productBundleRoutes = require('./routes/productBundle')
 const reportingRoutes = require('./routes/reporting')
+const reportConfigRoutes = require('./routes/reportConfig')
+const reportExportRoutes = require('./routes/reportExport')
 const inventoryRoutes = require('./routes/inventory')
 const thermalPrinterRoutes = require('./routes/thermalPrinter')
 const goodsRequestRoutes = require('./routes/goodsRequest')
@@ -224,6 +226,8 @@ const routes = [
   { path: '/promo', route: promoRoutes },
   { path: '/product-bundle', route: productBundleRoutes },
   { path: '/reports', route: reportingRoutes },
+  { path: '/report-config', route: reportConfigRoutes },
+  { path: '/report', route: reportExportRoutes },
   { path: '/inventory', route: inventoryRoutes },
   { path: '/thermal-printer', route: thermalPrinterRoutes },
   { path: '/backup', route: backupRoutes },

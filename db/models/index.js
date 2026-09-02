@@ -260,6 +260,11 @@ sequelize.addHook('afterConnect', async () => {
   } catch (e) {
     console.error('[auto-migrate] Error creating overtime:', e.message)
   }
+  try {
+    await db.reportConfig.sync()
+  } catch (e) {
+    console.error('[auto-migrate] Error creating report_config:', e.message)
+  }
 })
 
 module.exports = db

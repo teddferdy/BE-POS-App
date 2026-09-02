@@ -1,127 +1,16 @@
 'use strict'
 const { Op } = require('sequelize')
 const db = require('../../db/models')
+const reportDefs = require('../service/reportDefs')
 const Order = db.order
 
 exports.getDailyReport = async (req, res) => {
   try {
-    const { store, startDate, endDate } = req.query
-    const replacements = {}
-    let orderConditions = `"paymentStatus" = 'paid'`
-
-    if (store) {
-      orderConditions += ` AND o."store" = :store`
-      replacements.store = store
-    }
-    if (startDate) {
-      orderConditions += ` AND o."createdAt" >= :startDate`
-      replacements.startDate = new Date(startDate)
-    }
-    if (endDate) {
-      const end = new Date(endDate)
-      end.setHours(23, 59, 59, 999)
-      orderConditions += ` AND o."createdAt" <= :endDate`
-      replacements.endDate = end
-    }
-
-    // Aggregate order-level metrics per day in SQL
-    const dailyOrders = await db.sequelize.query(
-      `SELECT DATE(o."createdAt") as tanggal,
-              COUNT(*) as "totalTransaksi",
-              COALESCE(SUM(o."totalPrice"), 0) as "totalPenjualan",
-              COALESCE(SUM(o."discountAmount"), 0) as "totalDiscount",
-              COALESCE(SUM(o."totalQuantity"), 0) as "totalQty",
-              COALESCE(SUM(o."totalCovers"), 0) as "totalCovers"
-       FROM "order" o
-       WHERE ${orderConditions}
-       GROUP BY DATE(o."createdAt")
-       ORDER BY tanggal DESC`,
-      { replacements, type: db.sequelize.QueryTypes.SELECT }
-    )
-
-    if (dailyOrders.length === 0) {
-      return res.json({ success: true, data: [] })
-    }
-
-    // Aggregate HPP per day from order_items joined with orders
-    const dailyHpp = await db.sequelize.query(
-      `SELECT DATE(o."createdAt") as tanggal,
-              COALESCE(SUM(COALESCE(oi."hppSnapshot", oi."price", 0)), 0) as "totalHpp"
-       FROM order_item oi
-       JOIN "order" o ON o.id = oi."order"
-       WHERE ${orderConditions}
-       GROUP BY DATE(o."createdAt")`,
-      { replacements, type: db.sequelize.QueryTypes.SELECT }
-    )
-
-    const hppMap = {}
-    for (const row of dailyHpp) {
-      hppMap[row.tanggal] = Number(row.totalHpp || 0)
-    }
-
-    // Aggregate expenses per day
-    let expenseConditions = `"status" = 'approved'`
-    const expReplacements = {}
-    if (store) {
-      expenseConditions += ` AND "store" = :store`
-      expReplacements.store = store
-    }
-    if (startDate) {
-      expenseConditions += ` AND "date" >= :startDate`
-      expReplacements.startDate = replacements.startDate
-    }
-    if (endDate) {
-      expenseConditions += ` AND "date" <= :endDate`
-      expReplacements.endDate = replacements.endDate
-    }
-
-    let dailyExpenses = []
-    if (startDate || endDate || store) {
-      dailyExpenses = await db.sequelize.query(
-        `SELECT DATE("date") as tanggal, COALESCE(SUM("amount"), 0) as "totalExpense"
-         FROM expense
-         WHERE ${expenseConditions}
-         GROUP BY DATE("date")`,
-        { replacements: expReplacements, type: db.sequelize.QueryTypes.SELECT }
-      )
-    }
-
-    const expenseMap = {}
-    for (const row of dailyExpenses) {
-      expenseMap[row.tanggal] = Number(row.totalExpense || 0)
-    }
-
-    // Build final report
-    const reportData = dailyOrders.map((row) => {
-      const tanggal = row.tanggal
-      const totalPenjualan = Number(row.totalPenjualan || 0)
-      const totalDiscount = Number(row.totalDiscount || 0)
-      const netRevenue = totalPenjualan - totalDiscount
-      const totalHpp = hppMap[tanggal] || 0
-      const totalExpense = expenseMap[tanggal] || 0
-      const grossProfit = netRevenue - totalHpp
-      const netProfit = grossProfit - totalExpense
-      const foodCostPersen =
-        totalPenjualan > 0
-          ? Math.round((totalHpp / totalPenjualan) * 10000) / 100
-          : 0
-
-      return {
-        tanggal,
-        totalTransaksi: Number(row.totalTransaksi || 0),
-        totalPenjualanBersih: netRevenue,
-        totalHpp,
-        foodCostPersen,
-        grossProfit,
-        netProfit,
-        totalCovers: Number(row.totalCovers || 0) || Number(row.totalQty || 0)
-      }
-    })
-
-    res.json({ success: true, data: reportData })
+    const { rows } = await reportDefs.daily.getData(req)
+    return res.json({ success: true, data: rows })
   } catch (err) {
     console.error('Daily report error:', err)
-    res.status(500).json({ success: false, message: err.message })
+    return res.status(500).json({ success: false, message: err.message })
   }
 }
 
@@ -566,58 +455,9 @@ exports.getCashFlow = async (req, res) => {
 
 exports.getProfitPerProduct = async (req, res) => {
   try {
-    const { store, startDate, endDate } = req.query
-    const replacements = {}
-    let orderConditions = `o."paymentStatus" = 'paid'`
-
-    if (store) {
-      orderConditions += ` AND o."store" = :store`
-      replacements.store = store
-    }
-    if (startDate) {
-      orderConditions += ` AND o."createdAt" >= :startDate`
-      replacements.startDate = new Date(startDate)
-    }
-    if (endDate) {
-      const end = new Date(endDate)
-      end.setHours(23, 59, 59, 999)
-      orderConditions += ` AND o."createdAt" <= :endDate`
-      replacements.endDate = end
-    }
-
-    // Single SQL query: GROUP BY product with SUM for qty, revenue, HPP
-    const rows = await db.sequelize.query(
-      `SELECT oi."product" as "productId",
-              COALESCE(MAX(oi."productName"), 'Unknown') as "productName",
-              COALESCE(SUM(oi."quantity"), 0) as "qtySold",
-              COALESCE(SUM(oi."totalPrice"), 0) as "totalSales",
-              COALESCE(SUM(COALESCE(oi."hppSnapshot", 0)), 0) as "totalHpp"
-       FROM order_item oi
-       JOIN "order" o ON o.id = oi."order"
-       WHERE ${orderConditions}
-       GROUP BY oi."product"
-       ORDER BY (COALESCE(SUM(oi."totalPrice"), 0) - COALESCE(SUM(COALESCE(oi."hppSnapshot", 0)), 0)) DESC`,
-      { replacements, type: db.sequelize.QueryTypes.SELECT }
-    )
-
-    const result = rows.map((r) => {
-      const totalSales = Number(r.totalSales || 0)
-      const totalHpp = Number(r.totalHpp || 0)
-      const profit = totalSales - totalHpp
-      return {
-        productId: r.productId,
-        productName: r.productName,
-        qtySold: Number(r.qtySold || 0),
-        totalSales,
-        totalHpp,
-        profit,
-        margin:
-          totalSales > 0 ? Math.round((profit / totalSales) * 10000) / 100 : 0
-      }
-    })
-
-    res.json({ success: true, data: result })
+    const { rows } = await reportDefs.profitPerProduct.getData(req)
+    return res.json({ success: true, data: rows })
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message })
+    return res.status(500).json({ success: false, message: err.message })
   }
 }

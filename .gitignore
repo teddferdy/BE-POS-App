@@ -37,3 +37,9 @@ test-results/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# git worktrees
+.worktrees/
+
+# superpowers scratch workspace
+.superpowers/
