@@ -141,7 +141,10 @@ exports.clock = async (req, res) => {
 
     const record = await Attendance.create({
       userId: req.user.id,
-      store: getStore(req) ? Number(getStore(req)) : null,
+      // Clock-in store must come from the authenticated user's own
+      // assignment, never from client-supplied body/query/cookie —
+      // those are spoofable and this route has no validateStoreAccess.
+      store: req.user?.store ? Number(req.user.store) : null,
       shiftId: shiftId ? Number(shiftId) : null,
       type: String(type).toLowerCase(),
       absenAt: now,

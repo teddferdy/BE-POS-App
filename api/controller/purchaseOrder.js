@@ -874,19 +874,29 @@ const purchaseOrderController = {
 
             await db.purchase_order_item.update(
               {
+                // Postgres folds unquoted identifiers to lowercase — this
+                // literal must quote the camelCase column or the UPDATE
+                // fails with "column receivedquantity does not exist".
                 receivedQuantity: db.sequelize.literal(
-                  `receivedQuantity + ${receiveQty}`
+                  `"receivedQuantity" + ${receiveQty}`
                 )
               },
               { where: { id: item.id, purchaseOrder: id }, transaction }
             )
 
             if (item.product) {
+              // Lock the row so quantityBefore reflects the value at write
+              // time (not a stale pre-lock read), and write the new stock
+              // via an atomic SQL expression rather than JS arithmetic — two
+              // concurrent receipts against the same product previously
+              // raced: both read the same starting stock, and the second
+              // write silently overwrote the first's increment (lost update).
               const product = await db.product.findByPk(item.product, {
-                transaction
+                transaction,
+                lock: transaction.LOCK.UPDATE
               })
               if (product) {
-                const quantityBefore = product.stock
+                const quantityBefore = Number(product.stock) || 0
 
                 await db.stock_history.create(
                   {
@@ -904,7 +914,7 @@ const purchaseOrderController = {
                 )
 
                 await product.update(
-                  { stock: product.stock + receiveQty },
+                  { stock: db.sequelize.literal(`stock + ${receiveQty}`) },
                   { transaction }
                 )
 
@@ -941,14 +951,18 @@ const purchaseOrderController = {
 
             if (item.ingredient || item.ingredientName) {
               const ingredient = item.ingredient
-                ? await db.ingredient.findByPk(item.ingredient, { transaction })
+                ? await db.ingredient.findByPk(item.ingredient, {
+                    transaction,
+                    lock: transaction.LOCK.UPDATE
+                  })
                 : await db.ingredient.findOne({
                     where: { name: item.ingredientName, store },
-                    transaction
+                    transaction,
+                    lock: transaction.LOCK.UPDATE
                   })
 
               if (ingredient) {
-                const quantityBefore = ingredient.stock
+                const quantityBefore = Number(ingredient.stock) || 0
                 await db.stock_history.create(
                   {
                     store,
@@ -965,7 +979,7 @@ const purchaseOrderController = {
                   { transaction }
                 )
                 await ingredient.update(
-                  { stock: ingredient.stock + receiveQty },
+                  { stock: db.sequelize.literal(`stock + ${receiveQty}`) },
                   { transaction }
                 )
               }

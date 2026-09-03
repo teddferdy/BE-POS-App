@@ -166,14 +166,28 @@ const getServerItemPrice = (prod, item) => {
 }
 
 // ponytail: sequential daily pickup/customer number per store (1, 2, 3...).
-// Uses MAX()+1 so numbers are never reused even when orders are soft-deleted.
-const generateCustomerNumber = async (store) => {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  const max = await Order.max('customerNumber', {
-    where: { store, createdAt: { [Op.gte]: start } }
-  })
-  return (max || 0) + 1
+// Atomic upsert against order_daily_counter instead of MAX(customerNumber)+1
+// — the old query had no lock and no unique constraint, so two concurrent
+// orders at the same store on the same day could read the same MAX and both
+// receive the same pickup number. INSERT..ON CONFLICT DO UPDATE is a single
+// statement Postgres serializes per (store, date) row, so concurrent callers
+// are queued, not raced. Pass the same transaction used to create the order
+// so a rolled-back order (e.g. insufficient stock) doesn't burn a number.
+const generateCustomerNumber = async (store, t) => {
+  const counterDate = new Date().toISOString().slice(0, 10)
+  const rows = await db.sequelize.query(
+    `INSERT INTO order_daily_counter (store, "counterDate", "lastValue", "updatedAt")
+     VALUES ($1, $2, 1, NOW())
+     ON CONFLICT (store, "counterDate")
+     DO UPDATE SET "lastValue" = order_daily_counter."lastValue" + 1, "updatedAt" = NOW()
+     RETURNING "lastValue"`,
+    {
+      bind: [store, counterDate],
+      transaction: t,
+      type: db.sequelize.QueryTypes.SELECT
+    }
+  )
+  return rows[0]?.lastValue || 1
 }
 
 const getActiveTaxRate = async (store) => {
@@ -453,6 +467,317 @@ const calculateOrderTotals = (
   }
 }
 
+// ---- createOrder helpers ---------------------------------------------
+// Split out of what used to be one ~780-line function so each concern
+// (table check, discount resolution, item pricing/validation, totals) can
+// be read and changed independently. All still module-private — only
+// exports.createOrder below calls them.
+
+const checkTableAvailable = async (tableId, store) => {
+  if (!tableId) return { ok: true }
+  const table = await Table.findOne({ where: { id: tableId, store } })
+  if (table && ['occupied', 'reserved', 'maintenance'].includes(table.status)) {
+    return {
+      ok: false,
+      message:
+        table.status === 'occupied'
+          ? 'Table is already occupied'
+          : 'Table is not available'
+    }
+  }
+  return { ok: true }
+}
+
+// Resolves which discount applies before promo campaigns are evaluated, in
+// priority order: explicit discountId > promo code > member tier auto-discount
+// > point redemption (on top, applied later in calculateFinalTotals).
+const resolveOrderDiscount = async ({
+  discountId,
+  promoCode,
+  customerId,
+  redeemedPoints,
+  store
+}) => {
+  let discountValue = 0
+  let discountType = 'none'
+  let appliedDiscountId = null
+  let appliedDiscountMeta = null
+
+  if (discountId) {
+    const discount = await Discount.findOne({ where: { id: discountId, store } })
+    if (discount) {
+      discountValue = discount.value
+      discountType = discount.type
+      appliedDiscountId = discount.id
+      appliedDiscountMeta = discount
+    }
+  }
+
+  if (promoCode && !appliedDiscountId) {
+    const promoDiscount = await Discount.findOne({
+      where: { code: promoCode.trim().toUpperCase(), store, status: 'active' }
+    })
+    if (promoDiscount) {
+      const now = new Date()
+      const startsOk =
+        !promoDiscount.startDate || new Date(promoDiscount.startDate) <= now
+      const endsOk =
+        !promoDiscount.endDate || new Date(promoDiscount.endDate) >= now
+      if (startsOk && endsOk) {
+        discountValue = promoDiscount.value
+        discountType = promoDiscount.type
+        appliedDiscountId = promoDiscount.id
+        appliedDiscountMeta = promoDiscount
+      }
+    }
+  }
+
+  if (!appliedDiscountId && customerId) {
+    try {
+      const member = await db.member.findByPk(customerId)
+      if (member && member.tier) {
+        const tier = await db.member_tier.findByPk(member.tier)
+        if (tier && tier.discountPercent > 0) {
+          discountValue = tier.discountPercent
+          discountType = 'percent'
+        }
+      }
+    } catch (e) {
+      console.error('Tier discount lookup error:', e.message)
+    }
+  }
+
+  const POINT_VALUE = 1
+  let redeemedPointsUsed = 0
+  let pointDiscountAmount = 0
+  if (redeemedPoints > 0 && customerId) {
+    try {
+      const member = await db.member.findByPk(customerId)
+      if (member && (member.totalPoints || 0) >= redeemedPoints) {
+        pointDiscountAmount = redeemedPoints * POINT_VALUE
+        redeemedPointsUsed = redeemedPoints
+      }
+    } catch (e) {
+      console.error('Point redemption error:', e.message)
+    }
+  }
+
+  return {
+    discountValue,
+    discountType,
+    appliedDiscountId,
+    appliedDiscountMeta,
+    redeemedPointsUsed,
+    pointDiscountAmount
+  }
+}
+
+// Re-derives every item's price from the DB (never trusts client-sent
+// amounts), loads + validates any referenced bundles, and checks stock for
+// every line — bundle components and regular items alike, in one pass
+// instead of three separate passes over the same items. Mutates `items` in
+// place (basePrice/price/unitPrice/subtotal/_origSubtotal) and returns the
+// bundleMap plus a Map of already-fetched regular-item products so the
+// caller doesn't have to re-fetch them again for order-item creation.
+const loadAndPriceOrderItems = async (items, store) => {
+  items.forEach((item) => {
+    item._origSubtotal = item.subtotal
+  })
+
+  const bundleMap = {}
+  const productById = new Map()
+
+  for (const item of items) {
+    if (item.bundleId) {
+      const bundle = await db.product_bundle.findByPk(item.bundleId, {
+        include: [
+          {
+            model: db.product_bundle_item,
+            as: 'items',
+            include: [{ model: Product, as: 'productData' }]
+          }
+        ]
+      })
+      if (!bundle) {
+        return {
+          ok: false,
+          message: `Bundle not found: ${item.bundleName || item.bundleId}`
+        }
+      }
+      if (
+        !bundle.isAvailable ||
+        bundle.status !== 'active' ||
+        !isBundleWithinValidityPeriod(bundle)
+      ) {
+        return { ok: false, message: `Bundle "${bundle.name}" is not available` }
+      }
+      bundleMap[item.bundleId] = bundle
+
+      const bundlePrice = Number(bundle.bundlePrice) || 0
+      item.price = bundlePrice
+      item.basePrice = bundlePrice
+      item.unitPrice = bundlePrice
+      item.subtotal = bundlePrice * Number(item.quantity)
+
+      const bundleQty = Number(item.quantity) || 1
+      for (const bi of bundle.items) {
+        const prod = bi.productData
+        if (!prod) {
+          return {
+            ok: false,
+            message: `Product in bundle "${bundle.name}" not found`
+          }
+        }
+        const needed = bi.quantity * bundleQty
+        const avail = await getEffectiveStock(prod, store)
+        if (avail !== null && avail < needed) {
+          return {
+            ok: false,
+            message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${avail}, dibutuhkan: ${needed}`
+          }
+        }
+      }
+      continue
+    }
+
+    // Regular item — fetched once here and reused for stock check and (via
+    // the returned productById map) order-item creation, instead of the
+    // same row being fetched three separate times across the request.
+    const prod = await Product.findByPk(item.product || item.productId)
+    if (!prod) {
+      return {
+        ok: false,
+        message: `Product not found: ${item.productName || item.product || item.productId}`
+      }
+    }
+    productById.set(prod.id, prod)
+
+    const serverPrice = getServerItemPrice(prod, item)
+    item.basePrice = Number(prod.price) || 0
+    item.price = serverPrice
+    item.unitPrice = serverPrice
+    item.subtotal = serverPrice * Number(item.quantity)
+
+    const avail = await getEffectiveStock(prod, store)
+    if (avail !== null && avail < Number(item.quantity)) {
+      return {
+        ok: false,
+        message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${avail}, diminta: ${item.quantity}`
+      }
+    }
+  }
+
+  return { ok: true, bundleMap, productById }
+}
+
+// Evaluates promo campaigns against the priced items, applies whichever of
+// (explicit/promo/tier discount) vs (promo campaign) is in effect, then
+// layers the maximumDiscount cap and point-redemption discount on top.
+const calculateFinalTotals = async ({
+  items,
+  store,
+  customerId,
+  discountValue,
+  discountType,
+  appliedDiscountId,
+  appliedDiscountMeta,
+  pointDiscountAmount,
+  taxRate,
+  serviceChargeRate
+}) => {
+  let rawSubTotal = 0
+  items.forEach((item) => {
+    rawSubTotal += item.subtotal
+  })
+
+  const campaignWithSubtotal = await evaluatePromoCampaign(
+    items.map((item) => ({
+      ...item,
+      productId: item.product || item.productId,
+      unitPrice: item.unitPrice ?? item.price ?? item.basePrice ?? 0
+    })),
+    store,
+    customerId,
+    rawSubTotal
+  )
+
+  let totals
+  let promoDiscountAmount = 0
+  let appliedCampaignId = null
+
+  // Use campaign discount if no manual discount applied and campaign gives a better deal
+  if (!appliedDiscountId && campaignWithSubtotal.discountAmount > 0) {
+    promoDiscountAmount = campaignWithSubtotal.discountAmount
+    appliedCampaignId = campaignWithSubtotal.campaignId
+    totals = calculateOrderTotals(items, 0, 'none', taxRate, serviceChargeRate)
+    totals.discountAmount = promoDiscountAmount
+  } else if (
+    appliedDiscountMeta &&
+    appliedDiscountMeta.conditions &&
+    appliedDiscountMeta.conditions.promoType
+  ) {
+    // Legacy: still support old discount.conditions for backward compat, but log deprecation
+    console.warn(
+      'DEPRECATED: discount.conditions.promoType detected. Migrate to promo_campaign.'
+    )
+    totals = calculateOrderTotals(items, 0, 'none', taxRate, serviceChargeRate)
+  } else {
+    totals = calculateOrderTotals(
+      items,
+      discountValue,
+      discountType,
+      taxRate,
+      serviceChargeRate
+    )
+  }
+
+  // Apply maximumDiscount cap for percent type
+  if (discountType === 'percent' && appliedDiscountId) {
+    const discountMeta = await Discount.findByPk(appliedDiscountId)
+    if (
+      discountMeta &&
+      discountMeta.maximumDiscount > 0 &&
+      totals.discountAmount > discountMeta.maximumDiscount
+    ) {
+      totals.discountAmount = discountMeta.maximumDiscount
+      const afterDiscount = totals.subTotal - totals.discountAmount
+      totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
+      totals.serviceChargeAmount = Math.round(
+        afterDiscount * (serviceChargeRate / 100)
+      )
+      totals.totalPrice =
+        afterDiscount + totals.taxAmount + totals.serviceChargeAmount
+    }
+  }
+
+  // Apply point redemption discount on top
+  if (pointDiscountAmount > 0) {
+    totals.discountAmount += pointDiscountAmount
+    const afterDiscount = totals.subTotal - totals.discountAmount
+    totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
+    totals.serviceChargeAmount = Math.round(
+      afterDiscount * (serviceChargeRate / 100)
+    )
+    totals.totalPrice = Math.max(
+      0,
+      afterDiscount + totals.taxAmount + totals.serviceChargeAmount
+    )
+  }
+
+  return { totals, promoDiscountAmount, appliedCampaignId, campaignWithSubtotal }
+}
+
+// Fetches the full order shape (items + transactions) used both for a
+// fresh 201 and for an idempotent replay, so the two response bodies match.
+const fetchFullOrder = async (orderId) =>
+  Order.findOne({
+    where: { id: orderId },
+    include: [
+      { model: OrderItem, as: 'items' },
+      { model: db.transaction, as: 'transactions' }
+    ]
+  })
+
 exports.createOrder = async (req, res) => {
   const {
     store,
@@ -461,7 +786,6 @@ exports.createOrder = async (req, res) => {
     cashierName,
     items,
     discountId,
-    _discountAmount,
     promoCode,
     customerId,
     customerName,
@@ -472,311 +796,69 @@ exports.createOrder = async (req, res) => {
     currencyId,
     currencyCode,
     exchangeRate,
-    redeemedPoints
+    redeemedPoints,
+    idempotencyKey
   } = req.body
 
   try {
+    // A retried/duplicate submit with the same key (e.g. a POS terminal
+    // retrying after a network timeout, or a double-tap on "Pay") returns
+    // the order already created instead of creating a second one. This is
+    // a fast-path check only — the real guarantee is the unique index on
+    // (store, idempotencyKey), enforced below if two such requests race.
+    if (idempotencyKey) {
+      const existing = await Order.findOne({ where: { store, idempotencyKey } })
+      if (existing) {
+        const fullOrder = await fetchFullOrder(existing.id)
+        return res.status(200).json({
+          message: 'Order already exists for this idempotency key',
+          data: fullOrder
+        })
+      }
+    }
+
     const orderNumber = generateOrderNumber()
 
-    if (tableId) {
-      const table = await Table.findOne({ where: { id: tableId, store } })
-      if (
-        table &&
-        ['occupied', 'reserved', 'maintenance'].includes(table.status)
-      ) {
-        return res.status(400).json({
-          message:
-            table.status === 'occupied'
-              ? 'Table is already occupied'
-              : 'Table is not available'
-        })
-      }
+    const tableCheck = await checkTableAvailable(tableId, store)
+    if (!tableCheck.ok) {
+      return res.status(400).json({ message: tableCheck.message })
     }
 
-    let discountValue = 0
-    let discountType = 'none'
-    let appliedDiscountId = null
-    let appliedDiscountMeta = null
-
-    // Priority 1: Explicit discountId (from dropdown)
-    if (discountId) {
-      const discount = await Discount.findOne({
-        where: { id: discountId, store }
-      })
-      if (discount) {
-        discountValue = discount.value
-        discountType = discount.type
-        appliedDiscountId = discount.id
-        appliedDiscountMeta = discount
-      }
-    }
-
-    // Priority 2: Promo code
-    if (promoCode && !appliedDiscountId) {
-      const promoDiscount = await Discount.findOne({
-        where: { code: promoCode.trim().toUpperCase(), store, status: 'active' }
-      })
-      if (promoDiscount) {
-        const now = new Date()
-        if (
-          !promoDiscount.startDate ||
-          new Date(promoDiscount.startDate) <= now
-        ) {
-          if (
-            !promoDiscount.endDate ||
-            new Date(promoDiscount.endDate) >= now
-          ) {
-            discountValue = promoDiscount.value
-            discountType = promoDiscount.type
-            appliedDiscountId = promoDiscount.id
-            appliedDiscountMeta = promoDiscount
-          }
-        }
-      }
-    }
-
-    // Priority 3: Member tier auto-discount
-    if (!appliedDiscountId && customerId) {
-      try {
-        const member = await db.member.findByPk(customerId)
-        if (member && member.tier) {
-          const tier = await db.member_tier.findByPk(member.tier)
-          if (tier && tier.discountPercent > 0) {
-            discountValue = tier.discountPercent
-            discountType = 'percent'
-          }
-        }
-      } catch (e) {
-        console.error('Tier discount lookup error:', e.message)
-      }
-    }
-
-    // Priority 4: Redeem points
-    const POINT_VALUE = 1
-    let redeemedPointsUsed = 0
-    let pointDiscountAmount = 0
-    if (redeemedPoints > 0 && customerId) {
-      try {
-        const member = await db.member.findByPk(customerId)
-        if (member && (member.totalPoints || 0) >= redeemedPoints) {
-          pointDiscountAmount = redeemedPoints * POINT_VALUE
-          redeemedPointsUsed = redeemedPoints
-        }
-      } catch (e) {
-        console.error('Point redemption error:', e.message)
-      }
-    }
-
-    // ponytail: snapshot original subtotals for per-item discountAmount tracking
-    items.forEach((item) => {
-      item._origSubtotal = item.subtotal
+    const discount = await resolveOrderDiscount({
+      discountId,
+      promoCode,
+      customerId,
+      redeemedPoints,
+      store
     })
+    const { discountValue, discountType, appliedDiscountId } = discount
 
-    // ===== SERVER-SIDE PRICE VALIDATION =====
-    // Re-calculate all subtotals from DB prices. Never trust FE-sent subtotals.
-    for (const item of items) {
-      if (item.bundleId) {
-        // Bundle: subtotal = bundlePrice × quantity (validated below when bundle is loaded)
-        continue
-      }
-      const prod = await Product.findByPk(item.product || item.productId)
-      if (!prod) {
-        return res.status(400).json({
-          message: `Product not found: ${item.productName || item.product || item.productId}`
-        })
-      }
-      const serverPrice = getServerItemPrice(prod, item)
-      item.basePrice = Number(prod.price) || 0
-      item.price = serverPrice
-      item.unitPrice = serverPrice
-      item.subtotal = serverPrice * Number(item.quantity)
+    const pricing = await loadAndPriceOrderItems(items, store)
+    if (!pricing.ok) {
+      return res.status(400).json({ message: pricing.message })
     }
-
-    // Pre-load bundles for stock validation
-    const bundleMap = {}
-    for (const item of items) {
-      if (item.bundleId) {
-        const bundle = await db.product_bundle.findByPk(item.bundleId, {
-          include: [
-            {
-              model: db.product_bundle_item,
-              as: 'items',
-              include: [{ model: Product, as: 'productData' }]
-            }
-          ]
-        })
-        if (!bundle) {
-          return res.status(400).json({
-            message: `Bundle not found: ${item.bundleName || item.bundleId}`
-          })
-        }
-        if (
-          !bundle ||
-          !bundle.isAvailable ||
-          bundle.status !== 'active' ||
-          !isBundleWithinValidityPeriod(bundle)
-        ) {
-          return res.status(400).json({
-            message: `Bundle "${bundle.name}" is not available`
-          })
-        }
-        bundleMap[item.bundleId] = bundle
-        // Override subtotal from server-side bundle price
-        const serverPrice = Number(bundle.bundlePrice) || 0
-        item.price = serverPrice
-        item.basePrice = serverPrice
-        item.subtotal = serverPrice * Number(item.quantity)
-        item.unitPrice = serverPrice
-      }
-    }
-
-    // Validate bundle component stock
-    for (const item of items) {
-      if (item.bundleId && bundleMap[item.bundleId]) {
-        const bundle = bundleMap[item.bundleId]
-        const bundleQty = Number(item.quantity) || 1
-        for (const bi of bundle.items) {
-          const prod = bi.productData
-          if (!prod) {
-            return res.status(400).json({
-              message: `Product in bundle "${bundle.name}" not found`
-            })
-          }
-          const needed = bi.quantity * bundleQty
-          const avail = await getEffectiveStock(prod, store)
-          if (avail !== null && avail < needed) {
-            return res.status(400).json({
-              message: `Stok "${prod.nameProduct}" tidak mencukupi untuk bundle "${bundle.name}". Tersedia: ${avail}, dibutuhkan: ${needed}`
-            })
-          }
-        }
-      }
-    }
+    const { bundleMap, productById } = pricing
 
     const taxRate = await getActiveTaxRate(store)
     const serviceChargeRate = await getServiceChargeRate(store)
 
-    let totals
-    let promoDiscountAmount = 0
-    let appliedCampaignId = null
-
-    // Priority 5: Evaluate promo campaigns (replaces old applyAdvancedPromo)
-    await evaluatePromoCampaign(
-      items.map((item) => ({
-        ...item,
-        productId: item.product || item.productId,
-        unitPrice: item.unitPrice ?? item.price ?? item.basePrice ?? 0
-      })),
+    const {
+      totals,
+      promoDiscountAmount,
+      appliedCampaignId,
+      campaignWithSubtotal
+    } = await calculateFinalTotals({
+      items,
       store,
       customerId,
-      0 // initial subtotal before discount
-    )
-
-    // Calculate subtotal first for campaign evaluation
-    let rawSubTotal = 0
-    items.forEach((item) => {
-      rawSubTotal += item.subtotal
+      discountValue,
+      discountType,
+      appliedDiscountId,
+      appliedDiscountMeta: discount.appliedDiscountMeta,
+      pointDiscountAmount: discount.pointDiscountAmount,
+      taxRate,
+      serviceChargeRate
     })
-
-    // Re-evaluate campaign with actual subtotal
-    const campaignWithSubtotal = await evaluatePromoCampaign(
-      items.map((item) => ({
-        ...item,
-        productId: item.product || item.productId,
-        unitPrice: item.unitPrice ?? item.price ?? item.basePrice ?? 0
-      })),
-      store,
-      customerId,
-      rawSubTotal
-    )
-
-    // Use campaign discount if no manual discount applied and campaign gives a better deal
-    if (!appliedDiscountId && campaignWithSubtotal.discountAmount > 0) {
-      promoDiscountAmount = campaignWithSubtotal.discountAmount
-      appliedCampaignId = campaignWithSubtotal.campaignId
-      totals = calculateOrderTotals(
-        items,
-        0,
-        'none',
-        taxRate,
-        serviceChargeRate
-      )
-      totals.discountAmount = promoDiscountAmount
-    } else if (
-      appliedDiscountMeta &&
-      appliedDiscountMeta.conditions &&
-      appliedDiscountMeta.conditions.promoType
-    ) {
-      // Legacy: still support old discount.conditions for backward compat, but log deprecation
-      console.warn(
-        'DEPRECATED: discount.conditions.promoType detected. Migrate to promo_campaign.'
-      )
-      totals = calculateOrderTotals(
-        items,
-        0,
-        'none',
-        taxRate,
-        serviceChargeRate
-      )
-    } else {
-      totals = calculateOrderTotals(
-        items,
-        discountValue,
-        discountType,
-        taxRate,
-        serviceChargeRate
-      )
-    }
-
-    // Apply maximumDiscount cap for percent type
-    if (discountType === 'percent' && appliedDiscountId) {
-      const discountMeta = await Discount.findByPk(appliedDiscountId)
-      if (
-        discountMeta &&
-        discountMeta.maximumDiscount > 0 &&
-        totals.discountAmount > discountMeta.maximumDiscount
-      ) {
-        totals.discountAmount = discountMeta.maximumDiscount
-        const afterDiscount = totals.subTotal - totals.discountAmount
-        totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
-        totals.serviceChargeAmount = Math.round(
-          afterDiscount * (serviceChargeRate / 100)
-        )
-        totals.totalPrice =
-          afterDiscount + totals.taxAmount + totals.serviceChargeAmount
-      }
-    }
-
-    // Apply point redemption discount on top
-    if (pointDiscountAmount > 0) {
-      totals.discountAmount += pointDiscountAmount
-      const afterDiscount = totals.subTotal - totals.discountAmount
-      totals.taxAmount = Math.round(afterDiscount * (taxRate / 100))
-      totals.serviceChargeAmount = Math.round(
-        afterDiscount * (serviceChargeRate / 100)
-      )
-      totals.totalPrice = Math.max(
-        0,
-        afterDiscount + totals.taxAmount + totals.serviceChargeAmount
-      )
-    }
-
-    // Stock validation — products (non-bundle items)
-    for (const item of items) {
-      if (item.bundleId) continue
-      const prod = await Product.findByPk(item.product || item.productId)
-      if (!prod) {
-        return res.status(400).json({
-          message: `Product not found: ${item.productName || item.product || item.productId}`
-        })
-      }
-      const avail = await getEffectiveStock(prod, store)
-      if (avail !== null && avail < Number(item.quantity)) {
-        return res.status(400).json({
-          message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${avail}, diminta: ${item.quantity}`
-        })
-      }
-    }
 
     const orderData = {
       orderNumber,
@@ -787,7 +869,6 @@ exports.createOrder = async (req, res) => {
       customerId,
       customerName,
       customerPhone,
-      customerNumber: await generateCustomerNumber(store),
       notes,
       paymentMethod,
       source: source || 'pos',
@@ -808,398 +889,61 @@ exports.createOrder = async (req, res) => {
       currencyId: currencyId || null,
       currencyCode: currencyCode || null,
       exchangeRate: exchangeRate || null,
+      idempotencyKey: idempotencyKey || null,
       createdBy: req.user?.id
     }
     if (await hasOrderColumn('promoCampaignId')) {
       orderData.promoCampaignId = appliedCampaignId
     }
-    const order = await Order.create(orderData)
+    // Order header, its items, and the stock deduction must all commit or
+    // all roll back together — previously Order.create ran outside any
+    // transaction, so a stock-insufficient rejection (see deductAndTrack)
+    // left a "paid" order with real items behind, with no stock actually
+    // deducted and no payment ever recorded for it.
+    const order = await db.sequelize.transaction(async (t) => {
+      orderData.customerNumber = await generateCustomerNumber(store, t)
+      const createdOrder = await Order.create(orderData, { transaction: t })
 
-    // Create order items
-    for (const item of items) {
-      if (item.bundleId && bundleMap[item.bundleId]) {
-        // Bundle item: create one order_item for the bundle
-        const bundle = bundleMap[item.bundleId]
-        // ponytail: HPP bundle = total harga komponen — kalau kosong, laporan
-        // harian fallback ke harga jual sehingga food cost meleset
-        const bundleCost = (bundle.items || []).reduce(
-          (sum, bi) =>
-            sum +
-            Number(bi.productData?.costPrice ?? bi.productData?.price ?? 0) *
-              Number(bi.quantity || 1),
-          0
-        )
-        const itemDiscountAmount = Math.max(
-          0,
-          (item._origSubtotal || 0) - (item.subtotal || 0)
-        )
-        await OrderItem.create({
-          order: order.id,
-          product: bundle.items[0]?.product || 0,
-          productName: bundle.name,
-          quantity: item.quantity,
-          price: bundle.bundlePrice,
-          bundleId: bundle.id,
-          bundleName: bundle.name,
-          discountType,
-          discountValue,
-          discountAmount: itemDiscountAmount,
-          totalPrice: item.subtotal || bundle.bundlePrice * item.quantity,
-          options: item.options || [],
-          modifiers: item.modifiers || [],
-          notes: item.notes,
-          hppSnapshot: Math.round(bundleCost),
-          status: 'pending'
-        })
-      } else {
-        // Regular product item
-        const product = await Product.findByPk(item.product || item.productId)
-        const costPrice = product
-          ? Number(product.costPrice || product.price || 0)
-          : 0
-        const itemDiscountAmount = Math.max(
-          0,
-          (item._origSubtotal || 0) - (item.subtotal || 0)
-        )
-        await OrderItem.create({
-          order: order.id,
-          product: item.product || item.productId,
-          productName: item.productName || product?.nameProduct,
-          quantity: item.quantity,
-          price: item.price || item.basePrice,
-          discountType,
-          discountValue,
-          discountAmount: itemDiscountAmount,
-          totalPrice: item.subtotal || item.totalPrice,
-          options: item.options || [],
-          modifiers: item.modifiers || [],
-          notes: item.notes,
-          hppSnapshot: costPrice,
-          status: 'pending'
-        })
-      }
-    }
+      await createOrderItems(
+        createdOrder,
+        items,
+        bundleMap,
+        productById,
+        discountType,
+        discountValue,
+        t
+      )
 
-    // Reduce stock & create stock history — wrapped in transaction for atomicity
-    await db.sequelize.transaction(async (t) => {
-      for (const item of items) {
-        if (item.bundleId && bundleMap[item.bundleId]) {
-          // Bundle: deduct stock for each component product
-          const bundle = bundleMap[item.bundleId]
-          const bundleQty = Number(item.quantity) || 1
-          for (const bi of bundle.items) {
-            const product = await Product.findByPk(bi.product, {
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-            if (!product) continue
-            const deductQty = bi.quantity * bundleQty
-            const oldStock = Number(product.stock) || 0
-            const newStock = Math.max(oldStock - deductQty, 0)
-            await product.update(
-              {
-                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
-              },
-              { transaction: t }
-            )
+      await deductStockForOrder(
+        createdOrder,
+        items,
+        bundleMap,
+        store,
+        orderNumber,
+        req.user?.id,
+        t
+      )
 
-            await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-              { bind: [product.id, store], transaction: t }
-            )
-            await db.product_store_stock.update(
-              {
-                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
-              },
-              { where: { product: product.id, store }, transaction: t }
-            )
-
-            // ponytail: FIFO - consume oldest batches first
-            await batchService.deductFifo({
-              productId: product.id,
-              store,
-              qty: deductQty,
-              transaction: t
-            })
-
-            await db.stock_history.create(
-              {
-                product: product.id,
-                store,
-                referenceType: 'sale',
-                referenceId: order.id,
-                quantityBefore: oldStock,
-                quantityChange: -deductQty,
-                quantityAfter: newStock >= 0 ? newStock : 0,
-                unit: product.unit || 'pcs',
-                notes: `Penjualan bundle: ${bundle.name} (${orderNumber})`,
-                createdBy: req.user?.id
-              },
-              { transaction: t }
-            )
-
-            // Best-selling tracking for bundle components
-            const findBs = await db.best_selling.findOne({
-              where: {
-                productId: product.id,
-                nameProduct: product.nameProduct,
-                store
-              },
-              transaction: t
-            })
-            if (findBs) {
-              await db.best_selling.update(
-                { totalSelling: Number(findBs.totalSelling) + deductQty },
-                {
-                  where: {
-                    productId: product.id,
-                    nameProduct: product.nameProduct
-                  },
-                  transaction: t
-                }
-              )
-            } else {
-              await db.best_selling.create(
-                {
-                  productId: product.id,
-                  nameProduct: product.nameProduct,
-                  image: product.image || null,
-                  totalSelling: deductQty,
-                  store
-                },
-                { transaction: t }
-              )
-            }
-          }
-          continue
-        }
-
-        // Regular product item
-        const product = await Product.findByPk(item.product || item.productId, {
-          transaction: t,
-          lock: t.LOCK.UPDATE
-        })
-        if (!product) continue
-
-        const oldStock = Number(product.stock) || 0
-        const qty = Math.floor(Number(item.quantity)) || 0
-        const newStock = Math.max(oldStock - qty, 0)
-        await product.update(
-          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-          { transaction: t }
-        )
-
-        await db.sequelize.query(
-          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-           VALUES ($1, $2, 0, NOW(), NOW())
-           ON CONFLICT (product, store) DO NOTHING`,
-          { bind: [product.id, store], transaction: t }
-        )
-        await db.product_store_stock.update(
-          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-          { where: { product: product.id, store }, transaction: t }
-        )
-
-        // ponytail: FIFO - consume oldest batches first
-        await batchService.deductFifo({
-          productId: product.id,
-          store,
-          qty,
-          transaction: t
-        })
-
-        await db.stock_history.create(
-          {
-            product: product.id,
-            store,
-            referenceType: 'sale',
-            referenceId: order.id,
-            quantityBefore: oldStock,
-            quantityChange: -Number(item.quantity),
-            quantityAfter: newStock >= 0 ? newStock : 0,
-            unit: product.unit || 'pcs',
-            notes: `Penjualan: ${orderNumber}`,
-            createdBy: req.user?.id
-          },
-          { transaction: t }
-        )
-
-        const sellName = item.productName || product.nameProduct
-        const findBs = await db.best_selling.findOne({
-          where: {
-            productId: product.id,
-            nameProduct: sellName,
-            store
-          },
-          transaction: t
-        })
-        if (findBs) {
-          await db.best_selling.update(
-            {
-              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
-            },
-            {
-              where: { productId: product.id, nameProduct: sellName },
-              transaction: t
-            }
-          )
-        } else {
-          await db.best_selling.create(
-            {
-              productId: product.id,
-              nameProduct: sellName,
-              image: product.image || null,
-              totalSelling: Number(item.quantity),
-              store
-            },
-            { transaction: t }
-          )
-        }
-      }
+      return createdOrder
     })
 
-    // Create transaction record
-    if (paymentMethod) {
-      await db.transaction.create({
-        order: order.id,
-        typePayment: paymentMethod,
-        amount: totals.totalPrice,
-        createdBy: req.user?.id
-      })
-    }
-
-    await OrderStatus.create({
-      order: order.id,
-      status: 'paid',
-      createdBy: req.user?.id,
-      notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
-    })
-
-    // Deduct redeemed points from member
-    if (redeemedPointsUsed > 0 && customerId) {
-      try {
-        const member = await db.member.findByPk(customerId)
-        if (member) {
-          const oldPoints = Number(member.totalPoints) || 0
-          const newPoints = oldPoints - redeemedPointsUsed
-          await member.update({ totalPoints: Math.max(0, newPoints) })
-          await db.member_point_history.create({
-            member: customerId,
-            pointsChange: -redeemedPointsUsed,
-            pointsBefore: oldPoints,
-            pointsAfter: Math.max(0, newPoints),
-            transactionId: order.id,
-            notes: `Redeemed ${redeemedPointsUsed} points for order ${orderNumber}`
-          })
-        }
-      } catch (e) {
-        console.error('Point deduction error:', e.message)
-      }
-    }
-
-    // Award points earned from product point values
-    if (customerId) {
-      try {
-        const productIds = [
-          ...new Set(items.map((i) => i.product || i.productId))
-        ]
-        const products = await Product.findAll({
-          where: { id: productIds },
-          attributes: ['id', 'point']
-        })
-        const pointMap = Object.fromEntries(
-          products.map((p) => [p.id, Number(p.point) || 0])
-        )
-        const pointsEarned = items.reduce((sum, item) => {
-          const pid = item.product || item.productId
-          return sum + (pointMap[pid] || 0) * Number(item.quantity)
-        }, 0)
-
-        if (pointsEarned > 0) {
-          const member = await db.member.findByPk(customerId)
-          if (member) {
-            const oldTotal = Number(member.totalPoints) || 0
-            const oldLifetime = Number(member.lifetimePoints) || 0
-            const newTotal = oldTotal + pointsEarned
-            await member.update({
-              totalPoints: newTotal,
-              lifetimePoints: oldLifetime + pointsEarned
-            })
-
-            // ponytail: prefer exact min≤total≤max match; fall back to highest minPoints (gap scenario)
-            const Op = require('sequelize').Op
-            let targetTier = await db.member_tier.findOne({
-              where: {
-                status: 'active',
-                minPoints: { [Op.lte]: newTotal },
-                maxPoints: { [Op.gte]: newTotal }
-              },
-              order: [['minPoints', 'DESC']]
-            })
-            if (!targetTier) {
-              targetTier = await db.member_tier.findOne({
-                where: { status: 'active', minPoints: { [Op.lte]: newTotal } },
-                order: [['minPoints', 'DESC']]
-              })
-            }
-            if (targetTier) {
-              const currentTierRow = member.tier
-                ? await db.member_tier.findByPk(member.tier)
-                : null
-              const currentMin = Number(currentTierRow?.minPoints || -1)
-              if (Number(targetTier.minPoints) > currentMin) {
-                await member.update({ tier: targetTier.id })
-              }
-            }
-
-            await db.member_point_history.create({
-              member: customerId,
-              pointsChange: pointsEarned,
-              pointsBefore: oldTotal,
-              pointsAfter: oldTotal + pointsEarned,
-              transactionId: order.id,
-              notes: `Earned ${pointsEarned} points from order ${orderNumber}`,
-              createdBy: req.user?.id
-            })
-          }
-        }
-      } catch (e) {
-        console.error('Point earning error:', e.message)
-      }
-    }
-
-    // Record promo campaign usage
-    if (appliedCampaignId) {
-      try {
-        const campaign = await db.promo_campaign.findByPk(appliedCampaignId)
-        if (campaign) {
-          await db.promo_usage.create({
-            store: campaign.store,
-            campaignId: appliedCampaignId,
-            orderId: order.id,
-            memberId: customerId || null,
-            discountApplied: promoDiscountAmount,
-            freeItemsGiven: campaignWithSubtotal.reward
-              ? [
-                  {
-                    productId: campaignWithSubtotal.reward.productId,
-                    quantity: campaignWithSubtotal.reward.quantity
-                  }
-                ]
-              : null,
-            appliedAt: new Date(),
-            createdBy: req.user?.id
-          })
-          await campaign.update({
-            currentUsage: (campaign.currentUsage || 0) + 1
-          })
-        }
-      } catch (e) {
-        console.error('Promo usage recording error:', e.message)
-      }
-    }
+    await recordOrderPayment(order, paymentMethod, totals.totalPrice, req.user?.id)
+    await createInitialOrderStatus(order, cashierName, paymentMethod, req.user?.id)
+    await applyRedeemedPoints(
+      order,
+      customerId,
+      discount.redeemedPointsUsed,
+      orderNumber
+    )
+    await awardEarnedPoints(order, items, customerId, orderNumber, req.user?.id)
+    await recordPromoUsageIfApplied(
+      order,
+      appliedCampaignId,
+      customerId,
+      promoDiscountAmount,
+      campaignWithSubtotal,
+      req.user?.id
+    )
 
     const fullOrder = await Order.findOne({
       where: { id: order.id },
@@ -1227,44 +971,484 @@ exports.createOrder = async (req, res) => {
 
     emitNewOrder(store, fullOrder)
 
-    try {
-      const {
-        postOrderJournal,
-        postOrderCogsJournal
-      } = require('../service/accountingService')
-      await postOrderJournal({
-        store,
-        orderId: order.id,
-        orderNumber,
-        subTotal: totals.subTotal,
-        discountAmount: totals.discountAmount,
-        taxAmount: totals.taxAmount,
-        serviceChargeAmount: totals.serviceChargeAmount,
-        totalPrice: totals.totalPrice,
-        date: new Date(),
-        paymentMethod,
-        createdBy: req.user?.id
-      })
-      await postOrderCogsJournal({
-        store,
-        orderId: order.id,
-        orderNumber,
-        date: new Date(),
-        createdBy: req.user?.id
-      })
-    } catch (e) {
-      console.error('Accounting posting skipped:', e.message)
-    }
+    await postOrderAccountingEntries(
+      order,
+      store,
+      orderNumber,
+      totals,
+      paymentMethod,
+      req.user?.id
+    )
 
     return res.status(201).json({
       message: 'Order created successfully',
       data: fullOrder
     })
   } catch (error) {
+    // Two requests with the same idempotencyKey can both pass the earlier
+    // findOne check and both attempt to create — the unique index on
+    // (store, idempotencyKey) lets exactly one succeed; the loser lands
+    // here. Rather than a raw 500, return the winner's order, same as the
+    // fast-path replay above.
+    if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+      const existing = await Order.findOne({ where: { store, idempotencyKey } })
+      if (existing) {
+        const fullOrder = await fetchFullOrder(existing.id)
+        return res.status(200).json({
+          message: 'Order already exists for this idempotency key',
+          data: fullOrder
+        })
+      }
+    }
     console.error('Error:', error)
     return res.status(error.statusCode || 500).json({
       error: error.message || 'Internal Server Error'
     })
+  }
+}
+
+// ---- createOrder helpers: persistence phase -----------------------------
+// Order/pricing is decided above; everything here writes what was decided.
+
+const createOrderItems = async (
+  order,
+  items,
+  bundleMap,
+  productById,
+  discountType,
+  discountValue,
+  t
+) => {
+  for (const item of items) {
+    const itemDiscountAmount = Math.max(
+      0,
+      (item._origSubtotal || 0) - (item.subtotal || 0)
+    )
+    if (item.bundleId && bundleMap[item.bundleId]) {
+      const bundle = bundleMap[item.bundleId]
+      // ponytail: HPP bundle = total harga komponen — kalau kosong, laporan
+      // harian fallback ke harga jual sehingga food cost meleset
+      const bundleCost = (bundle.items || []).reduce(
+        (sum, bi) =>
+          sum +
+          Number(bi.productData?.costPrice ?? bi.productData?.price ?? 0) *
+            Number(bi.quantity || 1),
+        0
+      )
+      await OrderItem.create(
+        {
+          order: order.id,
+          product: bundle.items[0]?.product || 0,
+          productName: bundle.name,
+          quantity: item.quantity,
+          price: bundle.bundlePrice,
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          discountType,
+          discountValue,
+          discountAmount: itemDiscountAmount,
+          totalPrice: item.subtotal || bundle.bundlePrice * item.quantity,
+          options: item.options || [],
+          modifiers: item.modifiers || [],
+          notes: item.notes,
+          hppSnapshot: Math.round(bundleCost),
+          status: 'pending'
+        },
+        { transaction: t }
+      )
+      continue
+    }
+
+    // Reuses the product already fetched in loadAndPriceOrderItems instead
+    // of fetching the same row a third time.
+    const product = productById.get(item.product || item.productId)
+    const costPrice = product
+      ? Number(product.costPrice || product.price || 0)
+      : 0
+    await OrderItem.create(
+      {
+        order: order.id,
+        product: item.product || item.productId,
+        productName: item.productName || product?.nameProduct,
+        quantity: item.quantity,
+        price: item.price || item.basePrice,
+        discountType,
+        discountValue,
+        discountAmount: itemDiscountAmount,
+        totalPrice: item.subtotal || item.totalPrice,
+        options: item.options || [],
+        modifiers: item.modifiers || [],
+        notes: item.notes,
+        hppSnapshot: costPrice,
+        status: 'pending'
+      },
+      { transaction: t }
+    )
+  }
+}
+
+// Reduce stock & create stock history — wrapped in a transaction for
+// atomicity. Locks every distinct product touched by the order (bundle
+// components and regular items alike) in one query, in a stable order,
+// instead of one findByPk+lock per line — the same fix already applied to
+// checkout.js's equivalent loop.
+// Takes the same transaction `t` that created the order and its items, so
+// an insufficient-stock rejection here (see deductAndTrack below) rolls
+// back the order + items too, instead of leaving a "paid" order behind
+// with no stock ever deducted and no payment ever recorded for it.
+const deductStockForOrder = async (
+  order,
+  items,
+  bundleMap,
+  store,
+  orderNumber,
+  userId,
+  t
+) => {
+  {
+    const productIdSet = new Set()
+    for (const item of items) {
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        for (const bi of bundleMap[item.bundleId].items) {
+          productIdSet.add(bi.product)
+        }
+      } else {
+        const pid = item.product || item.productId
+        if (pid) productIdSet.add(pid)
+      }
+    }
+    const productIds = [...productIdSet].sort((a, b) => a - b)
+    const products = productIds.length
+      ? await Product.findAll({
+          where: { id: productIds },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        })
+      : []
+    const productById = new Map(products.map((p) => [p.id, p]))
+
+    const stockHistoryRows = []
+
+    const deductAndTrack = async ({
+      product,
+      deductQty,
+      referenceNote,
+      sellName
+    }) => {
+      const oldStock = Number(product.stock) || 0
+      // Re-validate against the value just read under the row lock, not the
+      // unlocked pre-check earlier in the request — two concurrent orders
+      // can both pass that pre-check for the last unit, then both reach
+      // here; without this, both would silently succeed (the old code
+      // clamped to 0 instead of rejecting), selling more than was in stock.
+      if (oldStock < deductQty) {
+        const err = new Error(
+          `Stok "${product.nameProduct || 'produk'}" tidak mencukupi. Tersedia: ${oldStock}, diminta: ${deductQty}`
+        )
+        err.statusCode = 400
+        throw err
+      }
+      const newStock = oldStock - deductQty
+      await product.update(
+        { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
+        { transaction: t }
+      )
+      // Keep the in-memory row consistent so a second reference to the
+      // same product later in this loop (another line, or another
+      // component of a different bundle) sees the already-decremented
+      // stock.
+      product.stock = newStock
+
+      await db.sequelize.query(
+        `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+         VALUES ($1, $2, 0, NOW(), NOW())
+         ON CONFLICT (product, store) DO NOTHING`,
+        { bind: [product.id, store], transaction: t }
+      )
+      await db.product_store_stock.update(
+        { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
+        { where: { product: product.id, store }, transaction: t }
+      )
+
+      // ponytail: FIFO - consume oldest batches first
+      await batchService.deductFifo({
+        productId: product.id,
+        store,
+        qty: deductQty,
+        transaction: t
+      })
+
+      stockHistoryRows.push({
+        product: product.id,
+        store,
+        referenceType: 'sale',
+        referenceId: order.id,
+        quantityBefore: oldStock,
+        quantityChange: -deductQty,
+        quantityAfter: newStock,
+        unit: product.unit || 'pcs',
+        notes: referenceNote,
+        createdBy: userId
+      })
+
+      // Race-safe upsert instead of findOne + conditional create/update,
+      // which could double-insert under concurrent orders touching the
+      // same product/store.
+      await db.sequelize.query(
+        `INSERT INTO best_selling ("productId", "nameProduct", image, store, "totalSelling", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         ON CONFLICT ("productId", store) WHERE "deletedAt" IS NULL
+         DO UPDATE SET
+           "totalSelling" = best_selling."totalSelling" + EXCLUDED."totalSelling",
+           "nameProduct" = EXCLUDED."nameProduct",
+           image = EXCLUDED.image,
+           "updatedAt" = NOW()`,
+        {
+          bind: [
+            product.id,
+            sellName,
+            product.image || null,
+            store,
+            deductQty
+          ],
+          transaction: t
+        }
+      )
+    }
+
+    for (const item of items) {
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        // Bundle: deduct stock for each component product
+        const bundle = bundleMap[item.bundleId]
+        const bundleQty = Number(item.quantity) || 1
+        for (const bi of bundle.items) {
+          const product = productById.get(bi.product)
+          if (!product) continue
+          await deductAndTrack({
+            product,
+            deductQty: bi.quantity * bundleQty,
+            referenceNote: `Penjualan bundle: ${bundle.name} (${orderNumber})`,
+            sellName: product.nameProduct
+          })
+        }
+        continue
+      }
+
+      // Regular product item
+      const product = productById.get(item.product || item.productId)
+      if (!product) continue
+
+      await deductAndTrack({
+        product,
+        deductQty: Math.floor(Number(item.quantity)) || 0,
+        referenceNote: `Penjualan: ${orderNumber}`,
+        sellName: item.productName || product.nameProduct
+      })
+    }
+
+    if (stockHistoryRows.length) {
+      await db.stock_history.bulkCreate(stockHistoryRows, {
+        transaction: t
+      })
+    }
+  }
+}
+
+const recordOrderPayment = async (order, paymentMethod, totalPrice, userId) => {
+  if (!paymentMethod) return
+  await db.transaction.create({
+    order: order.id,
+    typePayment: paymentMethod,
+    amount: totalPrice,
+    createdBy: userId
+  })
+}
+
+const createInitialOrderStatus = async (
+  order,
+  cashierName,
+  paymentMethod,
+  userId
+) => {
+  await OrderStatus.create({
+    order: order.id,
+    status: 'paid',
+    createdBy: userId,
+    notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
+  })
+}
+
+const applyRedeemedPoints = async (
+  order,
+  customerId,
+  redeemedPointsUsed,
+  orderNumber
+) => {
+  if (!(redeemedPointsUsed > 0 && customerId)) return
+  try {
+    const member = await db.member.findByPk(customerId)
+    if (member) {
+      const oldPoints = Number(member.totalPoints) || 0
+      const newPoints = oldPoints - redeemedPointsUsed
+      await member.update({ totalPoints: Math.max(0, newPoints) })
+      await db.member_point_history.create({
+        member: customerId,
+        pointsChange: -redeemedPointsUsed,
+        pointsBefore: oldPoints,
+        pointsAfter: Math.max(0, newPoints),
+        transactionId: order.id,
+        notes: `Redeemed ${redeemedPointsUsed} points for order ${orderNumber}`
+      })
+    }
+  } catch (e) {
+    console.error('Point deduction error:', e.message)
+  }
+}
+
+const awardEarnedPoints = async (order, items, customerId, orderNumber, userId) => {
+  if (!customerId) return
+  try {
+    const productIds = [
+      ...new Set(items.map((i) => i.product || i.productId))
+    ]
+    const products = await Product.findAll({
+      where: { id: productIds },
+      attributes: ['id', 'point']
+    })
+    const pointMap = Object.fromEntries(
+      products.map((p) => [p.id, Number(p.point) || 0])
+    )
+    const pointsEarned = items.reduce((sum, item) => {
+      const pid = item.product || item.productId
+      return sum + (pointMap[pid] || 0) * Number(item.quantity)
+    }, 0)
+
+    if (pointsEarned > 0) {
+      const member = await db.member.findByPk(customerId)
+      if (member) {
+        const oldTotal = Number(member.totalPoints) || 0
+        const oldLifetime = Number(member.lifetimePoints) || 0
+        const newTotal = oldTotal + pointsEarned
+        await member.update({
+          totalPoints: newTotal,
+          lifetimePoints: oldLifetime + pointsEarned
+        })
+
+        // ponytail: prefer exact min≤total≤max match; fall back to highest minPoints (gap scenario)
+        const Op = require('sequelize').Op
+        let targetTier = await db.member_tier.findOne({
+          where: {
+            status: 'active',
+            minPoints: { [Op.lte]: newTotal },
+            maxPoints: { [Op.gte]: newTotal }
+          },
+          order: [['minPoints', 'DESC']]
+        })
+        if (!targetTier) {
+          targetTier = await db.member_tier.findOne({
+            where: { status: 'active', minPoints: { [Op.lte]: newTotal } },
+            order: [['minPoints', 'DESC']]
+          })
+        }
+        if (targetTier) {
+          const currentTierRow = member.tier
+            ? await db.member_tier.findByPk(member.tier)
+            : null
+          const currentMin = Number(currentTierRow?.minPoints || -1)
+          if (Number(targetTier.minPoints) > currentMin) {
+            await member.update({ tier: targetTier.id })
+          }
+        }
+
+        await db.member_point_history.create({
+          member: customerId,
+          pointsChange: pointsEarned,
+          pointsBefore: oldTotal,
+          pointsAfter: oldTotal + pointsEarned,
+          transactionId: order.id,
+          notes: `Earned ${pointsEarned} points from order ${orderNumber}`,
+          createdBy: userId
+        })
+      }
+    }
+  } catch (e) {
+    console.error('Point earning error:', e.message)
+  }
+}
+
+const recordPromoUsageIfApplied = async (
+  order,
+  appliedCampaignId,
+  customerId,
+  promoDiscountAmount,
+  campaignWithSubtotal,
+  userId
+) => {
+  if (!appliedCampaignId) return
+  try {
+    const campaign = await db.promo_campaign.findByPk(appliedCampaignId)
+    if (campaign) {
+      await db.promo_usage.create({
+        store: campaign.store,
+        campaignId: appliedCampaignId,
+        orderId: order.id,
+        memberId: customerId || null,
+        discountApplied: promoDiscountAmount,
+        freeItemsGiven: campaignWithSubtotal.reward
+          ? [
+              {
+                productId: campaignWithSubtotal.reward.productId,
+                quantity: campaignWithSubtotal.reward.quantity
+              }
+            ]
+          : null,
+        appliedAt: new Date(),
+        createdBy: userId
+      })
+      await campaign.update({
+        currentUsage: (campaign.currentUsage || 0) + 1
+      })
+    }
+  } catch (e) {
+    console.error('Promo usage recording error:', e.message)
+  }
+}
+
+const postOrderAccountingEntries = async (
+  order,
+  store,
+  orderNumber,
+  totals,
+  paymentMethod,
+  userId
+) => {
+  try {
+    const {
+      postOrderJournal,
+      postOrderCogsJournal
+    } = require('../service/accountingService')
+    await postOrderJournal({
+      store,
+      orderId: order.id,
+      orderNumber,
+      subTotal: totals.subTotal,
+      discountAmount: totals.discountAmount,
+      taxAmount: totals.taxAmount,
+      serviceChargeAmount: totals.serviceChargeAmount,
+      totalPrice: totals.totalPrice,
+      date: new Date(),
+      paymentMethod,
+      createdBy: userId
+    })
+    await postOrderCogsJournal({
+      store,
+      orderId: order.id,
+      orderNumber,
+      date: new Date(),
+      createdBy: userId
+    })
+  } catch (e) {
+    console.error('Accounting posting skipped:', e.message)
   }
 }
 
@@ -1396,8 +1580,11 @@ exports.updateOrderStatus = async (req, res) => {
       })
     }
 
+    // Used outside the transaction below (accounting posting, which is
+    // already dedup-guarded by referenceId). The guards that actually
+    // decide whether to mutate stock use a fresh, row-locked read taken
+    // inside the transaction instead — see lockedOrder below.
     const oldStatus = order.status
-    const oldPaymentStatus = order.paymentStatus
     const effectiveStore = store || order.store || null
 
     // Reduce stock exactly once when an order transitions to paid. Orders that
@@ -1407,12 +1594,24 @@ exports.updateOrderStatus = async (req, res) => {
         where: { order: id },
         transaction: t
       })
+      if (items.length === 0) return
+
+      // Lock every distinct product once, in a stable order, instead of one
+      // findByPk+lock per item.
+      const productIds = [
+        ...new Set(items.map((it) => it.product).filter(Boolean))
+      ].sort((a, b) => a - b)
+      const products = await Product.findAll({
+        where: { id: productIds },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      })
+      const productById = new Map(products.map((p) => [p.id, p]))
+
+      const stockHistoryRows = []
 
       for (const item of items) {
-        const product = await Product.findByPk(item.product, {
-          transaction: t,
-          lock: t.LOCK.UPDATE
-        })
+        const product = productById.get(item.product)
         if (!product) continue
 
         const oldStock = Number(product.stock) || 0
@@ -1424,6 +1623,7 @@ exports.updateOrderStatus = async (req, res) => {
           },
           { transaction: t }
         )
+        product.stock = newStock
 
         // ponytail: atomic upsert + deduct per-store stock
         await db.sequelize.query(
@@ -1450,56 +1650,46 @@ exports.updateOrderStatus = async (req, res) => {
           transaction: t
         })
 
-        await db.stock_history.create(
-          {
-            product: product.id,
-            store: effectiveStore,
-            referenceType: 'sale',
-            referenceId: order.id,
-            quantityBefore: oldStock,
-            quantityChange: -Number(item.quantity),
-            quantityAfter: newStock,
-            unit: product.unit || 'pcs',
-            notes: `Penjualan: ${order.orderNumber}`,
-            createdBy: changedBy
-          },
-          { transaction: t }
-        )
+        stockHistoryRows.push({
+          product: product.id,
+          store: effectiveStore,
+          referenceType: 'sale',
+          referenceId: order.id,
+          quantityBefore: oldStock,
+          quantityChange: -Number(item.quantity),
+          quantityAfter: newStock,
+          unit: product.unit || 'pcs',
+          notes: `Penjualan: ${order.orderNumber}`,
+          createdBy: changedBy
+        })
 
         const sellName = item.productName || product.nameProduct
-        const findBs = await db.best_selling.findOne({
-          where: {
-            productId: product.id,
-            nameProduct: sellName,
-            store: effectiveStore
-          },
+        await db.sequelize.query(
+          `INSERT INTO best_selling ("productId", "nameProduct", image, store, "totalSelling", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+           ON CONFLICT ("productId", store) WHERE "deletedAt" IS NULL
+           DO UPDATE SET
+             "totalSelling" = best_selling."totalSelling" + EXCLUDED."totalSelling",
+             "nameProduct" = EXCLUDED."nameProduct",
+             image = EXCLUDED.image,
+             "updatedAt" = NOW()`,
+          {
+            bind: [
+              product.id,
+              sellName,
+              product.image || null,
+              effectiveStore,
+              Number(item.quantity) || 0
+            ],
+            transaction: t
+          }
+        )
+      }
+
+      if (stockHistoryRows.length) {
+        await db.stock_history.bulkCreate(stockHistoryRows, {
           transaction: t
         })
-        if (findBs) {
-          await db.best_selling.update(
-            {
-              totalSelling: Number(findBs.totalSelling) + Number(item.quantity)
-            },
-            {
-              where: {
-                productId: product.id,
-                nameProduct: sellName
-              },
-              transaction: t
-            }
-          )
-        } else {
-          await db.best_selling.create(
-            {
-              productId: product.id,
-              nameProduct: sellName,
-              image: product.image || null,
-              totalSelling: Number(item.quantity),
-              store: effectiveStore
-            },
-            { transaction: t }
-          )
-        }
       }
     }
 
@@ -1586,6 +1776,22 @@ exports.updateOrderStatus = async (req, res) => {
 
     // Perform the whole status transition atomically.
     await db.sequelize.transaction(async (t) => {
+      // Re-read the order under a row lock and derive oldStatus/
+      // oldPaymentStatus from THIS fresh read, shadowing the stale
+      // pre-transaction values above. Two concurrent status-change requests
+      // for the same order (a double-tap, or a client retry after a
+      // timeout) previously both read the order before either had
+      // committed, so both saw paymentStatus !== 'paid' and both deducted
+      // stock — a real double-deduction, not just a duplicate-payment risk
+      // (which was already guarded by a fresh existingTxn check below).
+      const lockedOrder = await Order.findByPk(id, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+        ...(statusAttrs ? { attributes: statusAttrs } : {})
+      })
+      const oldStatus = lockedOrder.status
+      const oldPaymentStatus = lockedOrder.paymentStatus
+
       await order.update(
         {
           status,
@@ -1883,12 +2089,28 @@ exports.createCustomerOrder = async (req, res) => {
     customerId,
     paymentMethod,
     splitCount,
-    session
+    session,
+    idempotencyKey
   } = req.body
 
   try {
     if (!store || !items || !items.length) {
       return res.status(400).json({ message: 'store and items are required' })
+    }
+
+    // Public, unauthenticated endpoint on a QR-ordering flow — flaky mobile
+    // networks make client retries routine. Same replay pattern as
+    // createOrder: a retried submit with the same key returns the order
+    // already created instead of creating a second one.
+    if (idempotencyKey) {
+      const existingOrder = await Order.findOne({ where: { store, idempotencyKey } })
+      if (existingOrder) {
+        const fullOrder = await fetchFullOrder(existingOrder.id)
+        return res.status(200).json({
+          message: 'Order already exists for this idempotency key',
+          data: fullOrder
+        })
+      }
     }
 
     const orderNumber =
@@ -2121,7 +2343,6 @@ exports.createCustomerOrder = async (req, res) => {
       cashierId: null,
       cashierName: customerName || 'Customer',
       customerName: customerName || null,
-      customerNumber: await generateCustomerNumber(store),
       notes,
       source: 'qr',
       status: 'pending',
@@ -2136,7 +2357,8 @@ exports.createCustomerOrder = async (req, res) => {
       totalPrice,
       paymentMethod: paymentMethod || null,
       paymentStatus: paymentMethod ? 'paid' : 'unpaid',
-      splitCount: splitCount || null
+      splitCount: splitCount || null,
+      idempotencyKey: idempotencyKey || null
     }
     if (await hasOrderColumn('promoCampaignId')) {
       qrOrderData.promoCampaignId = appliedCampaignId
@@ -2144,14 +2366,143 @@ exports.createCustomerOrder = async (req, res) => {
     if (await hasOrderColumn('session')) {
       qrOrderData.session = session || null
     }
-    const order = await db.order.create(qrOrderData)
+    // Deduct stock only when the order is paid immediately. Unpaid orders
+    // have their stock deducted exactly once when they transition to paid.
+    const deductStock = qrOrderData.paymentStatus === 'paid'
 
-    for (const item of orderItems) {
-      await db.order_item.create({ ...item, order: order.id })
-    }
+    // Order header, its items, and (when paid immediately) the stock
+    // deduction all commit or roll back together — previously the order +
+    // items + payment record + accounting entries were all written before
+    // stock deduction even ran in its own separate transaction, so an
+    // insufficient-stock rejection there left a "paid" order with a real
+    // payment record behind, despite no stock ever having been deducted.
+    const order = await db.sequelize.transaction(async (t) => {
+      qrOrderData.customerNumber = await generateCustomerNumber(store, t)
+      const createdOrder = await db.order.create(qrOrderData, { transaction: t })
 
-    // Record payment transaction immediately for orders paid at creation
-    if (qrOrderData.paymentStatus === 'paid') {
+      for (const item of orderItems) {
+        await db.order_item.create(
+          { ...item, order: createdOrder.id },
+          { transaction: t }
+        )
+      }
+
+      if (deductStock) {
+        // Lock every distinct product touched by this order in one query,
+        // in a stable (sorted) order — was one findByPk+lock per
+        // component/item in whatever order the cart listed them, which
+        // could deadlock against another concurrent order locking the same
+        // two products in the opposite order.
+        const productIdSet = new Set()
+        for (const item of items) {
+          if (item.bundleId && bundleMap[item.bundleId]) {
+            for (const bi of bundleMap[item.bundleId].items) {
+              productIdSet.add(bi.product)
+            }
+          } else if (item.productId) {
+            productIdSet.add(item.productId)
+          }
+        }
+        const productIds = [...productIdSet].sort((a, b) => a - b)
+        const products = productIds.length
+          ? await Product.findAll({
+              where: { id: productIds },
+              transaction: t,
+              lock: t.LOCK.UPDATE
+            })
+          : []
+        const productById = new Map(products.map((p) => [p.id, p]))
+
+        const deductAndTrack = async ({ product, deductQty, referenceNote }) => {
+          const oldStock = Number(product.stock) || 0
+          // Re-validate against the freshly locked value — two concurrent
+          // customer orders can both pass the earlier, unlocked stock
+          // pre-check for the last unit; without this, both would silently
+          // succeed (the old code clamped to 0 instead of rejecting),
+          // overselling the item.
+          if (oldStock < deductQty) {
+            const err = new Error(
+              `Stok "${product.nameProduct || 'produk'}" tidak mencukupi. Tersedia: ${oldStock}, diminta: ${deductQty}`
+            )
+            err.statusCode = 400
+            throw err
+          }
+          const newStock = oldStock - deductQty
+          await product.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
+            { transaction: t }
+          )
+          product.stock = newStock
+
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [product.id, store], transaction: t }
+          )
+          await db.product_store_stock.update(
+            { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
+            { where: { product: product.id, store }, transaction: t }
+          )
+
+          // ponytail: FIFO - consume oldest batches first
+          await batchService.deductFifo({
+            productId: product.id,
+            store,
+            qty: deductQty,
+            transaction: t
+          })
+
+          await db.stock_history.create(
+            {
+              product: product.id,
+              store,
+              referenceType: 'sale',
+              referenceId: createdOrder.id,
+              quantityBefore: oldStock,
+              quantityChange: -deductQty,
+              quantityAfter: newStock,
+              unit: product.unit || 'pcs',
+              notes: referenceNote,
+              createdBy: req.user?.id
+            },
+            { transaction: t }
+          )
+        }
+
+        for (const item of items) {
+          if (item.bundleId && bundleMap[item.bundleId]) {
+            const bundle = bundleMap[item.bundleId]
+            const bundleQty = Number(item.quantity) || 1
+            for (const bi of bundle.items) {
+              const product = productById.get(bi.product)
+              if (!product) continue
+              await deductAndTrack({
+                product,
+                deductQty: bi.quantity * bundleQty,
+                referenceNote: `Penjualan bundle: ${bundle.name} (${orderNumber})`
+              })
+            }
+            continue
+          }
+
+          const product = item.productId ? productById.get(item.productId) : null
+          if (!product) continue
+
+          await deductAndTrack({
+            product,
+            deductQty: Math.floor(Number(item.quantity)) || 0,
+            referenceNote: `Penjualan: ${orderNumber}`
+          })
+        }
+      }
+
+      return createdOrder
+    })
+
+    // Record payment transaction + accounting entries only after the order,
+    // its items, and its stock deduction have all committed successfully.
+    if (deductStock) {
       await db.transaction.create({
         order: order.id,
         typePayment: paymentMethod || 'cash',
@@ -2188,126 +2539,6 @@ exports.createCustomerOrder = async (req, res) => {
         console.error('Accounting posting skipped:', e.message)
       }
     }
-
-    // Deduct stock only when the order is paid immediately. Unpaid orders
-    // have their stock deducted exactly once when they transition to paid.
-    const deductStock = qrOrderData.paymentStatus === 'paid'
-    await db.sequelize.transaction(async (t) => {
-      for (const item of items) {
-        if (!deductStock) continue
-        if (item.bundleId && bundleMap[item.bundleId]) {
-          const bundle = bundleMap[item.bundleId]
-          const bundleQty = Number(item.quantity) || 1
-          for (const bi of bundle.items) {
-            const product = await Product.findByPk(bi.product, {
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-            if (!product) continue
-            const deductQty = bi.quantity * bundleQty
-            const oldStock = Number(product.stock) || 0
-            const newStock = Math.max(oldStock - deductQty, 0)
-            await product.update(
-              {
-                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
-              },
-              { transaction: t }
-            )
-
-            await db.sequelize.query(
-              `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-              { bind: [product.id, store], transaction: t }
-            )
-            await db.product_store_stock.update(
-              {
-                stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`)
-              },
-              { where: { product: product.id, store }, transaction: t }
-            )
-
-            // ponytail: FIFO - consume oldest batches first
-            await batchService.deductFifo({
-              productId: product.id,
-              store,
-              qty: deductQty,
-              transaction: t
-            })
-
-            await db.stock_history.create(
-              {
-                product: product.id,
-                store,
-                referenceType: 'sale',
-                referenceId: order.id,
-                quantityBefore: oldStock,
-                quantityChange: -deductQty,
-                quantityAfter: newStock >= 0 ? newStock : 0,
-                unit: product.unit || 'pcs',
-                notes: `Penjualan bundle: ${bundle.name} (${orderNumber})`,
-                createdBy: req.user?.id
-              },
-              { transaction: t }
-            )
-          }
-          continue
-        }
-
-        const product = item.productId
-          ? await Product.findByPk(item.productId, {
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-          : null
-        if (!product) continue
-
-        if (!product) continue
-
-        const oldStock = Number(product.stock) || 0
-        const qty = Math.floor(Number(item.quantity)) || 0
-        const newStock = Math.max(oldStock - qty, 0)
-        await product.update(
-          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-          { transaction: t }
-        )
-
-        await db.sequelize.query(
-          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-           VALUES ($1, $2, 0, NOW(), NOW())
-           ON CONFLICT (product, store) DO NOTHING`,
-          { bind: [product.id, store], transaction: t }
-        )
-        await db.product_store_stock.update(
-          { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
-          { where: { product: product.id, store }, transaction: t }
-        )
-
-        // ponytail: FIFO - consume oldest batches first
-        await batchService.deductFifo({
-          productId: product.id,
-          store,
-          qty,
-          transaction: t
-        })
-
-        await db.stock_history.create(
-          {
-            product: product.id,
-            store,
-            referenceType: 'sale',
-            referenceId: order.id,
-            quantityBefore: oldStock,
-            quantityChange: -Number(item.quantity),
-            quantityAfter: newStock >= 0 ? newStock : 0,
-            unit: product.unit || 'pcs',
-            notes: `Penjualan: ${orderNumber}`,
-            createdBy: req.user?.id
-          },
-          { transaction: t }
-        )
-      }
-    })
 
     // Record promo usage
     if (appliedCampaignId) {
@@ -2424,6 +2655,20 @@ exports.createCustomerOrder = async (req, res) => {
       data: fullOrder
     })
   } catch (error) {
+    // Two requests with the same idempotencyKey can both pass the earlier
+    // findOne check and both attempt to create — the unique index on
+    // (store, idempotencyKey) lets exactly one succeed; return the
+    // winner's order to the loser instead of a raw 500.
+    if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+      const existingOrder = await Order.findOne({ where: { store, idempotencyKey } })
+      if (existingOrder) {
+        const fullOrder = await fetchFullOrder(existingOrder.id)
+        return res.status(200).json({
+          message: 'Order already exists for this idempotency key',
+          data: fullOrder
+        })
+      }
+    }
     console.error('Error:', error)
     return res.status(500).json({ error: 'Internal Server Error' })
   }

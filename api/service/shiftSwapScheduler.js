@@ -3,6 +3,7 @@
 const { Op } = require('sequelize')
 const db = require('../../db/models')
 const { createNotification } = require('../../utils/createNotification')
+const { tryAcquireSchedulerLock } = require('../../utils/schedulerLock')
 
 const ShiftSwap = db.shift_swap
 
@@ -84,6 +85,14 @@ const startShiftSwapScheduler = (intervalMs = 5 * 60 * 1000) => {
   if (timer) return
   timer = setInterval(async () => {
     try {
+      // Cross-process lease — if this API is scaled to 2+ instances, only
+      // one of them expires swaps (and sends the notification) per tick.
+      const gotLock = await tryAcquireSchedulerLock(
+        db,
+        'shift-swap',
+        Math.max(intervalMs * 1.2, 360000)
+      )
+      if (!gotLock) return
       await expirePendingSwaps()
     } catch (err) {
       console.error('Shift swap scheduler tick error:', err)

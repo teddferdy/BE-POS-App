@@ -25,6 +25,14 @@ const getData = async (req) => {
   if (startDate) {
     orderConditions += ` AND o."createdAt" >= :startDate`
     replacements.startDate = new Date(startDate)
+  } else {
+    // No lower bound given — default to 90 days back instead of scanning
+    // the full order/order_item history, which grows unbounded over the
+    // life of the store.
+    const defaultStart = endDate ? new Date(endDate) : new Date()
+    defaultStart.setDate(defaultStart.getDate() - 90)
+    orderConditions += ` AND o."createdAt" >= :startDate`
+    replacements.startDate = defaultStart
   }
   if (endDate) {
     const end = new Date(endDate)

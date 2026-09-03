@@ -227,7 +227,11 @@ exports.createOrderSchema = z.object({
     .optional(),
   appliedDiscountId: strToNum().optional().nullable(),
   pointDiscountAmount: strToNum().optional().default(0),
-  redeemedPoints: strToNum().optional().default(0)
+  redeemedPoints: strToNum().optional().default(0),
+  // Optional client-generated key (e.g. a UUID minted once per checkout
+  // attempt) — a retried/duplicate submit with the same key returns the
+  // order already created instead of creating a second one.
+  idempotencyKey: z.string().max(255).optional().nullable()
 })
 
 exports.updateOrderStatusSchema = z.object({

@@ -73,16 +73,14 @@ const inventoryController = {
         where: { status: 'active' },
         attributes: ['id', 'nameProduct', 'stock', 'minStock']
       })
-      const results = []
-      for (const p of products) {
-        try {
-          const f = await inventoryService.buildForecast(p.id, storeId)
-          await inventoryService.saveForecast(f)
-          results.push(f)
-        } catch (e) {
-          console.error(`Forecast error product ${p.id}:`, e.message)
-        }
-      }
+      // Bulk path: a fixed handful of batch queries instead of ~5 sequential
+      // queries per product, which timed out once the catalog grew past a
+      // few hundred SKUs.
+      const results = await inventoryService.buildForecastsBulk(
+        products,
+        storeId
+      )
+      await inventoryService.saveForecastsBulk(results, storeId)
       return res
         .status(200)
         .json({ success: true, data: results, total: results.length })

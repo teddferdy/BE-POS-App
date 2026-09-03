@@ -122,10 +122,7 @@ exports.changeUserStatusById = async (req, res) => {
     }
 
     if (currentUserRole === 'admin') {
-      if (
-        targetUser.store !== currentUserStore &&
-        targetUser.roleType !== 'user'
-      ) {
+      if (targetUser.store !== currentUserStore) {
         return res.status(403).json({
           message: 'Anda hanya dapat mengubah user di toko Anda'
         })
@@ -187,10 +184,7 @@ exports.changeUserByIdAndLocation = async (req, res) => {
 
     // Validation: Admin can only manage users in their store
     if (currentUserRole === 'admin') {
-      if (
-        targetUser.store !== currentUserStore &&
-        targetUser.roleType !== 'user'
-      ) {
+      if (targetUser.store !== currentUserStore) {
         return res.status(403).json({
           message: 'Anda hanya dapat mengubah user di toko Anda'
         })
@@ -201,15 +195,36 @@ exports.changeUserByIdAndLocation = async (req, res) => {
           message: 'Tidak dapat mengubah Super Admin'
         })
       }
+      // Admin can't move a user to a different store
+      if (store !== undefined && parseInt(store) !== currentUserStore) {
+        return res.status(403).json({
+          message: 'Anda hanya dapat menetapkan user ke toko Anda sendiri'
+        })
+      }
     }
 
     // Update the userType, position, store, roleId and roleType
     const updateData = { userType, position, store }
 
     if (roleId || roleType) {
+      // Only a super_admin may grant the super_admin role to anyone
+      if (currentUserRole !== 'super_admin' && roleType === 'super_admin') {
+        return res.status(403).json({
+          message: 'Anda tidak memiliki izin untuk memberikan role Super Admin'
+        })
+      }
       if (roleId) {
         const role = await db.role.findByPk(roleId)
         if (role) {
+          if (
+            currentUserRole !== 'super_admin' &&
+            role.roleType === 'super_admin'
+          ) {
+            return res.status(403).json({
+              message:
+                'Anda tidak memiliki izin untuk memberikan role Super Admin'
+            })
+          }
           updateData.roleId = roleId
           updateData.roleType = role.roleType
         }
@@ -304,8 +319,6 @@ exports.login = async (req, res) => {
       paranoid: false // opsional untuk test
     })
 
-    console.log('findUser =>', findUser?.dataValues || null)
-
     if (!findUser) {
       return res.status(401).json({
         message: 'User Name / Email Tidak Ditemukan'
@@ -394,7 +407,6 @@ exports.login = async (req, res) => {
 // Register
 exports.registerNewUser = async (req, res) => {
   const body = req.body
-  console.log('BODY =>', body)
 
   try {
     // Validate userType
@@ -470,8 +482,6 @@ exports.registerNewUser = async (req, res) => {
         fullName: result?.fullName,
         roleType: result?.roleType || 'user'
       })
-
-      console.log('RESULT =>', result)
 
       return res.status(200).json({
         message: 'Success Menyimpan User',

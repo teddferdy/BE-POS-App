@@ -625,6 +625,30 @@ const goodsReceiptController = {
           0
         )
 
+        // Build lookup maps from the PO items already fetched above, and
+        // bulk-fetch every distinct product referenced by this receipt's
+        // lines — replaces up to 2 findOne/findByPk calls per line with
+        // in-memory lookups against data already loaded in this transaction.
+        const poItemById = new Map(allPoItems.map((pi) => [pi.id, pi]))
+        const poItemByIngredient = new Map(
+          allPoItems.filter((pi) => pi.ingredient).map((pi) => [pi.ingredient, pi])
+        )
+        const poItemByIngredientName = new Map(
+          allPoItems
+            .filter((pi) => pi.ingredientName)
+            .map((pi) => [pi.ingredientName, pi])
+        )
+        const receiptProductIds = [
+          ...new Set(items.map((it) => it.product).filter(Boolean))
+        ]
+        const receiptProducts = receiptProductIds.length
+          ? await db.product.findAll({
+              where: { id: receiptProductIds },
+              transaction
+            })
+          : []
+        const productById = new Map(receiptProducts.map((p) => [p.id, p]))
+
         for (const [index, item] of items.entries()) {
           const qty = parseInt(item.qtyReceived) || 0
           if (qty <= 0) continue
@@ -632,29 +656,11 @@ const goodsReceiptController = {
           // Over-receive validation
           let poItem = null
           if (item.purchaseOrderItem) {
-            poItem = await db.purchase_order_item.findOne({
-              where: {
-                id: item.purchaseOrderItem,
-                purchaseOrder: purchaseOrderId
-              },
-              transaction
-            })
+            poItem = poItemById.get(Number(item.purchaseOrderItem)) || null
           } else if (item.ingredient && purchaseOrderId) {
-            poItem = await db.purchase_order_item.findOne({
-              where: {
-                purchaseOrder: purchaseOrderId,
-                ingredient: item.ingredient
-              },
-              transaction
-            })
+            poItem = poItemByIngredient.get(item.ingredient) || null
           } else if (item.ingredientName && purchaseOrderId) {
-            poItem = await db.purchase_order_item.findOne({
-              where: {
-                purchaseOrder: purchaseOrderId,
-                ingredientName: item.ingredientName
-              },
-              transaction
-            })
+            poItem = poItemByIngredientName.get(item.ingredientName) || null
           }
 
           if (poItem) {
@@ -720,9 +726,7 @@ const goodsReceiptController = {
           }
 
           if (item.product) {
-            const product = await db.product.findByPk(item.product, {
-              transaction
-            })
+            const product = productById.get(item.product)
             if (product) {
               const qtyBefore = Number(product.stock) || 0
               await product.update(
