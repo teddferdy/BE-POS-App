@@ -1,4 +1,27 @@
 require('dotenv').config()
+
+// Fail fast with a clear message instead of limping into an opaque
+// Sequelize connection error, or every authenticated request failing
+// cryptically because JWT_SECRET_KEY was never set.
+const REQUIRED_ENV_VARS =
+  process.env.NODE_ENV === 'production'
+    ? [
+        'POSTGRES_USER',
+        'POSTGRES_PASSWORD',
+        'POSTGRES_DATABASE',
+        'POSTGRES_HOST',
+        'JWT_SECRET_KEY'
+      ]
+    : ['JWT_SECRET_KEY']
+const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key])
+if (missingEnvVars.length > 0) {
+  console.error(
+    `Missing required environment variable(s): ${missingEnvVars.join(', ')}`
+  )
+  process.exit(1)
+}
+
+const Sentry = require('./instrument')
 require('express-async-errors')
 const express = require('express')
 const http = require('http')
@@ -16,7 +39,6 @@ const authRoutes = require('./routes/auth')
 const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
-const checkoutRoutes = require('./routes/checkout')
 const discountRoutes = require('./routes/discount')
 const shiftRoutes = require('./routes/shift')
 const typePaymentRoutes = require('./routes/type-payment')
@@ -176,7 +198,6 @@ const routes = [
   { path: '/member', route: memberRoutes },
   { path: '/order', route: orderRoutes },
   { path: '/table', route: tableRoutes },
-  { path: '/checkout', route: checkoutRoutes },
   { path: '/discount', route: discountRoutes },
   { path: '/shift', route: shiftRoutes },
   { path: '/type-payment', route: typePaymentRoutes },
@@ -404,20 +425,42 @@ app.post('/print-thermal', (req, res) => {
   }
 })
 
-app.use((err, req, res, _next) => {
-  console.error(err.stack)
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal Server Error'
-  })
-})
-
 app.get('/', (_, res) => {
   res.status(200).json({
     success: true,
     message: 'POS API is running',
     socket: '/socket.io'
   })
+})
+
+// Must be the LAST app.use/app.get — Express only routes errors from
+// handlers registered before an error-handling middleware, so this has to
+// come after every route (it previously sat above app.get('/'), which meant
+// that route's errors bypassed it entirely).
+app.use((err, req, res, _next) => {
+  console.error(err.stack)
+  Sentry.captureException(err)
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal Server Error'
+  })
+})
+
+// Catch errors outside the request lifecycle (schedulers, socket handlers,
+// stray promise rejections) that the Express error middleware above never
+// sees.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason)
+  Sentry.captureException(reason)
+})
+// Process state after a truly uncaught exception is not safe to keep
+// serving requests on — report it, then exit so the process manager
+// (nodemon/pm2/systemd) restarts into a known-good state instead of
+// continuing to run half-broken.
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err)
+  Sentry.captureException(err)
+  Sentry.flush(2000).finally(() => process.exit(1))
 })
 
 const port = process.env.PORT || 5001

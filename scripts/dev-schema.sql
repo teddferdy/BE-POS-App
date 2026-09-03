@@ -7878,6 +7878,60 @@ ALTER TABLE ONLY public."user"
 
 
 --
+-- Incremental schema additions matching db/migrations (kept in sync so the
+-- CI/globalSetup cloned test schema has the tables/columns the new tests need).
+--
+
+ALTER TABLE ONLY public."order"
+    ADD COLUMN "idempotencyKey" character varying(255);
+
+CREATE UNIQUE INDEX order_store_idempotencyKey_unique
+    ON public."order" USING btree (store, "idempotencyKey")
+    WHERE "idempotencyKey" IS NOT NULL;
+
+
+--
+-- Name: order_daily_counter; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.order_daily_counter (
+    store integer NOT NULL,
+    "counterDate" date NOT NULL,
+    "lastValue" integer DEFAULT 0 NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.order_daily_counter
+    ADD CONSTRAINT order_daily_counter_pkey PRIMARY KEY (store, "counterDate");
+
+
+--
+-- Name: scheduler_lock; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.scheduler_lock (
+    name character varying(255) NOT NULL,
+    "lockedUntil" timestamp with time zone,
+    "lockedBy" character varying(255),
+    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY public.scheduler_lock
+    ADD CONSTRAINT scheduler_lock_pkey PRIMARY KEY (name);
+
+
+ALTER TABLE ONLY public.purchase_order
+    ADD COLUMN "additionalCostNotes" character varying(255);
+
+CREATE UNIQUE INDEX best_selling_productId_store_unique
+    ON public.best_selling USING btree ("productId", store)
+    WHERE "deletedAt" IS NULL;
+
+CREATE INDEX order_item_product_idx
+    ON public.order_item USING btree (product);
+
+
+--
 -- PostgreSQL database dump complete
 --
 

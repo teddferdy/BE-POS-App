@@ -5,6 +5,7 @@ const {
   generateExpenseNumber,
   addInterval
 } = require('../../utils/expenseUtil')
+const { tryAcquireSchedulerLock } = require('../../utils/schedulerLock')
 
 let timer = null
 let running = false
@@ -118,6 +119,14 @@ const startExpenseScheduler = (intervalMs = 60000) => {
     if (running) return
     running = true
     try {
+      // Cross-process lease — if this API is scaled to 2+ instances, only
+      // one of them generates recurring expenses on any given tick.
+      const gotLock = await tryAcquireSchedulerLock(
+        db,
+        'expense',
+        Math.max(intervalMs * 1.5, 90000)
+      )
+      if (!gotLock) return
       await generateDueRecurringExpenses()
     } catch (err) {
       console.error('Expense scheduler tick error:', err)

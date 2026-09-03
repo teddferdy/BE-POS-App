@@ -31,18 +31,10 @@ const inventoryService = {
     return days > 0 ? Number((totalSold / days).toFixed(4)) : 0
   },
 
-  async buildForecast(productId, storeId) {
-    const product = await db.product.findByPk(productId)
-    if (!product) throw new Error(`Product ${productId} not found`)
-
-    const consumption = await this.calculateDailyConsumption(productId, storeId)
-    let currentStock = Number(product.stock) || 0
-    if (storeId) {
-      const pss = await db.product_store_stock.findOne({
-        where: { product: productId, store: storeId }
-      })
-      if (pss) currentStock = Number(pss.stock) || 0
-    }
+  // Pure computation shared by the single-product and bulk forecast paths —
+  // takes already-resolved consumption/stock so the bulk path can compute
+  // them in batch instead of one query pair per product.
+  _computeForecast(product, consumption, currentStock, storeId) {
     const minStock = Number(product.minStock) || 0
     const safetyStock = Math.max(minStock, Math.ceil(consumption * 3))
     const reorderPoint = Math.ceil(consumption * 7) + safetyStock
@@ -63,7 +55,7 @@ const inventoryService = {
         : 50
 
     return {
-      productId,
+      productId: product.id,
       productName: product.nameProduct,
       storeId: storeId || null,
       currentStock,
@@ -81,6 +73,83 @@ const inventoryService = {
             ? 'low'
             : 'healthy'
     }
+  },
+
+  async buildForecast(productId, storeId) {
+    const product = await db.product.findByPk(productId)
+    if (!product) throw new Error(`Product ${productId} not found`)
+
+    const consumption = await this.calculateDailyConsumption(productId, storeId)
+    let currentStock = Number(product.stock) || 0
+    if (storeId) {
+      const pss = await db.product_store_stock.findOne({
+        where: { product: productId, store: storeId }
+      })
+      if (pss) currentStock = Number(pss.stock) || 0
+    }
+
+    return this._computeForecast(product, consumption, currentStock, storeId)
+  },
+
+  // Batched consumption lookup for a set of products in one query instead of
+  // one aggregate query per product.
+  async calculateDailyConsumptionBulk(productIds, storeId, days = DEFAULT_DAYS) {
+    const map = new Map(productIds.map((id) => [id, 0]))
+    if (productIds.length === 0) return map
+
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    since.setHours(0, 0, 0, 0)
+
+    const rows = await db.stock_history.findAll({
+      where: {
+        product: { [Op.in]: productIds },
+        ...(storeId ? { store: storeId } : {}),
+        referenceType: 'sale',
+        createdAt: { [Op.gte]: since }
+      },
+      attributes: [
+        'product',
+        [
+          db.sequelize.fn('SUM', db.sequelize.col('quantityChange')),
+          'totalSold'
+        ]
+      ],
+      group: ['product']
+    })
+
+    for (const row of rows) {
+      const totalSold = Math.abs(Number(row.get('totalSold') || 0))
+      map.set(
+        Number(row.get('product')),
+        days > 0 ? Number((totalSold / days).toFixed(4)) : 0
+      )
+    }
+    return map
+  },
+
+  // Build forecasts for many products with a fixed set of batch queries
+  // (2 total) instead of ~2 queries per product.
+  async buildForecastsBulk(products, storeId) {
+    if (products.length === 0) return []
+    const productIds = products.map((p) => p.id)
+
+    const [consumptionMap, storeStockMap] = await Promise.all([
+      this.calculateDailyConsumptionBulk(productIds, storeId),
+      storeId
+        ? db.product_store_stock
+            .findAll({ where: { product: { [Op.in]: productIds }, store: storeId } })
+            .then((rows) => new Map(rows.map((r) => [Number(r.product), Number(r.stock) || 0])))
+        : Promise.resolve(new Map())
+    ])
+
+    return products.map((product) => {
+      const consumption = consumptionMap.get(product.id) || 0
+      const currentStock = storeStockMap.has(product.id)
+        ? storeStockMap.get(product.id)
+        : Number(product.stock) || 0
+      return this._computeForecast(product, consumption, currentStock, storeId)
+    })
   },
 
   async saveForecast(forecast) {
@@ -113,6 +182,46 @@ const inventoryService = {
       confidence_level: forecast.confidence,
       forecast_date: new Date()
     })
+  },
+
+  // Batched persistence: one fetch of existing rows + one update per row
+  // that already exists + a single bulkCreate for new rows, instead of a
+  // findOne+create/update pair per product.
+  async saveForecastsBulk(forecasts, storeId) {
+    if (forecasts.length === 0) return
+    const store = storeId || null
+    const productIds = forecasts.map((f) => f.productId)
+
+    const existing = await db.stock_forecast.findAll({
+      where: { product: { [Op.in]: productIds }, store }
+    })
+    const existingByProduct = new Map(existing.map((e) => [Number(e.product), e]))
+
+    const toCreate = []
+    const updates = []
+    for (const forecast of forecasts) {
+      const fields = {
+        current_quantity: forecast.currentStock,
+        daily_consumption_rate: forecast.dailyConsumption,
+        safety_stock: forecast.safetyStock,
+        reorder_point: forecast.reorderPoint,
+        forecasted_stockout_date: forecast.forecastedStockoutDate,
+        days_until_stockout: forecast.daysUntilStockout,
+        confidence_level: forecast.confidence,
+        forecast_date: new Date()
+      }
+      const row = existingByProduct.get(forecast.productId)
+      if (row) {
+        updates.push(row.update(fields))
+      } else {
+        toCreate.push({ product: forecast.productId, store, ...fields })
+      }
+    }
+
+    await Promise.all(updates)
+    if (toCreate.length > 0) {
+      await db.stock_forecast.bulkCreate(toCreate)
+    }
   },
 
   async detectDeadStock(storeId, thresholdDays = DEAD_STOCK_THRESHOLD) {
@@ -318,18 +427,30 @@ const inventoryService = {
       attributes: ['id', 'nameProduct', 'costPrice', 'stock']
     })
 
+    // Batch-fetch per-store stock for every product in one query instead of
+    // one product_store_stock.findOne per product.
+    const storeStockByProduct =
+      storeId && products.length
+        ? new Map(
+            (
+              await db.product_store_stock.findAll({
+                where: {
+                  product: products.map((p) => p.id),
+                  store: storeId
+                }
+              })
+            ).map((pss) => [Number(pss.product), Number(pss.stock) || 0])
+          )
+        : null
+
     const productsOut = []
     let totalValue = 0
     let totalStock = 0
 
     for (const p of products) {
-      let stock = Number(p.stock) || 0
-      if (storeId) {
-        const pss = await db.product_store_stock.findOne({
-          where: { product: p.id, store: storeId }
-        })
-        if (pss) stock = Number(pss.stock) || 0
-      }
+      const stock = storeStockByProduct?.has(p.id)
+        ? storeStockByProduct.get(p.id)
+        : Number(p.stock) || 0
       if (stock <= 0) continue
 
       const costPrice = Number(p.costPrice) || 0

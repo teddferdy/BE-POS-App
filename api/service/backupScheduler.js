@@ -1,5 +1,7 @@
 'use strict'
 const backupController = require('../controller/backup')
+const db = require('../../db/models')
+const { tryAcquireSchedulerLock } = require('../../utils/schedulerLock')
 
 let timer = null
 let lastCheck = null
@@ -10,6 +12,14 @@ const startBackupScheduler = (intervalMs = 60000) => {
     try {
       const now = new Date()
       if (lastCheck && now.getTime() - lastCheck.getTime() < 60000) return
+      // Cross-process lease — if this API is scaled to 2+ instances, only
+      // one of them runs the backup on any given tick.
+      const gotLock = await tryAcquireSchedulerLock(
+        db,
+        'backup',
+        Math.max(intervalMs * 1.5, 90000)
+      )
+      if (!gotLock) return
       lastCheck = now
       await backupController.runScheduledBackupIfDue(now)
     } catch (err) {

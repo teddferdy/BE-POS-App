@@ -13,6 +13,17 @@ module.exports = {
     host: process.env.DB_DEV_HOST || '127.0.0.1', // ✅ gunakan 127.0.0.1
     port: process.env.DB_DEV_PORT || 5432, // ✅ jangan pakai string
     dialect: 'postgres',
+    // Without this, Sequelize defaults to pool.max: 5 — fine for one
+    // developer clicking around, but genuinely concurrent local load
+    // (or a concurrency test) starves that pool almost immediately and
+    // manifests as requests hanging, not a clean error. Match production's
+    // shape so local behavior isn't misleadingly different under load.
+    pool: {
+      max: 20,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    },
     timezone: '+07:00'
   },
   test: {
@@ -22,6 +33,12 @@ module.exports = {
     host: process.env.DB_DEV_HOST,
     port: process.env.DB_DEV_PORT,
     dialect: 'postgres',
+    pool: {
+      max: 20,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    },
     timezone: '+07:00'
   },
   production: {

@@ -18,11 +18,18 @@ const getData = async (req) => {
   const userStore = req.cookies?.store || req.user?.store
 
   const where = store || userStore ? { store: store || userStore } : {}
-  if (startDate || endDate) {
-    where.report_date = {}
-    if (startDate) where.report_date[Op.gte] = new Date(startDate)
-    if (endDate) where.report_date[Op.lte] = new Date(endDate)
+  where.report_date = {}
+  if (startDate) {
+    where.report_date[Op.gte] = new Date(startDate)
+  } else {
+    // No lower bound given — default to 90 days back instead of scanning
+    // this summary table's full history, which grows unbounded over the
+    // life of the store.
+    const defaultStart = endDate ? new Date(endDate) : new Date()
+    defaultStart.setDate(defaultStart.getDate() - 90)
+    where.report_date[Op.gte] = defaultStart
   }
+  if (endDate) where.report_date[Op.lte] = new Date(endDate)
 
   const { rows } = await db.product_sales_summary.findAndCountAll({
     where,

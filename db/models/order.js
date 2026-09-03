@@ -156,6 +156,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         references: { model: 'promo_campaign', key: 'id' }
+      },
+      idempotencyKey: {
+        type: DataTypes.STRING,
+        allowNull: true
       }
     },
     {

@@ -422,31 +422,43 @@ module.exports = {
           message: `Total debit (${totalDebit}) must equal total credit (${totalCredit})`
         })
       }
-      const lastEntry = await db.journal_entry.findOne({
-        where: { store },
-        order: [['id', 'DESC']]
-      })
-      const seq = (lastEntry?.id || 0) + 1
-      const entry = await db.journal_entry.create({
-        store,
-        entryNumber: makeEntryNumber(store, seq),
-        date,
-        description,
-        sourceType: 'manual',
-        totalDebit,
-        totalCredit,
-        createdBy: req.user?.id
-      })
-      for (const line of lines) {
-        await db.journal_entry_line.create({
-          journalEntry: entry.id,
-          account: line.account,
-          debit: toNumber(line.debit),
-          credit: toNumber(line.credit),
-          description: line.description || null,
-          createdBy: req.user?.id
+      // Header + lines must commit or fail together — a crash partway
+      // through the old per-line create loop could leave a journal entry
+      // whose header claims balanced debit/credit totals but whose lines
+      // don't actually sum to them.
+      const entry = await db.sequelize.transaction(async (t) => {
+        const lastEntry = await db.journal_entry.findOne({
+          where: { store },
+          order: [['id', 'DESC']],
+          transaction: t
         })
-      }
+        const seq = (lastEntry?.id || 0) + 1
+        const created = await db.journal_entry.create(
+          {
+            store,
+            entryNumber: makeEntryNumber(store, seq),
+            date,
+            description,
+            sourceType: 'manual',
+            totalDebit,
+            totalCredit,
+            createdBy: req.user?.id
+          },
+          { transaction: t }
+        )
+        await db.journal_entry_line.bulkCreate(
+          lines.map((line) => ({
+            journalEntry: created.id,
+            account: line.account,
+            debit: toNumber(line.debit),
+            credit: toNumber(line.credit),
+            description: line.description || null,
+            createdBy: req.user?.id
+          })),
+          { transaction: t }
+        )
+        return created
+      })
       createAudit(
         req,
         'create',
