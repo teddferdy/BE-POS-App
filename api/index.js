@@ -75,6 +75,7 @@ const reportExportRoutes = require('./routes/reportExport')
 const inventoryRoutes = require('./routes/inventory')
 const thermalPrinterRoutes = require('./routes/thermalPrinter')
 const goodsRequestRoutes = require('./routes/goodsRequest')
+const businessTripRoutes = require('./routes/businessTrip')
 const regionRoutes = require('./routes/region')
 const shiftTemplateRoutes = require('./routes/shiftTemplate')
 const shiftSwapRoutes = require('./routes/shiftSwap')
@@ -210,6 +211,7 @@ const routes = [
   { path: '/production-order', route: productionOrderRoutes },
   { path: '/goods-receipt', route: goodsReceiptRoutes },
   { path: '/goods-request', route: goodsRequestRoutes },
+  { path: '/business-trip', route: businessTripRoutes },
   { path: '/sales-return', route: salesReturnRoutes },
   { path: '/purchase-return', route: purchaseReturnRoutes },
   { path: '/bom', route: bomRoutes },

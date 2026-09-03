@@ -21,6 +21,7 @@ const buildSpecFromDef = (def, data, config, brand) => {
   const columns = (config?.selectedColumns || def.defaultColumns.map((c) => c.key))
     .map((key) => def.defaultColumns.find((c) => c.key === key))
     .filter(Boolean)
+  const cfg = config || {}
   return {
     title: data.title || def.label,
     subtitle: data.subtitle || '',
@@ -28,7 +29,10 @@ const buildSpecFromDef = (def, data, config, brand) => {
     columns,
     rows: data.rows || [],
     totals: def.totals,
-    accentColor: config?.accentColor || '#0f172a'
+    accentColor: cfg.accentColor || '#0f172a',
+    archetype: def.archetype || 'summary',
+    layout: def.layout || null,
+    branding: cfg.branding || { showLogo: true, showAddress: true, showPhone: true }
   }
 }
 

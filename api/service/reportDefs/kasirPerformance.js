@@ -62,4 +62,7 @@ const getData = async (req) => {
   }
 }
 
-module.exports = { getData, defaultColumns, totals, filename, label }
+const archetype = 'roster'
+const layout = {}
+
+module.exports = { getData, defaultColumns, totals, filename, label, archetype, layout }

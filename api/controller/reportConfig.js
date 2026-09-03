@@ -61,7 +61,9 @@ const getMeta = async (req, res) => {
     const data = Object.entries(reportDefs).map(([key, def]) => ({
       key,
       label: def.label,
-      columns: def.defaultColumns
+      columns: def.defaultColumns,
+      archetype: def.archetype,
+      layout: def.layout
     }))
     return res.json({ success: true, data })
   } catch (err) {
