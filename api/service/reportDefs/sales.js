@@ -63,4 +63,9 @@ const getData = async (req) => {
   return { rows, title: label, subtitle: `Periode: ${periodKey}` }
 }
 
-module.exports = { getData, defaultColumns, totals, filename, label }
+const archetype = 'summary'
+const layout = {
+  kpis: ['sales', 'transactions']
+}
+
+module.exports = { getData, defaultColumns, totals, filename, label, archetype, layout }

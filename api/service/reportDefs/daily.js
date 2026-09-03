@@ -18,6 +18,11 @@ const filename = () => 'laporan-harian'
 
 const label = 'Laporan Harian'
 
+const archetype = 'summary'
+const layout = {
+  kpis: ['totalTransaksi', 'totalPenjualanBersih', 'grossProfit', 'netProfit']
+}
+
 const getData = async (req) => {
   const { store, startDate, endDate } = req.query
   const replacements = {}
@@ -120,4 +125,4 @@ const getData = async (req) => {
   }
 }
 
-module.exports = { getData, defaultColumns, totals, filename, label }
+module.exports = { getData, defaultColumns, totals, filename, label, archetype, layout }

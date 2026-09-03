@@ -60,4 +60,7 @@ const getData = async (req) => {
   }
 }
 
-module.exports = { getData, defaultColumns, totals, filename, label }
+const archetype = 'ranking'
+const layout = {"valueKey":"revenue"}
+
+module.exports = { getData, defaultColumns, totals, filename, label, archetype, layout }

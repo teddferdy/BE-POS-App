@@ -95,12 +95,12 @@ const getData = async (req) => {
   const penerimaanReturPembelian = Number(refAgg.total || 0)
 
   const rows = [
-    { keterangan: 'Penerimaan Tunai', nominal: penerimaanTunai },
-    { keterangan: 'Penerimaan QRIS', nominal: penerimaanQris },
-    { keterangan: 'Penerimaan Transfer', nominal: penerimaanTransfer },
-    { keterangan: 'Penerimaan Retur Pembelian', nominal: penerimaanReturPembelian },
-    { keterangan: 'Pengeluaran Expense', nominal: pengeluaranExpense },
-    { keterangan: 'Pengeluaran Purchase Payment', nominal: pengeluaranPurchasePayment }
+    { keterangan: 'Penerimaan Tunai', nominal: penerimaanTunai, flow: 'in' },
+    { keterangan: 'Penerimaan QRIS', nominal: penerimaanQris, flow: 'in' },
+    { keterangan: 'Penerimaan Transfer', nominal: penerimaanTransfer, flow: 'in' },
+    { keterangan: 'Penerimaan Retur Pembelian', nominal: penerimaanReturPembelian, flow: 'in' },
+    { keterangan: 'Pengeluaran Expense', nominal: pengeluaranExpense, flow: 'out' },
+    { keterangan: 'Pengeluaran Purchase Payment', nominal: pengeluaranPurchasePayment, flow: 'out' }
   ]
 
   return {
@@ -110,4 +110,6 @@ const getData = async (req) => {
   }
 }
 
-module.exports = { getData, defaultColumns, totals, filename, label }
+const archetype = 'statement'
+
+module.exports = { getData, defaultColumns, totals, filename, label, archetype }
