@@ -13,6 +13,7 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { syncEmployeeShift } = require('../../utils/shiftChain')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 const dateOrNull = (value, fallback) =>
   value === undefined ? fallback : value ? value : null
@@ -311,7 +312,10 @@ exports.getEmployeeById = async (req, res) => {
   const { id } = req.params
 
   try {
-    const employee = await User.findByPk(id, {
+    // IDOR fix: was findByPk(id) with no store filter, leaking another
+    // store's staff PII (documents, contact info, salary-adjacent fields).
+    const employee = await User.findOne({
+      where: scalarStoreScope(req, { id }),
       attributes: { exclude: ['password'] },
       include: [
         { model: Location, as: 'storeData', attributes: ['id', 'name'] },
@@ -387,7 +391,12 @@ exports.updateEmployee = async (req, res) => {
 
   try {
     const employeeId = req.body.id || req.query.id || req.params.id
-    const employee = await User.findByPk(employeeId)
+    // IDOR fix: was findByPk(employeeId) with no store filter, allowing a
+    // Store A admin to edit another store's staff record (id taken from
+    // req.body, not the URL, but the same bug either way).
+    const employee = await User.findOne({
+      where: scalarStoreScope(req, { id: employeeId })
+    })
 
     if (!employee || employee.userType !== 'user') {
       return res.status(404).json({
@@ -597,7 +606,14 @@ exports.deleteEmployee = async (req, res) => {
   const { id } = req.params
 
   try {
-    const employee = await User.findByPk(id)
+    // IDOR fix: was findByPk(id) + User.destroy({where:{id}}) — both
+    // unscoped, so a Store A admin could permanently delete another
+    // store's staff account. Both the read and the destroy are now
+    // query-scoped; the destroyed-count check below is defense in depth
+    // against a race where the row's store changed between the two calls.
+    const employee = await User.findOne({
+      where: scalarStoreScope(req, { id })
+    })
 
     if (!employee || employee.userType !== 'user') {
       return res.status(404).json({
@@ -612,7 +628,15 @@ exports.deleteEmployee = async (req, res) => {
 
     await syncEmployeeShift({ userId: id, newShiftId: null })
 
-    await User.destroy({ where: { id } })
+    const destroyedCount = await User.destroy({
+      where: scalarStoreScope(req, { id })
+    })
+    if (destroyedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Karyawan tidak ditemukan'
+      })
+    }
 
     createAudit(req, 'delete', 'employee', id, `Deleted employee: ${id}`)
 

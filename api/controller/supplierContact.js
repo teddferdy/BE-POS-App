@@ -1,11 +1,15 @@
 const db = require('../../db/models')
 const { createAudit } = require('../../utils/auditLog')
+const { supplierStoreScope, relatedStoreInclude } = require('../../utils/tenantScope')
 
 module.exports = {
   async getAllBySupplier(req, res) {
     try {
       const { supplierId } = req.params
-      const supplier = await db.supplier.findByPk(supplierId)
+      // IDOR fix: was findByPk(supplierId) with no store filter.
+      const supplier = await db.supplier.findOne({
+        where: supplierStoreScope(req, { id: supplierId })
+      })
       if (!supplier) {
         return res.status(404).json({ success: false, message: 'Supplier not found' })
       }
@@ -25,7 +29,12 @@ module.exports = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const contact = await db.supplier_contact.findByPk(id)
+      // IDOR fix: supplier_contact has no store column of its own —
+      // ownership is via supplier.store, enforced by the inner-join include.
+      const contact = await db.supplier_contact.findOne({
+        where: { id },
+        include: [relatedStoreInclude(req, { model: db.supplier, as: 'supplierData', parentShape: 'supplier' })]
+      })
       if (!contact) {
         return res.status(404).json({ success: false, message: 'Contact not found' })
       }
@@ -42,7 +51,10 @@ module.exports = {
       const { supplierId } = req.params
       const { fullName, position, email, phone } = req.body
 
-      const supplier = await db.supplier.findByPk(supplierId)
+      // Same IDOR fix as getAllBySupplier.
+      const supplier = await db.supplier.findOne({
+        where: supplierStoreScope(req, { id: supplierId })
+      })
       if (!supplier) {
         return res.status(404).json({ success: false, message: 'Supplier not found' })
       }
@@ -74,7 +86,11 @@ module.exports = {
       const { id } = req.params
       const { fullName, position, email, phone } = req.body
 
-      const contact = await db.supplier_contact.findByPk(id)
+      // Same IDOR fix as getById.
+      const contact = await db.supplier_contact.findOne({
+        where: { id },
+        include: [relatedStoreInclude(req, { model: db.supplier, as: 'supplierData', parentShape: 'supplier' })]
+      })
       if (!contact) {
         return res.status(404).json({ success: false, message: 'Contact not found' })
       }
@@ -103,7 +119,11 @@ module.exports = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const contact = await db.supplier_contact.findByPk(id)
+      // Same IDOR fix as getById.
+      const contact = await db.supplier_contact.findOne({
+        where: { id },
+        include: [relatedStoreInclude(req, { model: db.supplier, as: 'supplierData', parentShape: 'supplier' })]
+      })
       if (!contact) {
         return res.status(404).json({ success: false, message: 'Contact not found' })
       }

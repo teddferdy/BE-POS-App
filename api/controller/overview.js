@@ -24,7 +24,15 @@ const hasTable = async (tableName) => {
 const overviewController = {
   async getProductSummary(req, res) {
     try {
-      const { store } = req.query
+      // req.storeId is the value validateStoreAccess already verified
+      // (the caller's own store for every role except super_admin, who
+      // gets exactly what they asked for or null for "all stores").
+      // Reading store straight from req.query here instead meant this
+      // endpoint had a route-level access check that the controller body
+      // never actually used — any authenticated role could simply omit
+      // ?store= and get platform-wide counts across every tenant instead
+      // of being confined to their own store.
+      const store = req.storeId
       let sql
       const replacements = {}
 
@@ -80,7 +88,9 @@ const overviewController = {
 
   async getCategorySummary(req, res) {
     try {
-      const { store } = req.query
+      // See getProductSummary above for why this is req.storeId, not
+      // req.query.store.
+      const store = req.storeId
       let sql
       const replacements = {}
 
@@ -136,12 +146,19 @@ const overviewController = {
 
   async getLocationSummary(req, res) {
     try {
+      // Previously unscoped entirely — any admin/kasir hitting this
+      // endpoint got the active/inactive location count across the WHOLE
+      // deployment, not just their own store. req.storeId is a
+      // location.id (the "store" this codebase's user/order/etc. records
+      // scope by is the branch, i.e. location.id), so scope to that row.
+      const store = req.storeId
       const [result] = await db.sequelize.query(
         `SELECT COUNT(*) as total,
                 COUNT(*) FILTER (WHERE "status" = 'active') as active,
                 COUNT(*) FILTER (WHERE "status" = 'inactive') as inactive
-         FROM "location"`,
-        { type: db.sequelize.QueryTypes.SELECT }
+         FROM "location"
+         ${store ? 'WHERE "id" = :store' : ''}`,
+        { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
       )
 
       return res.status(200).json({
@@ -163,7 +180,9 @@ const overviewController = {
 
   async getMemberSummary(req, res) {
     try {
-      const { store } = req.query
+      // See getProductSummary above for why this is req.storeId, not
+      // req.query.store.
+      const store = req.storeId
       const replacements = {}
       let conditions = '1=1'
       if (store) {
@@ -191,9 +210,12 @@ const overviewController = {
 
   async getUserSummary(req, res) {
     try {
+      // Previously unscoped entirely — any admin/kasir got the staff
+      // headcount across the whole deployment instead of their own store.
+      const store = req.storeId
       const [result] = await db.sequelize.query(
-        `SELECT COUNT(*) as total FROM "user"`,
-        { type: db.sequelize.QueryTypes.SELECT }
+        `SELECT COUNT(*) as total FROM "user" ${store ? 'WHERE "store" = :store' : ''}`,
+        { replacements: store ? { store } : {}, type: db.sequelize.QueryTypes.SELECT }
       )
 
       return res.status(200).json({
@@ -211,7 +233,10 @@ const overviewController = {
 
   async getBestSelling(req, res) {
     try {
-      const { store, limit = 5 } = req.query
+      // See getProductSummary above for why this is req.storeId, not
+      // req.query.store.
+      const { limit = 5 } = req.query
+      const store = req.storeId
 
       const where = store ? { store } : {}
 
@@ -237,7 +262,10 @@ const overviewController = {
 
   async getLatestMembers(req, res) {
     try {
-      const { store, limit = 5 } = req.query
+      // See getProductSummary above for why this is req.storeId, not
+      // req.query.store.
+      const { limit = 5 } = req.query
+      const store = req.storeId
 
       const members = await db.member.findAll({
         where: store ? { store } : {},
@@ -261,7 +289,10 @@ const overviewController = {
 
   async getLatestCategories(req, res) {
     try {
-      const { store, limit = 5 } = req.query
+      // See getProductSummary above for why this is req.storeId, not
+      // req.query.store.
+      const { limit = 5 } = req.query
+      const store = req.storeId
 
       let where = {}
       if (store) {
@@ -302,9 +333,13 @@ const overviewController = {
 
   async getLatestLocations(req, res) {
     try {
+      // Previously unscoped entirely — see getLocationSummary above for
+      // why req.storeId (a location.id) is the right filter here.
       const limit = parseInt(req.query.limit) || 5
+      const store = req.storeId
 
       const locations = await db.location.findAll({
+        where: store ? { id: store } : {},
         order: [['updatedAt', 'DESC']],
         limit
       })
@@ -325,7 +360,10 @@ const overviewController = {
 
   async getLatestProducts(req, res) {
     try {
-      const { store, limit = 5 } = req.query
+      // See getProductSummary above for why this is req.storeId, not
+      // req.query.store.
+      const { limit = 5 } = req.query
+      const store = req.storeId
 
       let where = {}
       if (store) {

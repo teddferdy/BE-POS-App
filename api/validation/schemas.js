@@ -414,7 +414,7 @@ const userBaseSchema = z.object({
   dateOfBirth: z.string().optional().nullable(),
   placeOfBirth: z.string().optional().default(''),
   store: optionalStrToNum().nullable(),
-  shift: optionalStrToNum().nullable(),
+  shift: strToNumNullable(),
   position: optionalStrToNum().nullable(),
   roleId: optionalStrToNum().nullable(),
   department: z.string().optional().nullable(),
@@ -448,7 +448,7 @@ const employeeBaseSchema = z.object({
   placeOfBirth: z.string().optional().default(''),
   employeeId: z.string().optional().nullable(),
   store: optionalStrToNum().nullable(),
-  shift: optionalStrToNum().nullable(),
+  shift: strToNumNullable(),
   position: optionalStrToNum().nullable(),
   roleId: optionalStrToNum().nullable(),
   department: z.string().optional().nullable(),
@@ -1027,7 +1027,8 @@ exports.createPurchasePaymentSchema = z.object({
   paymentMethod: z.string().min(1),
   paymentDate: z.string().optional(),
   reference: z.string().optional().default(''),
-  notes: z.string().optional().default('')
+  notes: z.string().optional().default(''),
+  idempotencyKey: z.string().max(255).optional().nullable()
 })
 exports.updatePurchasePaymentSchema =
   exports.createPurchasePaymentSchema.partial()

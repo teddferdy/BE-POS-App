@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const batchService = require('../service/batchService')
+const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const {
   getConnectionStatus,
   sendDocument,
@@ -140,10 +141,20 @@ const posController = {
         }
       }
 
-      const result = await db.sequelize.transaction(async (t) => {
+      const result = await withDeadlockRetry(() =>
+        db.sequelize.transaction(async (t) => {
         const transfer = await db.stock_transfer.create(
           {
-            transferNumber: `TRF-${Date.now()}`,
+            // transferNumber has a bare (non-store-scoped) global unique
+            // constraint. A millisecond timestamp ALONE has zero
+            // collision resistance under real concurrency — two transfer
+            // requests landing in the same millisecond (plausible with
+            // multiple staff/branches submitting at once) previously hit
+            // a hard unique-constraint 500, not a deadlock (so the
+            // withDeadlockRetry wrapper around this transaction wouldn't
+            // catch or retry it). The random suffix matches the pattern
+            // already proven safe for order.orderNumber.
+            transferNumber: `TRF-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
             fromStore,
             toStore,
             notes,
@@ -154,6 +165,37 @@ const posController = {
             createdBy: req.user?.id || null
           },
           { transaction: t }
+        )
+
+        // Lock every distinct product BEFORE inserting stock_transfer_item
+        // rows that FK-reference them, in one batched query sorted by id.
+        // Sorting alone isn't enough: inserting the referencing rows
+        // first (as this used to) makes Postgres take an implicit FOR
+        // KEY SHARE lock on each product row to validate the FK — then
+        // this code's own later FOR UPDATE on that same row is a lock
+        // *upgrade*. Under N-way concurrency every transaction can end up
+        // holding its own FOR KEY SHARE while waiting on every other
+        // transaction's FOR KEY SHARE to release before its FOR UPDATE
+        // can proceed — a real N-way deadlock with only one product
+        // involved, confirmed by a 4-concurrent-transfer test that
+        // reproduced it reliably before this reordering. Locking first
+        // means the FK check on insert sees a lock already held by this
+        // same transaction (no upgrade, no conflict).
+        const sortedItems = [...items].sort(
+          (a, b) => (a.productId || 0) - (b.productId || 0)
+        )
+        const transferProductIds = [
+          ...new Set(sortedItems.map((it) => it.productId).filter(Boolean))
+        ].sort((a, b) => a - b)
+        const transferProducts = transferProductIds.length
+          ? await db.product.findAll({
+              where: { id: transferProductIds },
+              transaction: t,
+              lock: t.LOCK.UPDATE
+            })
+          : []
+        const transferProductById = new Map(
+          transferProducts.map((p) => [p.id, p])
         )
 
         const transferItems = items.map((item) => ({
@@ -168,11 +210,8 @@ const posController = {
           transaction: t
         })
 
-        for (const item of items) {
-          const product = await db.product.findByPk(item.productId, {
-            transaction: t,
-            lock: t.LOCK.UPDATE
-          })
+        for (const item of sortedItems) {
+          const product = transferProductById.get(item.productId)
           if (!product) continue
 
           // Check stock before atomic deduct
@@ -241,7 +280,8 @@ const posController = {
         }
 
         return transfer
-      })
+        })
+      )
 
       return res.status(201).json({
         success: true,
@@ -288,8 +328,15 @@ const posController = {
 
       const { toStore } = transfer
 
-      await db.sequelize.transaction(async (t) => {
-        for (const [index, item] of transfer.items.entries()) {
+      // Locked in a stable (ascending product id) order — see the matching
+      // comment in transfer() above.
+      const sortedTransferItems = [...transfer.items].sort(
+        (a, b) => (a.product || 0) - (b.product || 0)
+      )
+
+      await withDeadlockRetry(() =>
+        db.sequelize.transaction(async (t) => {
+        for (const [index, item] of sortedTransferItems.entries()) {
           const product = await db.product.findByPk(item.product, {
             transaction: t,
             lock: t.LOCK.UPDATE
@@ -383,7 +430,8 @@ const posController = {
         }
 
         await transfer.update({ status: 'received' }, { transaction: t })
-      })
+        })
+      )
 
       return res.status(200).json({
         success: true,
@@ -428,8 +476,15 @@ const posController = {
         })
       }
 
-      await db.sequelize.transaction(async (t) => {
-        for (const item of transfer.items) {
+      // Locked in a stable (ascending product id) order — see the matching
+      // comment in transfer() above.
+      const sortedCancelItems = [...transfer.items].sort(
+        (a, b) => (a.product || 0) - (b.product || 0)
+      )
+
+      await withDeadlockRetry(() =>
+        db.sequelize.transaction(async (t) => {
+        for (const item of sortedCancelItems) {
           const product = await db.product.findByPk(item.product, {
             transaction: t,
             lock: t.LOCK.UPDATE
@@ -482,7 +537,8 @@ const posController = {
         }
 
         await transfer.update({ status: 'cancelled' }, { transaction: t })
-      })
+        })
+      )
 
       return res.status(200).json({
         success: true,

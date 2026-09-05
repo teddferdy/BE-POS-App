@@ -15,6 +15,7 @@ jest.mock('../db/models', () => ({
 
 const secret = process.env.JWT_SECRET_KEY || 'secret-key-user'
 const token = jwt.sign({ id: 9999, userName: 'superadmin', roleType: 'super_admin' }, secret)
+const kasirToken = jwt.sign({ id: 9998, userName: 'kasir', roleType: 'kasir' }, secret)
 
 const app = express()
 app.use(express.json())
@@ -66,5 +67,23 @@ describe('reportConfig routes', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ config: { selectedColumns: [] } })
     expect(res.status).toBe(404)
+  })
+
+  // report_config has no store column — it's shared globally across
+  // every store/tenant. A low-privilege role must not be able to
+  // overwrite that shared config for everyone; reads stay open.
+  test('PUT /report-config/:key is refused for a non-admin role', async () => {
+    const res = await request(app)
+      .put('/report-config/daily')
+      .set('Authorization', `Bearer ${kasirToken}`)
+      .send({ config: { selectedColumns: ['tanggal'], accentColor: '#ff0000' } })
+    expect(res.status).toBe(403)
+  })
+
+  test('GET /report-config/:key still works for a non-admin role', async () => {
+    const res = await request(app)
+      .get('/report-config/daily')
+      .set('Authorization', `Bearer ${kasirToken}`)
+    expect(res.status).toBe(200)
   })
 })

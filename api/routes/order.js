@@ -54,9 +54,12 @@ router.put(
 router.get('/customer-menu', orderController.getCustomerMenu)
 router.get('/customer-member', orderController.getCustomerMember)
 router.get('/customer-orders', orderController.getCustomerOrders)
-router.get('/customer-order/:id', orderController.getCustomerOrder)
+// :token is the order's opaque publicToken (not its database id) —
+// required so this unauthenticated route can't be used to enumerate
+// other stores' orders. See api/controller/order.js: getCustomerOrder.
+router.get('/customer-order/:token', orderController.getCustomerOrder)
 router.post('/customer-create', orderController.createCustomerOrder)
-router.get('/receipt-html/:id', orderController.getReceiptHTML)
+router.get('/receipt-html/:token', orderController.getReceiptHTML)
 router.get('/customer-tax-rate', orderController.getCustomerTaxRate)
 router.get('/customer-reviews', orderController.getProductReviews)
 router.post('/customer-review', orderController.createCustomerReview)

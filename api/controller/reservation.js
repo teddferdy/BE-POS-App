@@ -5,6 +5,7 @@ const Table = db.table
 const Location = db.location
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 exports.getAll = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -172,7 +173,19 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   const { id } = req.params
-  const store = req.body.store || req.user?.store
+  // IDOR fix: req.body.store was trusted directly as the authorization
+  // boundary. validateStoreAccess reads req.query.store *or* body.store
+  // (query wins) to decide whether to 403 — so an attacker who passes
+  // their own store in the query string (satisfying the middleware) while
+  // putting a victim store in the body could reach here with an
+  // attacker-chosen `store` neither this middleware nor this variable's
+  // old definition actually verified against req.user.store. Only
+  // super_admin may explicitly target another store; everyone else is
+  // pinned to req.user.store regardless of what the body claims.
+  const store =
+    req.user?.roleType === 'super_admin'
+      ? req.body.store || req.user?.store
+      : req.user?.store
   const {
     customerName,
     customerPhone,
@@ -188,7 +201,7 @@ exports.update = async (req, res) => {
 
   try {
     const reservation = await Reservation.findOne({
-      where: { id, ...(store ? { store } : {}) }
+      where: scalarStoreScope(req, { id })
     })
     if (!reservation) {
       return res
@@ -197,7 +210,9 @@ exports.update = async (req, res) => {
     }
 
     if (tableId) {
-      const table = await Table.findOne({ where: { id: tableId, store } })
+      const table = await Table.findOne({
+        where: { id: tableId, store: store ?? reservation.store }
+      })
       if (!table) {
         return res
           .status(400)
@@ -254,11 +269,11 @@ exports.update = async (req, res) => {
 
 exports.remove = async (req, res) => {
   const { id } = req.params
-  const store = req.body.store || req.user?.store
 
   try {
+    // Same IDOR fix as update() — never trust req.body.store.
     const reservation = await Reservation.findOne({
-      where: { id, ...(store ? { store } : {}) }
+      where: scalarStoreScope(req, { id })
     })
     if (!reservation) {
       return res

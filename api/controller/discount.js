@@ -5,6 +5,7 @@ const Order = db.order
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 const attachStoreData = async (rows) => {
   if (!rows?.length) return rows
@@ -671,7 +672,12 @@ exports.editDiscountById = async (req, res) => {
       !getDuplicate?.dataValues ||
       getDuplicate?.dataValues?.status !== bodyStatus
     ) {
-      const editDiscount = await Discount?.update(
+      // IDOR fix: `where` previously matched by id alone, so a Store A
+      // admin could update any store's discount. scalarStoreScope adds
+      // `store: req.user.store` for non-super-admin, so 0 rows are
+      // affected (and we 404 below) instead of silently editing another
+      // tenant's discount.
+      const [affectedCount, affectedRows] = await Discount.update(
         {
           name: body.name,
           type: body.type,
@@ -688,11 +694,16 @@ exports.editDiscountById = async (req, res) => {
         },
         {
           returning: true,
-          where: { id: req.params.id }
+          where: scalarStoreScope(req, { id: req.params.id })
         }
-      ).then(([_, data]) => {
-        return data
-      })
+      )
+      if (affectedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Discount tidak ditemukan'
+        })
+      }
+      const editDiscount = affectedRows[0]
       createAudit(
         req,
         'update',
@@ -721,8 +732,11 @@ exports.editDiscountById = async (req, res) => {
 
 exports.deleteDiscountById = async (req, res) => {
   try {
+    // IDOR fix: was `where: { id }` with no store filter — any admin could
+    // delete any store's discount. The existing `if (getId)` affected-row
+    // check already does the right thing once the where clause is scoped.
     const getId = await Discount.destroy({
-      where: { id: req.params.id }
+      where: scalarStoreScope(req, { id: req.params.id })
     })
 
     if (getId) {
@@ -763,7 +777,11 @@ exports.getDiscountById = async (req, res) => {
       }
     )
 
-    const discount = await Discount.findByPk(req.params.id)
+    // IDOR fix: was findByPk(id) with no store filter — same gap as
+    // editDiscountById/deleteDiscountById above, found while fixing those.
+    const discount = await Discount.findOne({
+      where: scalarStoreScope(req, { id: req.params.id })
+    })
     if (!discount) {
       return res
         .status(404)

@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { arrayStoreScope } = require('../../utils/tenantScope')
 
 const calculateGrade = (score) => {
   if (score >= 90) return 'A'
@@ -101,7 +102,12 @@ const supplierPerformanceController = {
     try {
       const { id } = req.params
 
-      const score = await db.supplier_score.findByPk(id, {
+      // IDOR fix: was findByPk(id) with no store filter, leaking another
+      // store's supplier contact/address data via the include. `store`
+      // here is genuinely written as a JSONB array by calculateSupplierScore
+      // (storeIds = isSuperAdmin ? store : [Number(req.storeId)]).
+      const score = await db.supplier_score.findOne({
+        where: arrayStoreScope(req, { id }),
         include: [
           {
             model: db.supplier,
@@ -408,7 +414,10 @@ const supplierPerformanceController = {
       const { id } = req.params
       const { notes } = req.body
 
-      const score = await db.supplier_score.findByPk(id)
+      // Same IDOR fix as getSupplierScoreById.
+      const score = await db.supplier_score.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!score) {
         return res
           .status(404)

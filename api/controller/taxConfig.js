@@ -180,13 +180,21 @@ const taxConfigController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store =
-        req.storeId || req.body.store || req.cookies.store || req.user?.store
+      // IDOR fix: `store` was computed (from req.storeId, or falling back
+      // to raw req.body.store) but never actually used in the fetch's
+      // WHERE clause below — any admin could edit any store's tax config.
+      // Also stopped falling back to req.body.store: req.storeId is
+      // already the middleware-validated value, the same convention
+      // getById/delete already use — never trust the raw body value.
+      const store = req.storeId || req.cookies.store || req.user?.store
       const { name, rate, type, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
       const tax = await db.taxConfig.findOne({
-        where: { id }
+        where: {
+          id,
+          ...(store ? { [Op.or]: [{ store }, { store: null }] } : {})
+        }
       })
 
       if (!tax) {

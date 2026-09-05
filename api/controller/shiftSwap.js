@@ -5,6 +5,7 @@ const db = require('../../db/models')
 const { createAudit } = require('../../utils/auditLog')
 const { createNotification } = require('../../utils/createNotification')
 const { shiftEvents } = require('../../utils/shiftEvents')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 const ShiftSwap = db.shift_swap
 const User = db.user
@@ -320,6 +321,22 @@ exports.createShiftSwap = async (req, res, next) => {
       })
     }
 
+    // IDOR fix: requesterStore/targetStore were only ever checked against
+    // EACH OTHER, never against the caller's own store — this route has
+    // no requireRole gate, so any authenticated user (and requesterId is
+    // itself an optional client-supplied override, not necessarily
+    // req.user.id) could create a real, persisted shift-swap request
+    // between two employees of a store they have no relationship to.
+    if (
+      req.user?.roleType !== 'super_admin' &&
+      Number(req.user?.store) !== targetStore
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat membuat permintaan ubah jadwal di toko Anda'
+      })
+    }
+
     const dup = await ShiftSwap.findOne({
       where: {
         requesterId: finalRequesterId,
@@ -436,7 +453,12 @@ exports.updateShiftSwapStatus = async (req, res, next) => {
   const t = await db.sequelize.transaction()
   try {
     // Lock baris swap (tanpa include agar FOR UPDATE valid pada inner join)
-    const swap = await ShiftSwap.findByPk(id, {
+    // IDOR fix: was findByPk(id) with no store filter — any admin could
+    // approve/reject another store's shift swap, actually relocating real
+    // employees between shifts. scalarStoreScope adds `store` to the where
+    // clause for non-super-admin.
+    const swap = await ShiftSwap.findOne({
+      where: scalarStoreScope(req, { id }),
       transaction: t,
       lock: t.LOCK.UPDATE
     })
@@ -545,7 +567,14 @@ exports.cancelShiftSwap = async (req, res, next) => {
   const { id } = req.params
   const t = await db.sequelize.transaction()
   try {
-    const swap = await ShiftSwap.findByPk(id, {
+    // IDOR fix: was findByPk(id) with no store filter — the isAdmin
+    // bypass below let any admin cancel any store's swap regardless. Now
+    // a cross-store admin never finds the row in the first place; the
+    // isAdmin bypass still applies (unchanged) once ownership is confirmed
+    // — i.e. any admin of the OWNING store, not just the two employees
+    // involved, can still cancel it.
+    const swap = await ShiftSwap.findOne({
+      where: scalarStoreScope(req, { id }),
       transaction: t,
       lock: t.LOCK.UPDATE
     })

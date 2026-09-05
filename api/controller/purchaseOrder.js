@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const batchService = require('../service/batchService')
+const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -851,6 +852,7 @@ const purchaseOrderController = {
         }
       }
 
+      await withDeadlockRetry(async () => {
       const transaction = await db.sequelize.transaction()
 
       try {
@@ -861,7 +863,23 @@ const purchaseOrderController = {
             return map
           }, {})
 
-          for (const item of items) {
+          // Locked in a stable (ascending product id) order, not whatever
+          // order the request body listed items in — two concurrent
+          // receipts (against the same or different POs) sharing 2+
+          // products in differently-ordered item arrays could otherwise
+          // each lock one product and wait on the other, deadlocking
+          // (mirrors the fix already applied to checkout's product
+          // locking in order.js). Items without a product (ingredient-
+          // only lines) sort last and keep their relative order.
+          const sortedItems = [...items].sort((a, b) => {
+            const poA = poItems[a.id]
+            const poB = poItems[b.id]
+            const pa = a.product || poA?.product || Infinity
+            const pb = b.product || poB?.product || Infinity
+            return pa - pb
+          })
+
+          for (const item of sortedItems) {
             const poItem = poItems[item.id]
             if (!poItem) continue
 
@@ -1005,24 +1023,25 @@ const purchaseOrderController = {
         )
 
         await transaction.commit()
-
-        await createAudit(
-          req,
-          'update',
-          'purchase_order',
-          id,
-          'Received purchase_order: ' + id
-        )
-
-        return res.status(200).json({
-          success: true,
-          message: 'Success receive purchase order',
-          data: purchaseOrder
-        })
       } catch (err) {
         await transaction.rollback()
         throw err
       }
+      })
+
+      await createAudit(
+        req,
+        'update',
+        'purchase_order',
+        id,
+        'Received purchase_order: ' + id
+      )
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success receive purchase order',
+        data: purchaseOrder
+      })
     } catch (error) {
       console.log(error)
       return res.status(500).json({

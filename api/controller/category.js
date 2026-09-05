@@ -10,6 +10,31 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { relatedStoreInclude } = require('../../utils/tenantScope')
+
+// category has no store column of its own — ownership is many-to-many via
+// the category_store junction table (a category can be assigned to several
+// stores). relatedStoreInclude's inner-join-when-scoped behavior matches
+// getAllCategoryInTable's existing convention exactly: super_admin sees
+// assigned + unassigned, everyone else sees only categories assigned to
+// their own store (an unassigned category is invisible to a regular
+// admin there today — same here, not a new restriction). Only applied when
+// the junction table actually exists, matching this file's existing
+// graceful-degrade for deployments that haven't migrated it yet — such a
+// deployment has no per-store category data to protect either way.
+const findCategoryInScope = async (req, id, options = {}) => {
+  if (!(await hasCategoryStoreTable())) {
+    return Category.findByPk(id, options)
+  }
+  return Category.findOne({
+    ...options,
+    where: { id },
+    include: [
+      ...(options.include || []),
+      relatedStoreInclude(req, { model: db.category_store, as: 'storeAssignments' })
+    ]
+  })
+}
 
 let _categoryStoreExists = null
 const hasCategoryStoreTable = async () => {
@@ -95,7 +120,9 @@ exports.getCategoryById = async (req, res) => {
   try {
     const { id } = req.params
 
-    const category = await Category.findByPk(id)
+    // IDOR fix: was findByPk(id) with no ownership check — category has no
+    // store column, so this is scoped through the category_store junction.
+    const category = await findCategoryInScope(req, id)
 
     if (!category) {
       return res.status(404).json({
@@ -441,7 +468,8 @@ exports.addNewCategory = async (req, res) => {
 exports.editCategoryById = async (req, res) => {
   const body = req.body
   try {
-    const category = await Category.findByPk(req.params.id)
+    // Same IDOR fix as getCategoryById.
+    const category = await findCategoryInScope(req, req.params.id)
     if (!category) {
       return res.status(404).json({
         success: false,
@@ -584,7 +612,17 @@ exports.deleteCategoryById = async (req, res) => {
       })
     }
 
-    const category = await Category.findByPk(categoryId)
+    // IDOR fix: Category.destroy below was scoped only by id, with no
+    // ownership check anywhere in this function — any admin could delete
+    // any store's category. Confirm ownership first (same scope as
+    // getCategoryById) and 404 before ever starting the transaction.
+    const category = await findCategoryInScope(req, categoryId)
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Kategori tidak ditemukan'
+      })
+    }
 
     await Category.sequelize.transaction(async (t) => {
       await Product.update(

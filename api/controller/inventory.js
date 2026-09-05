@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const inventoryService = require('../service/inventoryService')
 const reconcileService = require('../service/reconcileService')
 const batchService = require('../service/batchService')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 const getStoreId = (req) =>
   req.query.storeId ||
@@ -202,7 +203,10 @@ const inventoryController = {
   async getBatchById(req, res) {
     try {
       const { id } = req.params
-      const batch = await db.product_batch.findByPk(id, {
+      // IDOR fix: was findByPk(id) with no store filter, reachable by any
+      // authenticated role, leaking another store's batch expiry/supplier data.
+      const batch = await db.product_batch.findOne({
+        where: scalarStoreScope(req, { id }),
         include: [
           {
             model: db.product,

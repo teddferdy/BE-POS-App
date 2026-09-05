@@ -102,7 +102,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       paymentStatus: {
-        type: DataTypes.ENUM('unpaid', 'partial', 'paid'),
+        type: DataTypes.ENUM('unpaid', 'partial', 'paid', 'refunded'),
         defaultValue: 'unpaid'
       },
       splitCount: {
@@ -159,6 +159,13 @@ module.exports = (sequelize, DataTypes) => {
       },
       idempotencyKey: {
         type: DataTypes.STRING,
+        allowNull: true
+      },
+      // Opaque per-order credential required by the unauthenticated
+      // customer-tracking/receipt endpoints instead of the guessable
+      // sequential id — see db/migrations/20260904000003-add-order-public-token.js
+      publicToken: {
+        type: DataTypes.STRING(64),
         allowNull: true
       }
     },

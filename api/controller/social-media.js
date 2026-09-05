@@ -1,5 +1,6 @@
 const db = require('../../db/models')
 const { createAudit } = require('../../utils/auditLog')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 const SocialMedia = db.social_media
 
 exports.getAllSocialMedia = async (req, res) => {
@@ -92,11 +93,18 @@ exports.editSocialMediaById = async (req, res) => {
   }
 
   try {
-    const store = body.store || req.user?.store
+    // IDOR fix: `store = body.store || req.user?.store` trusted the
+    // client-supplied body value directly as the authorization boundary.
+    // validateStoreAccess resolves requestedStore as query.store *or*
+    // body.store (query wins), so an attacker who puts their own store in
+    // the query string while a different store's id sits in the body
+    // reaches this controller with that attacker-chosen store never
+    // actually checked against req.user.store. scalarStoreScope always
+    // derives from req.user.store for non-super-admin.
     const getDuplicate = await SocialMedia.findOne({
       where: {
         name: body.name,
-        ...(store ? { store } : {}),
+        ...scalarStoreScope(req, {}),
         id: { [db.Sequelize.Op.ne]: id }
       }
     })
@@ -110,22 +118,30 @@ exports.editSocialMediaById = async (req, res) => {
           status: body?.status
         },
         {
-          where: {
-            id,
-            ...(store ? { store } : {})
-          }
+          where: scalarStoreScope(req, { id })
         }
       )
 
-      if (updated) {
-        await createAudit(
-          req,
-          'update',
-          'social_media_config',
-          id,
-          'Updated social_media_config: ' + id
-        )
+      // The response used to be unconditionally 200 regardless of
+      // `updated` (the affected-row count) — harmless before this fix
+      // since the unscoped WHERE always matched the row if it existed at
+      // all, but now that the WHERE is store-scoped, 0 affected is the
+      // real, expected outcome for a cross-tenant attempt and must not
+      // be reported as success.
+      if (!updated) {
+        return res.status(404).json({
+          success: false,
+          message: 'Social media tidak ditemukan'
+        })
       }
+
+      await createAudit(
+        req,
+        'update',
+        'social_media_config',
+        id,
+        'Updated social_media_config: ' + id
+      )
 
       return res.status(200).json({
         success: true,
@@ -147,15 +163,11 @@ exports.editSocialMediaById = async (req, res) => {
 
 exports.deleteSocialMediaById = async (req, res) => {
   const { id } = req.params
-  const body = req.body
 
   try {
-    const store = body.store || req.user?.store
+    // Same IDOR fix as editSocialMediaById.
     const getId = await SocialMedia.destroy({
-      where: {
-        id,
-        ...(store ? { store } : {})
-      }
+      where: scalarStoreScope(req, { id })
     })
 
     if (getId) {

@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { emitToStore } = require('../service/socket')
+const { arrayStoreScope } = require('../../utils/tenantScope')
 
 const generateRequestNumber = () => {
   const date = new Date()
@@ -221,7 +222,13 @@ const waiterRequestController = {
       const { id } = req.params
       const { status, notes } = req.body
 
-      const waiterRequest = await db.waiter_request.findByPk(id)
+      // IDOR fix: was findByPk(id) with no store filter, reachable by
+      // kasir — any store's staff could approve/reject/resolve another
+      // store's waiter call. `store` here really is written as a JSONB
+      // array on create ([storeId]), so arrayStoreScope applies directly.
+      const waiterRequest = await db.waiter_request.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!waiterRequest) {
         return res
           .status(404)

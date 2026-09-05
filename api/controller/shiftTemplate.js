@@ -3,6 +3,7 @@ const { Op } = db.Sequelize
 const ShiftTemplate = db.shift_template
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 exports.getAllShiftTemplate = async (req, res) => {
   try {
@@ -202,7 +203,11 @@ exports.editShiftTemplateById = async (req, res) => {
       })
     }
 
-    const template = await ShiftTemplate.findByPk(id)
+    // IDOR fix: findByPk(id) + update({where:{id}}) below were both
+    // unscoped — any admin could edit any store's shift template.
+    const template = await ShiftTemplate.findOne({
+      where: scalarStoreScope(req, { id })
+    })
     if (!template) {
       return res.status(404).json({
         success: false,
@@ -228,7 +233,7 @@ exports.editShiftTemplateById = async (req, res) => {
       },
       {
         returning: true,
-        where: { id }
+        where: scalarStoreScope(req, { id })
       }
     )
 
@@ -259,7 +264,10 @@ exports.deleteShiftTemplateById = async (req, res) => {
   const id = req.params.id
 
   try {
-    const template = await ShiftTemplate.findByPk(id)
+    // Same IDOR fix as editShiftTemplateById.
+    const template = await ShiftTemplate.findOne({
+      where: scalarStoreScope(req, { id })
+    })
     if (!template) {
       return res.status(404).json({
         success: false,
@@ -267,7 +275,7 @@ exports.deleteShiftTemplateById = async (req, res) => {
       })
     }
 
-    await ShiftTemplate.destroy({ where: { id } })
+    await ShiftTemplate.destroy({ where: scalarStoreScope(req, { id }) })
     createAudit(
       req,
       'delete',

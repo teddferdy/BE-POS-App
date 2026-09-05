@@ -30,6 +30,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
+  await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
+  await db.transaction.destroy({ where: {}, force: true })
+  await db.order_status.destroy({ where: {}, force: true })
+  await db.order_item.destroy({ where: {}, force: true })
+  await db.order.destroy({ where: { store: location.id }, force: true })
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
   await db.stockOpnameItem.destroy({ where: {}, force: true })
   await db.stockOpname.destroy({ where: { store: location.id }, force: true })
@@ -135,5 +140,60 @@ describe('POST /stock-opname/create + PATCH /stock-opname/status/:id — reconci
       .send({ status: 'cancelled' })
 
     expect(secondComplete.status).toBe(400)
+  })
+
+  test('completing an opname racing a concurrent sale: the sale is never silently overwritten', async () => {
+    // Regression test for the audit's flagged race: an absolute "set stock
+    // to the counted value" completing at the same moment as a sale's
+    // atomic decrement. Baseline is 15 (from the prior test). The opname
+    // counts 12 (a -3 adjustment); concurrently, a sale of 2 units is
+    // rung up. Whichever commits second must see the other's already-
+    // committed change under its own lock, not a stale pre-transaction
+    // read — so the final stock must reflect BOTH effects combined, never
+    // just one of them.
+    const before = await db.product.findByPk(product.id)
+
+    const createRes = await request(app)
+      .post('/stock-opname/create')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        store: location.id,
+        status: 'draft',
+        items: [
+          {
+            product: product.id,
+            namaBarang: product.nameProduct,
+            stokAkhirJumlah: before.stock,
+            stokFisikJumlah: before.stock - 3,
+            selisihJumlah: -3
+          }
+        ]
+      })
+    expect(createRes.status).toBe(201)
+
+    const [completeRes, saleRes] = await Promise.all([
+      request(app)
+        .patch(`/stock-opname/status/${createRes.body.data.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'completed' }),
+      request(app)
+        .post('/order/create')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          store: location.id,
+          items: [{ product: product.id, quantity: 2 }],
+          paymentMethod: 'cash',
+          cashierName: 'Test Cashier'
+        })
+    ])
+
+    expect(completeRes.status).toBe(200)
+    expect(saleRes.status).toBe(201)
+
+    const after = await db.product.findByPk(product.id)
+    // Combined effect: -3 (opname) and -2 (sale) from the pre-race
+    // baseline, regardless of ordering. NOT before.stock - 3 (sale lost)
+    // and NOT before.stock - 2 (opname lost).
+    expect(after.stock).toBe(before.stock - 5)
   })
 })
