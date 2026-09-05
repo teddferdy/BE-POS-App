@@ -6,6 +6,7 @@ const {
   uploadToCloudinaryWithDedup
 } = require('../../utils/cloudinaryStorage')
 const batchService = require('../service/batchService')
+const { adjustProductStock } = require('../service/stockMutationService')
 
 const generateReceiptNo = () => {
   const date = new Date()
@@ -141,42 +142,21 @@ const reverseStock = async (items, store, transaction, userId) => {
     }
 
     if (grItem.product) {
-      const product = await db.product.findByPk(grItem.product, {
+      // Locked, atomic delta via the shared helper — previously this
+      // computed the new value in JS from an unlocked read
+      // (product.stock: Math.max(qtyBefore - qtyStock, 0)) and wrote it
+      // as an absolute value, a lost-update race under any concurrent
+      // writer to the same product (e.g. a sale finishing at the same
+      // moment this reversal commits).
+      await adjustProductStock({
+        productId: grItem.product,
+        store: store || null,
+        deltaQty: -qtyStock,
+        referenceType: 'adjustment',
+        notes: `GR reversal: ${grItem.id || 'update'}`,
+        createdBy: userId || null,
         transaction
       })
-      if (product) {
-        const qtyBefore = Number(product.stock) || 0
-        await product.update(
-          { stock: Math.max(qtyBefore - qtyStock, 0) },
-          { transaction }
-        )
-        if (store) {
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-               VALUES ($1, $2, 0, NOW(), NOW())
-               ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [grItem.product, store], transaction }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${qtyStock}, 0)`) },
-            { where: { product: grItem.product, store }, transaction }
-          )
-        }
-        await db.stock_history.create(
-          {
-            product: grItem.product,
-            store: store || null,
-            referenceType: 'adjustment',
-            quantityBefore: qtyBefore,
-            quantityChange: -qtyStock,
-            quantityAfter: Math.max(qtyBefore - qtyStock, 0),
-            unit: product.unit || grItem.unit || 'pcs',
-            notes: `GR reversal: ${grItem.id || 'update'}`,
-            createdBy: userId || null
-          },
-          { transaction }
-        )
-      }
     }
 
     const ingName =

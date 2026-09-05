@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { adjustProductStock } = require('../service/stockMutationService')
 const {
   uploadToCloudinaryWithDedup
 } = require('../../utils/cloudinaryStorage')
@@ -496,47 +497,23 @@ const purchaseReturnController = {
 
       const transaction = await db.sequelize.transaction()
       try {
-        // Reverse stock: add back what was deducted on creation
+        // Reverse stock: add back what was deducted on creation. Uses the
+        // shared, locked, atomic-delta helper — previously this computed
+        // the new value in JS from an unlocked read (oldStock + qty) and
+        // wrote it as an absolute value, a lost-update race under any
+        // concurrent writer to the same product.
         for (const item of ret.items) {
           const qty = Math.floor(Number(item.qty)) || 0
-          const product = await db.product.findByPk(item.product, {
-            transaction
-          })
-          if (product) {
-            const oldStock = Number(product.stock) || 0
-            await product.update({ stock: oldStock + qty }, { transaction })
-
-            // ponytail: atomic upsert + restore per-store stock
-            if (ret.store) {
-              await db.sequelize.query(
-                `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-                 VALUES ($1, $2, 0, NOW(), NOW())
-                 ON CONFLICT (product, store) DO NOTHING`,
-                { bind: [item.product, ret.store], transaction }
-              )
-              await db.product_store_stock.update(
-                { stock: db.sequelize.literal(`stock + ${qty}`) },
-                {
-                  where: { product: item.product, store: ret.store },
-                  transaction
-                }
-              )
-            }
-
-            await db.stock_history.create(
-              {
-                product: item.product,
-                store: ret.store,
-                referenceType: 'adjustment',
-                quantityBefore: oldStock,
-                quantityChange: qty,
-                quantityAfter: oldStock + qty,
-                unit: item.unit || 'pcs',
-                notes: `Purchase return rejected: ${ret.reason}`,
-                createdBy: req.user?.id || null
-              },
-              { transaction }
-            )
+          if (item.product) {
+            await adjustProductStock({
+              productId: item.product,
+              store: ret.store || null,
+              deltaQty: qty,
+              referenceType: 'adjustment',
+              notes: `Purchase return rejected: ${ret.reason}`,
+              createdBy: req.user?.id || null,
+              transaction
+            })
           }
 
           const ingredient = item.ingredient
@@ -802,7 +779,16 @@ const purchaseReturnController = {
 
       const date = new Date()
       const rand = Math.random().toString(36).substring(2, 6).toUpperCase()
-      const returnNumber = `PR-${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}-${rand}`
+      // returnNumber has a bare (non-store-scoped) global unique
+      // constraint, so it must be collision-resistant across every store
+      // in the deployment, not just within one store's daily count. The
+      // previous format (date + 4-char random, no time-of-day) gave only
+      // ~1.68M combinations PER CALENDAR DAY shared by every store —
+      // meaningful collision odds at realistic multi-tenant volume. The
+      // millisecond-timestamp tail adds ~1M more distinct values on top
+      // of that, matching the collision-resistance already proven safe
+      // for order.orderNumber and sales_return.returnNumber.
+      const returnNumber = `PR-${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}-${Date.now().toString().slice(-6)}${rand}`
 
       // Upload documentation files to Cloudinary
       let documentation = null

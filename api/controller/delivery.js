@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { emitToStore } = require('../service/socket')
+const { scalarStoreScope, nullableArrayStoreScope } = require('../../utils/tenantScope')
 
 const generateDeliveryNumber = () => {
   const date = new Date()
@@ -112,7 +113,10 @@ const deliveryController = {
     try {
       const { id } = req.params
 
-      const order = await db.delivery_order.findByPk(id, {
+      // Same IDOR fix as updateDeliveryStatus — was findByPk(id) with no
+      // store filter, leaking another store's customer name/phone/address.
+      const order = await db.delivery_order.findOne({
+        where: scalarStoreScope(req, { id }),
         include: [
           {
             model: db.order,
@@ -214,7 +218,12 @@ const deliveryController = {
     try {
       const { id, status, note, changedBy, changedByName } = req.body
 
-      const deliveryOrder = await db.delivery_order.findByPk(id)
+      // IDOR fix: was findByPk(id) with no store filter, so any store
+      // could flip another store's delivery status. `store` here is a
+      // plain INTEGER column (one delivery belongs to one store).
+      const deliveryOrder = await db.delivery_order.findOne({
+        where: scalarStoreScope(req, { id })
+      })
       if (!deliveryOrder) {
         return res
           .status(404)
@@ -283,14 +292,22 @@ const deliveryController = {
       const { orderId } = req.params
       const { driverId, driverName } = req.body
 
-      const deliveryOrder = await db.delivery_order.findByPk(orderId)
+      // Same IDOR fix as updateDeliveryStatus.
+      const deliveryOrder = await db.delivery_order.findOne({
+        where: scalarStoreScope(req, { id: orderId })
+      })
       if (!deliveryOrder) {
         return res
           .status(404)
           .json({ success: false, message: 'Delivery order not found' })
       }
 
-      const driver = await db.driver.findByPk(driverId)
+      // IDOR fix: was findByPk(driverId) with no store filter. driver.store
+      // is a JSONB array with the same null/[]-is-global convention as
+      // supplier.store (verified via getDrivers' own list query below).
+      const driver = await db.driver.findOne({
+        where: nullableArrayStoreScope(req, { id: driverId })
+      })
       if (!driver) {
         return res
           .status(404)
@@ -343,7 +360,10 @@ const deliveryController = {
       const { id } = req.params
       const { reason } = req.body
 
-      const deliveryOrder = await db.delivery_order.findByPk(id)
+      // Same IDOR fix as updateDeliveryStatus.
+      const deliveryOrder = await db.delivery_order.findOne({
+        where: scalarStoreScope(req, { id })
+      })
       if (!deliveryOrder) {
         return res
           .status(404)
@@ -507,7 +527,11 @@ const deliveryController = {
     try {
       const { id } = req.params
 
-      const driver = await db.driver.findByPk(id)
+      // IDOR fix: was findByPk(id) with no store filter, reachable by any
+      // authenticated role (no requireRole on this route).
+      const driver = await db.driver.findOne({
+        where: nullableArrayStoreScope(req, { id })
+      })
       if (!driver) {
         return res
           .status(404)
@@ -596,7 +620,10 @@ const deliveryController = {
         notes
       } = req.body
 
-      const driver = await db.driver.findByPk(id)
+      // Same IDOR fix as getDriverById.
+      const driver = await db.driver.findOne({
+        where: nullableArrayStoreScope(req, { id })
+      })
       if (!driver) {
         return res
           .status(404)
@@ -634,7 +661,10 @@ const deliveryController = {
     try {
       const { id } = req.params
 
-      const driver = await db.driver.findByPk(id)
+      // Same IDOR fix as getDriverById.
+      const driver = await db.driver.findOne({
+        where: nullableArrayStoreScope(req, { id })
+      })
       if (!driver) {
         return res
           .status(404)
@@ -673,7 +703,10 @@ const deliveryController = {
       const { id } = req.params
       const { status } = req.body
 
-      const driver = await db.driver.findByPk(id)
+      // Same IDOR fix as getDriverById.
+      const driver = await db.driver.findOne({
+        where: nullableArrayStoreScope(req, { id })
+      })
       if (!driver) {
         return res
           .status(404)

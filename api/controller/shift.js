@@ -9,6 +9,7 @@ const {
   syncShiftKaryawan,
   clearRemovedMembers
 } = require('../../utils/shiftChain')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 const serializeShift = (shift) => ({
   id: shift.id,
@@ -341,7 +342,11 @@ exports.editShiftById = async (req, res) => {
       })
     }
 
-    const existingShift = await Shift.findByPk(id)
+    // IDOR fix: was findByPk(id) with no store filter — any admin could
+    // edit any store's shift (including reassigning karyawan/employees).
+    const existingShift = await Shift.findOne({
+      where: scalarStoreScope(req, { id })
+    })
     if (!existingShift) {
       return res.status(404).json({
         success: false,
@@ -384,7 +389,7 @@ const editShift = await Shift?.update(
          },
          {
            returning: true,
-           where: { id }
+           where: scalarStoreScope(req, { id })
          }
        ).then(([_, data]) => data[0])
 
@@ -419,7 +424,7 @@ const editShift = await Shift?.update(
       modifiedBy: req.user?.id
     }
 
-    await Shift.destroy({ where: { id } })
+    await Shift.destroy({ where: scalarStoreScope(req, { id }) })
 
     const created = []
     for (const storeId of stores) {
@@ -457,12 +462,21 @@ const postData = await Shift.create({ ...baseData, store: storeId, createdBy: ex
 exports.deleteShiftById = async (req, res) => {
   const { id } = req.params
   try {
+    // IDOR fix: the User.update side effect below used to run
+    // unconditionally, before any ownership check — nulling out real
+    // employees' shift reference for a shift id belonging to ANY store.
+    const shift = await Shift.findOne({ where: scalarStoreScope(req, { id }) })
+    if (!shift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shift Tidak Ditemukan'
+      })
+    }
+
     await User.update({ shift: null }, { where: { shift: id } })
 
     const getId = await Shift.destroy({
-      where: {
-        id: id
-      }
+      where: scalarStoreScope(req, { id })
     })
     if (getId) {
       createAudit(req, 'delete', 'shift', id, `Deleted shift: ${id}`)
@@ -491,7 +505,8 @@ exports.getShiftById = async (req, res) => {
   try {
     await autoExpireShifts()
 
-    const shift = await Shift.findByPk(id)
+    // IDOR fix: was findByPk(id) with no store filter.
+    const shift = await Shift.findOne({ where: scalarStoreScope(req, { id }) })
     if (!shift) {
       return res.status(404).json({
         success: false,

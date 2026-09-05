@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
 const TypePayment = db.type_payment
 const { createAudit } = require('../../utils/auditLog')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 // Resolves the store payload sent by the FE (single id, JSON string array, or 'all')
 // into a list of store ids to attach rows to. Empty array means global (store null).
@@ -144,7 +145,22 @@ exports.getAllTypePayment = async (req, res) => {
 
 exports.getTypePaymentById = async (req, res) => {
   try {
-    const typePayment = await TypePayment.findByPk(req.params.id)
+    // IDOR fix: was findByPk(id) with no store filter, reachable by any
+    // authenticated role (no requireRole on this route). Mirrors
+    // editTypePaymentById's existing correct convention exactly: a
+    // type_payment with store: null is a global/system entry visible to
+    // everyone (a plain scalarStoreScope would incorrectly hide those from
+    // non-super-admin), a type_payment with a real store is only visible
+    // to that store's users.
+    const isSuperAdmin = req.user?.roleType === 'super_admin'
+    const typePayment = await TypePayment.findOne({
+      where: isSuperAdmin
+        ? { id: req.params.id }
+        : {
+            id: req.params.id,
+            [Op.or]: [{ store: null }, { store: req.user?.store }]
+          }
+    })
 
     if (!typePayment) {
       return res.status(404).json({
@@ -556,10 +572,7 @@ exports.importData = async (req, res) => {
 }
 
 exports.deleteTypePaymentById = async (req, res) => {
-  const body = req.body
-
   try {
-    const store = body.store || req.user?.store
     const target = await TypePayment.findByPk(req.params.id)
     if (target?.isSystem) {
       return res.status(403).json({
@@ -567,11 +580,14 @@ exports.deleteTypePaymentById = async (req, res) => {
         message: 'Metode pembayaran sistem tidak dapat dihapus'
       })
     }
+    // IDOR fix: previously `store = body.store || req.user?.store` let a
+    // client override the authorization boundary by sending another
+    // store's id in the body — the destroy's WHERE clause would then
+    // legitimately match that other store's row. Never trust
+    // req.body.store for authorization; scalarStoreScope always derives
+    // from req.user.store for non-super-admin regardless of body content.
     const getId = await TypePayment.destroy({
-      where: {
-        id: req.params.id,
-        ...(store ? { store } : {})
-      }
+      where: scalarStoreScope(req, { id: req.params.id })
     })
     createAudit(
       req,

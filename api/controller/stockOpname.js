@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const excelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { setProductStock } = require('../service/stockMutationService')
 
 const generateOpnameNumber = () => {
   const date = new Date()
@@ -407,35 +408,23 @@ const stockOpnameController = {
             item.stokFisikJumlah !== null &&
             item.stokFisikJumlah !== undefined
           ) {
-            const oldStock = Number(product.stock) || 0
-            const newStock = Number(item.stokFisikJumlah) || 0
-            const diff = newStock - oldStock
-            await product.update({ stock: newStock }, { transaction: t })
-
-            // ponytail: atomic upsert + set per-store stock to physical count
-            if (opname.store) {
-              await db.sequelize.query(
-                `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-                 VALUES ($1, $2, $3, NOW(), NOW())
-                 ON CONFLICT (product, store) DO UPDATE SET stock = $3, "updatedAt" = NOW()`,
-                { bind: [product.id, opname.store, newStock], transaction: t }
-              )
-            }
-
-            await db.stock_history.create(
-              {
-                product: product.id,
-                store: opname.store,
-                referenceType: 'opname',
-                quantityBefore: oldStock,
-                quantityChange: diff,
-                quantityAfter: newStock,
-                unit: item.unit || item.satuan || 'pcs',
-                notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
-                createdBy: req.user?.id || null
-              },
-              { transaction: t }
-            )
+            // `product` above was looked up unlocked (possibly by fuzzy
+            // name match) purely to resolve WHICH product this line
+            // refers to — setProductStock re-reads it under a lock and
+            // computes the delta against that fresh value, so a
+            // concurrent sale's atomic decrement landing between the
+            // physical count being taken and this commit is preserved
+            // (added under the count) instead of silently overwritten by
+            // an absolute-set computed from a stale pre-count read.
+            await setProductStock({
+              productId: product.id,
+              store: opname.store,
+              newQty: Number(item.stokFisikJumlah) || 0,
+              referenceType: 'opname',
+              notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+              createdBy: req.user?.id || null,
+              transaction: t
+            })
           }
 
           if (
@@ -819,35 +808,18 @@ const stockOpnameController = {
               item.stokFisikJumlah !== null &&
               item.stokFisikJumlah !== undefined
             ) {
-              const oldStock = Number(product.stock) || 0
-              const newStock = Number(item.stokFisikJumlah) || 0
-              const diff = newStock - oldStock
-              await product.update({ stock: newStock }, { transaction: t })
-
-              // ponytail: atomic upsert + set per-store stock to physical count
-              if (opname.store) {
-                await db.sequelize.query(
-                  `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-                   VALUES ($1, $2, $3, NOW(), NOW())
-                   ON CONFLICT (product, store) DO UPDATE SET stock = $3, "updatedAt" = NOW()`,
-                  { bind: [product.id, opname.store, newStock], transaction: t }
-                )
-              }
-
-              await db.stock_history.create(
-                {
-                  product: product.id,
-                  store: opname.store,
-                  referenceType: 'opname',
-                  quantityBefore: oldStock,
-                  quantityChange: diff,
-                  quantityAfter: newStock,
-                  unit: item.unit || item.satuan || 'pcs',
-                  notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
-                  createdBy: req.user?.id || null
-                },
-                { transaction: t }
-              )
+              // See the equivalent block above (create/direct-completion
+              // path) for why this re-reads under a lock instead of
+              // trusting the unlocked `product` fetched above.
+              await setProductStock({
+                productId: product.id,
+                store: opname.store,
+                newQty: Number(item.stokFisikJumlah) || 0,
+                referenceType: 'opname',
+                notes: `Stock opname: ${item.namaBarang} (${item.keterangan || ''})`,
+                createdBy: req.user?.id || null,
+                transaction: t
+              })
             }
 
             if (

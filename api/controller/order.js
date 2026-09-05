@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const db = require('../../db/models')
 const Order = db.order
 const OrderItem = db.order_item
@@ -10,6 +11,13 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
 const batchService = require('../service/batchService')
+const { adjustMemberPoints, maybeUpgradeMemberTier } = require('../service/loyaltyService')
+const { incrementPromoUsage } = require('../service/promoUsageService')
+const {
+  enqueueAccountingJob,
+  attemptJob,
+  recordImmediateAttempt
+} = require('../service/accountingOutboxService')
 
 // ponytail: validFrom/validUntil opsional — null berarti selalu berlaku
 const isBundleWithinValidityPeriod = (bundle, now = new Date()) => {
@@ -890,16 +898,22 @@ exports.createOrder = async (req, res) => {
       currencyCode: currencyCode || null,
       exchangeRate: exchangeRate || null,
       idempotencyKey: idempotencyKey || null,
+      publicToken: crypto.randomBytes(24).toString('hex'),
       createdBy: req.user?.id
     }
     if (await hasOrderColumn('promoCampaignId')) {
       orderData.promoCampaignId = appliedCampaignId
     }
-    // Order header, its items, and the stock deduction must all commit or
-    // all roll back together — previously Order.create ran outside any
-    // transaction, so a stock-insufficient rejection (see deductAndTrack)
-    // left a "paid" order with real items behind, with no stock actually
-    // deducted and no payment ever recorded for it.
+    // Order header, its items, the stock deduction, the payment-ledger
+    // row, and the initial status row must all commit or all roll back
+    // together. Previously the payment row and status row were written
+    // AFTER this transaction had already committed — a failure there
+    // (a transient DB blip, pool exhaustion under load) left a "paid"
+    // order with stock already deducted but zero payment-ledger row and
+    // no status history, permanently invisible to reconciliation, with no
+    // way for a client retry to recover it (the idempotency check only
+    // sees "order exists" and never re-attempts the missing steps).
+    let accountingJobs = null
     const order = await db.sequelize.transaction(async (t) => {
       orderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await Order.create(orderData, { transaction: t })
@@ -924,26 +938,64 @@ exports.createOrder = async (req, res) => {
         t
       )
 
+      await recordOrderPayment(
+        createdOrder,
+        paymentMethod,
+        totals.totalPrice,
+        req.user?.id,
+        t
+      )
+      await createInitialOrderStatus(
+        createdOrder,
+        cashierName,
+        paymentMethod,
+        req.user?.id,
+        t
+      )
+
+      // Loyalty points and promo usage are now part of the same all-or-
+      // nothing unit as the rest of the order — atomic and row-locked
+      // (see applyRedeemedPoints/awardEarnedPoints/recordPromoUsageIfApplied
+      // above), instead of unlocked and running after commit where a race
+      // or failure had no effect on the order's own success/failure and no
+      // durable trace of having gone wrong.
+      await applyRedeemedPoints(
+        createdOrder,
+        customerId,
+        discount.redeemedPointsUsed,
+        orderNumber,
+        t
+      )
+      await awardEarnedPoints(
+        createdOrder,
+        items,
+        customerId,
+        orderNumber,
+        req.user?.id,
+        t
+      )
+      await recordPromoUsageIfApplied(
+        createdOrder,
+        appliedCampaignId,
+        customerId,
+        promoDiscountAmount,
+        campaignWithSubtotal,
+        req.user?.id,
+        t
+      )
+
+      accountingJobs = await enqueueOrderAccountingJobs(
+        createdOrder,
+        store,
+        orderNumber,
+        totals,
+        paymentMethod,
+        req.user?.id,
+        t
+      )
+
       return createdOrder
     })
-
-    await recordOrderPayment(order, paymentMethod, totals.totalPrice, req.user?.id)
-    await createInitialOrderStatus(order, cashierName, paymentMethod, req.user?.id)
-    await applyRedeemedPoints(
-      order,
-      customerId,
-      discount.redeemedPointsUsed,
-      orderNumber
-    )
-    await awardEarnedPoints(order, items, customerId, orderNumber, req.user?.id)
-    await recordPromoUsageIfApplied(
-      order,
-      appliedCampaignId,
-      customerId,
-      promoDiscountAmount,
-      campaignWithSubtotal,
-      req.user?.id
-    )
 
     const fullOrder = await Order.findOne({
       where: { id: order.id },
@@ -971,14 +1023,7 @@ exports.createOrder = async (req, res) => {
 
     emitNewOrder(store, fullOrder)
 
-    await postOrderAccountingEntries(
-      order,
-      store,
-      orderNumber,
-      totals,
-      paymentMethod,
-      req.user?.id
-    )
+    await attemptOrderAccountingEntries(accountingJobs)
 
     return res.status(201).json({
       message: 'Order created successfully',
@@ -1254,125 +1299,108 @@ const deductStockForOrder = async (
   }
 }
 
-const recordOrderPayment = async (order, paymentMethod, totalPrice, userId) => {
+const recordOrderPayment = async (
+  order,
+  paymentMethod,
+  totalPrice,
+  userId,
+  transaction
+) => {
   if (!paymentMethod) return
-  await db.transaction.create({
-    order: order.id,
-    typePayment: paymentMethod,
-    amount: totalPrice,
-    createdBy: userId
-  })
+  await db.transaction.create(
+    {
+      order: order.id,
+      typePayment: paymentMethod,
+      amount: totalPrice,
+      createdBy: userId
+    },
+    { transaction }
+  )
 }
 
 const createInitialOrderStatus = async (
   order,
   cashierName,
   paymentMethod,
-  userId
+  userId,
+  transaction
 ) => {
-  await OrderStatus.create({
-    order: order.id,
-    status: 'paid',
-    createdBy: userId,
-    notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
-  })
+  await OrderStatus.create(
+    {
+      order: order.id,
+      status: 'paid',
+      createdBy: userId,
+      notes: `Paid by ${cashierName} via ${paymentMethod || 'cash'}`
+    },
+    { transaction }
+  )
 }
+
+// Loyalty points, promo usage, and accounting posting used to run AFTER
+// the order's own transaction had already committed, each wrapped in its
+// own try/catch(console.error) — a failure there (a race on the member row,
+// a transient DB blip) left a paid, stock-deducted order with a silently
+// missing/wrong points balance, promo usage count, or GL entry, with
+// nothing recording that it had ever gone wrong. All four now run INSIDE
+// the order's own transaction (passed in as `t` by the caller) using
+// atomic, row-locked helpers (loyaltyService/promoUsageService — the same
+// lock-then-atomic-delta pattern already used for stock in
+// stockMutationService), and the accounting entries are additionally
+// enqueued to a durable outbox (accountingOutboxService) in the same
+// transaction so a posting failure is retried instead of discarded.
 
 const applyRedeemedPoints = async (
   order,
   customerId,
   redeemedPointsUsed,
-  orderNumber
+  orderNumber,
+  transaction
 ) => {
   if (!(redeemedPointsUsed > 0 && customerId)) return
-  try {
-    const member = await db.member.findByPk(customerId)
-    if (member) {
-      const oldPoints = Number(member.totalPoints) || 0
-      const newPoints = oldPoints - redeemedPointsUsed
-      await member.update({ totalPoints: Math.max(0, newPoints) })
-      await db.member_point_history.create({
-        member: customerId,
-        pointsChange: -redeemedPointsUsed,
-        pointsBefore: oldPoints,
-        pointsAfter: Math.max(0, newPoints),
-        transactionId: order.id,
-        notes: `Redeemed ${redeemedPointsUsed} points for order ${orderNumber}`
-      })
-    }
-  } catch (e) {
-    console.error('Point deduction error:', e.message)
-  }
+  await adjustMemberPoints({
+    memberId: customerId,
+    deltaPoints: -redeemedPointsUsed,
+    referenceId: order.id,
+    notes: `Redeemed ${redeemedPointsUsed} points for order ${orderNumber}`,
+    transaction
+  })
 }
 
-const awardEarnedPoints = async (order, items, customerId, orderNumber, userId) => {
+const awardEarnedPoints = async (
+  order,
+  items,
+  customerId,
+  orderNumber,
+  userId,
+  transaction
+) => {
   if (!customerId) return
-  try {
-    const productIds = [
-      ...new Set(items.map((i) => i.product || i.productId))
-    ]
-    const products = await Product.findAll({
-      where: { id: productIds },
-      attributes: ['id', 'point']
-    })
-    const pointMap = Object.fromEntries(
-      products.map((p) => [p.id, Number(p.point) || 0])
-    )
-    const pointsEarned = items.reduce((sum, item) => {
-      const pid = item.product || item.productId
-      return sum + (pointMap[pid] || 0) * Number(item.quantity)
-    }, 0)
+  const productIds = [...new Set(items.map((i) => i.product || i.productId))]
+  const products = await Product.findAll({
+    where: { id: productIds },
+    attributes: ['id', 'point'],
+    transaction
+  })
+  const pointMap = Object.fromEntries(
+    products.map((p) => [p.id, Number(p.point) || 0])
+  )
+  const pointsEarned = items.reduce((sum, item) => {
+    const pid = item.product || item.productId
+    return sum + (pointMap[pid] || 0) * Number(item.quantity)
+  }, 0)
+  if (pointsEarned <= 0) return
 
-    if (pointsEarned > 0) {
-      const member = await db.member.findByPk(customerId)
-      if (member) {
-        const oldTotal = Number(member.totalPoints) || 0
-        const oldLifetime = Number(member.lifetimePoints) || 0
-        const newTotal = oldTotal + pointsEarned
-        await member.update({
-          totalPoints: newTotal,
-          lifetimePoints: oldLifetime + pointsEarned
-        })
-
-        // ponytail: prefer exact min≤total≤max match; fall back to highest minPoints (gap scenario)
-        const Op = require('sequelize').Op
-        let targetTier = await db.member_tier.findOne({
-          where: {
-            status: 'active',
-            minPoints: { [Op.lte]: newTotal },
-            maxPoints: { [Op.gte]: newTotal }
-          },
-          order: [['minPoints', 'DESC']]
-        })
-        if (!targetTier) {
-          targetTier = await db.member_tier.findOne({
-            where: { status: 'active', minPoints: { [Op.lte]: newTotal } },
-            order: [['minPoints', 'DESC']]
-          })
-        }
-        if (targetTier) {
-          const currentTierRow = member.tier
-            ? await db.member_tier.findByPk(member.tier)
-            : null
-          const currentMin = Number(currentTierRow?.minPoints || -1)
-          if (Number(targetTier.minPoints) > currentMin) {
-            await member.update({ tier: targetTier.id })
-          }
-        }
-
-        await db.member_point_history.create({
-          member: customerId,
-          pointsChange: pointsEarned,
-          pointsBefore: oldTotal,
-          pointsAfter: oldTotal + pointsEarned,
-          transactionId: order.id,
-          notes: `Earned ${pointsEarned} points from order ${orderNumber}`,
-          createdBy: userId
-        })
-      }
-    }
-  } catch (e) {
-    console.error('Point earning error:', e.message)
+  const result = await adjustMemberPoints({
+    memberId: customerId,
+    deltaPoints: pointsEarned,
+    deltaLifetimePoints: pointsEarned,
+    referenceId: order.id,
+    notes: `Earned ${pointsEarned} points from order ${orderNumber}`,
+    createdBy: userId,
+    transaction
+  })
+  if (result) {
+    await maybeUpgradeMemberTier({ member: result.member, transaction })
   }
 }
 
@@ -1382,52 +1410,60 @@ const recordPromoUsageIfApplied = async (
   customerId,
   promoDiscountAmount,
   campaignWithSubtotal,
-  userId
+  userId,
+  transaction
 ) => {
   if (!appliedCampaignId) return
-  try {
-    const campaign = await db.promo_campaign.findByPk(appliedCampaignId)
-    if (campaign) {
-      await db.promo_usage.create({
-        store: campaign.store,
-        campaignId: appliedCampaignId,
-        orderId: order.id,
-        memberId: customerId || null,
-        discountApplied: promoDiscountAmount,
-        freeItemsGiven: campaignWithSubtotal.reward
-          ? [
-              {
-                productId: campaignWithSubtotal.reward.productId,
-                quantity: campaignWithSubtotal.reward.quantity
-              }
-            ]
-          : null,
-        appliedAt: new Date(),
-        createdBy: userId
-      })
-      await campaign.update({
-        currentUsage: (campaign.currentUsage || 0) + 1
-      })
-    }
-  } catch (e) {
-    console.error('Promo usage recording error:', e.message)
+  const result = await incrementPromoUsage({
+    campaignId: appliedCampaignId,
+    orderId: order.id,
+    memberId: customerId || null,
+    discountApplied: promoDiscountAmount,
+    freeItemsGiven: campaignWithSubtotal.reward
+      ? [
+          {
+            productId: campaignWithSubtotal.reward.productId,
+            quantity: campaignWithSubtotal.reward.quantity
+          }
+        ]
+      : null,
+    createdBy: userId,
+    transaction,
+    // The discount was already computed and applied to this order's totals
+    // before checkout reached this point — a per-member cap collision here
+    // is a bookkeeping edge case, not a reason to refuse recording that the
+    // (already-honored) discount happened. Only maxUsageTotal, the actual
+    // "no more discounted orders allowed at all" cap, is worth knowing
+    // about below; skip the extra query for the per-member cap.
+    enforcePerMemberLimit: false
+  })
+  if (result.limitReached) {
+    console.error(
+      `Promo usage for campaign ${appliedCampaignId} not recorded on order ${order.id}: maxUsageTotal reached`
+    )
   }
 }
 
-const postOrderAccountingEntries = async (
+// Enqueues the two journal-posting jobs INSIDE the caller's transaction —
+// call this before the transaction commits. Returns the outbox rows so the
+// caller can attempt immediate posting after commit and reconcile the
+// outcome against them (see attemptOrderAccountingEntries below).
+const enqueueOrderAccountingJobs = async (
   order,
   store,
   orderNumber,
   totals,
   paymentMethod,
-  userId
+  userId,
+  transaction
 ) => {
-  try {
-    const {
-      postOrderJournal,
-      postOrderCogsJournal
-    } = require('../service/accountingService')
-    await postOrderJournal({
+  const date = new Date().toISOString()
+  const orderJournalJob = await enqueueAccountingJob({
+    jobType: 'order_journal',
+    store,
+    referenceType: 'order',
+    referenceId: order.id,
+    payload: {
       store,
       orderId: order.id,
       orderNumber,
@@ -1436,19 +1472,38 @@ const postOrderAccountingEntries = async (
       taxAmount: totals.taxAmount,
       serviceChargeAmount: totals.serviceChargeAmount,
       totalPrice: totals.totalPrice,
-      date: new Date(),
+      date,
       paymentMethod,
       createdBy: userId
-    })
-    await postOrderCogsJournal({
-      store,
-      orderId: order.id,
-      orderNumber,
-      date: new Date(),
-      createdBy: userId
-    })
-  } catch (e) {
-    console.error('Accounting posting skipped:', e.message)
+    },
+    transaction
+  })
+  const cogsJournalJob = await enqueueAccountingJob({
+    jobType: 'order_cogs_journal',
+    store,
+    referenceType: 'order',
+    referenceId: order.id,
+    payload: { store, orderId: order.id, orderNumber, date, createdBy: userId },
+    transaction
+  })
+  return { orderJournalJob, cogsJournalJob }
+}
+
+// Best-effort immediate posting attempt, called AFTER the transaction has
+// committed (so it never rolls back an otherwise-valid paid order). Whether
+// this succeeds or fails, the outcome is written back to the outbox rows
+// enqueued above — success marks them posted immediately so the scheduler
+// never redundantly reprocesses them; failure leaves them pending for it.
+const attemptOrderAccountingEntries = async ({ orderJournalJob, cogsJournalJob }) => {
+  const orderResult = await attemptJob(orderJournalJob)
+  await recordImmediateAttempt(orderJournalJob, orderResult)
+  if (!orderResult.ok) {
+    console.error('Accounting posting deferred to retry queue:', orderResult.error)
+  }
+  const cogsResult = await attemptJob(cogsJournalJob)
+  await recordImmediateAttempt(cogsJournalJob, cogsResult)
+  if (!cogsResult.ok) {
+    console.error('COGS accounting posting deferred to retry queue:', cogsResult.error)
   }
 }
 
@@ -1560,6 +1615,122 @@ exports.getOrderById = async (req, res) => {
   }
 }
 
+// Reduce stock exactly once when an order transitions to paid. Shared by
+// updateOrderStatus (status -> 'paid') and splitBill.pay (last split paid)
+// — split-bill previously never called any stock-deduction path at all, so
+// an order completed by splitting its payment across several people never
+// had its stock deducted, ever.
+const deductStockForPaidOrder = async (
+  orderId,
+  effectiveStore,
+  orderNumber,
+  changedBy,
+  t
+) => {
+  const items = await OrderItem.findAll({
+    where: { order: orderId },
+    transaction: t
+  })
+  if (items.length === 0) return
+
+  // Lock every distinct product once, in a stable order, instead of one
+  // findByPk+lock per item.
+  const productIds = [
+    ...new Set(items.map((it) => it.product).filter(Boolean))
+  ].sort((a, b) => a - b)
+  const products = await Product.findAll({
+    where: { id: productIds },
+    transaction: t,
+    lock: t.LOCK.UPDATE
+  })
+  const productById = new Map(products.map((p) => [p.id, p]))
+
+  const stockHistoryRows = []
+
+  for (const item of items) {
+    const product = productById.get(item.product)
+    if (!product) continue
+
+    const oldStock = Number(product.stock) || 0
+    const qty = Math.floor(Number(item.quantity)) || 0
+    const newStock = Math.max(oldStock - qty, 0)
+    await product.update(
+      {
+        stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+      },
+      { transaction: t }
+    )
+    product.stock = newStock
+
+    // ponytail: atomic upsert + deduct per-store stock
+    await db.sequelize.query(
+      `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+       VALUES ($1, $2, 0, NOW(), NOW())
+       ON CONFLICT (product, store) DO NOTHING`,
+      { bind: [item.product, effectiveStore], transaction: t }
+    )
+    await db.product_store_stock.update(
+      {
+        stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+      },
+      {
+        where: { product: item.product, store: effectiveStore },
+        transaction: t
+      }
+    )
+
+    // ponytail: FIFO - consume oldest batches first
+    await batchService.deductFifo({
+      productId: product.id,
+      store: effectiveStore,
+      qty,
+      transaction: t
+    })
+
+    stockHistoryRows.push({
+      product: product.id,
+      store: effectiveStore,
+      referenceType: 'sale',
+      referenceId: orderId,
+      quantityBefore: oldStock,
+      quantityChange: -Number(item.quantity),
+      quantityAfter: newStock,
+      unit: product.unit || 'pcs',
+      notes: `Penjualan: ${orderNumber}`,
+      createdBy: changedBy
+    })
+
+    const sellName = item.productName || product.nameProduct
+    await db.sequelize.query(
+      `INSERT INTO best_selling ("productId", "nameProduct", image, store, "totalSelling", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT ("productId", store) WHERE "deletedAt" IS NULL
+       DO UPDATE SET
+         "totalSelling" = best_selling."totalSelling" + EXCLUDED."totalSelling",
+         "nameProduct" = EXCLUDED."nameProduct",
+         image = EXCLUDED.image,
+         "updatedAt" = NOW()`,
+      {
+        bind: [
+          product.id,
+          sellName,
+          product.image || null,
+          effectiveStore,
+          Number(item.quantity) || 0
+        ],
+        transaction: t
+      }
+    )
+  }
+
+  if (stockHistoryRows.length) {
+    await db.stock_history.bulkCreate(stockHistoryRows, {
+      transaction: t
+    })
+  }
+}
+exports.deductStockForPaidOrder = deductStockForPaidOrder
+
 exports.updateOrderStatus = async (req, res) => {
   const { id, status, changedBy, changedByName, notes } = req.body
   const store =
@@ -1589,109 +1760,8 @@ exports.updateOrderStatus = async (req, res) => {
 
     // Reduce stock exactly once when an order transitions to paid. Orders that
     // were already paid & deducted at creation (paymentStatus 'paid') are skipped.
-    const deductPaidOrderStock = async (t) => {
-      const items = await OrderItem.findAll({
-        where: { order: id },
-        transaction: t
-      })
-      if (items.length === 0) return
-
-      // Lock every distinct product once, in a stable order, instead of one
-      // findByPk+lock per item.
-      const productIds = [
-        ...new Set(items.map((it) => it.product).filter(Boolean))
-      ].sort((a, b) => a - b)
-      const products = await Product.findAll({
-        where: { id: productIds },
-        transaction: t,
-        lock: t.LOCK.UPDATE
-      })
-      const productById = new Map(products.map((p) => [p.id, p]))
-
-      const stockHistoryRows = []
-
-      for (const item of items) {
-        const product = productById.get(item.product)
-        if (!product) continue
-
-        const oldStock = Number(product.stock) || 0
-        const qty = Math.floor(Number(item.quantity)) || 0
-        const newStock = Math.max(oldStock - qty, 0)
-        await product.update(
-          {
-            stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-          },
-          { transaction: t }
-        )
-        product.stock = newStock
-
-        // ponytail: atomic upsert + deduct per-store stock
-        await db.sequelize.query(
-          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-           VALUES ($1, $2, 0, NOW(), NOW())
-           ON CONFLICT (product, store) DO NOTHING`,
-          { bind: [item.product, effectiveStore], transaction: t }
-        )
-        await db.product_store_stock.update(
-          {
-            stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-          },
-          {
-            where: { product: item.product, store: effectiveStore },
-            transaction: t
-          }
-        )
-
-        // ponytail: FIFO - consume oldest batches first
-        await batchService.deductFifo({
-          productId: product.id,
-          store: effectiveStore,
-          qty,
-          transaction: t
-        })
-
-        stockHistoryRows.push({
-          product: product.id,
-          store: effectiveStore,
-          referenceType: 'sale',
-          referenceId: order.id,
-          quantityBefore: oldStock,
-          quantityChange: -Number(item.quantity),
-          quantityAfter: newStock,
-          unit: product.unit || 'pcs',
-          notes: `Penjualan: ${order.orderNumber}`,
-          createdBy: changedBy
-        })
-
-        const sellName = item.productName || product.nameProduct
-        await db.sequelize.query(
-          `INSERT INTO best_selling ("productId", "nameProduct", image, store, "totalSelling", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-           ON CONFLICT ("productId", store) WHERE "deletedAt" IS NULL
-           DO UPDATE SET
-             "totalSelling" = best_selling."totalSelling" + EXCLUDED."totalSelling",
-             "nameProduct" = EXCLUDED."nameProduct",
-             image = EXCLUDED.image,
-             "updatedAt" = NOW()`,
-          {
-            bind: [
-              product.id,
-              sellName,
-              product.image || null,
-              effectiveStore,
-              Number(item.quantity) || 0
-            ],
-            transaction: t
-          }
-        )
-      }
-
-      if (stockHistoryRows.length) {
-        await db.stock_history.bulkCreate(stockHistoryRows, {
-          transaction: t
-        })
-      }
-    }
+    const deductPaidOrderStock = (t) =>
+      deductStockForPaidOrder(id, effectiveStore, order.orderNumber, changedBy, t)
 
     // Restore stock when an order is cancelled/voided.
     const reverseOrderStock = async (t) => {
@@ -1775,6 +1845,7 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     // Perform the whole status transition atomically.
+    let orderJournalJob, cogsJournalJob, reversalJob
     await db.sequelize.transaction(async (t) => {
       // Re-read the order under a row lock and derive oldStatus/
       // oldPaymentStatus from THIS fresh read, shadowing the stale
@@ -1791,11 +1862,24 @@ exports.updateOrderStatus = async (req, res) => {
       })
       const oldStatus = lockedOrder.status
       const oldPaymentStatus = lockedOrder.paymentStatus
+      const isCancelling =
+        ['cancelled', 'void'].includes(status) &&
+        !['cancelled', 'void'].includes(oldStatus)
+      // A paid order being cancelled must not stay paymentStatus:'paid' —
+      // that left status:'cancelled' + paymentStatus:'paid' as a permanent,
+      // contradictory state with no refund record, AND made re-marking the
+      // order 'paid' again skip re-deducting stock (the only signal for
+      // "stock is currently out" was paymentStatus === 'paid', and it was
+      // never reset here even though reverseOrderStock below had already
+      // put the stock back). 'refunded' makes that skip-check below
+      // correctly see stock as no longer deducted.
+      const willBeRefunded = isCancelling && oldPaymentStatus === 'paid'
 
       await order.update(
         {
           status,
-          ...(status === 'paid' ? { paymentStatus: 'paid' } : {})
+          ...(status === 'paid' ? { paymentStatus: 'paid' } : {}),
+          ...(willBeRefunded ? { paymentStatus: 'refunded' } : {})
         },
         { transaction: t }
       )
@@ -1835,10 +1919,7 @@ exports.updateOrderStatus = async (req, res) => {
       }
 
       // If transitioning to cancelled/void, reverse stock
-      if (
-        ['cancelled', 'void'].includes(status) &&
-        !['cancelled', 'void'].includes(oldStatus)
-      ) {
+      if (isCancelling) {
         const approvedReturn = await db.sales_return.findOne({
           where: { order: id, status: 'approved' },
           transaction: t
@@ -1850,7 +1931,36 @@ exports.updateOrderStatus = async (req, res) => {
           err.statusCode = 400
           throw err
         }
-        await reverseOrderStock(t)
+        // Only reverse stock if it was actually deducted for this order.
+        // Every path that deducts stock (POS createOrder, QR
+        // createCustomerOrder, and this function's own paid-transition
+        // branch above) does so exactly when paymentStatus becomes
+        // 'paid' — so oldPaymentStatus === 'paid' (willBeRefunded) is a
+        // reliable proxy for "there is deducted stock to give back".
+        // Previously this ran unconditionally: cancelling a pending/
+        // unpaid order (e.g. a QR order awaiting split-bill payment,
+        // whose stock was never deducted in the first place) would
+        // still ADD stock back, inflating it above the real count.
+        if (willBeRefunded) {
+          await reverseOrderStock(t)
+        }
+
+        // A paid order's money has to be accounted for somewhere when the
+        // order is cancelled — record it as a refund on the payment ledger
+        // (mirrors sales_return.approve's refund transaction) instead of
+        // silently leaving deducted revenue with no offsetting entry.
+        if (willBeRefunded) {
+          await db.transaction.create(
+            {
+              order: id,
+              typePayment: order.paymentMethod || 'cash',
+              amount: -Math.abs(Number(order.totalPrice) || 0),
+              notes: `Refund for cancelled order: ${order.orderNumber}`,
+              createdBy: changedBy || req.user?.id
+            },
+            { transaction: t }
+          )
+        }
       }
 
       if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
@@ -1859,57 +1969,83 @@ exports.updateOrderStatus = async (req, res) => {
           { where: { id: order.tableId }, transaction: t }
         )
       }
+
+      // Durable inside this same transaction — a posting failure after
+      // commit below is retried, not silently discarded.
+      if (status === 'paid' && oldStatus !== 'paid') {
+        const journalDate = new Date().toISOString()
+        orderJournalJob = await enqueueAccountingJob({
+          jobType: 'order_journal',
+          store: effectiveStore,
+          referenceType: 'order',
+          referenceId: id,
+          payload: {
+            store: effectiveStore,
+            orderId: id,
+            orderNumber: order.orderNumber,
+            subTotal: order.subTotal,
+            discountAmount: order.discountAmount,
+            taxAmount: order.taxAmount,
+            serviceChargeAmount: order.serviceChargeAmount,
+            totalPrice: order.totalPrice,
+            date: journalDate,
+            paymentMethod: order.paymentMethod,
+            createdBy: changedBy || req.user?.id
+          },
+          transaction: t
+        })
+        cogsJournalJob = await enqueueAccountingJob({
+          jobType: 'order_cogs_journal',
+          store: effectiveStore,
+          referenceType: 'order',
+          referenceId: id,
+          payload: {
+            store: effectiveStore,
+            orderId: id,
+            orderNumber: order.orderNumber,
+            date: journalDate,
+            createdBy: changedBy || req.user?.id
+          },
+          transaction: t
+        })
+      }
+
+      if (isCancelling) {
+        reversalJob = await enqueueAccountingJob({
+          jobType: 'reverse_order_journals',
+          store: effectiveStore,
+          referenceType: 'order',
+          referenceId: id,
+          payload: {
+            store: effectiveStore,
+            orderId: id,
+            orderNumber: order.orderNumber,
+            date: new Date().toISOString(),
+            createdBy: changedBy || req.user?.id
+          },
+          transaction: t
+        })
+      }
     })
 
-    // Post sales + COGS journals when an order becomes paid (deduped by referenceId).
-    if (status === 'paid' && oldStatus !== 'paid') {
-      try {
-        const {
-          postOrderJournal,
-          postOrderCogsJournal
-        } = require('../service/accountingService')
-        await postOrderJournal({
-          store: effectiveStore,
-          orderId: id,
-          orderNumber: order.orderNumber,
-          subTotal: order.subTotal,
-          discountAmount: order.discountAmount,
-          taxAmount: order.taxAmount,
-          serviceChargeAmount: order.serviceChargeAmount,
-          totalPrice: order.totalPrice,
-          date: new Date(),
-          paymentMethod: order.paymentMethod,
-          createdBy: changedBy || req.user?.id
-        })
-        await postOrderCogsJournal({
-          store: effectiveStore,
-          orderId: id,
-          orderNumber: order.orderNumber,
-          date: new Date(),
-          createdBy: changedBy || req.user?.id
-        })
-      } catch (e) {
-        console.error('Accounting posting skipped:', e.message)
-      }
+    // Best-effort immediate posting for the common case — the outbox rows
+    // enqueued above are the actual reliability guarantee; a failure here
+    // just means the scheduler retries it instead of the entry appearing
+    // instantly.
+    if (orderJournalJob) {
+      const r1 = await attemptJob(orderJournalJob)
+      await recordImmediateAttempt(orderJournalJob, r1)
+      if (!r1.ok) console.error('Accounting posting deferred to retry queue:', r1.error)
     }
-
-    // Reverse revenue + COGS journals when an order is cancelled/voided.
-    if (
-      ['cancelled', 'void'].includes(status) &&
-      !['cancelled', 'void'].includes(oldStatus)
-    ) {
-      try {
-        const { reverseOrderJournals } = require('../service/accountingService')
-        await reverseOrderJournals({
-          store: effectiveStore,
-          orderId: id,
-          orderNumber: order.orderNumber,
-          date: new Date(),
-          createdBy: changedBy || req.user?.id
-        })
-      } catch (e) {
-        console.error('Accounting reversal skipped:', e.message)
-      }
+    if (cogsJournalJob) {
+      const r2 = await attemptJob(cogsJournalJob)
+      await recordImmediateAttempt(cogsJournalJob, r2)
+      if (!r2.ok) console.error('COGS accounting posting deferred to retry queue:', r2.error)
+    }
+    if (reversalJob) {
+      const r3 = await attemptJob(reversalJob)
+      await recordImmediateAttempt(reversalJob, r3)
+      if (!r3.ok) console.error('Accounting reversal deferred to retry queue:', r3.error)
     }
 
     createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
@@ -2358,7 +2494,8 @@ exports.createCustomerOrder = async (req, res) => {
       paymentMethod: paymentMethod || null,
       paymentStatus: paymentMethod ? 'paid' : 'unpaid',
       splitCount: splitCount || null,
-      idempotencyKey: idempotencyKey || null
+      idempotencyKey: idempotencyKey || null,
+      publicToken: crypto.randomBytes(24).toString('hex')
     }
     if (await hasOrderColumn('promoCampaignId')) {
       qrOrderData.promoCampaignId = appliedCampaignId
@@ -2376,6 +2513,7 @@ exports.createCustomerOrder = async (req, res) => {
     // stock deduction even ran in its own separate transaction, so an
     // insufficient-stock rejection there left a "paid" order with a real
     // payment record behind, despite no stock ever having been deducted.
+    let accountingJobs = null
     const order = await db.sequelize.transaction(async (t) => {
       qrOrderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await db.order.create(qrOrderData, { transaction: t })
@@ -2497,86 +2635,65 @@ exports.createCustomerOrder = async (req, res) => {
         }
       }
 
-      return createdOrder
-    })
-
-    // Record payment transaction + accounting entries only after the order,
-    // its items, and its stock deduction have all committed successfully.
-    if (deductStock) {
-      await db.transaction.create({
-        order: order.id,
-        typePayment: paymentMethod || 'cash',
-        amount: Number(order.totalPrice) || 0,
-        createdBy: req.user?.id
-      })
-
-      try {
-        const {
-          postOrderJournal,
-          postOrderCogsJournal
-        } = require('../service/accountingService')
-        await postOrderJournal({
-          store,
-          orderId: order.id,
-          orderNumber,
-          subTotal,
-          discountAmount,
-          taxAmount,
-          serviceChargeAmount: 0,
-          totalPrice,
-          date: new Date(),
-          paymentMethod,
-          createdBy: req.user?.id
-        })
-        await postOrderCogsJournal({
-          store,
-          orderId: order.id,
-          orderNumber,
-          date: new Date(),
-          createdBy: req.user?.id
-        })
-      } catch (e) {
-        console.error('Accounting posting skipped:', e.message)
-      }
-    }
-
-    // Record promo usage
-    if (appliedCampaignId) {
-      try {
-        const campaign = await db.promo_campaign.findByPk(appliedCampaignId)
-        if (campaign) {
-          await db.promo_usage.create({
-            store: campaign.store,
-            campaignId: appliedCampaignId,
-            orderId: order.id,
-            memberId: member ? member.id : null,
-            discountApplied: discountAmount,
-            freeItemsGiven: campaignResult.reward
-              ? [
-                  {
-                    productId: campaignResult.reward.productId,
-                    quantity: campaignResult.reward.quantity
-                  }
-                ]
-              : null,
-            appliedAt: new Date(),
+      // Committed atomically with the order/items/stock-deduction above —
+      // previously this ran after the transaction had already committed,
+      // so a failure here left a "paid" order with deducted stock and no
+      // payment-ledger row, permanently invisible to reconciliation (a
+      // client retry only sees "order exists" via the idempotency check
+      // and never re-attempts this step).
+      if (deductStock) {
+        await db.transaction.create(
+          {
+            order: createdOrder.id,
+            typePayment: paymentMethod || 'cash',
+            amount: Number(createdOrder.totalPrice) || 0,
             createdBy: req.user?.id
-          })
-          await campaign.update({
-            currentUsage: (campaign.currentUsage || 0) + 1
-          })
-        }
-      } catch (e) {
-        console.error('Promo usage recording error:', e.message)
+          },
+          { transaction: t }
+        )
       }
-    }
 
-    if (member) {
-      try {
+      // Promo usage and point earning are now atomic and part of the same
+      // all-or-nothing unit as the order/stock/payment above — previously
+      // these ran unlocked, after commit, in a duplicate copy of the same
+      // logic createOrder already had fixed (see
+      // applyRedeemedPoints/awardEarnedPoints/recordPromoUsageIfApplied
+      // above; this path reuses the same atomic services directly instead
+      // of re-duplicating the fix a second time). Conditions unchanged:
+      // promo usage only if a campaign was applied, points only if there's
+      // a member — neither is gated by `deductStock`, matching the
+      // pre-existing behavior exactly.
+      if (appliedCampaignId) {
+        const promoResult = await incrementPromoUsage({
+          campaignId: appliedCampaignId,
+          orderId: createdOrder.id,
+          memberId: member ? member.id : null,
+          discountApplied: discountAmount,
+          freeItemsGiven: campaignResult.reward
+            ? [
+                {
+                  productId: campaignResult.reward.productId,
+                  quantity: campaignResult.reward.quantity
+                }
+              ]
+            : null,
+          createdBy: req.user?.id,
+          transaction: t,
+          enforcePerMemberLimit: false
+        })
+        if (promoResult.limitReached) {
+          console.error(
+            `Promo usage for campaign ${appliedCampaignId} not recorded on order ${createdOrder.id}: maxUsageTotal reached`
+          )
+        }
+      }
+
+      if (member) {
         const productIds = [...new Set(items.map((i) => i.productId))]
         const products = await Product.findAll({
           where: { id: productIds },
-          attributes: ['id', 'point']
+          attributes: ['id', 'point'],
+          transaction: t
         })
         const pointMap = Object.fromEntries(
           products.map((p) => [p.id, Number(p.point) || 0])
@@ -2586,49 +2703,37 @@ exports.createCustomerOrder = async (req, res) => {
         }, 0)
 
         if (pointsEarned > 0) {
-          const oldTotal = Number(member.totalPoints) || 0
-          const oldLifetime = Number(member.lifetimePoints) || 0
-          await member.update({
-            totalPoints: oldTotal + pointsEarned,
-            lifetimePoints: oldLifetime + pointsEarned
+          const pointsResult = await adjustMemberPoints({
+            memberId: member.id,
+            deltaPoints: pointsEarned,
+            deltaLifetimePoints: pointsEarned,
+            referenceId: createdOrder.id,
+            notes: `Earned ${pointsEarned} points from order ${orderNumber}`,
+            transaction: t
           })
-          let targetTier = await db.member_tier.findOne({
-            where: {
-              status: 'active',
-              minPoints: { [Op.lte]: oldTotal + pointsEarned },
-              maxPoints: { [Op.gte]: oldTotal + pointsEarned }
-            },
-            order: [['minPoints', 'DESC']]
-          })
-          if (!targetTier) {
-            targetTier = await db.member_tier.findOne({
-              where: {
-                status: 'active',
-                minPoints: { [Op.lte]: oldTotal + pointsEarned }
-              },
-              order: [['minPoints', 'DESC']]
-            })
+          if (pointsResult) {
+            await maybeUpgradeMemberTier({ member: pointsResult.member, transaction: t })
           }
-          if (targetTier) {
-            const currentMin = Number(
-              (await db.member_tier.findByPk(member.tier))?.minPoints || -1
-            )
-            if (Number(targetTier.minPoints) > currentMin) {
-              await member.update({ tier: targetTier.id })
-            }
-          }
-          await db.member_point_history.create({
-            member: member.id,
-            pointsChange: pointsEarned,
-            pointsBefore: oldTotal,
-            pointsAfter: oldTotal + pointsEarned,
-            transactionId: order.id,
-            notes: `Earned ${pointsEarned} points from order ${orderNumber}`
-          })
         }
-      } catch (e) {
-        console.error('Point earning error:', e.message)
       }
+
+      if (deductStock) {
+        accountingJobs = await enqueueOrderAccountingJobs(
+          createdOrder,
+          store,
+          orderNumber,
+          { subTotal, discountAmount, taxAmount, serviceChargeAmount: 0, totalPrice },
+          paymentMethod,
+          req.user?.id,
+          t
+        )
+      }
+
+      return createdOrder
+    })
+
+    if (accountingJobs) {
+      await attemptOrderAccountingEntries(accountingJobs)
     }
 
     const fullOrder = await db.order.findOne({
@@ -2714,11 +2819,16 @@ exports.getCustomerMember = async (req, res) => {
 }
 
 // ——— Public order tracking (no auth) ———
+// Looked up by the opaque publicToken generated at order creation, not the
+// raw sequential id — the id alone is guessable/enumerable and would let
+// anyone read any store's orders with no credentials (see
+// db/migrations/20260904000003-add-order-public-token.js).
 exports.getCustomerOrder = async (req, res) => {
-  const { id } = req.params
+  const { token } = req.params
+  if (!token) return res.status(404).json({ message: 'Order not found' })
   try {
     const order = await db.order.findOne({
-      where: { id },
+      where: { publicToken: token },
       attributes: [
         'id',
         'orderNumber',
@@ -2919,12 +3029,18 @@ exports.getCustomerOrders = async (req, res) => {
   }
 }
 
+// Same opaque-token requirement as getCustomerOrder above — this endpoint
+// is intentionally unauthenticated (customers/staff open it without
+// logging in) so the token, not the id, is what gates access to another
+// store's receipt.
 exports.getReceiptHTML = async (req, res) => {
-  const { id } = req.params
+  const { token } = req.params
+  if (!token) return res.status(404).send('<h1>Order not found</h1>')
 
   try {
     const printAttrs = await getOrderAttributes()
-    const order = await db.order.findByPk(id, {
+    const order = await db.order.findOne({
+      where: { publicToken: token },
       include: [
         { model: db.order_item, as: 'items' },
         { model: db.table, as: 'table' }

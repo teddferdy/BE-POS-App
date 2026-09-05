@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { emitToStore } = require('../service/socket')
+const { arrayStoreScope } = require('../../utils/tenantScope')
 
 const generateQueueNumber = () => {
   const date = new Date()
@@ -99,7 +100,10 @@ const queueController = {
     try {
       const { id } = req.params
 
-      const queue = await db.queue.findByPk(id, {
+      // Same IDOR fix as updateQueue: was findByPk(id) with no ownership
+      // check, leaking another store's queue/customer data on a guessed id.
+      const queue = await db.queue.findOne({
+        where: arrayStoreScope(req, { id }),
         include: [
           {
             model: db.table,
@@ -190,7 +194,14 @@ const queueController = {
         assignedTo
       } = req.body
 
-      const queue = await db.queue.findByPk(id)
+      // `store` on this model is a JSONB array (a queue entry can be shared
+      // across stores) — arrayStoreScope matches with the same Op.contains
+      // convention getQueueList already uses. IDOR fix: was findByPk(id)
+      // with no ownership check, so any authenticated store could update
+      // another store's queue entry.
+      const queue = await db.queue.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!queue) {
         return res
           .status(404)
@@ -234,7 +245,10 @@ const queueController = {
       const { id } = req.params
       const { status, tableId, notes } = req.body
 
-      const queue = await db.queue.findByPk(id)
+      // Same IDOR fix as updateQueue.
+      const queue = await db.queue.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!queue) {
         return res
           .status(404)
@@ -292,7 +306,10 @@ const queueController = {
     try {
       const { id } = req.params
 
-      const queue = await db.queue.findByPk(id)
+      // Same IDOR fix as updateQueue.
+      const queue = await db.queue.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!queue) {
         return res
           .status(404)

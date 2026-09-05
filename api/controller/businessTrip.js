@@ -13,6 +13,40 @@ const generateTripNumber = () => {
   return `BT-${year}${month}${day}-${random}`
 }
 
+const normalizeBudgetItems = (items = []) =>
+  items.map((it) => {
+    const qty = it.qty == null ? 0 : Number(it.qty)
+    const tarif = it.tarif == null ? 0 : Number(it.tarif)
+    return {
+      komponen: it.komponen || '',
+      qty,
+      satuan: it.satuan || '',
+      tarif,
+      total: qty * tarif,
+      catatan: it.catatan || ''
+    }
+  })
+
+const mapIncludes = (tripSeq) => {
+  const employees = (tripSeq.employees || []).map((e) => ({
+    id: e.id,
+    employeeId: e.employeeId,
+    employeeName: e.employeeName,
+    employeePosition: e.employeePosition,
+    employeeUser: e.employeeUser || null
+  }))
+  const budgetItems = (tripSeq.budgetItems || []).map((b) => ({
+    id: b.id,
+    komponen: b.komponen,
+    qty: b.qty,
+    satuan: b.satuan,
+    tarif: b.tarif,
+    total: b.total,
+    catatan: b.catatan
+  }))
+  return { employees, budgetItems }
+}
+
 const tripInclude = (dbModels) => [
   { model: dbModels.location, as: 'storeData', attributes: ['id', 'name'] },
   {
@@ -29,7 +63,24 @@ const tripInclude = (dbModels) => [
     model: dbModels.user,
     as: 'createdByUser',
     attributes: ['id', 'userName', 'fullName']
-  }
+  },
+  {
+    model: dbModels.user,
+    as: 'modifiedByUser',
+    attributes: ['id', 'userName', 'fullName']
+  },
+  {
+    model: dbModels.businessTripEmployee,
+    as: 'employees',
+    include: [
+      {
+        model: dbModels.user,
+        as: 'employeeUser',
+        attributes: ['id', 'userName', 'fullName']
+      }
+    ]
+  },
+  { model: dbModels.businessTripBudgetItem, as: 'budgetItems' }
 ]
 
 const businessTripController = {
@@ -71,24 +122,30 @@ const businessTripController = {
           db.businessTrip.count({ where: { ...where, status: 'rejected' } })
         ])
 
-      const data = trips.map((trip) => ({
-        id: trip.id,
-        tripNumber: trip.tripNumber,
-        status: trip.status,
-        employeeName: trip.employeeName,
-        destination: trip.destination,
-        departureDate: trip.departureDate,
-        returnDate: trip.returnDate,
-        budget: trip.budget,
-        store: trip.storeData
-          ? { id: trip.storeData.id, name: trip.storeData.name }
-          : null,
-        createdByUser: trip.createdByUser,
-        modifiedByUser: trip.modifiedByUser,
-        approvedByUser: trip.approvedByUser,
-        createdAt: trip.createdAt,
-        updatedAt: trip.updatedAt
-      }))
+      const data = trips.map((trip) => {
+        const { employees, budgetItems } = mapIncludes(trip)
+        return {
+          id: trip.id,
+          tripNumber: trip.tripNumber,
+          status: trip.status,
+          employeeName: trip.employeeName,
+          destination: trip.destination,
+          departureDate: trip.departureDate,
+          returnDate: trip.returnDate,
+          budget: trip.budget,
+          employees,
+          budgetItems,
+          budgetTotal: budgetItems.reduce((s, b) => s + Number(b.total || 0), 0),
+          store: trip.storeData
+            ? { id: trip.storeData.id, name: trip.storeData.name }
+            : null,
+          createdByUser: trip.createdByUser,
+          modifiedByUser: trip.modifiedByUser,
+          approvedByUser: trip.approvedByUser,
+          createdAt: trip.createdAt,
+          updatedAt: trip.updatedAt
+        }
+      })
 
       return res.status(200).json({
         success: true,
@@ -145,18 +202,25 @@ const businessTripController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const resBody = req.body || {}
+      const userRole = req.user?.roleType
+      const store =
+        userRole === 'super_admin' && resBody.store != null
+          ? resBody.store
+          : req.storeId || req.cookies.store
       const {
         employeeId,
         employeeName,
         employeePosition,
+        employees,
+        budgetItems,
         destination,
         tripPurpose,
         departureDate,
         returnDate,
         budget,
         notes
-      } = req.body
+      } = resBody
       const createdBy = req.user?.id || null
 
       if (!destination || !departureDate || !returnDate) {
@@ -164,6 +228,47 @@ const businessTripController = {
           success: false,
           message: 'destination, departureDate and returnDate are required'
         })
+      }
+
+      const employeeRows = Array.isArray(employees)
+        ? employees.map((e) => ({
+            employeeId: e.employeeId != null ? Number(e.employeeId) : null,
+            employeeName: e.employeeName || '',
+            employeePosition: e.employeePosition || ''
+          }))
+        : []
+
+      if (employeeRows.length > 0 && store != null) {
+        for (const er of employeeRows) {
+          if (er.employeeId == null) continue
+          const employee = await db.user.findOne({ where: { id: er.employeeId } })
+          if (!employee) {
+            return res.status(404).json({
+              success: false,
+              message: 'Employee not found'
+            })
+          }
+          if (employee.store != null && Number(employee.store) !== Number(store)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Selected employee does not belong to the selected store'
+            })
+          }
+        }
+      } else if (employeeId != null && store != null) {
+        const employee = await db.user.findOne({ where: { id: employeeId } })
+        if (!employee) {
+          return res.status(404).json({
+            success: false,
+            message: 'Employee not found'
+          })
+        }
+        if (employee.store != null && Number(employee.store) !== Number(store)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Selected employee does not belong to the selected store'
+          })
+        }
       }
 
       const tripNumber = generateTripNumber()
@@ -182,6 +287,18 @@ const businessTripController = {
         notes: notes || '',
         createdBy
       })
+
+      if (employeeRows.length > 0) {
+        await db.businessTripEmployee.bulkCreate(
+          employeeRows.map((r) => ({ ...r, tripId: trip.id }))
+        )
+      }
+      const budgetRows = normalizeBudgetItems(budgetItems)
+      if (budgetRows.length > 0) {
+        await db.businessTripBudgetItem.bulkCreate(
+          budgetRows.map((r) => ({ ...r, tripId: trip.id }))
+        )
+      }
 
       await createAudit(
         req,
@@ -211,6 +328,7 @@ const businessTripController = {
   async update(req, res) {
     try {
       const { id } = req.params
+      const resBody = req.body || {}
       const store = req.storeId || req.cookies.store
       const userRole = req.user?.roleType
       const where = { id }
@@ -240,13 +358,85 @@ const businessTripController = {
         'budget',
         'notes'
       ]
-      const patch = {}
+      const patch = { modifiedBy: req.user?.id || null }
       for (const f of fields) {
         if (req.body[f] !== undefined) patch[f] = req.body[f]
       }
+
+      if (userRole === 'super_admin' && resBody.store != null) {
+        patch.store = resBody.store
+      }
+
+      const effectiveStore = patch.store != null ? patch.store : trip.store
+      const effectiveEmployeeId = patch.employeeId != null ? patch.employeeId : trip.employeeId
+      if (effectiveEmployeeId != null && effectiveStore != null) {
+        const employee = await db.user.findOne({
+          where: { id: effectiveEmployeeId }
+        })
+        if (!employee) {
+          return res.status(404).json({
+            success: false,
+            message: 'Employee not found'
+          })
+        }
+        if (employee.store != null && Number(employee.store) !== Number(effectiveStore)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Selected employee does not belong to the selected store'
+          })
+        }
+      }
+
       if (trip.status === 'rejected') patch.status = 'draft'
 
       await trip.update(patch)
+
+      if (Array.isArray(resBody.employees)) {
+        const employeeRows = resBody.employees.map((e) => ({
+          employeeId: e.employeeId != null ? Number(e.employeeId) : null,
+          employeeName: e.employeeName || '',
+          employeePosition: e.employeePosition || ''
+        }))
+        const effectiveStore =
+          patch.store != null ? patch.store : trip.store
+        if (employeeRows.length > 0 && effectiveStore != null) {
+          for (const er of employeeRows) {
+            if (er.employeeId == null) continue
+            const employee = await db.user.findOne({ where: { id: er.employeeId } })
+            if (!employee) {
+              return res
+                .status(404)
+                .json({ success: false, message: 'Employee not found' })
+            }
+            if (
+              employee.store != null &&
+              Number(employee.store) !== Number(effectiveStore)
+            ) {
+              return res.status(400).json({
+                success: false,
+                message: 'Selected employee does not belong to the selected store'
+              })
+            }
+          }
+        }
+        await db.businessTripEmployee.destroy({ where: { tripId: trip.id } })
+        if (employeeRows.length > 0) {
+          await db.businessTripEmployee.bulkCreate(
+            employeeRows.map((r) => ({ ...r, tripId: trip.id }))
+          )
+        }
+      }
+
+      if (Array.isArray(resBody.budgetItems)) {
+        const budgetRows = normalizeBudgetItems(resBody.budgetItems)
+        await db.businessTripBudgetItem.destroy({ where: { tripId: trip.id } })
+        if (budgetRows.length > 0) {
+          await db.businessTripBudgetItem.bulkCreate(
+            budgetRows.map((r) => ({ ...r, tripId: trip.id }))
+          )
+        }
+      }
+
       await createAudit(
         req,
         'update',
@@ -344,7 +534,8 @@ const businessTripController = {
       await trip.update({
         status,
         approvedBy: status === 'approved' ? approvedBy : null,
-        approvedAt: status === 'approved' ? new Date() : null
+        approvedAt: status === 'approved' ? new Date() : null,
+        modifiedBy: req.user?.id || null
       })
       await createAudit(
         req,

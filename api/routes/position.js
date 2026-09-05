@@ -52,6 +52,14 @@ router.get(
   positionController.getPositionById
 )
 
+// Get positions by department
+router.get(
+  '/get-position-by-department/:departmentId',
+  authorization,
+  validateStoreAccess,
+  positionController.getPositionByDepartment
+)
+
 // Get All List To Table
 router.get(
   '/get-position-all',

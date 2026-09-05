@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { uploadToCloudinaryWithDedup } = require('../../utils/cloudinaryStorage')
+const { arrayStoreScope } = require('../../utils/tenantScope')
 
 // ponytail: FE bisa kirim JSON langsung atau FormData (image + data JSON) —
 // sama seperti pola location add/edit
@@ -162,7 +163,10 @@ const bundleController = {
 
       await expireStaleBundles()
 
-      const bundle = await db.product_bundle.findByPk(id, {
+      // IDOR fix: was findByPk(id) with no store filter, leaking another
+      // store's bundle pricing/composition.
+      const bundle = await db.product_bundle.findOne({
+        where: arrayStoreScope(req, { id }),
         include: [
           {
             model: db.product_bundle_item,
@@ -328,7 +332,9 @@ const bundleController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const bundle = await db.product_bundle.findByPk(id, {
+      // Same IDOR fix as getById.
+      const bundle = await db.product_bundle.findOne({
+        where: arrayStoreScope(req, { id }),
         include: [{ model: db.product_bundle_item, as: 'items' }]
       })
 
@@ -464,7 +470,10 @@ const bundleController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const bundle = await db.product_bundle.findByPk(id)
+      // Same IDOR fix as getById.
+      const bundle = await db.product_bundle.findOne({
+        where: arrayStoreScope(req, { id })
+      })
 
       if (!bundle) {
         return res.status(404).json({ message: 'Bundle tidak ditemukan' })
@@ -497,7 +506,10 @@ const bundleController = {
       const { id } = req.params
       const { status, validFrom, validUntil } = req.body
 
-      const bundle = await db.product_bundle.findByPk(id)
+      // Same IDOR fix as getById.
+      const bundle = await db.product_bundle.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!bundle) {
         return res.status(404).json({ message: 'Bundle tidak ditemukan' })
       }

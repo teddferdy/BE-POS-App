@@ -55,7 +55,7 @@ const invoiceController = {
   async updateSetting(req, res) {
     try {
       const {
-        store,
+        store: bodyStore,
         showStoreName,
         showAddress,
         showMemberInfo,
@@ -71,6 +71,17 @@ const invoiceController = {
         lineSpacing,
         removeLogo
       } = req.body
+
+      // IDOR fix: `store` used to come straight from req.body with no
+      // check against req.user.store. validateStoreAccess resolves
+      // requestedStore as req.query.store *or* req.body.store (query
+      // wins), so an attacker who puts their own store in the query
+      // string while a different store's id sits in the body satisfies
+      // that middleware while still reaching here with an
+      // attacker-chosen body.store the middleware never actually
+      // validated. Only super_admin may explicitly target another store.
+      const store =
+        req.user?.roleType === 'super_admin' ? bodyStore : req.user?.store
 
       let existing = await db.invoice_setting.findOne({ where: { store } })
 

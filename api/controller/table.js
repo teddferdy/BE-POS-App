@@ -6,6 +6,7 @@ const Reservation = db.reservation
 const Location = db.location
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 exports.getTablesByStore = async (req, res) => {
   const store = req.query.store || req.user?.store
@@ -222,13 +223,20 @@ exports.createTable = async (req, res) => {
 }
 
 exports.updateTable = async (req, res) => {
-  const store = req.body.store || req.user?.store
   const id = req.params.id || req.body.id
   const { name, capacity, status, area, tableType } = req.body
 
   try {
+    // IDOR fix: `store = req.body.store || req.user?.store` trusted the
+    // client-supplied body value directly. validateStoreAccess resolves
+    // requestedStore as query.store *or* body.store (query wins), so an
+    // attacker who puts their own store in the query string while a
+    // different store's id sits in the body reaches the controller with
+    // that attacker-chosen `store` never actually checked against
+    // req.user.store. scalarStoreScope always derives from req.user.store
+    // for non-super-admin regardless of body/query content.
     const table = await Table.findOne({
-      where: { id, ...(store ? { store } : {}) }
+      where: scalarStoreScope(req, { id })
     })
 
     if (!table) {
@@ -261,7 +269,6 @@ exports.updateTable = async (req, res) => {
 
 exports.deleteTable = async (req, res) => {
   const { id } = req.params
-  const store = req.query.store || req.user?.store
 
   try {
     const activeOrder = await Order.findOne({
@@ -277,11 +284,9 @@ exports.deleteTable = async (req, res) => {
       })
     }
 
-    const whereClause = { id }
-    if (store) whereClause.store = store
-
+    // Same IDOR fix as updateTable — was trusting req.query.store directly.
     const deleted = await Table.destroy({
-      where: whereClause
+      where: scalarStoreScope(req, { id })
     })
 
     if (!deleted) {
@@ -304,13 +309,15 @@ exports.deleteTable = async (req, res) => {
 }
 
 exports.updateTableStatus = async (req, res) => {
-  const store = req.body.store || req.user?.store
   const id = req.params.id || req.body.id
   const { status } = req.body
 
   try {
+    // Same IDOR fix as updateTable. This route has no requireRole gate at
+    // all (any authenticated role reaches it for POS use), which made the
+    // old body.store trust reachable by the lowest-privileged callers.
     const table = await Table.findOne({
-      where: { id, ...(store ? { store } : {}) }
+      where: scalarStoreScope(req, { id })
     })
 
     if (!table) {

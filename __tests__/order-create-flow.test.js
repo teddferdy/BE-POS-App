@@ -233,3 +233,42 @@ describe('POST /order/create — core sale flow', () => {
     expect(afterB.stock).toBe(6)
   })
 })
+
+describe('GET /order/customer-order/:token and /order/receipt-html/:token — unauthenticated, must not be enumerable by id', () => {
+  test('the raw numeric order id no longer works as a lookup key', async () => {
+    const createRes = await request(app)
+      .post('/order/create')
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({
+        store: location.id,
+        items: [{ product: productA.id, quantity: 1 }],
+        paymentMethod: 'cash',
+        cashierName: 'Test Cashier'
+      })
+    expect(createRes.status).toBe(201)
+    const { id: orderId, publicToken } = createRes.body.data
+
+    expect(typeof publicToken).toBe('string')
+    expect(publicToken.length).toBeGreaterThanOrEqual(32)
+    // Not derivable from (or equal to) the sequential id.
+    expect(publicToken).not.toBe(String(orderId))
+
+    // The vulnerability: guessing/incrementing the plain integer id used to
+    // return the order with zero credentials. It must 404 now.
+    const byId = await request(app).get(`/order/customer-order/${orderId}`)
+    expect(byId.status).toBe(404)
+
+    const byIdReceipt = await request(app).get(`/order/receipt-html/${orderId}`)
+    expect(byIdReceipt.status).toBe(404)
+
+    // The real token still works — the endpoint stays usable for the
+    // legitimate no-login QR-order-tracking flow.
+    const byToken = await request(app).get(`/order/customer-order/${publicToken}`)
+    expect(byToken.status).toBe(200)
+    expect(byToken.body.data.id).toBe(orderId)
+
+    const byTokenReceipt = await request(app).get(`/order/receipt-html/${publicToken}`)
+    expect(byTokenReceipt.status).toBe(200)
+    expect(byTokenReceipt.text).toContain(createRes.body.data.orderNumber)
+  })
+})

@@ -205,4 +205,28 @@ describe('POST /pos/transfer — inter-store stock transfer', () => {
     })
     expect(after.stock).toBe(before.stock - 2)
   })
+
+  test('several transfers created in the same instant get distinct transferNumbers, not a unique-constraint 500', async () => {
+    // Regression test: transferNumber used to be `TRF-${Date.now()}` with
+    // no random component — concurrent requests landing in the same
+    // millisecond (exactly what Promise.all produces) previously hit a
+    // hard unique-constraint violation instead of succeeding.
+    const requests = Array.from({ length: 4 }, () =>
+      request(app)
+        .post('/pos/transfer')
+        .set('Authorization', `Bearer ${superAdminToken}`)
+        .send({
+          fromStore: storeA.id,
+          toStore: storeB.id,
+          items: [{ productId: productTransfer.id, qty: 1 }]
+        })
+    )
+    const results = await Promise.all(requests)
+
+    for (const res of results) {
+      expect(res.status).toBe(201)
+    }
+    const transferNumbers = results.map((r) => r.body.data.transferNumber)
+    expect(new Set(transferNumbers).size).toBe(transferNumbers.length)
+  })
 })

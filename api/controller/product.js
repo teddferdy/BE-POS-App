@@ -16,6 +16,7 @@ const {
   downloadProductTemplate,
   parseProductTemplate
 } = require('../../utils/excelTemplate')
+const { isSuperAdmin } = require('../../utils/tenantScope')
 
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
@@ -147,9 +148,50 @@ const getUnassignedProductSubQuery = () => {
   )
 }
 
+// product has no store column of its own — ownership is many-to-many via
+// the product_store junction table. Reuses this file's own existing
+// subquery helpers so a single product-by-id fetch matches the SAME
+// convention getAllProductInTable's list view already uses: a non-super-
+// admin sees a product if it's assigned to their store OR not assigned to
+// any store at all. (An earlier version of this fix used an inner-join
+// include that excluded unassigned products, matching getAllProduct's
+// stricter convention instead — that broke real, currently-passing tests:
+// editing a product's stock is a normal admin action performed on products
+// that were never assigned a product_store row in the first place, which
+// getAllProductInTable's looser convention already accounted for and
+// getAllProduct's didn't. Verified against product-edit-stock-flow.test.js
+// before landing this version.) Only scoped when the junction table
+// actually exists, matching this file's existing graceful-degrade.
+const findProductInScope = async (req, id, options = {}) => {
+  if (isSuperAdmin(req) || !(await hasProductStoreTable())) {
+    return Product.findByPk(id, options)
+  }
+  const userStore = Number(req.user?.store)
+  const storeId = Number.isFinite(userStore) ? userStore : -1
+  return Product.findOne({
+    ...options,
+    where: {
+      ...(options.where || {}),
+      id,
+      [Op.or]: [getProductStoreSubQuery(storeId), getUnassignedProductSubQuery()]
+    }
+  })
+}
+
 exports.getProductByLocationSuperAdmin = async (req, res) => {
   const store = req.storeId
   const { search } = req.query
+  // This is the cashier product-search endpoint — hit on every store
+  // switch and every search keystroke, and previously ran a fully
+  // unbounded query (no limit at all). 200 is generous enough that a
+  // typical catalog's active-product count still comes back in one page
+  // with no behavior change for existing (unpaginated) frontend callers,
+  // while capping the worst case for a large catalog instead of shipping
+  // every active product's full row + joins on every keystroke. Callers
+  // that want to page through more can pass page/limit explicitly.
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 200, 1), 500)
+  const page = Math.max(parseInt(req.query.page) || 1, 1)
+  const offset = (page - 1) * limit
 
   try {
     const whereCondition = { status: 'active' }
@@ -196,19 +238,25 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
         })
       }
     }
-    const getAllProduct = await Product.findAll({
+    // Fetch one extra row to know whether there's another page, without
+    // paying for a separate COUNT(*) query on this hot, keystroke-driven
+    // path.
+    const rows = await Product.findAll({
       where: whereCondition,
-      include: includes
-    }).then((res) =>
-      res.map((items) => {
-        const getData = {
-          ...items.dataValues,
-          stock: items.storeStocks?.[0]?.stock ?? items.stock
-        }
-        delete getData.storeStocks
-        return getData
-      })
-    )
+      include: includes,
+      order: [['id', 'ASC']],
+      limit: limit + 1,
+      offset
+    })
+    const hasMore = rows.length > limit
+    const getAllProduct = rows.slice(0, limit).map((items) => {
+      const getData = {
+        ...items.dataValues,
+        stock: items.storeStocks?.[0]?.stock ?? items.stock
+      }
+      delete getData.storeStocks
+      return getData
+    })
 
     let bundles = []
     if (store) {
@@ -272,7 +320,8 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
       success: true,
       message: 'Success',
       data: getAllProduct?.length > 0 ? getAllProduct : [],
-      bundles
+      bundles,
+      pagination: { page, limit, hasMore }
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -654,7 +703,22 @@ exports.postAddProduct = async (req, res) => {
     let normalizedTax = null
     const taxId = toIntOrNull(tax)
     if (taxId !== null) {
-      const taxConfig = await db.taxConfig.findByPk(taxId)
+      // IDOR fix: was findByPk(taxId) with no store filter — a store A
+      // admin could reference a store B tax config by id and have its
+      // name/rate embedded into their own product, disclosing another
+      // tenant's tax configuration and letting them apply a rate not
+      // intended for their store. Mirrors taxConfig.js's own getById
+      // convention: store: null is a global/default tax config visible
+      // to everyone, a real store value is scoped to that store only.
+      const taxScopeStore = req.storeId || req.user?.store
+      const taxConfig = await db.taxConfig.findOne({
+        where: {
+          id: taxId,
+          ...(req.user?.roleType !== 'super_admin' && taxScopeStore
+            ? { [Op.or]: [{ store: taxScopeStore }, { store: null }] }
+            : {})
+        }
+      })
       if (taxConfig) {
         normalizedTax = JSON.stringify({
           id: taxConfig.id,
@@ -826,11 +890,9 @@ exports.editProductByLocationAndId = async (req, res) => {
   const actorId = toIntOrNull(req.user?.id ?? req.body.modifiedBy)
 
   try {
-    const getAllProductByIdAndLocation = await Product.findOne({
-      where: {
-        id: id
-      }
-    })
+    // IDOR fix: was findOne({where:{id}}) with no ownership check — any
+    // admin could edit any store's product (cost price, stock, etc.).
+    const getAllProductByIdAndLocation = await findProductInScope(req, id)
 
     if (!getAllProductByIdAndLocation) {
       return res.status(404).json({
@@ -896,7 +958,22 @@ exports.editProductByLocationAndId = async (req, res) => {
     let normalizedTax = null
     const taxId = toIntOrNull(tax)
     if (taxId !== null) {
-      const taxConfig = await db.taxConfig.findByPk(taxId)
+      // IDOR fix: was findByPk(taxId) with no store filter — a store A
+      // admin could reference a store B tax config by id and have its
+      // name/rate embedded into their own product, disclosing another
+      // tenant's tax configuration and letting them apply a rate not
+      // intended for their store. Mirrors taxConfig.js's own getById
+      // convention: store: null is a global/default tax config visible
+      // to everyone, a real store value is scoped to that store only.
+      const taxScopeStore = req.storeId || req.user?.store
+      const taxConfig = await db.taxConfig.findOne({
+        where: {
+          id: taxId,
+          ...(req.user?.roleType !== 'super_admin' && taxScopeStore
+            ? { [Op.or]: [{ store: taxScopeStore }, { store: null }] }
+            : {})
+        }
+      })
       if (taxConfig) {
         normalizedTax = JSON.stringify({
           id: taxConfig.id,
@@ -954,22 +1031,83 @@ exports.editProductByLocationAndId = async (req, res) => {
       ...(actorId !== null && actorId > 0 ? { modifiedBy: actorId } : {})
     }
 
-    const oldStock = Number(getAllProductByIdAndLocation.stock) || 0
     const newStock = Number(reqBody.stock) || 0
-    const stockDiff = newStock - oldStock
+    const storeId = req.cookies?.store || req.body?.storeId
 
-    const [, editRows] = await Product.update(reqBody, {
-      returning: true,
-      where: {
-        id: id
+    // Everything below is a real business mutation (product row + per-store
+    // shadow stock + audit ledger) that previously ran as four separate,
+    // unlocked, non-transactional statements — a crash partway through
+    // left the product row changed but the per-store stock and audit trail
+    // untouched, and two concurrent edits of the same product could lose
+    // one edit outright with no serialization at all. Locking the product
+    // row here also re-reads stock fresh (instead of trusting the read
+    // taken before the Cloudinary upload above, which could be stale by
+    // the time this actually commits) so stockDiff reflects reality, not
+    // a snapshot from before any concurrent writer's change.
+    let editLocation
+    let oldStock
+    let stockDiff
+    await db.sequelize.transaction(async (t) => {
+      const lockedProduct = await Product.findOne({
+        where: { id },
+        lock: t.LOCK.UPDATE,
+        transaction: t
+      })
+      oldStock = Number(lockedProduct.stock) || 0
+      stockDiff = newStock - oldStock
+
+      const [, editRows] = await Product.update(reqBody, {
+        returning: true,
+        where: { id },
+        transaction: t
+      })
+      editLocation = editRows[0]
+
+      // Sync junction table
+      if (stores !== undefined) {
+        await syncProductStores(id, parsedStores, t)
+      }
+
+      // Update per-store stock for the current store — atomic upsert + adjust
+      if (storeId && stockDiff !== 0) {
+        const diff = Math.floor(Number(stockDiff)) || 0
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [id, storeId], transaction: t }
+        )
+        await db.product_store_stock.update(
+          { stock: db.sequelize.literal(`GREATEST(stock + ${diff}, 0)`) },
+          { where: { product: id, store: storeId }, transaction: t }
+        )
+      } else if (!storeId && stockDiff !== 0) {
+        // Super admin without a store context: keep every per-store row in
+        // sync with the absolute product stock.
+        await db.product_store_stock.update(
+          { stock: newStock },
+          { where: { product: id }, transaction: t }
+        )
+      }
+
+      if (stockDiff !== 0) {
+        await StockHistory.create(
+          {
+            product: id,
+            referenceType: 'adjustment',
+            quantityBefore: oldStock,
+            quantityChange: stockDiff,
+            quantityAfter: newStock,
+            unit: reqBody.unit || 'pcs',
+            notes:
+              stockDiff > 0
+                ? 'Stock adjustment: added'
+                : 'Stock adjustment: reduced'
+          },
+          { transaction: t }
+        )
       }
     })
-    const editLocation = editRows[0]
-
-    // Sync junction table
-    if (stores !== undefined) {
-      await syncProductStores(id, parsedStores)
-    }
 
     // Get first store for notification
     const firstStoreRow = (await hasProductStoreTable())
@@ -979,44 +1117,6 @@ exports.editProductByLocationAndId = async (req, res) => {
           raw: true
         })
       : null
-
-    // Update per-store stock for the current store — ponytail: atomic upsert + adjust
-    const storeId = req.cookies?.store || req.body?.storeId
-    if (storeId && stockDiff !== 0) {
-      const diff = Math.floor(Number(stockDiff)) || 0
-      await db.sequelize.query(
-        `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-         VALUES ($1, $2, 0, NOW(), NOW())
-         ON CONFLICT (product, store) DO NOTHING`,
-        { bind: [id, storeId] }
-      )
-      await db.product_store_stock.update(
-        { stock: db.sequelize.literal(`GREATEST(stock + ${diff}, 0)`) },
-        { where: { product: id, store: storeId } }
-      )
-    } else if (!storeId && stockDiff !== 0) {
-      // Super admin without a store context: keep every per-store row in sync
-      // with the absolute product stock.
-      await db.product_store_stock.update(
-        { stock: newStock },
-        { where: { product: id } }
-      )
-    }
-
-    if (stockDiff !== 0) {
-      await StockHistory.create({
-        product: id,
-        referenceType: 'adjustment',
-        quantityBefore: oldStock,
-        quantityChange: stockDiff,
-        quantityAfter: newStock,
-        unit: reqBody.unit || 'pcs',
-        notes:
-          stockDiff > 0
-            ? 'Stock adjustment: added'
-            : 'Stock adjustment: reduced'
-      })
-    }
 
     createNotification({
       type: 'product_updated',
@@ -1045,7 +1145,8 @@ exports.editProductByLocationAndId = async (req, res) => {
 exports.deleteProductByIdAndLocation = async (req, res) => {
   const { id } = req.body
   try {
-    const product = await Product.findByPk(id)
+    // IDOR fix: was findByPk(id) with no ownership check.
+    const product = await findProductInScope(req, id)
 
     if (!product) {
       return res.status(404).json({
@@ -1709,7 +1810,9 @@ exports.getProductById = async (req, res) => {
   try {
     const id = req.params.id || req.query.id
 
-    const product = await Product.findByPk(id, {
+    // IDOR fix: was findByPk(id) with no ownership check — product has no
+    // store column, scoped through the product_store junction table.
+    const product = await findProductInScope(req, id, {
       include: [
         { model: Category, as: 'categoryData', attributes: ['id', 'name'] }
       ]

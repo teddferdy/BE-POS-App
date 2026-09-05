@@ -1,6 +1,11 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const {
+  enqueueAccountingJob,
+  attemptJob,
+  recordImmediateAttempt
+} = require('../service/accountingOutboxService')
 
 const salesReturnController = {
   async getAll(req, res) {
@@ -140,9 +145,22 @@ const salesReturnController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
+      // Locked so a concurrent approve() or reject() on the same return
+      // (double-click, or two staff acting on it at once) blocks here until
+      // this transaction commits or rolls back, instead of both readers
+      // seeing status:'pending' and both proceeding — which previously
+      // allowed a double refund + double stock restore, or a return ending
+      // up 'rejected' after its refund/stock-restore side effects had
+      // already run from a concurrent approve().
+      //
+      // Fetched WITHOUT the `items` include: Postgres refuses FOR UPDATE
+      // across the outer join Sequelize generates for a hasMany include
+      // ("FOR UPDATE cannot be applied to the nullable side of an outer
+      // join") — the items are fetched separately below, once the lock is
+      // held.
       const ret = await db.sales_return.findOne({
         where,
-        include: [{ model: db.sales_return_item, as: 'items' }],
+        lock: transaction.LOCK.UPDATE,
         transaction
       })
 
@@ -161,17 +179,58 @@ const salesReturnController = {
         })
       }
 
-      const order = await db.order.findByPk(ret.order, { transaction })
+      ret.items = await db.sales_return_item.findAll({
+        where: { salesReturn: ret.id },
+        transaction
+      })
+
+      // Locked so this serializes against a concurrent cancellation of
+      // the same order (updateOrderStatus also locks the order row) —
+      // previously this was an unlocked read that never even checked the
+      // order's status, so approving a return could restore stock a
+      // second time immediately after (or concurrently with) a
+      // cancellation that had already restored it once. The existing
+      // guard in updateOrderStatus (refusing to cancel an order with an
+      // *approved* return) only covered the reverse ordering; it did
+      // nothing when approve() ran concurrently with, or right after, a
+      // cancel that hadn't been reflected here yet.
+      const order = await db.order.findByPk(ret.order, {
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      })
       if (!order) {
         await transaction.rollback()
         return res
           .status(404)
           .json({ success: false, message: 'Original order not found' })
       }
+      if (['cancelled', 'void'].includes(order.status)) {
+        await transaction.rollback()
+        return res.status(400).json({
+          success: false,
+          message:
+            'Cannot approve a return for an order that has been cancelled'
+        })
+      }
+
+      // Batched into one query instead of one findByPk per item, and
+      // reused below for the actual mutation — previously this was two
+      // full sequential passes over ret.items (a validation pass, then a
+      // separate mutation pass), each re-fetching the same rows: 2N
+      // queries where N (plus reuse) suffices.
+      const returnProductIds = [
+        ...new Set(ret.items.map((item) => item.product).filter(Boolean))
+      ]
+      const returnProducts = returnProductIds.length
+        ? await db.product.findAll({
+            where: { id: { [Op.in]: returnProductIds } },
+            transaction
+          })
+        : []
+      const returnProductById = new Map(returnProducts.map((p) => [p.id, p]))
 
       for (const item of ret.items) {
-        const product = await db.product.findByPk(item.product, { transaction })
-        if (!product) {
+        if (item.product && !returnProductById.has(item.product)) {
           await transaction.rollback()
           return res.status(404).json({
             success: false,
@@ -182,7 +241,7 @@ const salesReturnController = {
 
       // 1. Restore Stock
       for (const item of ret.items) {
-        const product = await db.product.findByPk(item.product, { transaction })
+        const product = returnProductById.get(item.product)
         if (!product) continue
 
         const oldStock = Number(product.stock) || 0
@@ -261,13 +320,15 @@ const salesReturnController = {
         )
       }
 
-      await transaction.commit()
-
-      try {
-        const {
-          postSalesReturnJournal
-        } = require('../service/accountingService')
-        await postSalesReturnJournal({
+      // Durable inside the same transaction as the refund ledger row and
+      // status update above — a posting failure below is retried, not
+      // silently discarded (see accountingOutboxService.js).
+      const journalJob = await enqueueAccountingJob({
+        jobType: 'sales_return_journal',
+        store: ret.store,
+        referenceType: 'sales_return',
+        referenceId: ret.id,
+        payload: {
           store: ret.store,
           returnId: ret.id,
           returnNumber: ret.returnNumber,
@@ -275,11 +336,18 @@ const salesReturnController = {
           refundAmount: ret.refundAmount,
           refundMethod: ret.refundMethod,
           items: ret.items || [],
-          date: new Date(),
+          date: new Date().toISOString(),
           createdBy: req.user?.id
-        })
-      } catch (e) {
-        console.error('Sales return journal skipped:', e.message)
+        },
+        transaction
+      })
+
+      await transaction.commit()
+
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Sales return journal deferred to retry queue:', journalResult.error)
       }
 
       await createAudit(
@@ -304,6 +372,15 @@ const salesReturnController = {
   },
 
   async reject(req, res) {
+    // Runs in its own transaction with the return row locked, same as
+    // approve() — previously this had no transaction and no lock at all,
+    // so a reject() landing while a concurrent approve() was still
+    // mid-flight (unlocked, or racing before this fix) could leave the
+    // return visibly 'rejected' even though approve()'s refund and
+    // stock-restore had already executed. Locking here means reject()
+    // now blocks behind whichever of the two got to the row first, then
+    // correctly sees the already-updated status and bails out below.
+    const transaction = await db.sequelize.transaction()
     try {
       const { id } = req.params
       const store = req.storeId || req.cookies.store
@@ -312,14 +389,20 @@ const salesReturnController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const ret = await db.sales_return.findOne({ where })
+      const ret = await db.sales_return.findOne({
+        where,
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      })
       if (!ret) {
+        await transaction.rollback()
         return res
           .status(404)
           .json({ success: false, message: 'Sales return not found' })
       }
 
       if (ret.status === 'rejected') {
+        await transaction.commit()
         return res.status(200).json({
           success: true,
           message: 'Sales return already rejected',
@@ -328,13 +411,16 @@ const salesReturnController = {
       }
 
       if (ret.status !== 'pending') {
+        await transaction.rollback()
         return res.status(400).json({
           success: false,
           message: 'Only pending returns can be rejected'
         })
       }
 
-      await ret.update({ status: 'rejected' })
+      await ret.update({ status: 'rejected' }, { transaction })
+      await transaction.commit()
+
       await createAudit(
         req,
         'update',
@@ -347,6 +433,7 @@ const salesReturnController = {
         .status(200)
         .json({ success: true, message: 'Sales return rejected', data: ret })
     } catch (error) {
+      await transaction.rollback()
       console.error(error)
       return res
         .status(500)

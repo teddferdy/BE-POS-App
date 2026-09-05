@@ -477,6 +477,10 @@ if (!process.env.VERCEL) {
   startExpenseScheduler()
   const { startShiftSwapScheduler } = require('./service/shiftSwapScheduler')
   startShiftSwapScheduler()
+  const {
+    startAccountingOutboxScheduler
+  } = require('./service/accountingOutboxScheduler')
+  startAccountingOutboxScheduler()
 
   // ponytail: graceful shutdown agar koneksi aktif (HTTP & DB pool) tidak
   // terputus paksa saat deploy/restart di tengah trafik tinggi

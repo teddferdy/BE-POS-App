@@ -16,7 +16,10 @@ exports.getDailyReport = async (req, res) => {
 
 exports.getSalesSummary = async (req, res) => {
   try {
-    const store = req.storeId || req.cookies.store
+    // req.storeId is already the fully-verified store scope (see the
+    // longer comment in getBestSellerReport below) — no need for, and no
+    // safe reason to add, a client-writable cookie fallback on top of it.
+    const store = req.storeId
     const { startDate, endDate, filter } = req.query
 
     let dateRange = {}
@@ -53,6 +56,19 @@ exports.getSalesSummary = async (req, res) => {
       dateRange = { [Op.gte]: monthStart, [Op.lte]: monthEnd }
     } else if (startDate && endDate) {
       dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
+    } else {
+      // No recognized filter and no explicit date range — this used to
+      // mean "aggregate over the entire order table, unfiltered", a full
+      // scan of the single highest-write-volume table (worse the older
+      // and larger the deployment gets), silently triggered by the plain
+      // "no filter selected" state. Default to a bounded recent window
+      // instead of an unbounded one; callers that actually want a wider
+      // range still can by passing filter/startDate/endDate explicitly.
+      const thirtyDaysAgo = new Date(todayStart.getTime() - 29 * 86400000)
+      dateRange = {
+        [Op.gte]: thirtyDaysAgo,
+        [Op.lte]: new Date(todayStart.getTime() + 86400000 - 1)
+      }
     }
 
     const orderWhere = { paymentStatus: 'paid' }
@@ -109,7 +125,13 @@ exports.getSalesSummary = async (req, res) => {
       }
     )
 
+    // Per-store totals derived from rawStoreChart (already fetched above,
+    // grouped by store + date, with the same paymentStatus/store/date
+    // filter as the per-location totals need) instead of issuing 2
+    // separate SUM/COUNT queries per location — previously N locations
+    // meant 2N round-trips here for data this query had already computed.
     const storeChartMap = {}
+    const storeTotals = {}
     for (const row of rawStoreChart) {
       const sid = Number(row.store)
       if (!storeChartMap[sid]) storeChartMap[sid] = { storeId: sid, data: [] }
@@ -117,6 +139,9 @@ exports.getSalesSummary = async (req, res) => {
         date: row.date,
         sales: Number(row.sales || 0)
       })
+      if (!storeTotals[sid]) storeTotals[sid] = { sales: 0, orders: 0 }
+      storeTotals[sid].sales += Number(row.sales || 0)
+      storeTotals[sid].orders += Number(row.orders || 0)
     }
 
     const storeWhere = store ? { id: store } : {}
@@ -125,22 +150,13 @@ exports.getSalesSummary = async (req, res) => {
       attributes: ['id', 'name', 'city']
     })
 
-    const storePromises = locations.map(async (loc) => {
-      const locWhere = { paymentStatus: 'paid', store: loc.id }
-      if (dateRange[Op.gte]) locWhere.createdAt = dateRange
-      const [sales, ordersCount] = await Promise.all([
-        Order.sum('totalPrice', { where: locWhere }),
-        Order.count({ where: locWhere })
-      ])
-      return {
-        id: loc.id,
-        name: loc.name,
-        city: loc.city,
-        sales: Number(sales || 0),
-        transactions: Number(ordersCount || 0)
-      }
-    })
-    const stores = await Promise.all(storePromises)
+    const stores = locations.map((loc) => ({
+      id: loc.id,
+      name: loc.name,
+      city: loc.city,
+      sales: storeTotals[loc.id]?.sales || 0,
+      transactions: storeTotals[loc.id]?.orders || 0
+    }))
 
     const storeSalesChart = stores.map((s) => ({
       storeId: s.id,
@@ -197,11 +213,16 @@ exports.getSalesSummary = async (req, res) => {
 
 exports.getBestSellerReport = async (req, res) => {
   try {
-    const userRole = req.user?.roleType
-    const store =
-      userRole === 'super_admin'
-        ? req.storeId
-        : req.storeId || req.query.store || req.cookies.store
+    // req.storeId is already the fully-verified store scope by the time
+    // any route handler runs (validateStoreAccess forces it to the
+    // caller's own store for non-super_admin, or the explicitly-requested
+    // store — or null, meaning "all stores" — for super_admin). Falling
+    // back to req.query.store/req.cookies.store here re-introduces an
+    // unverified, client-writable value into a store-scoped query for
+    // exactly the (rare) case where req.storeId is legitimately falsy —
+    // silently substituting an unverified source instead of just scoping
+    // to nothing, which is what a falsy req.storeId is supposed to mean.
+    const store = req.storeId
     const { limit = 10 } = req.query
 
     const where = store ? { store } : {}
@@ -279,11 +300,11 @@ exports.getBestSellerReport = async (req, res) => {
 
 exports.getCashFlow = async (req, res) => {
   try {
-    const userRole = req.user?.roleType
-    const store =
-      userRole === 'super_admin'
-        ? req.query.store
-        : req.storeId || req.query.store
+    // Same reasoning as getSalesSummary/getBestSellerReport — req.storeId
+    // is already the verified value; using req.query.store directly (the
+    // raw, unparsed value) here for super_admin was redundant with what
+    // validateStoreAccess already resolved it to.
+    const store = req.storeId
     const { startDate, endDate } = req.query
     const replacements = {}
     let txConditions = '1=1'

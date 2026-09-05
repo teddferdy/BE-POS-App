@@ -92,7 +92,27 @@ exports.markAsRead = async (req, res) => {
   try {
     const { id } = req.params
 
-    const notification = await Notification.findByPk(id)
+    // IDOR fix: was findByPk(id) with no store filter — any authenticated
+    // user could flip another store's notification to read. `store` is
+    // nullable (a company-wide notification has store: null); unlike a
+    // global promo campaign, marking a shared notification read carries no
+    // real blast radius, so — unlike promo's global-mutation restriction —
+    // null-store notifications stay readable/markable by everyone, not
+    // just super_admin. Only a notification actually scoped to a
+    // DIFFERENT store is excluded.
+    const isSuperAdmin = req.user?.roleType === 'super_admin'
+    const userStore = Number(req.user?.store)
+    const where = isSuperAdmin
+      ? { id }
+      : {
+          id,
+          [Op.or]: [
+            { store: Number.isFinite(userStore) ? userStore : -1 },
+            { store: null }
+          ]
+        }
+
+    const notification = await Notification.findOne({ where })
     if (!notification) {
       return res
         .status(404)

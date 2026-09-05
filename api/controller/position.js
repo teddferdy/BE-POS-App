@@ -4,6 +4,7 @@ const Position = db.position
 const User = db.user
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 
 const positionInclude = [
   {
@@ -113,8 +114,10 @@ exports.getPositionById = async (req, res) => {
   try {
     const { id } = req.params
 
+    // IDOR fix: was unscoped, and this route has no requireRole gate at
+    // all, so any authenticated role could read another store's position.
     const position = await Position.findOne({
-      where: { id },
+      where: scalarStoreScope(req, { id }),
       include: positionInclude
     })
 
@@ -129,6 +132,42 @@ exports.getPositionById = async (req, res) => {
       success: true,
       message: 'Success',
       data: position
+    })
+  } catch (error) {
+    console.error('Error =>', error)
+    return res.status(500).json({
+      success: false,
+      message: 'Terjadi Kesalahan Internal Server'
+    })
+  }
+}
+
+exports.getPositionByDepartment = async (req, res) => {
+  try {
+    const { departmentId } = req.params
+
+    if (!departmentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Department ID wajib diisi'
+      })
+    }
+
+    const positions = await Position.findAll({
+      where: { departmentId },
+      include: positionInclude,
+      order: [['name', 'ASC']]
+    }).then((records) =>
+      records.map((items) => {
+        const getData = { ...items.dataValues }
+        return getData
+      })
+    )
+
+    return res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: positions
     })
   } catch (error) {
     console.error('Error =>', error)
@@ -195,6 +234,18 @@ exports.editPositionById = async (req, res) => {
   const id = req.params.id || body.id
 
   try {
+    // IDOR fix: was Position.update({where:{id}}) with no store filter —
+    // any admin could edit any store's position. Confirm ownership first.
+    const existingPosition = await Position.findOne({
+      where: scalarStoreScope(req, { id })
+    })
+    if (!existingPosition) {
+      return res.status(404).json({
+        success: false,
+        message: 'Posisi tidak ditemukan'
+      })
+    }
+
     const getDuplicate = await Position.findOne({
       where: {
         name: body.name,
@@ -220,7 +271,7 @@ exports.editPositionById = async (req, res) => {
         },
         {
           returning: true,
-          where: { id }
+          where: scalarStoreScope(req, { id })
         }
       )
       const editPosition = rows[0]
@@ -255,11 +306,25 @@ exports.deletePositionById = async (req, res) => {
   try {
     const positionId = req.params.id || req.body.id
 
+    // IDOR fix: this used to run the User.update side effect below
+    // unconditionally, before any ownership check — nulling out real
+    // employees' position reference for a position id belonging to ANY
+    // store, not just the caller's. Confirm ownership first.
+    const position = await Position.findOne({
+      where: scalarStoreScope(req, { id: positionId })
+    })
+    if (!position) {
+      return res.status(404).json({
+        success: false,
+        message: 'Position Tidak Ditemukan'
+      })
+    }
+
     // Set position reference to null for users that reference this position
     await User.update({ position: null }, { where: { position: positionId } })
 
     const getId = await Position.destroy({
-      where: { id: positionId }
+      where: scalarStoreScope(req, { id: positionId })
     })
     createAudit(
       req,

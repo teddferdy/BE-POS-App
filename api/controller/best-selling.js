@@ -6,7 +6,12 @@ const sequelize = require('../../config/database')
 
 exports.chartDataByYear = async (req, res) => {
   const { query } = req
-  const { store, year } = query
+  const { year } = query
+  // req.storeId is the value validateStoreAccess already verified for
+  // this route — reading store from req.query directly meant any
+  // authenticated role could omit it and get a platform-wide chart
+  // instead of being confined to their own store.
+  const store = req.storeId
 
   try {
     const yearVal = parseInt(year, 10) || new Date().getFullYear()
@@ -66,7 +71,9 @@ const getDateRange = (firstDate, lastDate) => {
 
 exports.chartDataByMonth = async (req, res) => {
   const { query } = req
-  const { store } = query
+  // See chartDataByYear above for why this is req.storeId, not
+  // req.query.store.
+  const store = req.storeId
   const date = new Date()
 
   const firstDay = query?.startDate
@@ -138,6 +145,9 @@ exports.chartDataByMonth = async (req, res) => {
 }
 
 exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res) => {
+  // Previously unscoped entirely — any admin/kasir got order counts
+  // across the whole deployment instead of their own store.
+  const store = req.storeId
   const dates = []
   for (let I = 0; I < Math.abs(7); I++) {
     dates.push({
@@ -156,7 +166,8 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res) => {
         paymentStatus: 'paid',
         createdAt: {
           [Op.gte]: moment().subtract(7, 'days').toDate()
-        }
+        },
+        ...(store ? { store } : {})
       },
       attributes: [
         [Sequelize.literal(`DATE("createdAt")`), 'date'],
@@ -192,6 +203,8 @@ exports.chartDataByCurrentDateAndSevenDaysBefore = async (req, res) => {
 }
 
 exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res) => {
+  // Previously unscoped entirely — see the seven-days variant above.
+  const store = req.storeId
   const dates = []
   for (let I = 0; I < Math.abs(2); I++) {
     dates.push({
@@ -210,7 +223,8 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res) => {
         paymentStatus: 'paid',
         createdAt: {
           [Op.gte]: moment().subtract(2, 'days').toDate()
-        }
+        },
+        ...(store ? { store } : {})
       },
       attributes: [
         [Sequelize.literal(`DATE("createdAt")`), 'date'],
@@ -248,7 +262,9 @@ exports.chartDataByCurrentDateAndTwoDaysBefore = async (req, res) => {
 exports.getEarningToday = async (req, res) => {
   const NOW = new Date()
   NOW.setHours(0, 0, 0, 0)
-  const { store } = req.query
+  // See chartDataByYear above for why this is req.storeId, not
+  // req.query.store.
+  const store = req.storeId
 
   try {
     const replacements = { today: NOW }

@@ -2,6 +2,8 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { emitToStore } = require('../service/socket')
+const { arrayStoreScope } = require('../../utils/tenantScope')
+const { incrementPromoUsage } = require('../service/promoUsageService')
 
 const promoController = {
   async getCampaigns(req, res) {
@@ -99,7 +101,10 @@ const promoController = {
     try {
       const { id } = req.params
 
-      const campaign = await db.promo_campaign.findByPk(id, {
+      // Same IDOR fix as updateCampaign — was findByPk(id) with no
+      // ownership check, leaking another store's campaign config.
+      const campaign = await db.promo_campaign.findOne({
+        where: arrayStoreScope(req, { id }),
         include: [
           { model: db.promo_rule, as: 'rules' },
           { model: db.promo_reward, as: 'rewards' }
@@ -246,7 +251,17 @@ const promoController = {
       const { id } = req.params
       const updateData = req.body
 
-      const campaign = await db.promo_campaign.findByPk(id)
+      // `store` here is a JSONB array (a campaign can be assigned to
+      // several stores) and `store: null` means "global" — arrayStoreScope
+      // deliberately does NOT match null for non-super-admin, so a
+      // store-level admin can edit campaigns assigned to their own store
+      // but not a company-wide global campaign; only super_admin can. IDOR
+      // fix: was findByPk(id) with no ownership check at all, so any store
+      // admin could edit any other store's campaign (rules/rewards
+      // included).
+      const campaign = await db.promo_campaign.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!campaign) {
         return res
           .status(404)
@@ -328,7 +343,10 @@ const promoController = {
       const { id } = req.params
       const { status } = req.body
 
-      const campaign = await db.promo_campaign.findByPk(id)
+      // Same IDOR fix as updateCampaign.
+      const campaign = await db.promo_campaign.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!campaign) {
         return res
           .status(404)
@@ -359,7 +377,10 @@ const promoController = {
     try {
       const { id } = req.params
 
-      const campaign = await db.promo_campaign.findByPk(id)
+      // Same IDOR fix as updateCampaign.
+      const campaign = await db.promo_campaign.findOne({
+        where: arrayStoreScope(req, { id })
+      })
       if (!campaign) {
         return res
           .status(404)
@@ -546,50 +567,44 @@ const promoController = {
         cashbackAmount
       } = req.body
 
-      const campaign = await db.promo_campaign.findByPk(campaignId)
-      if (!campaign) {
+      // Was an unlocked read-check-write (findByPk, compare currentUsage,
+      // then a separate .update()) — two concurrent requests for the same
+      // capped campaign could both read currentUsage below the limit and
+      // both increment, letting a capped campaign be used more times than
+      // maxUsageTotal allows. incrementPromoUsage locks the campaign row
+      // and re-validates both limits under that lock, inside a real
+      // transaction, closing the race.
+      const result = await db.sequelize.transaction(async (t) => {
+        return incrementPromoUsage({
+          campaignId,
+          orderId,
+          memberId,
+          discountApplied,
+          freeItemsGiven,
+          pointsMultiplier,
+          cashbackAmount,
+          createdBy: req.user?.id,
+          transaction: t
+        })
+      })
+
+      if (result.notFound) {
         return res
           .status(404)
           .json({ success: false, message: 'Campaign not found' })
       }
-
-      if (
-        campaign.maxUsageTotal &&
-        campaign.currentUsage >= campaign.maxUsageTotal
-      ) {
+      if (result.limitReached) {
         return res
           .status(400)
           .json({ success: false, message: 'Campaign usage limit reached' })
       }
-
-      if (campaign.maxUsagePerMember && memberId) {
-        const memberUsage = await db.promo_usage.count({
-          where: { campaignId, memberId }
-        })
-        if (memberUsage >= campaign.maxUsagePerMember) {
-          return res
-            .status(400)
-            .json({ success: false, message: 'Member usage limit reached' })
-        }
+      if (result.memberLimitReached) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Member usage limit reached' })
       }
 
-      const usage = await db.promo_usage.create({
-        store: campaign.store,
-        campaignId,
-        orderId,
-        memberId,
-        discountApplied: discountApplied || 0,
-        freeItemsGiven,
-        pointsMultiplier: pointsMultiplier || 1,
-        cashbackAmount: cashbackAmount || 0,
-        appliedAt: new Date(),
-        createdBy: req.user?.id
-      })
-
-      await campaign.update({
-        currentUsage: campaign.currentUsage + 1
-      })
-
+      const { campaign, usage } = result
       await enrichAuditFields(db, [usage])
 
       emitToStore(campaign.store, 'promo:used', usage)

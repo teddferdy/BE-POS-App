@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const split_bill = sequelize.define(
     'split_bill',
     {
       id: {
@@ -39,4 +39,13 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'split_bill'
     }
   )
+
+  split_bill.associate = (models) => {
+    split_bill.belongsTo(models.order, {
+      foreignKey: 'order',
+      as: 'orderData'
+    })
+  }
+
+  return split_bill
 }

@@ -89,6 +89,18 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'createdBy',
       as: 'createdByUser'
     })
+    businessTrip.belongsTo(models.user, {
+      foreignKey: 'modifiedBy',
+      as: 'modifiedByUser'
+    })
+    businessTrip.hasMany(models.businessTripEmployee, {
+      foreignKey: 'tripId',
+      as: 'employees'
+    })
+    businessTrip.hasMany(models.businessTripBudgetItem, {
+      foreignKey: 'tripId',
+      as: 'budgetItems'
+    })
   }
 
   return businessTrip

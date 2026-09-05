@@ -717,11 +717,19 @@ const supplierController = {
 
   async create(req, res) {
     try {
-      const store = Array.isArray(req.body.store)
-        ? req.body.store
-        : req.user?.store
-          ? [Number(req.user.store)]
-          : []
+      // IDOR fix: a non-super-admin sending an arbitrary store array in
+      // the body used to be written verbatim — letting a store A admin
+      // tag a new supplier with store B's (or any other store's) id,
+      // injecting a fabricated association into a tenant they have no
+      // relationship to. Only super_admin may assign an arbitrary set of
+      // stores; everyone else is pinned to their own, regardless of body
+      // content.
+      const store =
+        req.user?.roleType === 'super_admin' && Array.isArray(req.body.store)
+          ? req.body.store
+          : req.user?.store
+            ? [Number(req.user.store)]
+            : []
       const {
         name,
         contactPerson,
@@ -983,9 +991,15 @@ const supplierController = {
         }
       }
 
-      const newStore = Array.isArray(req.body.store)
-        ? req.body.store
-        : undefined
+      // IDOR fix: same as create() — a non-super-admin submitting an
+      // arbitrary store array used to be written verbatim regardless of
+      // whether they were even authorized to edit this supplier at all,
+      // letting them expand its association to stores they don't belong
+      // to. Only super_admin may reassign an arbitrary set of stores.
+      const newStore =
+        req.user?.roleType === 'super_admin' && Array.isArray(req.body.store)
+          ? req.body.store
+          : undefined
 
       await supplier.update({
         name: trimmedName ?? supplier.name,

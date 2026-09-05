@@ -23,7 +23,8 @@ module.exports = (sequelize, DataTypes) => {
       paymentMethod: { type: DataTypes.STRING },
       reference: { type: DataTypes.STRING },
       notes: { type: DataTypes.TEXT },
-      createdBy: { type: DataTypes.INTEGER }
+      createdBy: { type: DataTypes.INTEGER },
+      idempotencyKey: { type: DataTypes.STRING, allowNull: true }
     },
     {
       paranoid: true,

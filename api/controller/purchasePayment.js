@@ -1,12 +1,24 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { scalarStoreScope } = require('../../utils/tenantScope')
+const {
+  enqueueAccountingJob,
+  attemptJob,
+  recordImmediateAttempt
+} = require('../service/accountingOutboxService')
 
 const purchasePaymentController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const payment = await db.purchase_payment.findByPk(id, {
+      // Tenant condition lives in the query itself — a non-super-admin
+      // requesting another store's payment id gets the same 404 as a
+      // nonexistent id, never the record (IDOR fix: was findByPk(id) with
+      // no store filter, relying only on validateStoreAccess upstream,
+      // which never checks the fetched record's actual store).
+      const payment = await db.purchase_payment.findOne({
+        where: scalarStoreScope(req, { id }),
         include: [
           {
             model: db.purchase_order,
@@ -137,7 +149,8 @@ const purchasePaymentController = {
         paymentDate,
         paymentMethod,
         reference,
-        notes
+        notes,
+        idempotencyKey
       } = req.body
 
       if (!purchaseOrder || !amount || amount <= 0) {
@@ -147,69 +160,128 @@ const purchasePaymentController = {
         })
       }
 
-      // Over-payment guard
-      const po = await db.purchase_order.findByPk(purchaseOrder)
-      if (!po) {
-        return res.status(404).json({
-          success: false,
-          message: 'Purchase order not found'
+      // A retried/duplicate submit with the same key returns the payment
+      // already created instead of creating (or double-counting toward
+      // the over-payment guard) a second one.
+      if (idempotencyKey) {
+        const existing = await db.purchase_payment.findOne({
+          where: { purchaseOrder, idempotencyKey }
         })
+        if (existing) {
+          return res.status(200).json({
+            success: true,
+            message: 'Payment already recorded for this idempotency key',
+            data: existing
+          })
+        }
       }
 
-      // Multi-supplier PO: supplier column no longer exists on purchase_order.
-      // Derive from the first PO item when supplier is not supplied explicitly.
-      let effectiveSupplier = supplier || null
-      if (!effectiveSupplier) {
-        const firstItem = await db.purchase_order_item.findOne({
-          where: { purchaseOrder: purchaseOrder }
+      let payment
+      let po
+      let effectiveSupplier
+      let journalJob
+      await db.sequelize.transaction(async (t) => {
+        // Locked BEFORE the over-payment sum-check below — previously that
+        // check and the insert were two separate unlocked statements, so
+        // two concurrent payments on the same PO could each read the same
+        // stale total, each pass the check, and jointly exceed
+        // po.finalAmount. Locking the PO row here serializes concurrent
+        // record() calls for the same PO against each other.
+        //
+        // IDOR fix: was findByPk(purchaseOrder) with no store filter — a
+        // store A admin could record a real payment against a store B PO
+        // (creating a real payment row, attributed to store B, that also
+        // triggers a real accounting journal post below) purely by
+        // supplying its id. scalarStoreScope confines this to the
+        // caller's own store; a mismatched id now 404s exactly like a
+        // nonexistent one, before the over-payment sum-check ever runs —
+        // which also closes the sum-check's poisoning side effect: that
+        // check sums every non-deleted payment against this PO with no
+        // regard for who created them, so any future forged payment that
+        // this fix prevents can no longer inflate `totalPaid` and falsely
+        // block the PO's real owner from recording their own legitimate
+        // payment.
+        po = await db.purchase_order.findOne({
+          where: scalarStoreScope(req, { id: purchaseOrder }),
+          transaction: t,
+          lock: t.LOCK.UPDATE
         })
-        effectiveSupplier = firstItem?.supplier || null
-      }
+        if (!po) {
+          const err = new Error('Purchase order not found')
+          err.statusCode = 404
+          throw err
+        }
 
-      if (!effectiveSupplier) {
-        return res.status(400).json({
-          success: false,
-          message: 'Supplier is required'
+        // Multi-supplier PO: supplier column no longer exists on
+        // purchase_order. Derive from the first PO item when supplier is
+        // not supplied explicitly.
+        effectiveSupplier = supplier || null
+        if (!effectiveSupplier) {
+          const firstItem = await db.purchase_order_item.findOne({
+            where: { purchaseOrder: purchaseOrder },
+            transaction: t
+          })
+          effectiveSupplier = firstItem?.supplier || null
+        }
+
+        if (!effectiveSupplier) {
+          const err = new Error('Supplier is required')
+          err.statusCode = 400
+          throw err
+        }
+
+        const existingPayments = await db.purchase_payment.sum('amount', {
+          where: { purchaseOrder, deletedAt: null },
+          transaction: t
         })
-      }
+        const totalPaid = existingPayments || 0
+        if (totalPaid + Number(amount) > Number(po.finalAmount)) {
+          const err = new Error(
+            `Over-payment not allowed. Total paid: ${totalPaid}, remaining: ${Number(po.finalAmount) - totalPaid}, attempting to pay: ${amount}`
+          )
+          err.statusCode = 400
+          throw err
+        }
 
-      const existingPayments = await db.purchase_payment.sum('amount', {
-        where: { purchaseOrder, deletedAt: null }
-      })
-      const totalPaid = existingPayments || 0
-      if (totalPaid + Number(amount) > Number(po.finalAmount)) {
-        return res.status(400).json({
-          success: false,
-          message: `Over-payment not allowed. Total paid: ${totalPaid}, remaining: ${Number(po.finalAmount) - totalPaid}, attempting to pay: ${amount}`
-        })
-      }
+        payment = await db.purchase_payment.create(
+          {
+            store: po.store || store || null,
+            purchaseOrder,
+            supplier: effectiveSupplier,
+            amount: parseInt(amount),
+            paymentDate: paymentDate || new Date(),
+            paymentMethod: paymentMethod || 'cash',
+            reference: reference || null,
+            notes: notes || null,
+            idempotencyKey: idempotencyKey || null,
+            createdBy: req.user?.id || null
+          },
+          { transaction: t }
+        )
 
-      const payment = await db.purchase_payment.create({
-        store: po.store || store || null,
-        purchaseOrder,
-        supplier: effectiveSupplier,
-        amount: parseInt(amount),
-        paymentDate: paymentDate || new Date(),
-        paymentMethod: paymentMethod || 'cash',
-        reference: reference || null,
-        notes: notes || null,
-        createdBy: req.user?.id || null
-      })
-
-      try {
-        const {
-          postPurchasePaymentJournal
-        } = require('../service/accountingService')
-        await postPurchasePaymentJournal({
+        // Durable inside the same transaction as the payment row above — a
+        // posting failure below is retried, not silently discarded.
+        journalJob = await enqueueAccountingJob({
+          jobType: 'purchase_payment_journal',
           store: po.store || store,
-          paymentId: payment.id,
-          poNumber: po.orderNumber,
-          amount: payment.amount,
-          date: payment.paymentDate || new Date(),
-          createdBy: req.user?.id
+          referenceType: 'purchase_payment',
+          referenceId: payment.id,
+          payload: {
+            store: po.store || store,
+            paymentId: payment.id,
+            poNumber: po.orderNumber,
+            amount: payment.amount,
+            date: new Date(payment.paymentDate || Date.now()).toISOString(),
+            createdBy: req.user?.id
+          },
+          transaction: t
         })
-      } catch (e) {
-        console.error('Purchase payment journal skipped:', e.message)
+      })
+
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Purchase payment journal deferred to retry queue:', journalResult.error)
       }
 
       await createAudit(
@@ -226,6 +298,29 @@ const purchasePaymentController = {
         data: payment
       })
     } catch (error) {
+      // Two requests with the same idempotencyKey can both pass the
+      // earlier findOne check and both attempt to create — the unique
+      // index on (purchaseOrder, idempotencyKey) lets exactly one
+      // succeed; return the winner's payment to the loser instead of a
+      // confusing 500.
+      const { idempotencyKey, purchaseOrder } = req.body
+      if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+        const existing = await db.purchase_payment.findOne({
+          where: { purchaseOrder, idempotencyKey }
+        })
+        if (existing) {
+          return res.status(200).json({
+            success: true,
+            message: 'Payment already recorded for this idempotency key',
+            data: existing
+          })
+        }
+      }
+      if (error.statusCode) {
+        return res
+          .status(error.statusCode)
+          .json({ success: false, message: error.message })
+      }
       console.error(error)
       return res
         .status(500)
@@ -236,7 +331,12 @@ const purchasePaymentController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const payment = await db.purchase_payment.findByPk(id)
+      // Same IDOR fix as getById: scope the fetch by store before allowing
+      // a destroy, so a non-super-admin can never delete another store's
+      // payment record even if they know/guess its id.
+      const payment = await db.purchase_payment.findOne({
+        where: scalarStoreScope(req, { id })
+      })
       if (!payment) {
         return res
           .status(404)
@@ -420,21 +520,23 @@ const purchasePaymentController = {
 
   async list(req, res) {
     try {
+      // Store scope: req.storeId is authoritative (set by validateStoreAccess).
+      // For non-super-admins it is always the caller's own store; for
+      // super_admins it is the claimed store (query/body) or null (global view).
+      // Fall back to the legacy `store` cookie only when req.storeId is absent,
+      // so a non-super-admin can never enumerate another store's payments.
       const { store: cookieStore } = req.cookies
-      const userRole = req.user?.roleType
       const {
         page = 1,
         limit = 20,
         startDate,
         endDate,
         supplierId,
-        store: queryStore,
         search
       } = req.query
 
       const where = {}
-      const effectiveStore =
-        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
+      const effectiveStore = req.storeId || cookieStore
       if (effectiveStore) {
         where['$purchaseOrderData.store$'] = effectiveStore
       }
