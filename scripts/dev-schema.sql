@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict WZc702mJS1OSzoS8LyEUnCFU5i1viFXyFafbioRyq76Bdsn6M3qZVY6Q3XQJcXe
+\restrict UmXaojvgJ2CHsBegf1Cg8Iew9HfPxeBmc4kMdYd6KaD6PU8UE4fHyRMSUQfMmL5
 
 -- Dumped from database version 14.19 (Homebrew)
 -- Dumped by pg_dump version 14.19 (Homebrew)
@@ -193,7 +193,8 @@ CREATE TYPE public.enum_order_item_status AS ENUM (
 CREATE TYPE public."enum_order_paymentStatus" AS ENUM (
     'unpaid',
     'partial',
-    'paid'
+    'paid',
+    'refunded'
 );
 
 
@@ -650,6 +651,46 @@ ALTER SEQUENCE public.account_id_seq OWNED BY public.account.id;
 
 
 --
+-- Name: accounting_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounting_outbox (
+    id integer NOT NULL,
+    "jobType" character varying(50) NOT NULL,
+    store integer,
+    "referenceType" character varying(50),
+    "referenceId" integer,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    "lastError" text,
+    "postedAt" timestamp with time zone,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: accounting_outbox_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.accounting_outbox_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: accounting_outbox_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.accounting_outbox_id_seq OWNED BY public.accounting_outbox.id;
+
+
+--
 -- Name: accounts_receivable; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -733,6 +774,51 @@ CREATE SEQUENCE public.ar_payment_id_seq
 --
 
 ALTER SEQUENCE public.ar_payment_id_seq OWNED BY public.ar_payment.id;
+
+
+--
+-- Name: attendance; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.attendance (
+    id integer NOT NULL,
+    "userId" integer NOT NULL,
+    store integer,
+    "shiftId" integer,
+    type character varying(20) DEFAULT 'check-in'::character varying,
+    "absenAt" timestamp with time zone,
+    latitude double precision,
+    longitude double precision,
+    accuracy double precision,
+    algorithm character varying(20) DEFAULT 'gps'::character varying,
+    status character varying(20) DEFAULT 'valid'::character varying,
+    note character varying(255),
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: attendance_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.attendance_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: attendance_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.attendance_id_seq OWNED BY public.attendance.id;
 
 
 --
@@ -890,6 +976,129 @@ CREATE SEQUENCE public.bom_line_id_seq
 --
 
 ALTER SEQUENCE public.bom_line_id_seq OWNED BY public.bom_line.id;
+
+
+--
+-- Name: business_trip; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_trip (
+    id integer NOT NULL,
+    "tripNumber" character varying(255) NOT NULL,
+    store integer,
+    "employeeId" integer,
+    "employeeName" character varying(255),
+    "employeePosition" character varying(255),
+    destination character varying(255),
+    "tripPurpose" text,
+    "departureDate" date,
+    "returnDate" date,
+    budget numeric(15,2),
+    notes text,
+    status character varying(20) DEFAULT 'draft'::character varying,
+    "approvedBy" integer,
+    "approvedAt" timestamp with time zone,
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: business_trip_budget_item; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_trip_budget_item (
+    id integer NOT NULL,
+    "tripId" integer NOT NULL,
+    komponen character varying(255),
+    qty numeric(15,2),
+    satuan character varying(255),
+    tarif numeric(15,2),
+    total numeric(15,2),
+    catatan character varying(255),
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: business_trip_budget_item_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.business_trip_budget_item_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: business_trip_budget_item_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.business_trip_budget_item_id_seq OWNED BY public.business_trip_budget_item.id;
+
+
+--
+-- Name: business_trip_employee; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_trip_employee (
+    id integer NOT NULL,
+    "tripId" integer NOT NULL,
+    "employeeId" integer,
+    "employeeName" character varying(255),
+    "employeePosition" character varying(255),
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: business_trip_employee_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.business_trip_employee_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: business_trip_employee_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.business_trip_employee_id_seq OWNED BY public.business_trip_employee.id;
+
+
+--
+-- Name: business_trip_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.business_trip_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: business_trip_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.business_trip_id_seq OWNED BY public.business_trip.id;
 
 
 --
@@ -2516,7 +2725,21 @@ CREATE TABLE public."order" (
     "promoCampaignId" integer,
     "splitCount" integer,
     "customerNumber" integer,
-    session character varying(255)
+    session character varying(255),
+    "idempotencyKey" character varying(255),
+    "publicToken" character varying(64)
+);
+
+
+--
+-- Name: order_daily_counter; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.order_daily_counter (
+    store integer NOT NULL,
+    "counterDate" date NOT NULL,
+    "lastValue" integer DEFAULT 0 NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL
 );
 
 
@@ -2626,6 +2849,55 @@ CREATE SEQUENCE public.order_status_id_seq
 --
 
 ALTER SEQUENCE public.order_status_id_seq OWNED BY public.order_status.id;
+
+
+--
+-- Name: overtime; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.overtime (
+    id integer NOT NULL,
+    store integer,
+    shift_id integer NOT NULL,
+    employee_id integer NOT NULL,
+    date date NOT NULL,
+    start_time time without time zone NOT NULL,
+    end_time time without time zone NOT NULL,
+    duration_hours numeric(10,2) DEFAULT 0 NOT NULL,
+    note text,
+    status character varying(20) DEFAULT 'pending'::character varying,
+    "decidedBy" integer,
+    "decidedAt" timestamp with time zone,
+    status_history jsonb DEFAULT '[]'::jsonb,
+    accounting_status character varying(20) DEFAULT 'unposted'::character varying,
+    "postedAt" timestamp with time zone,
+    "journalId" integer,
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: overtime_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.overtime_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: overtime_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.overtime_id_seq OWNED BY public.overtime.id;
 
 
 --
@@ -2749,7 +3021,9 @@ CREATE TABLE public.product (
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
-    "estimationTime" integer DEFAULT 0
+    "estimationTime" integer DEFAULT 0,
+    images jsonb DEFAULT '[]'::jsonb,
+    CONSTRAINT product_stock_non_negative CHECK ((stock >= 0))
 );
 
 
@@ -2945,6 +3219,47 @@ ALTER SEQUENCE public.product_id_seq OWNED BY public.product.id;
 
 
 --
+-- Name: product_review; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.product_review (
+    id integer NOT NULL,
+    "productId" integer NOT NULL,
+    store integer,
+    "userName" character varying(100) NOT NULL,
+    rating integer NOT NULL,
+    comment text,
+    "orderId" integer,
+    status character varying(20) DEFAULT 'published'::character varying,
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: product_review_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.product_review_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: product_review_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.product_review_id_seq OWNED BY public.product_review.id;
+
+
+--
 -- Name: product_sales_summary; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3066,7 +3381,8 @@ CREATE TABLE public.product_store_stock (
     stock integer DEFAULT 0 NOT NULL,
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
-    "deletedAt" timestamp with time zone
+    "deletedAt" timestamp with time zone,
+    CONSTRAINT product_store_stock_stock_non_negative CHECK ((stock >= 0))
 );
 
 
@@ -3341,8 +3657,16 @@ CREATE TABLE public.purchase_order (
     tenor integer DEFAULT 0,
     "dpPercent" numeric(5,2) DEFAULT 0,
     "additionalCost" integer DEFAULT 0,
-    "overDeliveryTolerance" integer DEFAULT 10
+    "overDeliveryTolerance" integer DEFAULT 10,
+    "additionalCostNotes" character varying(255)
 );
+
+
+--
+-- Name: COLUMN purchase_order."additionalCostNotes"; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.purchase_order."additionalCostNotes" IS 'Keterangan untuk biaya tambahan (misal: ongkir, admin bank)';
 
 
 --
@@ -3425,7 +3749,8 @@ CREATE TABLE public.purchase_payment (
     "createdBy" integer,
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
-    "deletedAt" timestamp with time zone
+    "deletedAt" timestamp with time zone,
+    "idempotencyKey" character varying(255)
 );
 
 
@@ -3465,7 +3790,8 @@ CREATE TABLE public.purchase_return (
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
-    resolution character varying(255)
+    resolution character varying(255),
+    documentation text
 );
 
 
@@ -3613,6 +3939,42 @@ CREATE SEQUENCE public.region_id_seq
 --
 
 ALTER SEQUENCE public.region_id_seq OWNED BY public.region.id;
+
+
+--
+-- Name: report_config; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.report_config (
+    id integer NOT NULL,
+    key character varying(255) NOT NULL,
+    config jsonb NOT NULL,
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: report_config_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.report_config_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: report_config_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.report_config_id_seq OWNED BY public.report_config.id;
 
 
 --
@@ -3823,6 +4185,18 @@ ALTER SEQUENCE public.sales_summary_id_seq OWNED BY public.sales_summary.id;
 
 
 --
+-- Name: scheduler_lock; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.scheduler_lock (
+    name character varying(255) NOT NULL,
+    "lockedUntil" timestamp with time zone,
+    "lockedBy" character varying(255),
+    "updatedAt" timestamp with time zone NOT NULL
+);
+
+
+--
 -- Name: shift; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3863,6 +4237,93 @@ CREATE SEQUENCE public.shift_id_seq
 --
 
 ALTER SEQUENCE public.shift_id_seq OWNED BY public.shift.id;
+
+
+--
+-- Name: shift_swap; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shift_swap (
+    id integer NOT NULL,
+    store integer,
+    "requesterId" integer NOT NULL,
+    "targetId" integer NOT NULL,
+    "requesterShiftId" integer NOT NULL,
+    "targetShiftId" integer NOT NULL,
+    tanggal_mulai date,
+    tanggal_selesai date,
+    note text,
+    status character varying(20) DEFAULT 'pending'::character varying,
+    "decidedBy" integer,
+    "decidedAt" timestamp with time zone,
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone,
+    status_history jsonb DEFAULT '[]'::jsonb,
+    expires_at timestamp without time zone
+);
+
+
+--
+-- Name: shift_swap_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.shift_swap_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: shift_swap_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.shift_swap_id_seq OWNED BY public.shift_swap.id;
+
+
+--
+-- Name: shift_template; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.shift_template (
+    id integer NOT NULL,
+    store integer,
+    name character varying(255) NOT NULL,
+    "startTime" time without time zone NOT NULL,
+    "endTime" time without time zone NOT NULL,
+    description character varying(255),
+    status character varying(20) DEFAULT 'active'::character varying,
+    "createdBy" integer,
+    "modifiedBy" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL,
+    "deletedAt" timestamp with time zone
+);
+
+
+--
+-- Name: shift_template_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.shift_template_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: shift_template_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.shift_template_id_seq OWNED BY public.shift_template.id;
 
 
 --
@@ -4459,7 +4920,7 @@ CREATE TABLE public.supplier_product (
     id integer NOT NULL,
     supplier integer NOT NULL,
     name text NOT NULL,
-    price integer DEFAULT 0,
+    price bigint DEFAULT 0,
     "createdBy" integer,
     "modifiedBy" integer,
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -4469,7 +4930,7 @@ CREATE TABLE public.supplier_product (
     "leadTime" integer DEFAULT 0,
     "qualityRating" numeric(5,2) DEFAULT 0,
     "minOrderQty" character varying(50) DEFAULT '1'::character varying,
-    "lastPrice" integer DEFAULT 0,
+    "lastPrice" bigint DEFAULT 0,
     unit character varying(20) DEFAULT 'pcs'::character varying,
     "leadTimeUnit" character varying(10) DEFAULT 'hari'::character varying,
     notes text
@@ -4756,7 +5217,9 @@ CREATE TABLE public."user" (
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
     "resetToken" character varying(255),
-    "resetTokenExpires" timestamp with time zone
+    "resetTokenExpires" timestamp with time zone,
+    "overtimeRate" numeric(15,2) DEFAULT 0,
+    "overtimeFactor" numeric(10,2) DEFAULT 1.5
 );
 
 
@@ -4832,6 +5295,13 @@ ALTER TABLE ONLY public.account ALTER COLUMN id SET DEFAULT nextval('public.acco
 
 
 --
+-- Name: accounting_outbox id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_outbox ALTER COLUMN id SET DEFAULT nextval('public.accounting_outbox_id_seq'::regclass);
+
+
+--
 -- Name: accounts_receivable id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -4843,6 +5313,13 @@ ALTER TABLE ONLY public.accounts_receivable ALTER COLUMN id SET DEFAULT nextval(
 --
 
 ALTER TABLE ONLY public.ar_payment ALTER COLUMN id SET DEFAULT nextval('public.ar_payment_id_seq'::regclass);
+
+
+--
+-- Name: attendance id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attendance ALTER COLUMN id SET DEFAULT nextval('public.attendance_id_seq'::regclass);
 
 
 --
@@ -4871,6 +5348,27 @@ ALTER TABLE ONLY public.bom_header ALTER COLUMN id SET DEFAULT nextval('public.b
 --
 
 ALTER TABLE ONLY public.bom_line ALTER COLUMN id SET DEFAULT nextval('public.bom_line_id_seq'::regclass);
+
+
+--
+-- Name: business_trip id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip ALTER COLUMN id SET DEFAULT nextval('public.business_trip_id_seq'::regclass);
+
+
+--
+-- Name: business_trip_budget_item id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip_budget_item ALTER COLUMN id SET DEFAULT nextval('public.business_trip_budget_item_id_seq'::regclass);
+
+
+--
+-- Name: business_trip_employee id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip_employee ALTER COLUMN id SET DEFAULT nextval('public.business_trip_employee_id_seq'::regclass);
 
 
 --
@@ -5154,6 +5652,13 @@ ALTER TABLE ONLY public.order_status ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: overtime id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.overtime ALTER COLUMN id SET DEFAULT nextval('public.overtime_id_seq'::regclass);
+
+
+--
 -- Name: position id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -5200,6 +5705,13 @@ ALTER TABLE ONLY public.product_bundle ALTER COLUMN id SET DEFAULT nextval('publ
 --
 
 ALTER TABLE ONLY public.product_bundle_item ALTER COLUMN id SET DEFAULT nextval('public.product_bundle_item_id_seq'::regclass);
+
+
+--
+-- Name: product_review id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_review ALTER COLUMN id SET DEFAULT nextval('public.product_review_id_seq'::regclass);
 
 
 --
@@ -5315,6 +5827,13 @@ ALTER TABLE ONLY public.region ALTER COLUMN id SET DEFAULT nextval('public.regio
 
 
 --
+-- Name: report_config id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_config ALTER COLUMN id SET DEFAULT nextval('public.report_config_id_seq'::regclass);
+
+
+--
 -- Name: reservation id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -5354,6 +5873,20 @@ ALTER TABLE ONLY public.sales_summary ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.shift ALTER COLUMN id SET DEFAULT nextval('public.shift_id_seq'::regclass);
+
+
+--
+-- Name: shift_swap id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shift_swap ALTER COLUMN id SET DEFAULT nextval('public.shift_swap_id_seq'::regclass);
+
+
+--
+-- Name: shift_template id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shift_template ALTER COLUMN id SET DEFAULT nextval('public.shift_template_id_seq'::regclass);
 
 
 --
@@ -5527,6 +6060,14 @@ ALTER TABLE ONLY public.account
 
 
 --
+-- Name: accounting_outbox accounting_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_outbox
+    ADD CONSTRAINT accounting_outbox_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: accounts_receivable accounts_receivable_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5540,6 +6081,14 @@ ALTER TABLE ONLY public.accounts_receivable
 
 ALTER TABLE ONLY public.ar_payment
     ADD CONSTRAINT ar_payment_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: attendance attendance_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attendance
+    ADD CONSTRAINT attendance_pkey PRIMARY KEY (id);
 
 
 --
@@ -5572,6 +6121,38 @@ ALTER TABLE ONLY public.bom_header
 
 ALTER TABLE ONLY public.bom_line
     ADD CONSTRAINT bom_line_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: business_trip_budget_item business_trip_budget_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip_budget_item
+    ADD CONSTRAINT business_trip_budget_item_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: business_trip_employee business_trip_employee_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip_employee
+    ADD CONSTRAINT business_trip_employee_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: business_trip business_trip_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip
+    ADD CONSTRAINT business_trip_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: business_trip business_trip_tripNumber_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.business_trip
+    ADD CONSTRAINT "business_trip_tripNumber_key" UNIQUE ("tripNumber");
 
 
 --
@@ -5903,6 +6484,14 @@ ALTER TABLE ONLY public.notification
 
 
 --
+-- Name: order_daily_counter order_daily_counter_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.order_daily_counter
+    ADD CONSTRAINT order_daily_counter_pkey PRIMARY KEY (store, "counterDate");
+
+
+--
 -- Name: order_item order_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5932,6 +6521,14 @@ ALTER TABLE ONLY public."order"
 
 ALTER TABLE ONLY public.order_status
     ADD CONSTRAINT order_status_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: overtime overtime_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.overtime
+    ADD CONSTRAINT overtime_pkey PRIMARY KEY (id);
 
 
 --
@@ -5996,6 +6593,14 @@ ALTER TABLE ONLY public.product_bundle
 
 ALTER TABLE ONLY public.product
     ADD CONSTRAINT product_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: product_review product_review_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_review
+    ADD CONSTRAINT product_review_pkey PRIMARY KEY (id);
 
 
 --
@@ -6143,6 +6748,22 @@ ALTER TABLE ONLY public.region
 
 
 --
+-- Name: report_config report_config_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_config
+    ADD CONSTRAINT report_config_key_key UNIQUE (key);
+
+
+--
+-- Name: report_config report_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_config
+    ADD CONSTRAINT report_config_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: reservation reservation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6191,11 +6812,35 @@ ALTER TABLE ONLY public.sales_summary
 
 
 --
+-- Name: scheduler_lock scheduler_lock_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduler_lock
+    ADD CONSTRAINT scheduler_lock_pkey PRIMARY KEY (name);
+
+
+--
 -- Name: shift shift_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.shift
     ADD CONSTRAINT shift_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: shift_swap shift_swap_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shift_swap
+    ADD CONSTRAINT shift_swap_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: shift_template shift_template_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.shift_template
+    ADD CONSTRAINT shift_template_pkey PRIMARY KEY (id);
 
 
 --
@@ -6444,6 +7089,55 @@ CREATE INDEX account_store_type_idx ON public.account USING btree (store, type);
 
 
 --
+-- Name: accounting_outbox_reference_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX accounting_outbox_reference_idx ON public.accounting_outbox USING btree ("referenceType", "referenceId");
+
+
+--
+-- Name: accounting_outbox_status_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX accounting_outbox_status_created_idx ON public.accounting_outbox USING btree (status, "createdAt");
+
+
+--
+-- Name: best_selling_productId_store_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX "best_selling_productId_store_unique" ON public.best_selling USING btree ("productId", store) WHERE ("deletedAt" IS NULL);
+
+
+--
+-- Name: business_trip_budget_item_trip_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX business_trip_budget_item_trip_id ON public.business_trip_budget_item USING btree ("tripId");
+
+
+--
+-- Name: business_trip_employee_trip_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX business_trip_employee_trip_id ON public.business_trip_employee USING btree ("tripId");
+
+
+--
+-- Name: business_trip_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX business_trip_status ON public.business_trip USING btree (status);
+
+
+--
+-- Name: business_trip_store; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX business_trip_store ON public.business_trip USING btree (store);
+
+
+--
 -- Name: category_sales_summary_report_date; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6640,6 +7334,20 @@ CREATE INDEX kasir_performance_store_cashier_report_date ON public.kasir_perform
 
 
 --
+-- Name: notification_store_isRead; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX "notification_store_isRead" ON public.notification USING btree (store, "isRead");
+
+
+--
+-- Name: notification_updatedAt; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX "notification_updatedAt" ON public.notification USING btree ("updatedAt");
+
+
+--
 -- Name: order_item_bundle_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6654,6 +7362,13 @@ CREATE INDEX order_item_order_idx ON public.order_item USING btree ("order");
 
 
 --
+-- Name: order_item_product_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX order_item_product_idx ON public.order_item USING btree (product);
+
+
+--
 -- Name: order_promo_campaign_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6661,10 +7376,24 @@ CREATE INDEX order_promo_campaign_id ON public."order" USING btree ("promoCampai
 
 
 --
+-- Name: order_public_token_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX order_public_token_unique ON public."order" USING btree ("publicToken") WHERE ("publicToken" IS NOT NULL);
+
+
+--
 -- Name: order_store_createdAt; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX "order_store_createdAt" ON public."order" USING btree (store, "createdAt");
+
+
+--
+-- Name: order_store_idempotencykey_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX order_store_idempotencykey_unique ON public."order" USING btree (store, "idempotencyKey") WHERE ("idempotencyKey" IS NOT NULL);
 
 
 --
@@ -6892,6 +7621,13 @@ CREATE INDEX promo_usage_store ON public.promo_usage USING gin (store) WHERE ("d
 
 
 --
+-- Name: purchase_payment_po_idempotencykey_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX purchase_payment_po_idempotencykey_unique ON public.purchase_payment USING btree ("purchaseOrder", "idempotencyKey") WHERE ("idempotencyKey" IS NOT NULL);
+
+
+--
 -- Name: queue_queue_number; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6924,6 +7660,41 @@ CREATE INDEX sales_summary_report_date ON public.sales_summary USING btree (repo
 --
 
 CREATE INDEX sales_summary_store_report_date ON public.sales_summary USING btree (store, report_date);
+
+
+--
+-- Name: shift_swap_requester_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shift_swap_requester_id ON public.shift_swap USING btree ("requesterId");
+
+
+--
+-- Name: shift_swap_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shift_swap_status ON public.shift_swap USING btree (status);
+
+
+--
+-- Name: shift_swap_store; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shift_swap_store ON public.shift_swap USING btree (store);
+
+
+--
+-- Name: shift_swap_target_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX shift_swap_target_id ON public.shift_swap USING btree ("targetId");
+
+
+--
+-- Name: split_bill_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX split_bill_order ON public.split_bill USING btree ("order");
 
 
 --
@@ -7074,6 +7845,13 @@ CREATE INDEX supplier_score_supplier_id ON public.supplier_score USING btree ("s
 
 
 --
+-- Name: transaction_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX transaction_order_idx ON public.transaction USING btree ("order");
+
+
+--
 -- Name: uq_supplier_product_supplier_productId; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7115,6 +7893,30 @@ ALTER TABLE ONLY public.accounts_receivable
 
 ALTER TABLE ONLY public.ar_payment
     ADD CONSTRAINT "ar_payment_arId_fkey" FOREIGN KEY ("arId") REFERENCES public.accounts_receivable(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: attendance attendance_shiftId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attendance
+    ADD CONSTRAINT "attendance_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES public.shift(id) ON UPDATE CASCADE;
+
+
+--
+-- Name: attendance attendance_store_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attendance
+    ADD CONSTRAINT attendance_store_fkey FOREIGN KEY (store) REFERENCES public.location(id) ON UPDATE CASCADE;
+
+
+--
+-- Name: attendance attendance_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attendance
+    ADD CONSTRAINT "attendance_userId_fkey" FOREIGN KEY ("userId") REFERENCES public."user"(id) ON UPDATE CASCADE;
 
 
 --
@@ -7502,6 +8304,38 @@ ALTER TABLE ONLY public."order"
 
 
 --
+-- Name: overtime overtime_decidedBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.overtime
+    ADD CONSTRAINT "overtime_decidedBy_fkey" FOREIGN KEY ("decidedBy") REFERENCES public."user"(id) ON UPDATE CASCADE;
+
+
+--
+-- Name: overtime overtime_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.overtime
+    ADD CONSTRAINT overtime_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public."user"(id) ON UPDATE CASCADE;
+
+
+--
+-- Name: overtime overtime_shift_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.overtime
+    ADD CONSTRAINT overtime_shift_id_fkey FOREIGN KEY (shift_id) REFERENCES public.shift(id) ON UPDATE CASCADE;
+
+
+--
+-- Name: overtime overtime_store_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.overtime
+    ADD CONSTRAINT overtime_store_fkey FOREIGN KEY (store) REFERENCES public.location(id) ON UPDATE CASCADE;
+
+
+--
 -- Name: position position_departmentId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7555,6 +8389,14 @@ ALTER TABLE ONLY public.product
 
 ALTER TABLE ONLY public.product
     ADD CONSTRAINT "product_currencyId_fkey" FOREIGN KEY ("currencyId") REFERENCES public.currency(id);
+
+
+--
+-- Name: product_review product_review_productId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.product_review
+    ADD CONSTRAINT "product_review_productId_fkey" FOREIGN KEY ("productId") REFERENCES public.product(id) ON UPDATE CASCADE;
 
 
 --
@@ -7750,6 +8592,14 @@ ALTER TABLE ONLY public.sales_return
 
 
 --
+-- Name: split_bill split_bill_order_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.split_bill
+    ADD CONSTRAINT split_bill_order_fkey FOREIGN KEY ("order") REFERENCES public."order"(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
 -- Name: stock_history stock_history_ingredient_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7878,62 +8728,8 @@ ALTER TABLE ONLY public."user"
 
 
 --
--- Incremental schema additions matching db/migrations (kept in sync so the
--- CI/globalSetup cloned test schema has the tables/columns the new tests need).
---
-
-ALTER TABLE ONLY public."order"
-    ADD COLUMN "idempotencyKey" character varying(255);
-
-CREATE UNIQUE INDEX order_store_idempotencyKey_unique
-    ON public."order" USING btree (store, "idempotencyKey")
-    WHERE "idempotencyKey" IS NOT NULL;
-
-
---
--- Name: order_daily_counter; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.order_daily_counter (
-    store integer NOT NULL,
-    "counterDate" date NOT NULL,
-    "lastValue" integer DEFAULT 0 NOT NULL,
-    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
-);
-
-ALTER TABLE ONLY public.order_daily_counter
-    ADD CONSTRAINT order_daily_counter_pkey PRIMARY KEY (store, "counterDate");
-
-
---
--- Name: scheduler_lock; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.scheduler_lock (
-    name character varying(255) NOT NULL,
-    "lockedUntil" timestamp with time zone,
-    "lockedBy" character varying(255),
-    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
-);
-
-ALTER TABLE ONLY public.scheduler_lock
-    ADD CONSTRAINT scheduler_lock_pkey PRIMARY KEY (name);
-
-
-ALTER TABLE ONLY public.purchase_order
-    ADD COLUMN "additionalCostNotes" character varying(255);
-
-CREATE UNIQUE INDEX best_selling_productId_store_unique
-    ON public.best_selling USING btree ("productId", store)
-    WHERE "deletedAt" IS NULL;
-
-CREATE INDEX order_item_product_idx
-    ON public.order_item USING btree (product);
-
-
---
 -- PostgreSQL database dump complete
 --
 
-\unrestrict WZc702mJS1OSzoS8LyEUnCFU5i1viFXyFafbioRyq76Bdsn6M3qZVY6Q3XQJcXe
+\unrestrict UmXaojvgJ2CHsBegf1Cg8Iew9HfPxeBmc4kMdYd6KaD6PU8UE4fHyRMSUQfMmL5
 
