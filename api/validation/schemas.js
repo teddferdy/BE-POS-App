@@ -231,7 +231,20 @@ exports.createOrderSchema = z.object({
   // Optional client-generated key (e.g. a UUID minted once per checkout
   // attempt) — a retried/duplicate submit with the same key returns the
   // order already created instead of creating a second one.
-  idempotencyKey: z.string().max(255).optional().nullable()
+  idempotencyKey: z.string().max(255).optional().nullable(),
+  // Bare type coercion ONLY — no range/negativity check here. The full
+  // cash-tender invariant (cashReceived >= amountDue, changeGiven >= 0,
+  // cashReceived - changeGiven === amountDue) must return 422 (semantic
+  // validation), but this schema's ZodError handler always resolves to
+  // 400 (see api/middleware/validate.js) — so every semantic check for
+  // these two fields lives in validateCashTender() in the controller,
+  // never here. A non-numeric string coerces to NaN and is caught there.
+  cashAmount: z.any().transform((v) =>
+    v === '' || v === null || v === undefined ? null : Number(v)
+  ).optional(),
+  changeAmount: z.any().transform((v) =>
+    v === '' || v === null || v === undefined ? null : Number(v)
+  ).optional()
 })
 
 exports.updateOrderStatusSchema = z.object({
@@ -873,6 +886,42 @@ exports.updateCashRegisterSchema = z.object({
   notes: z.string().optional().default('')
 })
 
+// ===================== Cash Movement =====================
+// `amount > 0` and "notes required when reasonCode='other'" are
+// deliberately NOT enforced here via .refine()/.superRefine() — every
+// ZodError this schema could throw resolves to 400 via
+// api/middleware/validate.js, but the F2 blueprint's API contract
+// specifies 422 (semantic validation) for both of these cases. They are
+// enforced in the createMovement controller instead, which throws with
+// e.statusCode = 422. This schema only validates shape/type.
+exports.createCashMovementSchema = z.object({
+  type: z.enum(['cash_in', 'cash_out']),
+  reasonCode: z.enum([
+    'float_topup',
+    'bank_drop',
+    'petty_cash',
+    'owner_draw',
+    'change_fund',
+    'correction',
+    'other'
+  ]),
+  amount: z.any().transform((v) => Number(v)),
+  notes: z.string().optional().default(''),
+  idempotencyKey: z.string().max(255).optional().nullable()
+})
+
+exports.decideCashMovementSchema = z.object({
+  decision: z.enum(['approve', 'reject'])
+})
+
+exports.reverseCashMovementSchema = z.object({
+  notes: z.string().optional().default('')
+})
+
+exports.decideVarianceSchema = z.object({
+  decision: z.enum(['approve', 'reject'])
+})
+
 // ===================== BOM =====================
 exports.createBomSchema = z.object({
   productId: strToNum(),
@@ -1510,11 +1559,13 @@ exports.createSalesReturnSchema = z.object({
   items: z.array(returnItemSchema).min(1, 'At least one item required'),
   reason: z.string().min(1, 'Reason is required'),
   returnedBy: z.union([strToNum(), z.string()]).optional(),
-  refundMethod: z.string().max(50).optional()
+  refundMethod: z.string().max(50).optional(),
+  idempotencyKey: z.string().max(255).optional().nullable()
 })
 
 exports.approveSalesReturnSchema = z.object({
-  id: strToNum()
+  id: strToNum(),
+  refundReference: z.string().max(255).optional().nullable()
 })
 
 exports.rejectSalesReturnSchema = z.object({
@@ -1562,4 +1613,28 @@ exports.updateOvertimeStatusSchema = z.object({
 exports.postOvertimePayrollSchema = z.object({
   store: strToNumNullable().optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/, 'Bulan harus format YYYY-MM')
+})
+
+// ===================== Parked Cart (F3) =====================
+// `cart.items` is intentionally NOT length-validated here (no .min(1)) —
+// an empty cart must be rejected with 422 (semantic validation), and
+// every ZodError in this codebase resolves to 400 regardless of content
+// (see api/middleware/validate.js). The empty-cart check lives in the
+// controller. Item shape is a passthrough snapshot — this payload is
+// display-only and is never re-priced/re-validated from here; the real
+// checkout still re-prices everything fresh via /order/create.
+exports.createParkedCartSchema = z.object({
+  tableId: strToNumNullable().optional(),
+  customerId: strToNumNullable().optional(),
+  customerName: z.string().optional().nullable(),
+  customerPhone: z.string().optional().nullable(),
+  discountId: strToNumNullable().optional(),
+  promoCode: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  cart: z.object({
+    items: z.array(z.object({}).passthrough()),
+    totalCovers: strToNumNullable().optional(),
+    orderType: z.string().optional().nullable()
+  }),
+  idempotencyKey: z.string().max(255).optional().nullable()
 })

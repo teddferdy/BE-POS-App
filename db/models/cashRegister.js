@@ -39,6 +39,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.JSONB,
         defaultValue: {}
       },
+      // Net cash retained in the drawer from cash sales (cashReceived minus
+      // changeGiven), NOT gross customer tender. This is the figure the
+      // expectedCash formula actually uses. `totalSales` above keeps its
+      // separate, pre-existing meaning (gross paid-order sales across every
+      // payment method) — the two must never be conflated. Do not compute
+      // this by summing raw transaction.cashReceived alone.
+      cashSalesReceived: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
       status: {
         type: DataTypes.ENUM('open', 'closed'),
         defaultValue: 'open'
@@ -51,6 +61,27 @@ module.exports = (sequelize, DataTypes) => {
       },
       notes: {
         type: DataTypes.TEXT
+      },
+      variance: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      varianceApprovalStatus: {
+        type: DataTypes.ENUM(
+          'auto_approved',
+          'pending_approval',
+          'approved',
+          'rejected'
+        ),
+        allowNull: true
+      },
+      approvedBy: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      approvedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
       },
       createdBy: {
         type: DataTypes.INTEGER
@@ -79,6 +110,10 @@ module.exports = (sequelize, DataTypes) => {
     cashRegister.belongsTo(models.location, {
       foreignKey: 'store',
       as: 'storeData'
+    })
+    cashRegister.belongsTo(models.user, {
+      foreignKey: 'approvedBy',
+      as: 'approvedByData'
     })
   }
 

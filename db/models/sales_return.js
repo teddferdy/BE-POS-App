@@ -24,6 +24,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       status: {
         type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+        allowNull: false,
         defaultValue: 'pending'
       },
       reason: {
@@ -42,6 +43,32 @@ module.exports = (sequelize, DataTypes) => {
       },
       createdBy: {
         type: DataTypes.INTEGER
+      },
+      // Populated only inside approve(), atomically with the status
+      // transition — never accepted from create input, never editable
+      // afterward (no edit endpoint exists).
+      approvedBy: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      approvedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+      },
+      // Optional external reference (bank/gateway/receipt number) an
+      // approver may record when executing the refund. Applies to any
+      // refundMethod, not just non-cash. Immutable once set.
+      refundReference: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
+      // Create-time idempotency — scoped (order, idempotencyKey) via a
+      // partial unique index, not (store, idempotencyKey): a return is
+      // always about exactly one order, which already belongs to exactly
+      // one store.
+      idempotencyKey: {
+        type: DataTypes.STRING,
+        allowNull: true
       }
     },
     {
@@ -76,6 +103,10 @@ module.exports = (sequelize, DataTypes) => {
     sales_return.belongsTo(models.user, {
       foreignKey: 'createdBy',
       as: 'createdByUser'
+    })
+    sales_return.belongsTo(models.user, {
+      foreignKey: 'approvedBy',
+      as: 'approvedByData'
     })
   }
 

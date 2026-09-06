@@ -58,6 +58,7 @@ const stockOpnameRoutes = require('./routes/stockOpname')
 const expenseCategoryRoutes = require('./routes/expenseCategory')
 const expenseRoutes = require('./routes/expense')
 const cashRegisterRoutes = require('./routes/cashRegister')
+const parkedCartRoutes = require('./routes/parkedCart')
 const reportRoutes = require('./routes/report')
 const splitBillRoutes = require('./routes/splitBill')
 const memberTierRoutes = require('./routes/memberTier')
@@ -218,6 +219,7 @@ const routes = [
   { path: '/expense-category', route: expenseCategoryRoutes },
   { path: '/expense', route: expenseRoutes },
   { path: '/cash-register', route: cashRegisterRoutes },
+  { path: '/parked-cart', route: parkedCartRoutes },
   { path: '/report', route: reportRoutes },
   { path: '/split-bill', route: splitBillRoutes },
   { path: '/member-tier', route: memberTierRoutes },
