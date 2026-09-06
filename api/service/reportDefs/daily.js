@@ -90,11 +90,35 @@ const getData = async (req) => {
     const expenseMap = {}
     for (const row of dailyExpenses) expenseMap[row.tanggal] = Number(row.totalExpense || 0)
 
+    // F4: refund impact, sourced directly from approved sales_return rows
+    // — the same figure the sales-return GL journal already posts
+    // (accountingService.postSalesReturnJournal) — never inferred from
+    // order.paymentStatus, which cannot be trusted for this purpose (see
+    // the cashRegister.js cash-ledger fix for why). Grouped by the
+    // return's own approval date, independent of the underlying order's
+    // current status.
+    let refundConditions = `sr.status = 'approved' AND sr."approvedAt" IS NOT NULL`
+    const refundReplacements = {}
+    if (store) { refundConditions += ` AND sr."store" = :store`; refundReplacements.store = store }
+    if (startDate) { refundConditions += ` AND sr."approvedAt" >= :startDate`; refundReplacements.startDate = replacements.startDate }
+    if (endDate) { refundConditions += ` AND sr."approvedAt" <= :endDate`; refundReplacements.endDate = replacements.endDate }
+
+    const dailyRefunds = await db.sequelize.query(
+      `SELECT DATE(sr."approvedAt") as tanggal, COALESCE(SUM(sr."refundAmount"), 0) as "totalRefund"
+       FROM sales_return sr
+       WHERE ${refundConditions}
+       GROUP BY DATE(sr."approvedAt")`,
+      { replacements: refundReplacements, type: db.sequelize.QueryTypes.SELECT }
+    )
+    const refundMap = {}
+    for (const row of dailyRefunds) refundMap[row.tanggal] = Number(row.totalRefund || 0)
+
     for (const row of dailyOrders) {
       const tanggal = row.tanggal
       const totalPenjualan = Number(row.totalPenjualan || 0)
       const totalDiscount = Number(row.totalDiscount || 0)
-      const netRevenue = totalPenjualan - totalDiscount
+      const totalRefund = refundMap[tanggal] || 0
+      const netRevenue = totalPenjualan - totalDiscount - totalRefund
       const totalHpp = hppMap[tanggal] || 0
       const totalExpense = expenseMap[tanggal] || 0
       const grossProfit = netRevenue - totalHpp
@@ -104,6 +128,7 @@ const getData = async (req) => {
         tanggal,
         totalTransaksi: Number(row.totalTransaksi || 0),
         totalPenjualanBersih: netRevenue,
+        totalRefund,
         totalHpp,
         foodCostPersen,
         grossProfit,

@@ -47,6 +47,8 @@ const makeReturn = async ({ order, qty, refundAmount }) => {
   return ret
 }
 
+let adminUser = null
+
 beforeAll(async () => {
   location = await db.location.create({ name: 'SR_FLOW_STORE', status: 'active' })
   category = await db.category.create({ name: 'SR_FLOW_CATEGORY' })
@@ -61,8 +63,20 @@ beforeAll(async () => {
     store: location.id,
     stock: product.stock
   })
+  // A real user row is required now that approve() populates the
+  // FK-constrained approvedBy column (F4) — a synthetic, unbacked JWT id
+  // previously worked only because nothing in this flow wrote it to an
+  // FK column before.
+  adminUser = await db.user.create({
+    userName: 'admin_sr_flow',
+    email: 'admin_sr_flow@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active'
+  })
   adminToken = jwt.sign(
-    { id: 7201, userName: 'admin_sr_flow', roleType: 'admin', store: location.id },
+    { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: location.id },
     JWT_SECRET
   )
 })
@@ -79,6 +93,7 @@ afterAll(async () => {
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })
+  await db.user.destroy({ where: { id: adminUser?.id }, force: true })
   await db.location.destroy({ where: { id: location?.id }, force: true })
 })
 
@@ -127,8 +142,9 @@ describe('PATCH /sales-return/approve and /reject', () => {
 
     const statuses = [r1.status, r2.status].sort()
     // One wins (200), the other must see the now-'approved' status and be
-    // rejected with 400 — not both silently succeed.
-    expect(statuses).toEqual([200, 400])
+    // rejected with 409 (business conflict — F4's standardized status
+    // code, was 400) — not both silently succeed.
+    expect(statuses).toEqual([200, 409])
 
     const afterStock = await db.product.findByPk(product.id)
     expect(afterStock.stock).toBe(beforeStock.stock + 3)
@@ -162,14 +178,14 @@ describe('PATCH /sales-return/approve and /reject', () => {
     if (finalRet.status === 'approved') {
       // Approve won the race: exactly one refund txn must exist.
       expect(approveRes.status).toBe(200)
-      expect(rejectRes.status).toBe(400)
+      expect(rejectRes.status).toBe(409)
       expect(refundTxns.length).toBe(1)
     } else {
       // Reject won the race: approve must have been blocked, and no
       // refund/stock-restore side effect may exist for a rejected return.
       expect(finalRet.status).toBe('rejected')
       expect(rejectRes.status).toBe(200)
-      expect(approveRes.status).toBe(400)
+      expect(approveRes.status).toBe(409)
       expect(refundTxns.length).toBe(0)
     }
   })
@@ -188,7 +204,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
       .patch(`/sales-return/reject/${ret.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ id: ret.id })
-    expect(rejectRes.status).toBe(400)
+    expect(rejectRes.status).toBe(409)
 
     const finalRet = await db.sales_return.findByPk(ret.id)
     expect(finalRet.status).toBe('approved')
@@ -249,6 +265,11 @@ describe('PATCH /sales-return/approve and /reject', () => {
     expect(afterA.stock).toBe(beforeA.stock + 2)
     expect(afterB.stock).toBe(beforeB.stock + 1)
 
+    // otherProduct now has sales_return_item history referencing it — the
+    // FK is RESTRICT (F4), so that history must go first, matching the
+    // new financial-history-integrity guarantee under test elsewhere.
+    await db.sales_return_item.destroy({ where: { salesReturn: ret.id }, force: true })
+    await db.sales_return.destroy({ where: { id: ret.id }, force: true })
     await db.product.destroy({ where: { id: otherProduct.id }, force: true })
   })
 
@@ -285,7 +306,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
       // and refused — the return's own 3-unit restore must NOT also
       // have applied on top.
       expect(cancelRes.status).toBe(200)
-      expect(approveRes.status).toBe(400)
+      expect(approveRes.status).toBe(409)
       expect(finalReturn.status).toBe('pending')
       expect(afterStock.stock).toBe(beforeStock.stock + 10)
       expect(refundTxns.length).toBe(0)

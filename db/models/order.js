@@ -167,6 +167,14 @@ module.exports = (sequelize, DataTypes) => {
       publicToken: {
         type: DataTypes.STRING(64),
         allowNull: true
+      },
+      // Which register was open (if any) at the moment this order was
+      // paid — resolved server-side, never client-supplied. Null for
+      // historical orders (pre-F2) and for orders created via the QR
+      // self-order path, which is never attributed to a register.
+      cashRegisterId: {
+        type: DataTypes.INTEGER,
+        allowNull: true
       }
     },
     {

@@ -83,6 +83,34 @@ module.exports = (sequelize, DataTypes) => {
       dailyTarget: {
         type: DataTypes.INTEGER,
         defaultValue: 0
+      },
+      // Cash-out movements above this amount require approval before
+      // becoming financially effective. Null means "use the built-in
+      // default" (500000), applied in application code, not here.
+      cashOutApprovalThreshold: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      // Absolute variance at register close within this amount auto-
+      // approves; beyond it, a manager decision is required. Null means
+      // "use the built-in default" (25000).
+      cashVarianceThreshold: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      // Max concurrently-active parked carts for this store. Null means
+      // "use the built-in default" (20), applied in application code.
+      // 0/negative are treated as misconfiguration and also fall back to
+      // the default — see api/controller/parkedCart.js.
+      maxActiveParkedCarts: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      // Minutes a parked cart stays active before it is (lazily)
+      // considered expired. Null means "use the built-in default" (120).
+      parkedCartTtlMinutes: {
+        type: DataTypes.INTEGER,
+        allowNull: true
       }
     },
     {

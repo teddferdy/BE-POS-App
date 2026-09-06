@@ -8,7 +8,7 @@ const Product = db.product
 const Discount = db.discount
 const { Op } = require('sequelize')
 const { createNotification } = require('../../utils/createNotification')
-const { createAudit } = require('../../utils/auditLog')
+const { createAudit, redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
 const batchService = require('../service/batchService')
 const { adjustMemberPoints, maybeUpgradeMemberTier } = require('../service/loyaltyService')
@@ -805,7 +805,9 @@ exports.createOrder = async (req, res) => {
     currencyCode,
     exchangeRate,
     redeemedPoints,
-    idempotencyKey
+    idempotencyKey,
+    cashAmount,
+    changeAmount
   } = req.body
 
   try {
@@ -868,6 +870,15 @@ exports.createOrder = async (req, res) => {
       serviceChargeRate
     })
 
+    // Fails fast, before any DB write is attempted, if the cash tender
+    // is physically impossible or malformed.
+    const { cashReceived, changeGiven } = validateCashTender({
+      paymentMethod,
+      cashAmount,
+      changeAmount,
+      amountDue: totals.totalPrice
+    })
+
     const orderData = {
       orderNumber,
       store,
@@ -915,6 +926,18 @@ exports.createOrder = async (req, res) => {
     // sees "order exists" and never re-attempts the missing steps).
     let accountingJobs = null
     const order = await db.sequelize.transaction(async (t) => {
+      // Deliberately a plain, unlocked read — the F2 blueprint's accepted
+      // design trade-off. This is inside the checkout transaction (moved
+      // here from before it opened) specifically to shrink the window in
+      // which a concurrent register close() could commit without ever
+      // seeing this order, but it does NOT eliminate that window and must
+      // never be described as doing so. See F2 blueprint §10.
+      const openRegister = await db.cashRegister.findOne({
+        where: { store, status: 'open' },
+        transaction: t
+      })
+      orderData.cashRegisterId = openRegister?.id || null
+
       orderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await Order.create(orderData, { transaction: t })
 
@@ -943,7 +966,9 @@ exports.createOrder = async (req, res) => {
         paymentMethod,
         totals.totalPrice,
         req.user?.id,
-        t
+        t,
+        cashReceived,
+        changeGiven
       )
       await createInitialOrderStatus(
         createdOrder,
@@ -1299,12 +1324,76 @@ const deductStockForOrder = async (
   }
 }
 
+// Cash tender invariant (F2). If explicit cash values are supplied, they
+// must satisfy: cashReceived >= amountDue, changeGiven >= 0, and
+// cashReceived - changeGiven === amountDue exactly. Omitting both is the
+// backward-compatible exact-tender fallback. Supplying only one, or
+// supplying either for a non-cash payment, is rejected. This intentionally
+// throws a plain Error with .statusCode = 422 rather than using a Zod
+// refine, because amountDue (totals.totalPrice) isn't known until the
+// controller has already computed discounts/tax/service-charge, and
+// because every ZodError in this codebase resolves to 400 regardless of
+// content (see api/middleware/validate.js) — this invariant must be 422.
+function validateCashTender({ paymentMethod, cashAmount, changeAmount, amountDue }) {
+  const isCash = paymentMethod === 'cash'
+  const hasCash = cashAmount !== undefined && cashAmount !== null
+  const hasChange = changeAmount !== undefined && changeAmount !== null
+
+  if (!isCash) {
+    if (hasCash || hasChange) {
+      const e = new Error('cashAmount/changeAmount are only valid for cash payments')
+      e.statusCode = 422
+      throw e
+    }
+    return { cashReceived: null, changeGiven: 0 }
+  }
+
+  if (!hasCash && !hasChange) {
+    // Backward-compatible exact-tender fallback — explicitly allowed.
+    return { cashReceived: amountDue, changeGiven: 0 }
+  }
+
+  if (!hasCash || !hasChange) {
+    const e = new Error('Both cashAmount and changeAmount are required when either is supplied')
+    e.statusCode = 422
+    throw e
+  }
+
+  const cashReceived = Number(cashAmount)
+  const changeGiven = Number(changeAmount)
+
+  if (!Number.isFinite(cashReceived) || !Number.isFinite(changeGiven)) {
+    const e = new Error('cashAmount/changeAmount must be numeric')
+    e.statusCode = 422
+    throw e
+  }
+  if (changeGiven < 0) {
+    const e = new Error('changeGiven cannot be negative')
+    e.statusCode = 422
+    throw e
+  }
+  if (cashReceived < amountDue) {
+    const e = new Error('cashAmount is less than the amount due')
+    e.statusCode = 422
+    throw e
+  }
+  if (cashReceived - changeGiven !== amountDue) {
+    const e = new Error('cashAmount minus changeAmount must exactly equal the amount due')
+    e.statusCode = 422
+    throw e
+  }
+
+  return { cashReceived, changeGiven }
+}
+
 const recordOrderPayment = async (
   order,
   paymentMethod,
   totalPrice,
   userId,
-  transaction
+  transaction,
+  cashReceived,
+  changeGiven
 ) => {
   if (!paymentMethod) return
   await db.transaction.create(
@@ -1312,6 +1401,8 @@ const recordOrderPayment = async (
       order: order.id,
       typePayment: paymentMethod,
       amount: totalPrice,
+      cashReceived: cashReceived ?? null,
+      changeGiven: changeGiven ?? 0,
       createdBy: userId
     },
     { transaction }
@@ -1883,6 +1974,21 @@ exports.updateOrderStatus = async (req, res) => {
         },
         { transaction: t }
       )
+
+      if (isCancelling) {
+        await redactAndAudit(req, {
+          action: AUDIT_ACTIONS.VOID,
+          entity: 'order',
+          entityId: id,
+          description: `Order ${order.orderNumber || id} voided/cancelled (was ${oldStatus})`,
+          oldValues: { status: oldStatus, paymentStatus: oldPaymentStatus },
+          newValues: {
+            status,
+            paymentStatus: willBeRefunded ? 'refunded' : oldPaymentStatus
+          },
+          transaction: t
+        })
+      }
 
       await OrderStatus.create(
         {

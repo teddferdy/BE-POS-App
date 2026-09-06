@@ -38,6 +38,19 @@ module.exports = (sequelize, DataTypes) => {
       },
       salesReturnId: {
         type: DataTypes.INTEGER
+      },
+      // Cash tender only. Net cash retained in the drawer for this row is
+      // (cashReceived - changeGiven) — NOT cashReceived alone. Null for
+      // non-cash tenders. See cashRegister.cashSalesReceived for the
+      // aggregate formula that consumes these two fields.
+      cashReceived: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      changeGiven: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0
       }
     },
     {

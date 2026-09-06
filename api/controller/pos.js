@@ -2,6 +2,8 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const batchService = require('../service/batchService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
+const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 const {
   getConnectionStatus,
   sendDocument,
@@ -51,6 +53,49 @@ const orderAttrs = async () =>
   (await hasOrderCol('promoCampaignId'))
     ? undefined
     : { exclude: ['promoCampaignId'] }
+
+// Postgres JSONB does not preserve key insertion order — a value read
+// back from the database can have different key ordering than a freshly
+// parsed request body even when every field is identical, so a plain
+// JSON.stringify comparison would false-positive as "different". Sorting
+// keys recursively before stringifying makes the comparison
+// order-independent. Same pattern established in F3 (parkedCart.js).
+function canonicalJSON(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJSON).join(',')}]`
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort()
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJSON(value[k])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+// Normalizes a sales-return item to the same shape regardless of whether
+// it came from the raw request body (productId/orderItemId) or from
+// persisted sales_return_item rows (product/orderItem) — required so the
+// idempotency comparison isn't fooled by field-name differences between
+// the two representations of "the same" item.
+function canonicalReturnItem(item) {
+  return {
+    product: item.product ?? item.productId ?? null,
+    orderItem: item.orderItem ?? item.orderItemId ?? null,
+    qty: Number(item.qty) || 0,
+    unit: item.unit || 'pcs',
+    conversionToBase: Number(item.conversionToBase || 1),
+    notes: item.notes || null
+  }
+}
+
+function salesReturnPayloadMatches(existing, existingItems, incoming) {
+  return (
+    (existing.reason || '').trim() === (incoming.reason || '').trim() &&
+    (existing.refundMethod || null) === (incoming.refundMethod || null) &&
+    (existing.returnedBy ?? null) === (incoming.returnedBy ?? null) &&
+    canonicalJSON(existingItems.map(canonicalReturnItem)) ===
+      canonicalJSON((incoming.items || []).map(canonicalReturnItem))
+  )
+}
 
 const posController = {
   // Barcode lookup untuk POS scan
@@ -279,6 +324,15 @@ const posController = {
           )
         }
 
+        await redactAndAudit(req, {
+          action: AUDIT_ACTIONS.CREATE,
+          entity: 'stock_transfer',
+          entityId: transfer.id,
+          description: `Stock transfer from store ${fromStore} to store ${toStore}`,
+          newValues: transfer,
+          transaction: t
+        })
+
         return transfer
         })
       )
@@ -430,6 +484,16 @@ const posController = {
         }
 
         await transfer.update({ status: 'received' }, { transaction: t })
+
+        await redactAndAudit(req, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity: 'stock_transfer',
+          entityId: transfer.id,
+          description: 'Stock transfer received',
+          oldValues: { status: 'sent' },
+          newValues: { status: 'received' },
+          transaction: t
+        })
         })
       )
 
@@ -537,6 +601,16 @@ const posController = {
         }
 
         await transfer.update({ status: 'cancelled' }, { transaction: t })
+
+        await redactAndAudit(req, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity: 'stock_transfer',
+          entityId: transfer.id,
+          description: 'Stock transfer cancelled',
+          oldValues: { status: 'sent' },
+          newValues: { status: 'cancelled' },
+          transaction: t
+        })
         })
       )
 
@@ -796,6 +870,16 @@ const posController = {
           { transaction: t }
         )
 
+        await redactAndAudit(req, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity: 'stock_adjustment',
+          entityId: productId,
+          description: reason || 'Stock adjustment',
+          oldValues: { stock: oldStock },
+          newValues: { stock: newStock, qty, reason },
+          transaction: t
+        })
+
         return { product, adjustment: { oldStock, newStock, qty, reason } }
       })
 
@@ -824,25 +908,25 @@ const posController = {
   async returnSalesOrder(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
-      const { items, reason, returnedBy, refundMethod } = req.body
+      const { items, reason, returnedBy, refundMethod, idempotencyKey } = req.body
 
       if (!items || items.length === 0) {
-        return res.status(400).json({
+        return res.status(422).json({
           success: false,
           message: 'At least one item is required'
         })
       }
 
       if (!reason || reason.trim() === '') {
-        return res.status(400).json({
+        return res.status(422).json({
           success: false,
           message: 'Return reason is required'
         })
       }
 
       const oAttrs = await orderAttrs()
-      const order = await db.order.findByPk(id, {
+      const order = await db.order.findOne({
+        where: scalarStoreScope(req, { id }),
         include: [{ model: db.order_item, as: 'items' }],
         attributes: oAttrs ? oAttrs : undefined
       })
@@ -853,128 +937,316 @@ const posController = {
           .json({ success: false, message: 'Order not found' })
       }
 
-      if (order.paymentStatus !== 'paid') {
-        return res.status(400).json({
+      // F4 discrepancy note: the pre-existing gate here was
+      // `paymentStatus !== 'paid'`. approve()'s recompute (unchanged)
+      // sets 'partial' the moment any refund — even a small one — is
+      // approved, since it derives status from SUM(transaction.amount)
+      // vs totalPrice. That gate therefore made a second, legitimate
+      // partial return on an already-partially-refunded order
+      // impossible, which directly contradicts the required "cumulative
+      // refunds reaching exactly the collected amount" scenario (a
+      // ledger-based remainingRefundable check is pointless if a
+      // status-based gate blocks the second request before it's ever
+      // evaluated). 'partial' is included here for that reason; the
+      // authoritative amount/quantity checks below remain the real
+      // safety mechanism regardless of which of these two statuses the
+      // order is in.
+      if (!['paid', 'partial'].includes(order.paymentStatus)) {
+        return res.status(409).json({
           success: false,
-          message: 'Only paid orders can be returned'
+          message: 'Only paid or partially-refunded orders can be returned'
         })
       }
 
-      if (store && order.store !== parseInt(store)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Cannot return order from different store'
+      // Fast-path idempotency check, outside the transaction — mirrors
+      // order.create/cashMovement.createMovement/parkedCart.create. Same
+      // key + identical payload replays the original; same key +
+      // different payload is a 409, never silently returns stale/wrong
+      // data. Scoped (order, idempotencyKey), not (store, ...): a return
+      // is always about exactly one order.
+      // Resolved to the SAME effective values create() itself persists
+      // (both refundMethod and returnedBy fall back to a default when
+      // omitted) — comparing against the raw, possibly-undefined request
+      // fields would false-positive as "different" the moment a client
+      // legitimately omits either one, since the persisted row always
+      // has the resolved value, never undefined.
+      const effectiveReturnedBy = returnedBy || req.user?.id || null
+      const effectiveRefundMethod = refundMethod || order.paymentMethod || 'cash'
+
+      if (idempotencyKey) {
+        const existing = await db.sales_return.findOne({
+          where: { order: id, idempotencyKey },
+          include: [{ model: db.sales_return_item, as: 'items' }]
         })
+        if (existing) {
+          if (
+            salesReturnPayloadMatches(existing, existing.items, {
+              reason,
+              refundMethod: effectiveRefundMethod,
+              returnedBy: effectiveReturnedBy,
+              items
+            })
+          ) {
+            return res.status(200).json({
+              success: true,
+              message: 'Sales return request already recorded',
+              data: existing
+            })
+          }
+          return res.status(409).json({
+            success: false,
+            message: 'idempotencyKey already used with a different payload'
+          })
+        }
       }
 
-      const existingReturns = await db.sales_return.findAll({
-        where: { order: id, status: { [Op.ne]: 'rejected' } },
-        include: [{ model: db.sales_return_item, as: 'items' }]
-      })
-
-      const returnedQtyMap = {}
-      existingReturns.forEach((ret) => {
-        ret.items.forEach((item) => {
-          if (item.orderItem) {
-            returnedQtyMap[item.orderItem] =
-              (returnedQtyMap[item.orderItem] || 0) + Number(item.qty)
-          }
-        })
-      })
-
-      const result = await db.sequelize.transaction(async (t) => {
-        let totalRefund = 0
-        const returnItemsData = []
-
-        for (const reqItem of items) {
-          const qty = Number(reqItem.qty)
-          if (!qty || qty <= 0) {
-            throw new Error(`Invalid quantity for product ${reqItem.productId}`)
-          }
-
-          const originalItem = order.items.find(
-            (oi) =>
-              oi.product === reqItem.productId || oi.id === reqItem.orderItemId
-          )
-          if (!originalItem) {
-            throw new Error(
-              `Product ${reqItem.productId} not found in original order`
-            )
-          }
-
-          const product = await db.product.findByPk(reqItem.productId, {
+      let result
+      try {
+        result = await db.sequelize.transaction(async (t) => {
+          // Bare-column lock only — no `include` — same Postgres
+          // FOR-UPDATE-vs-outer-join constraint F2/F3 hit elsewhere. This
+          // lock is what serializes the cumulative quantity/amount
+          // validation below against any other concurrent create() call
+          // for the same order (the previous code computed this from an
+          // unlocked read taken before the transaction even opened — a
+          // classic check-then-insert race). order_item rows are
+          // immutable once created, so re-reading them unlocked below is
+          // safe; only the order's own mutable state (paymentStatus) and
+          // the set of sibling sales_return rows need the lock.
+          const lockedOrder = await db.order.findByPk(id, {
+            lock: t.LOCK.UPDATE,
             transaction: t
           })
-          if (!product) {
-            throw new Error(`Product ${reqItem.productId} does not exist`)
+          if (!lockedOrder || !['paid', 'partial'].includes(lockedOrder.paymentStatus)) {
+            const e = new Error('Only paid or partially-refunded orders can be returned')
+            e.statusCode = 409
+            throw e
           }
 
-          const alreadyReturned = returnedQtyMap[originalItem.id] || 0
-          if (alreadyReturned + qty > originalItem.quantity) {
-            throw new Error(
-              `Cumulative return quantity for ${originalItem.productName} (${alreadyReturned + qty}) exceeds original quantity (${originalItem.quantity})`
-            )
-          }
-
-          const pricePerUnit = Math.floor(
-            originalItem.totalPrice / originalItem.quantity
-          )
-          const itemRefund = pricePerUnit * qty
-          totalRefund += itemRefund
-
-          returnItemsData.push({
-            product: reqItem.productId,
-            orderItem: originalItem.id,
-            qty: qty,
-            price: pricePerUnit,
-            unit: reqItem.unit || originalItem.unit || 'pcs',
-            conversionToBase: reqItem.conversionToBase || 1,
-            notes: reqItem.notes || null
+          const existingReturns = await db.sales_return.findAll({
+            where: { order: id, status: { [Op.ne]: 'rejected' } },
+            include: [{ model: db.sales_return_item, as: 'items' }],
+            transaction: t
           })
+
+          const returnedQtyMap = {}
+          let pendingReservedAmount = 0
+          existingReturns.forEach((ret) => {
+            ret.items.forEach((item) => {
+              if (item.orderItem) {
+                returnedQtyMap[item.orderItem] =
+                  (returnedQtyMap[item.orderItem] || 0) + Number(item.qty)
+              }
+            })
+            if (ret.status === 'pending') {
+              pendingReservedAmount += Number(ret.refundAmount) || 0
+            }
+          })
+
+          // Authoritative amount invariant, computed from the payment
+          // ledger — never order.totalPrice. totalCollected/totalRefunded
+          // already cover split tender, cash, non-cash, and both
+          // refund-producing mechanisms in this codebase (this flow and
+          // order cancellation), since every transaction row represents
+          // real, completed money movement. Other PENDING returns on this
+          // order haven't hit the ledger yet, so their requested amount
+          // is reserved separately (pendingReservedAmount) — otherwise
+          // two pending requests could each look individually valid
+          // against the same untouched remaining balance.
+          const ledgerRows = await db.transaction.findAll({
+            where: { order: id },
+            attributes: ['amount'],
+            transaction: t
+          })
+          const totalCollected = ledgerRows
+            .filter((r) => Number(r.amount) > 0)
+            .reduce((sum, r) => sum + Number(r.amount), 0)
+          const totalAlreadyRefunded = ledgerRows
+            .filter((r) => Number(r.amount) < 0)
+            .reduce((sum, r) => sum + Math.abs(Number(r.amount)), 0)
+          const remainingRefundable =
+            totalCollected - totalAlreadyRefunded - pendingReservedAmount
+
+          // Pass 1: validate every requested line and compute its raw
+          // (pre-order-discount/tax/service-charge) return base. Deferred
+          // rounding to pass 2 so the whole return's rounding reconciles
+          // exactly instead of drifting line by line.
+          const rawLines = []
+          for (const reqItem of items) {
+            const qty = Number(reqItem.qty)
+            if (!qty || qty <= 0) {
+              const e = new Error(`Invalid quantity for product ${reqItem.productId}`)
+              e.statusCode = 422
+              throw e
+            }
+
+            // order_item rows are immutable once created, so the
+            // outer, unlocked `order.items` (loaded before the
+            // transaction) is safe to reuse here — only the order's own
+            // mutable state and its sibling sales_return rows need the
+            // fresh, locked read above.
+            const matchedItem = order.items.find(
+              (oi) =>
+                oi.product === reqItem.productId || oi.id === reqItem.orderItemId
+            )
+            if (!matchedItem) {
+              const e = new Error(
+                `Product ${reqItem.productId} not found in original order`
+              )
+              e.statusCode = 422
+              throw e
+            }
+
+            const product = await db.product.findByPk(reqItem.productId, {
+              transaction: t
+            })
+            if (!product) {
+              const e = new Error(`Product ${reqItem.productId} does not exist`)
+              e.statusCode = 422
+              throw e
+            }
+
+            const alreadyReturned = returnedQtyMap[matchedItem.id] || 0
+            if (alreadyReturned + qty > matchedItem.quantity) {
+              const e = new Error(
+                `Cumulative return quantity for ${matchedItem.productName} (${alreadyReturned + qty}) exceeds original quantity (${matchedItem.quantity})`
+              )
+              e.statusCode = 409
+              throw e
+            }
+
+            const rawReturnBase =
+              (Number(matchedItem.totalPrice) / Number(matchedItem.quantity)) * qty
+
+            rawLines.push({ reqItem, matchedItem, qty, rawReturnBase })
+          }
+
+          // Pass 2: allocate the order-level discount/tax/service-charge
+          // proportionally via a single collection-ratio correction
+          // (order.totalPrice / order.subTotal), then round deterministically
+          // — every line rounds normally except the last (sorted by
+          // orderItem id ascending), which absorbs the residual so the
+          // sum of line refunds always equals the return's total exactly.
+          const rawTotal = rawLines.reduce((s, l) => s + l.rawReturnBase, 0)
+          const subTotal = Number(order.subTotal) || 0
+          const collectionRatio = subTotal > 0 ? Number(order.totalPrice) / subTotal : 0
+          const targetTotal = subTotal > 0 ? Math.round(rawTotal * collectionRatio) : 0
+
+          const sortedLines = [...rawLines].sort(
+            (a, b) => a.matchedItem.id - b.matchedItem.id
+          )
+          let roundedSum = 0
+          sortedLines.forEach((line, idx) => {
+            if (idx === sortedLines.length - 1) {
+              line.refundAmount = targetTotal - roundedSum
+            } else {
+              line.refundAmount =
+                subTotal > 0 ? Math.round(line.rawReturnBase * collectionRatio) : 0
+              roundedSum += line.refundAmount
+            }
+          })
+
+          const totalRefund = targetTotal
+
+          if (totalRefund > remainingRefundable) {
+            const e = new Error(
+              `Refund amount (${totalRefund}) exceeds the remaining refundable amount (${remainingRefundable})`
+            )
+            e.statusCode = 409
+            throw e
+          }
+
+          const returnItemsData = rawLines.map((line) => ({
+            product: line.reqItem.productId,
+            orderItem: line.matchedItem.id,
+            qty: line.qty,
+            price: line.qty > 0 ? Math.round(line.refundAmount / line.qty) : 0,
+            unit: line.reqItem.unit || line.matchedItem.unit || 'pcs',
+            conversionToBase: line.reqItem.conversionToBase || 1,
+            notes: line.reqItem.notes || null
+          }))
+
+          let returnOrder
+          try {
+            returnOrder = await db.sales_return.create(
+              {
+                order: id,
+                store: order.store,
+                reason: reason.trim(),
+                returnNumber: `SR-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
+                status: 'pending',
+                refundAmount: totalRefund,
+                refundMethod: refundMethod || order.paymentMethod || 'cash',
+                returnedBy: returnedBy || req.user?.id || null,
+                createdBy: req.user?.id || null,
+                idempotencyKey: idempotencyKey || null
+              },
+              { transaction: t }
+            )
+          } catch (createError) {
+            if (
+              createError.name === 'SequelizeUniqueConstraintError' &&
+              idempotencyKey
+            ) {
+              const raceError = new Error('IDEMPOTENCY_RACE')
+              raceError.isIdempotencyRace = true
+              throw raceError
+            }
+            throw createError
+          }
+
+          const finalItems = returnItemsData.map((item) => ({
+            ...item,
+            salesReturn: returnOrder.id
+          }))
+
+          await db.sales_return_item.bulkCreate(finalItems, { transaction: t })
+
+          await db.stock_history.create(
+            {
+              store: order.store,
+              referenceType: 'sale_return',
+              referenceId: returnOrder.id,
+              quantityBefore: 0,
+              quantityChange: 0,
+              quantityAfter: 0,
+              notes: `Sales return request: ${returnOrder.returnNumber} (pending approval)`,
+              createdBy: req.user?.id || null
+            },
+            { transaction: t }
+          )
+
+          return returnOrder
+        })
+      } catch (txError) {
+        if (txError.isIdempotencyRace) {
+          const existing = await db.sales_return.findOne({
+            where: { order: id, idempotencyKey },
+            include: [{ model: db.sales_return_item, as: 'items' }]
+          })
+          if (existing) {
+            if (
+              salesReturnPayloadMatches(existing, existing.items, {
+                reason,
+                refundMethod: effectiveRefundMethod,
+                returnedBy: effectiveReturnedBy,
+                items
+              })
+            ) {
+              return res.status(200).json({
+                success: true,
+                message: 'Sales return request already recorded',
+                data: existing
+              })
+            }
+            return res.status(409).json({
+              success: false,
+              message: 'idempotencyKey already used with a different payload'
+            })
+          }
         }
-
-        if (totalRefund > order.totalPrice) {
-          throw new Error('Refund amount cannot exceed order total')
-        }
-
-        const returnOrder = await db.sales_return.create(
-          {
-            order: id,
-            store: store || order.store,
-            reason: reason.trim(),
-            returnNumber: `SR-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
-            status: 'pending',
-            refundAmount: totalRefund,
-            refundMethod: refundMethod || order.paymentMethod || 'cash',
-            returnedBy: returnedBy || req.user?.id || null,
-            createdBy: req.user?.id || null
-          },
-          { transaction: t }
-        )
-
-        const finalItems = returnItemsData.map((item) => ({
-          ...item,
-          salesReturn: returnOrder.id
-        }))
-
-        await db.sales_return_item.bulkCreate(finalItems, { transaction: t })
-
-        await db.stock_history.create(
-          {
-            store: store || order.store,
-            referenceType: 'sale_return',
-            referenceId: returnOrder.id,
-            quantityBefore: 0,
-            quantityChange: 0,
-            quantityAfter: 0,
-            notes: `Sales return request: ${returnOrder.returnNumber} (pending approval)`,
-            createdBy: req.user?.id || null
-          },
-          { transaction: t }
-        )
-
-        return returnOrder
-      })
+        throw txError
+      }
 
       return res.status(201).json({
         success: true,
@@ -983,7 +1255,7 @@ const posController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(400).json({
+      return res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || 'Internal server error'
       })
@@ -2331,6 +2603,15 @@ order: [['updatedAt', 'DESC']],
             )
           }
         }
+
+        await redactAndAudit(req, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity: 'product_price',
+          entityId: productId,
+          description: 'Updated per-store pricing',
+          newValues: { storePrices },
+          transaction: t
+        })
 
         return product
       })

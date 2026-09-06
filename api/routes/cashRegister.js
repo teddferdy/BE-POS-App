@@ -7,7 +7,11 @@ const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const {
   createCashRegisterSchema,
-  updateCashRegisterSchema
+  updateCashRegisterSchema,
+  createCashMovementSchema,
+  decideCashMovementSchema,
+  reverseCashMovementSchema,
+  decideVarianceSchema
 } = require('../validation/schemas')
 
 router.post(
@@ -56,6 +60,40 @@ router.get(
   authorization,
   validateStoreAccess,
   cashRegisterController.getZReport
+)
+
+// ===================== Cash Movement (F2) =====================
+router.post(
+  '/:id/movement',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(createCashMovementSchema),
+  cashRegisterController.createMovement
+)
+router.post(
+  '/movement/:id/decide',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(decideCashMovementSchema),
+  cashRegisterController.decideMovement
+)
+router.post(
+  '/movement/:id/reverse',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  validate(reverseCashMovementSchema),
+  cashRegisterController.reverseMovement
+)
+router.put(
+  '/:id/decide-variance',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin'),
+  validate(decideVarianceSchema),
+  cashRegisterController.decideVariance
 )
 
 module.exports = router

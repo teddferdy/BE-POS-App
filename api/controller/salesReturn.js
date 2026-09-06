@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 const {
   enqueueAccountingJob,
   attemptJob,
@@ -10,8 +11,6 @@ const {
 const salesReturnController = {
   async getAll(req, res) {
     try {
-      const { store: cookieStore } = req.cookies
-      const userRole = req.user?.roleType
       const {
         page = 1,
         limit = 10,
@@ -22,10 +21,13 @@ const salesReturnController = {
         search
       } = req.query
 
+      // super_admin may optionally filter by a specific store (or see
+      // every store when omitted); scalarStoreScope forces everyone else
+      // to their own store regardless of what's set here, fixing the
+      // previous fail-open bug where a falsy store meant "no filter at
+      // all" instead of "match nothing".
       const where = {}
-      const effectiveStore =
-        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
-      if (effectiveStore) where.store = effectiveStore
+      if (queryStore) where.store = queryStore
       if (status) where.status = status
       if (search) {
         where[Op.or] = [
@@ -42,7 +44,7 @@ const salesReturnController = {
       const offset = (parseInt(page) - 1) * parseInt(limit)
 
       const { count, rows } = await db.sales_return.findAndCountAll({
-        where,
+        where: scalarStoreScope(req, where),
         include: [
           {
             model: db.sales_return_item,
@@ -89,14 +91,9 @@ const salesReturnController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
-      const userRole = req.user?.roleType
-
-      const where = { id }
-      if (store && userRole !== 'super_admin') where.store = store
 
       const ret = await db.sales_return.findOne({
-        where,
+        where: scalarStoreScope(req, { id }),
         include: [
           {
             model: db.sales_return_item,
@@ -139,11 +136,7 @@ const salesReturnController = {
     const transaction = await db.sequelize.transaction()
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
-      const userRole = req.user?.roleType
-
-      const where = { id }
-      if (store && userRole !== 'super_admin') where.store = store
+      const { refundReference } = req.body || {}
 
       // Locked so a concurrent approve() or reject() on the same return
       // (double-click, or two staff acting on it at once) blocks here until
@@ -159,7 +152,7 @@ const salesReturnController = {
       // join") — the items are fetched separately below, once the lock is
       // held.
       const ret = await db.sales_return.findOne({
-        where,
+        where: scalarStoreScope(req, { id }),
         lock: transaction.LOCK.UPDATE,
         transaction
       })
@@ -173,7 +166,7 @@ const salesReturnController = {
 
       if (ret.status !== 'pending') {
         await transaction.rollback()
-        return res.status(400).json({
+        return res.status(409).json({
           success: false,
           message: 'Only pending returns can be approved'
         })
@@ -206,10 +199,46 @@ const salesReturnController = {
       }
       if (['cancelled', 'void'].includes(order.status)) {
         await transaction.rollback()
-        return res.status(400).json({
+        return res.status(409).json({
           success: false,
           message:
             'Cannot approve a return for an order that has been cancelled'
+        })
+      }
+
+      // Authoritative refund-amount invariant — computed fresh from the
+      // payment ledger under the order lock just acquired above, which is
+      // what serializes this against any other approve() call on the same
+      // order (whichever transaction commits first is what the other one
+      // observes here). Deliberately NOT derived from order.totalPrice,
+      // sales_return.refundAmount history, or paymentStatus — a
+      // transaction row's existence is the only real record of money
+      // actually moving in this schema (confirmed: every creation site
+      // writes one exactly when a real payment or refund happens, never
+      // for a pending/speculative one), so summing raw transaction rows
+      // is ground truth. This single sum already covers split tender
+      // (each split writes its own row), cash and non-cash payments, and
+      // both refund-producing mechanisms in this codebase — this
+      // sales_return flow AND the order-cancellation auto-refund path —
+      // without needing to special-case either.
+      const ledgerRows = await db.transaction.findAll({
+        where: { order: order.id },
+        attributes: ['amount'],
+        transaction
+      })
+      const totalCollected = ledgerRows
+        .filter((t) => Number(t.amount) > 0)
+        .reduce((sum, t) => sum + Number(t.amount), 0)
+      const totalRefunded = ledgerRows
+        .filter((t) => Number(t.amount) < 0)
+        .reduce((sum, t) => sum + Math.abs(Number(t.amount)), 0)
+      const remainingRefundable = totalCollected - totalRefunded
+
+      if (Number(ret.refundAmount) > remainingRefundable) {
+        await transaction.rollback()
+        return res.status(409).json({
+          success: false,
+          message: `Refund amount (${ret.refundAmount}) exceeds the remaining refundable amount (${remainingRefundable})`
         })
       }
 
@@ -295,8 +324,19 @@ const salesReturnController = {
         )
       }
 
-      // 3. Update Return Status
-      await ret.update({ status: 'approved' }, { transaction })
+      // 3. Update Return Status + approval metadata — populated only
+      // here, atomically with the transition, never accepted at create
+      // time and never editable afterward.
+      const approvedAt = new Date()
+      await ret.update(
+        {
+          status: 'approved',
+          approvedBy: req.user?.id || null,
+          approvedAt,
+          refundReference: refundReference || null
+        },
+        { transaction }
+      )
 
       // 4. Recompute Order Payment Status
       const updatedOrder = await db.order.findByPk(ret.order, {
@@ -383,14 +423,9 @@ const salesReturnController = {
     const transaction = await db.sequelize.transaction()
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
-      const userRole = req.user?.roleType
-
-      const where = { id }
-      if (store && userRole !== 'super_admin') where.store = store
 
       const ret = await db.sales_return.findOne({
-        where,
+        where: scalarStoreScope(req, { id }),
         lock: transaction.LOCK.UPDATE,
         transaction
       })
@@ -412,7 +447,7 @@ const salesReturnController = {
 
       if (ret.status !== 'pending') {
         await transaction.rollback()
-        return res.status(400).json({
+        return res.status(409).json({
           success: false,
           message: 'Only pending returns can be rejected'
         })
