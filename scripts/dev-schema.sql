@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict UmXaojvgJ2CHsBegf1Cg8Iew9HfPxeBmc4kMdYd6KaD6PU8UE4fHyRMSUQfMmL5
+\restrict XcLcwbt7WLy9aUyi9JO0FvQTgAF5XB2zKqm5fCpG7u9B8pDY1Nxs2VgySbhGVOq
 
 -- Dumped from database version 14.19 (Homebrew)
 -- Dumped by pg_dump version 14.19 (Homebrew)
@@ -42,12 +42,61 @@ CREATE TYPE public.enum_account_type AS ENUM (
 
 
 --
+-- Name: enum_cash_movement_reasonCode; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public."enum_cash_movement_reasonCode" AS ENUM (
+    'float_topup',
+    'bank_drop',
+    'petty_cash',
+    'owner_draw',
+    'change_fund',
+    'correction',
+    'other'
+);
+
+
+--
+-- Name: enum_cash_movement_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.enum_cash_movement_status AS ENUM (
+    'pending_approval',
+    'active',
+    'rejected',
+    'reversed'
+);
+
+
+--
+-- Name: enum_cash_movement_type; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.enum_cash_movement_type AS ENUM (
+    'cash_in',
+    'cash_out'
+);
+
+
+--
 -- Name: enum_cash_register_status; Type: TYPE; Schema: public; Owner: -
 --
 
 CREATE TYPE public.enum_cash_register_status AS ENUM (
     'open',
     'closed'
+);
+
+
+--
+-- Name: enum_cash_register_varianceApprovalStatus; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public."enum_cash_register_varianceApprovalStatus" AS ENUM (
+    'auto_approved',
+    'pending_approval',
+    'approved',
+    'rejected'
 );
 
 
@@ -223,6 +272,18 @@ CREATE TYPE public.enum_order_status AS ENUM (
     'paid',
     'cancelled',
     'void'
+);
+
+
+--
+-- Name: enum_parked_cart_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.enum_parked_cart_status AS ENUM (
+    'active',
+    'resumed',
+    'cancelled',
+    'expired'
 );
 
 
@@ -1102,6 +1163,49 @@ ALTER SEQUENCE public.business_trip_id_seq OWNED BY public.business_trip.id;
 
 
 --
+-- Name: cash_movement; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.cash_movement (
+    id integer NOT NULL,
+    store integer NOT NULL,
+    "cashRegisterId" integer NOT NULL,
+    type public.enum_cash_movement_type NOT NULL,
+    "reasonCode" public."enum_cash_movement_reasonCode" NOT NULL,
+    amount integer NOT NULL,
+    notes text,
+    status public.enum_cash_movement_status NOT NULL,
+    "reversalOfId" integer,
+    "createdBy" integer,
+    "approvedBy" integer,
+    "approvedAt" timestamp with time zone,
+    "idempotencyKey" character varying(255),
+    "createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: cash_movement_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.cash_movement_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: cash_movement_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.cash_movement_id_seq OWNED BY public.cash_movement.id;
+
+
+--
 -- Name: cash_register; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1123,7 +1227,12 @@ CREATE TABLE public.cash_register (
     "modifiedBy" integer,
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
-    "deletedAt" timestamp with time zone
+    "deletedAt" timestamp with time zone,
+    variance integer,
+    "varianceApprovalStatus" public."enum_cash_register_varianceApprovalStatus",
+    "approvedBy" integer,
+    "approvedAt" timestamp with time zone,
+    "cashSalesReceived" integer
 );
 
 
@@ -2489,7 +2598,13 @@ CREATE TABLE public.location (
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
-    "dailyTarget" integer DEFAULT 0
+    "dailyTarget" integer DEFAULT 0,
+    "cashOutApprovalThreshold" integer,
+    "cashVarianceThreshold" integer,
+    "maxActiveParkedCarts" integer,
+    "parkedCartTtlMinutes" integer,
+    CONSTRAINT location_max_active_parked_carts_positive CHECK (("maxActiveParkedCarts" > 0)),
+    CONSTRAINT location_parked_cart_ttl_minutes_positive CHECK (("parkedCartTtlMinutes" > 0))
 );
 
 
@@ -2727,7 +2842,8 @@ CREATE TABLE public."order" (
     "customerNumber" integer,
     session character varying(255),
     "idempotencyKey" character varying(255),
-    "publicToken" character varying(64)
+    "publicToken" character varying(64),
+    "cashRegisterId" integer
 );
 
 
@@ -2898,6 +3014,56 @@ CREATE SEQUENCE public.overtime_id_seq
 --
 
 ALTER SEQUENCE public.overtime_id_seq OWNED BY public.overtime.id;
+
+
+--
+-- Name: parked_cart; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parked_cart (
+    id integer NOT NULL,
+    store integer NOT NULL,
+    "createdBy" integer,
+    "tableId" integer,
+    "customerId" integer,
+    "customerName" character varying(255),
+    "customerPhone" character varying(255),
+    "discountId" integer,
+    "promoCode" character varying(255),
+    notes text,
+    "cartPayload" jsonb NOT NULL,
+    "displayTotalItems" integer,
+    "displayTotalPrice" integer,
+    status public.enum_parked_cart_status DEFAULT 'active'::public.enum_parked_cart_status NOT NULL,
+    "expiresAt" timestamp with time zone NOT NULL,
+    "resumedBy" integer,
+    "resumedAt" timestamp with time zone,
+    "cancelledBy" integer,
+    "cancelledAt" timestamp with time zone,
+    "idempotencyKey" character varying(255),
+    "createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: parked_cart_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.parked_cart_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: parked_cart_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.parked_cart_id_seq OWNED BY public.parked_cart.id;
 
 
 --
@@ -4071,7 +4237,7 @@ CREATE TABLE public.sales_return (
     "order" integer NOT NULL,
     store integer NOT NULL,
     "returnNumber" character varying(255) NOT NULL,
-    status public.enum_sales_return_status DEFAULT 'pending'::public.enum_sales_return_status,
+    status public.enum_sales_return_status DEFAULT 'pending'::public.enum_sales_return_status NOT NULL,
     reason text,
     "returnedBy" integer,
     "createdBy" integer,
@@ -4079,7 +4245,11 @@ CREATE TABLE public.sales_return (
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
     "refundAmount" integer DEFAULT 0,
-    "refundMethod" character varying(255) DEFAULT 'cash'::character varying NOT NULL
+    "refundMethod" character varying(255) DEFAULT 'cash'::character varying NOT NULL,
+    "approvedBy" integer,
+    "approvedAt" timestamp with time zone,
+    "refundReference" character varying(255),
+    "idempotencyKey" character varying(255)
 );
 
 
@@ -5109,7 +5279,9 @@ CREATE TABLE public.transaction (
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
     "deletedAt" timestamp with time zone,
-    "salesReturnId" integer
+    "salesReturnId" integer,
+    "cashReceived" integer,
+    "changeGiven" integer DEFAULT 0 NOT NULL
 );
 
 
@@ -5369,6 +5541,13 @@ ALTER TABLE ONLY public.business_trip_budget_item ALTER COLUMN id SET DEFAULT ne
 --
 
 ALTER TABLE ONLY public.business_trip_employee ALTER COLUMN id SET DEFAULT nextval('public.business_trip_employee_id_seq'::regclass);
+
+
+--
+-- Name: cash_movement id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement ALTER COLUMN id SET DEFAULT nextval('public.cash_movement_id_seq'::regclass);
 
 
 --
@@ -5656,6 +5835,13 @@ ALTER TABLE ONLY public.order_status ALTER COLUMN id SET DEFAULT nextval('public
 --
 
 ALTER TABLE ONLY public.overtime ALTER COLUMN id SET DEFAULT nextval('public.overtime_id_seq'::regclass);
+
+
+--
+-- Name: parked_cart id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart ALTER COLUMN id SET DEFAULT nextval('public.parked_cart_id_seq'::regclass);
 
 
 --
@@ -6156,6 +6342,14 @@ ALTER TABLE ONLY public.business_trip
 
 
 --
+-- Name: cash_movement cash_movement_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement
+    ADD CONSTRAINT cash_movement_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: cash_register cash_register_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6529,6 +6723,14 @@ ALTER TABLE ONLY public.order_status
 
 ALTER TABLE ONLY public.overtime
     ADD CONSTRAINT overtime_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parked_cart parked_cart_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart
+    ADD CONSTRAINT parked_cart_pkey PRIMARY KEY (id);
 
 
 --
@@ -7103,6 +7305,20 @@ CREATE INDEX accounting_outbox_status_created_idx ON public.accounting_outbox US
 
 
 --
+-- Name: auditlog_store_createdat; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auditlog_store_createdat ON public."auditLog" USING btree (store, "createdAt");
+
+
+--
+-- Name: auditlog_store_entity_entityid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX auditlog_store_entity_entityid ON public."auditLog" USING btree (store, entity, "entityId");
+
+
+--
 -- Name: best_selling_productId_store_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7135,6 +7351,27 @@ CREATE INDEX business_trip_status ON public.business_trip USING btree (status);
 --
 
 CREATE INDEX business_trip_store ON public.business_trip USING btree (store);
+
+
+--
+-- Name: cash_movement_register_idempotencykey_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX cash_movement_register_idempotencykey_unique ON public.cash_movement USING btree ("cashRegisterId", "idempotencyKey") WHERE ("idempotencyKey" IS NOT NULL);
+
+
+--
+-- Name: cash_movement_register_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cash_movement_register_status ON public.cash_movement USING btree ("cashRegisterId", status);
+
+
+--
+-- Name: cash_register_store_open_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX cash_register_store_open_unique ON public.cash_register USING btree (store) WHERE (status = 'open'::public.enum_cash_register_status);
 
 
 --
@@ -7348,6 +7585,13 @@ CREATE INDEX "notification_updatedAt" ON public.notification USING btree ("updat
 
 
 --
+-- Name: order_cashregisterid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX order_cashregisterid ON public."order" USING btree ("cashRegisterId");
+
+
+--
 -- Name: order_item_bundle_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7401,6 +7645,20 @@ CREATE UNIQUE INDEX order_store_idempotencykey_unique ON public."order" USING bt
 --
 
 CREATE INDEX order_store_status ON public."order" USING btree (store, status);
+
+
+--
+-- Name: parked_cart_store_idempotencykey_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX parked_cart_store_idempotencykey_unique ON public.parked_cart USING btree (store, "idempotencyKey") WHERE ("idempotencyKey" IS NOT NULL);
+
+
+--
+-- Name: parked_cart_store_status_expires; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parked_cart_store_status_expires ON public.parked_cart USING btree (store, status, "expiresAt");
 
 
 --
@@ -7646,6 +7904,13 @@ CREATE INDEX queue_status ON public.queue USING btree (status) WHERE ("deletedAt
 --
 
 CREATE INDEX queue_store ON public.queue USING gin (store) WHERE ("deletedAt" IS NULL);
+
+
+--
+-- Name: sales_return_order_idempotencykey_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sales_return_order_idempotencykey_unique ON public.sales_return USING btree ("order", "idempotencyKey") WHERE ("idempotencyKey" IS NOT NULL);
 
 
 --
@@ -7960,6 +8225,54 @@ ALTER TABLE ONLY public.bom_line
 
 
 --
+-- Name: cash_movement cash_movement_approvedBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement
+    ADD CONSTRAINT "cash_movement_approvedBy_fkey" FOREIGN KEY ("approvedBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: cash_movement cash_movement_cashRegisterId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement
+    ADD CONSTRAINT "cash_movement_cashRegisterId_fkey" FOREIGN KEY ("cashRegisterId") REFERENCES public.cash_register(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: cash_movement cash_movement_createdBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement
+    ADD CONSTRAINT "cash_movement_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: cash_movement cash_movement_reversalOfId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement
+    ADD CONSTRAINT "cash_movement_reversalOfId_fkey" FOREIGN KEY ("reversalOfId") REFERENCES public.cash_movement(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: cash_movement cash_movement_store_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_movement
+    ADD CONSTRAINT cash_movement_store_fkey FOREIGN KEY (store) REFERENCES public.location(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: cash_register cash_register_approvedBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cash_register
+    ADD CONSTRAINT "cash_register_approvedBy_fkey" FOREIGN KEY ("approvedBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
 -- Name: cash_register cash_register_store_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8240,6 +8553,14 @@ ALTER TABLE ONLY public.notification
 
 
 --
+-- Name: order order_cashRegisterId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."order"
+    ADD CONSTRAINT "order_cashRegisterId_fkey" FOREIGN KEY ("cashRegisterId") REFERENCES public.cash_register(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
 -- Name: order order_currencyId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8333,6 +8654,46 @@ ALTER TABLE ONLY public.overtime
 
 ALTER TABLE ONLY public.overtime
     ADD CONSTRAINT overtime_store_fkey FOREIGN KEY (store) REFERENCES public.location(id) ON UPDATE CASCADE;
+
+
+--
+-- Name: parked_cart parked_cart_cancelledBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart
+    ADD CONSTRAINT "parked_cart_cancelledBy_fkey" FOREIGN KEY ("cancelledBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: parked_cart parked_cart_createdBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart
+    ADD CONSTRAINT "parked_cart_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: parked_cart parked_cart_resumedBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart
+    ADD CONSTRAINT "parked_cart_resumedBy_fkey" FOREIGN KEY ("resumedBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: parked_cart parked_cart_store_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart
+    ADD CONSTRAINT parked_cart_store_fkey FOREIGN KEY (store) REFERENCES public.location(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: parked_cart parked_cart_tableId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parked_cart
+    ADD CONSTRAINT "parked_cart_tableId_fkey" FOREIGN KEY ("tableId") REFERENCES public."table"(id) ON UPDATE CASCADE ON DELETE SET NULL;
 
 
 --
@@ -8560,6 +8921,14 @@ ALTER TABLE ONLY public.role
 
 
 --
+-- Name: sales_return sales_return_approvedBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_return
+    ADD CONSTRAINT "sales_return_approvedBy_fkey" FOREIGN KEY ("approvedBy") REFERENCES public."user"(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
 -- Name: sales_return sales_return_createdBy_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8572,7 +8941,7 @@ ALTER TABLE ONLY public.sales_return
 --
 
 ALTER TABLE ONLY public.sales_return_item
-    ADD CONSTRAINT sales_return_item_product_fkey FOREIGN KEY (product) REFERENCES public.product(id) ON UPDATE CASCADE ON DELETE CASCADE;
+    ADD CONSTRAINT sales_return_item_product_fkey FOREIGN KEY (product) REFERENCES public.product(id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
@@ -8581,6 +8950,14 @@ ALTER TABLE ONLY public.sales_return_item
 
 ALTER TABLE ONLY public.sales_return_item
     ADD CONSTRAINT "sales_return_item_salesReturn_fkey" FOREIGN KEY ("salesReturn") REFERENCES public.sales_return(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: sales_return sales_return_order_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sales_return
+    ADD CONSTRAINT sales_return_order_fkey FOREIGN KEY ("order") REFERENCES public."order"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
@@ -8731,5 +9108,5 @@ ALTER TABLE ONLY public."user"
 -- PostgreSQL database dump complete
 --
 
-\unrestrict UmXaojvgJ2CHsBegf1Cg8Iew9HfPxeBmc4kMdYd6KaD6PU8UE4fHyRMSUQfMmL5
+\unrestrict XcLcwbt7WLy9aUyi9JO0FvQTgAF5XB2zKqm5fCpG7u9B8pDY1Nxs2VgySbhGVOq
 
