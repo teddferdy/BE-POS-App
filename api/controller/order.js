@@ -143,6 +143,44 @@ const getEffectiveStock = async (product, store) => {
   return base
 }
 
+// AUD-2 (security): store-tenancy guards for the public customer-order
+// mutation surface. A product is orderable through a store when it is
+// explicitly assigned to that store (product_store row) OR it has no
+// product_store rows at all (unassigned/global) — the exact rule the
+// customer menu applies (getCustomerMenu). A product assigned to a
+// different store is treated exactly like a product this store does not
+// have, so foreign and nonexistent products are indistinguishable.
+const isProductOrderableAtStore = async (productId, store) => {
+  if (!productId || !store) return false
+  try {
+    const rows = await db.product_store.findAll({
+      where: { product: productId }
+    })
+    if (!rows.length) return true
+    return rows.some((r) => Number(r.store) === Number(store))
+  } catch {
+    // product_store table may not exist yet; nothing is store-assigned, so
+    // every product behaves like the legacy global product set.
+    return true
+  }
+}
+
+// A bundle is orderable through a store when its `store` column holds that
+// store — either as a scalar value or as one element of a JSONB array
+// (mirrors the scalar-or-array shape handled by arrayStoreScope). Bundles
+// with no store assignment are NOT orderable, and a bundle assigned to a
+// different store is treated exactly like a bundle this store does not
+// have.
+const isBundleOrderableAtStore = (bundle, store) => {
+  if (!bundle || !store) return false
+  const assigned = bundle.store
+  if (assigned === null || assigned === undefined) return false
+  if (Array.isArray(assigned)) {
+    return assigned.some((s) => Number(s) === Number(store))
+  }
+  return Number(assigned) === Number(store)
+}
+
 // Compute the server-side unit price for an item, including the base product
 // price plus any selected option/modifier markup. The FE only sends the chosen
 // option/modifier names; prices are always re-derived from the product's stored
@@ -1901,10 +1939,65 @@ const deductStockForPaidOrder = async (
   })
   if (items.length === 0) return
 
+  // Flatten bundle order_items into their component products so the
+  // deferred paid-transition path deducts every component exactly as the
+  // immediate-POS path does. The order_item row for a bundle only ever
+  // carries its FIRST component's product (pre-existing F5-era
+  // limitation), so the bundle's components are expanded from the CURRENT
+  // product_bundle config — an accepted edit-window skew: if the bundle
+  // composition changed after the order was taken, deduction reflects the
+  // bundle as it reads today, never a snapshot. When a bundle can no
+  // longer be resolved to any component, the legacy single-product
+  // deduction of item.product is preserved.
+  const flatItems = []
+  for (const item of items) {
+    if (item.bundleId) {
+      const bundle = await db.product_bundle.findByPk(item.bundleId, {
+        include: [
+          {
+            model: db.product_bundle_item,
+            as: 'items',
+            include: [{ model: Product, as: 'productData' }]
+          }
+        ],
+        transaction: t
+      })
+      const bundleQty = Number(item.quantity) || 1
+      const members = (bundle && bundle.items) || []
+      if (!members.length) {
+        flatItems.push({
+          product: item.product,
+          productId: item.product,
+          quantity: Number(item.quantity) || 0,
+          productName: item.productName,
+          referenceNote: `Penjualan: ${orderNumber}`
+        })
+        continue
+      }
+      for (const bi of members) {
+        flatItems.push({
+          product: bi.product,
+          productId: bi.product,
+          quantity: (Number(bi.quantity) || 1) * bundleQty,
+          productName: bi.productData?.nameProduct || item.productName,
+          referenceNote: `Penjualan bundle: ${bundle.name} (${orderNumber})`
+        })
+      }
+      continue
+    }
+    flatItems.push({
+      product: item.product,
+      productId: item.product,
+      quantity: Number(item.quantity) || 0,
+      productName: item.productName,
+      referenceNote: `Penjualan: ${orderNumber}`
+    })
+  }
+
   // Lock every distinct product once, in a stable order, instead of one
   // findByPk+lock per item.
   const productIds = [
-    ...new Set(items.map((it) => it.product).filter(Boolean))
+    ...new Set(flatItems.map((it) => it.product).filter(Boolean))
   ].sort((a, b) => a - b)
   const products = await Product.findAll({
     where: { id: productIds },
@@ -1915,14 +2008,10 @@ const deductStockForPaidOrder = async (
 
   const stockHistoryRows = []
 
-  for (const item of items) {
+  for (const item of flatItems) {
     const product = productById.get(item.product)
     if (!product) continue
 
-    // F7: a make_to_order product's own finished-good stock is never
-    // authoritative — ingredients are deducted separately, below.
-    // 'hybrid' and the default 'stocked' still deduct product stock
-    // exactly as before.
     if (product.inventoryMode !== 'make_to_order') {
       const oldStock = Number(product.stock) || 0
       const qty = Math.floor(Number(item.quantity)) || 0
@@ -1966,10 +2055,10 @@ const deductStockForPaidOrder = async (
         referenceType: 'sale',
         referenceId: orderId,
         quantityBefore: oldStock,
-        quantityChange: -Number(item.quantity),
+        quantityChange: -qty,
         quantityAfter: newStock,
         unit: product.unit || 'pcs',
-        notes: `Penjualan: ${orderNumber}`,
+        notes: item.referenceNote,
         createdBy: changedBy
       })
     }
@@ -2003,20 +2092,13 @@ const deductStockForPaidOrder = async (
     })
   }
 
-  // F7: ingredient deduction, same transaction, after product stock.
-  // Operates purely on order_item.product/quantity — this deferred path
-  // has no bundle-membership context (a bundle's order_item row only
-  // ever carries its first component's product, a pre-existing,
-  // unrelated F5-era limitation this does not attempt to work around),
-  // so a BOM-having bundle component completed via this path only has
-  // that one component's ingredients considered — inherited, not
-  // introduced, by this change.
-  const bomFlatItems = items.map((item) => ({
-    productId: item.product,
-    quantity: item.quantity
-  }))
+  // F7: ingredient deduction, same transaction, after product stock. Uses
+  // the SAME flattened/expanded item list as the product loop above, so a
+  // BOM-having bundle component reached through this deferred path has its
+  // ingredients resolved exactly like the immediate path does — each
+  // component, not just the first one the order_item row happens to carry.
   const bomRequirements = await resolveBomIngredientRequirements(
-    bomFlatItems,
+    flatItems,
     effectiveStore,
     productById,
     t
@@ -2076,22 +2158,75 @@ exports.updateOrderStatus = async (req, res) => {
 
     // Restore stock when an order is cancelled/voided.
     const reverseOrderStock = async (t) => {
-      const items = await OrderItem.findAll({
-        where: { order: id },
+      // F-REV1: reversal is driven by the immutable stock_history 'sale'
+      // snapshot written when the order was paid — NOT by re-reading the
+      // bundle config and NOT by the order_item rows (a bundle's order_item
+      // carries only its first component's product). A bundle sale deducts
+      // FG stock for EVERY component (see the flatItems expansion in
+      // deductStockForPaidOrder / deductStockForOrder), so the reversal
+      // restores exactly the products and quantities the 'sale' rows
+      // recorded — even if the bundle configuration has since changed.
+      const saleHistory = await db.stock_history.findAll({
+        where: { referenceType: 'sale', referenceId: id },
         transaction: t
       })
 
-      for (const item of items) {
-        const product = await Product.findByPk(item.product, {
-          transaction: t
-        })
-        if (!product) continue
+      // Finished-good restore: every product the sale dipped goes back by
+      // the exact recorded quantity. Ingredient rows (ingredient set) are
+      // the BOM consumption trail, handled separately below — a
+      // make_to_order product has no FG 'sale' row, so it never receives a
+      // FG restore here.
+      const fgRestore = new Map()
+      for (const row of saleHistory) {
+        if (row.ingredient != null) continue
+        const productId = Number(row.product)
+        if (!productId) continue
+        const change = Number(row.quantityChange) || 0
+        if (!(change < 0)) continue
+        fgRestore.set(productId, (fgRestore.get(productId) || 0) - change)
+      }
 
+      // best_selling was incremented for every flat sale product — including
+      // single make_to_order lines, which never touch FG stock and so have
+      // no FG 'sale' row. Their increment is recovered from the immutable
+      // non-bundle order lines (a non-bundle line's product/quantity is
+      // exact), so their best_selling is decremented too. Bundle-owned
+      // make_to_order components have no immutable product-level quantity
+      // anywhere (their order_item line is the bundle's first component
+      // only) — same pre-existing attribution limit, out of F-REV1 scope.
+      const bsDecrement = new Map(fgRestore)
+      const nonBundleLines = await OrderItem.findAll({
+        where: { order: id, bundleId: null },
+        transaction: t
+      })
+      for (const line of nonBundleLines) {
+        const productId = Number(line.product)
+        if (!productId) continue
+        if (fgRestore.has(productId)) continue
+        const qty = Math.floor(Number(line.quantity)) || 0
+        if (!(qty > 0)) continue
+        bsDecrement.set(productId, (bsDecrement.get(productId) || 0) + qty)
+      }
+
+      const productIds = [
+        ...new Set([...fgRestore.keys(), ...bsDecrement.keys()])
+      ].sort((a, b) => a - b)
+      const products = productIds.length
+        ? await Product.findAll({
+            where: { id: productIds },
+            transaction: t,
+            lock: t.LOCK.UPDATE
+          })
+        : []
+      const productById = new Map(products.map((p) => [p.id, p]))
+
+      for (const [productId, restoreQty] of fgRestore) {
+        const product = productById.get(productId)
+        if (!product) continue
         const oldStock = Number(product.stock) || 0
-        const qty = Math.floor(Number(item.quantity)) || 0
-        const newStock = oldStock + qty
+        const newStock = oldStock + restoreQty
         await product.update(
-          { stock: db.sequelize.literal(`stock + ${qty}`) },
+          { stock: db.sequelize.literal(`stock + ${restoreQty}`) },
           { transaction: t }
         )
 
@@ -2100,24 +2235,21 @@ exports.updateOrderStatus = async (req, res) => {
           `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
            VALUES ($1, $2, 0, NOW(), NOW())
            ON CONFLICT (product, store) DO NOTHING`,
-          { bind: [item.product, effectiveStore], transaction: t }
+          { bind: [productId, effectiveStore], transaction: t }
         )
         await db.product_store_stock.update(
-          { stock: db.sequelize.literal(`stock + ${qty}`) },
-          {
-            where: { product: item.product, store: effectiveStore },
-            transaction: t
-          }
+          { stock: db.sequelize.literal(`stock + ${restoreQty}`) },
+          { where: { product: productId, store: effectiveStore }, transaction: t }
         )
 
         await db.stock_history.create(
           {
-            product: product.id,
+            product: productId,
             store: effectiveStore,
             referenceType: 'sale_reversal',
             referenceId: order.id,
             quantityBefore: oldStock,
-            quantityChange: Number(item.quantity),
+            quantityChange: restoreQty,
             quantityAfter: newStock,
             unit: product.unit || 'pcs',
             notes: `Pembatalan: ${order.orderNumber}`,
@@ -2125,14 +2257,15 @@ exports.updateOrderStatus = async (req, res) => {
           },
           { transaction: t }
         )
+      }
 
-        const sellName = item.productName || product.nameProduct
+      // best_selling: undo exactly what the sale incremented for the same
+      // (productId, store) rows (the table's unique key), floored at zero.
+      for (const [productId, decQty] of bsDecrement) {
+        const product = productById.get(productId)
+        if (!product) continue
         const findBs = await db.best_selling.findOne({
-          where: {
-            productId: product.id,
-            nameProduct: sellName,
-            store: effectiveStore
-          },
+          where: { productId, store: effectiveStore },
           transaction: t
         })
         if (findBs) {
@@ -2140,14 +2273,11 @@ exports.updateOrderStatus = async (req, res) => {
             {
               totalSelling: Math.max(
                 0,
-                Number(findBs.totalSelling) - Number(item.quantity)
+                Number(findBs.totalSelling) - decQty
               )
             },
             {
-              where: {
-                productId: product.id,
-                nameProduct: sellName
-              },
+              where: { productId, store: effectiveStore },
               transaction: t
             }
           )
@@ -2709,7 +2839,15 @@ exports.createCustomerOrder = async (req, res) => {
 
     let member = null
     if (customerId) {
-      member = await db.member.findByPk(customerId)
+      // AUD-3 (security): never resolve a customerId across stores. A
+      // foreign or unknown customerId is indistinguishable and rejected —
+      // no existence side-channel for other stores' members.
+      member = await db.member.findOne({
+        where: { id: customerId, store }
+      })
+      if (!member) {
+        return res.status(400).json({ message: 'Customer not found' })
+      }
     } else if (customerName) {
       member = await db.member.findOne({
         where: {
@@ -2748,7 +2886,11 @@ exports.createCustomerOrder = async (req, res) => {
           !bundle ||
           !bundle.isAvailable ||
           bundle.status !== 'active' ||
-          !isBundleWithinValidityPeriod(bundle)
+          !isBundleWithinValidityPeriod(bundle) ||
+          // AUD-2 (security): a bundle assigned to a different store (or
+          // not assigned at all) is unavailable for this store — foreign
+          // and nonexistent bundles stay indistinguishable.
+          !(await isBundleOrderableAtStore(bundle, store))
         ) {
           return res.status(400).json({
             message: `Bundle not available: ${item.bundleName || item.bundleId}`
@@ -2768,7 +2910,14 @@ exports.createCustomerOrder = async (req, res) => {
         item.subtotal = serverPrice * Number(item.quantity)
       } else if (item.productId) {
         const prod = await Product.findByPk(item.productId)
-        if (!prod) {
+        if (
+          !prod ||
+          // AUD-2 (security): a product assigned to a different store (or
+          // not assigned to this store while other rows exist) is treated
+          // exactly like an unknown product — foreign and nonexistent
+          // products stay indistinguishable.
+          !(await isProductOrderableAtStore(prod.id, store))
+        ) {
           return res.status(400).json({
             message: `Product not found: ${item.productName || item.productId}`
           })
@@ -2791,6 +2940,14 @@ exports.createCustomerOrder = async (req, res) => {
             return res
               .status(400)
               .json({ message: `Product in bundle "${bundle.name}" not found` })
+          }
+          // AUD-2 (security): a bundle component owned by a different store
+          // makes the whole bundle unavailable here — components cannot
+          // smuggle store-2 inventory into a store-1 order.
+          if (!(await isProductOrderableAtStore(prod.id, store))) {
+            return res.status(400).json({
+              message: `Bundle not available: ${item.bundleName || item.bundleId}`
+            })
           }
           // F7: a make_to_order product's finished-good stock is not
           // authoritative — ingredients (resolved at deduction time) are.
@@ -2935,7 +3092,13 @@ exports.createCustomerOrder = async (req, res) => {
       serviceChargeAmount: 0,
       totalPrice,
       paymentMethod: paymentMethod || null,
-      paymentStatus: paymentMethod ? 'paid' : 'unpaid',
+      // AUD-1 (security): a public, unauthenticated QR request can never
+      // self-authorize a paid state. Server-side paymentStatus is fixed to
+      // 'unpaid' regardless of any client-supplied paymentMethod/status
+      // fields; the declared paymentMethod is stored only as intent and is
+      // consumed when the cashier authoritatively marks the order paid
+      // (see the order-status transition in updateOrderStatus).
+      paymentStatus: 'unpaid',
       splitCount: splitCount || null,
       idempotencyKey: idempotencyKey || null,
       publicToken: crypto.randomBytes(24).toString('hex')
@@ -2946,9 +3109,12 @@ exports.createCustomerOrder = async (req, res) => {
     if (await hasOrderColumn('session')) {
       qrOrderData.session = session || null
     }
-    // Deduct stock only when the order is paid immediately. Unpaid orders
-    // have their stock deducted exactly once when they transition to paid.
-    const deductStock = qrOrderData.paymentStatus === 'paid'
+    // Public QR orders are always created unpaid. Stock deduction, ledger
+    // and accounting entries happen exactly once, later, when the cashier
+    // marks the order paid through the authorized order-status transition
+    // (see updateOrderStatus) — the same unit that currently handles paid
+    // transitions for plain, immediate-POS and non-instant orders.
+    const deductStock = false
 
     // Order header, its items, and (when paid immediately) the stock
     // deduction all commit or roll back together — previously the order +
@@ -3240,8 +3406,17 @@ exports.getCustomerOrder = async (req, res) => {
 
 // ——— Public customer review (no auth) ———
 exports.createCustomerReview = async (req, res) => {
-  const { name, userName, productId, store, storeId, rating, comment, orderId } =
-    req.body
+  const {
+    name,
+    userName,
+    productId,
+    store,
+    storeId,
+    rating,
+    comment,
+    orderId,
+    deviceId
+  } = req.body
   try {
     if (!productId || !rating) {
       return res

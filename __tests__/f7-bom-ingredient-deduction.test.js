@@ -731,60 +731,96 @@ describe('F7 — deadlock retry (real Postgres deadlock, not mocked)', () => {
   })
 })
 
-describe('F7 — QR customer immediate-pay path (Phase 3.1)', () => {
-  test('make_to_order: finished-good stock untouched, ingredients deducted per BOM', async () => {
+describe('F7 — QR customer paid via trusted cashier transition (Phase 3.1)', () => {
+  // AUD-1 security boundary: the public QR create can never self-authorize
+  // a paid state. Every "immediate" payment in these tests is therefore a
+  // two-step flow: public create (recorded unpaid, no mutations) followed by
+  // the cashier's authorized order-status transition to 'paid', which is
+  // where stock/ingredient/ledger mutates exactly once (deductStockForPaidOrder).
+  const createThenPaid = async (body) => {
+    const created = await customerCreate(body)
+    if (created.status !== 201) return { created, paid: null }
+    const paid = await updateOrderStatus(tokenA, {
+      id: created.body.data.id,
+      status: 'paid'
+    })
+    return { created, paid }
+  }
+
+  test('make_to_order: finished-good stock untouched, ingredients deducted per BOM (on trusted paid)', async () => {
     const ing = await makeIngredient(storeA.id, { stock: 100 })
     // FG stock deliberately below demand — must NOT reject on finished
     // goods; BOM ingredient availability is authoritative for this mode.
     const product = await makeProduct({ stock: 1, inventoryMode: 'make_to_order' })
     await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 5 }])
 
-    const res = await customerCreate({
+    const { created, paid } = await createThenPaid({
       store: storeA.id,
       paymentMethod: 'cash',
       customerName: 'QR F7',
       items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
     })
-    expect(res.status).toBe(201)
-    expect(res.body.data.paymentStatus).toBe('paid')
+    expect(created.status).toBe(201)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
+    expect((await db.product.findByPk(product.id)).stock).toBe(1) // FG untouched yet
+    expect(paid.status).toBe(200)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
     expect((await db.product.findByPk(product.id)).stock).toBe(1) // FG untouched
     expect((await db.ingredient.findByPk(ing.id)).stock).toBe(90) // 100 - (5*2)
   })
 
-  test('hybrid: both finished-good stock and ingredients deducted', async () => {
+  test('hybrid: both finished-good stock and ingredients deducted (on trusted paid)', async () => {
     const ing = await makeIngredient(storeA.id, { stock: 100 })
     const product = await makeProduct({ stock: 50, inventoryMode: 'hybrid' })
     await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 4 }])
 
-    const res = await customerCreate({
+    const { created, paid } = await createThenPaid({
       store: storeA.id,
       paymentMethod: 'cash',
       customerName: 'QR F7',
       items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
     })
-    expect(res.status).toBe(201)
+    expect(created.status).toBe(201)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
+    expect(paid.status).toBe(200)
     expect((await db.product.findByPk(product.id)).stock).toBe(48)
     expect((await db.ingredient.findByPk(ing.id)).stock).toBe(92) // 100 - (4*2)
   })
 
-  test('make_to_order with insufficient ingredient: 409, atomic rollback, no finished-good 400', async () => {
+  test('make_to_order with insufficient ingredient: create OK, trusted paid returns 409 and rolls back atomically', async () => {
     const ing = await makeIngredient(storeA.id, { stock: 2 })
     const product = await makeProduct({ stock: 0, inventoryMode: 'make_to_order' })
     await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 5 }])
 
     const ordersBefore = await db.order.count({ where: { store: storeA.id } })
-    const res = await customerCreate({
+    const created = await customerCreate({
       store: storeA.id,
       paymentMethod: 'cash',
       customerName: 'QR F7',
       items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }]
     })
+    // The public create itself cannot know the ingredient demand yet — the
+    // order is recorded unpaid without touching any stock.
+    expect(created.status).toBe(201)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
+
+    const paid = await updateOrderStatus(tokenA, {
+      id: created.body.data.id,
+      status: 'paid'
+    })
     // Must be the F7 ingredient-shortage 409, never a finished-good 400.
-    expect(res.status).toBe(409)
+    expect(paid.status).toBe(409)
     expect((await db.product.findByPk(product.id)).stock).toBe(0)
     expect((await db.ingredient.findByPk(ing.id)).stock).toBe(2)
-    // Entire order rolled back — no order row, no ingredient stock_history.
-    expect(await db.order.count({ where: { store: storeA.id } })).toBe(ordersBefore)
+
+    // The paid transition rolled back entirely — the unpaid creation record
+    // persists untouched: no order-status row, no ledger row, no ingredient
+    // stock_history.
+    const persisted = await db.order.findByPk(created.body.data.id)
+    expect(persisted.status).toBe('pending')
+    expect(persisted.paymentStatus).toBe('unpaid')
+    expect(await db.order.count({ where: { store: storeA.id } })).toBe(ordersBefore + 1)
+    expect(await db.transaction.findAll({ where: { order: created.body.data.id } })).toHaveLength(0)
     const historyRows = await db.stock_history.findAll({
       where: { referenceType: 'sale', ingredient: ing.id }
     })
@@ -796,13 +832,15 @@ describe('F7 — QR customer immediate-pay path (Phase 3.1)', () => {
     const product = await makeProduct({ stock: 50, inventoryMode: 'stocked' })
     await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 5 }])
 
-    const res = await customerCreate({
+    const { created, paid } = await createThenPaid({
       store: storeA.id,
       paymentMethod: 'cash',
       customerName: 'QR F7',
       items: [{ productId: product.id, productName: product.nameProduct, quantity: 3 }]
     })
-    expect(res.status).toBe(201)
+    expect(created.status).toBe(201)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
+    expect(paid.status).toBe(200)
     expect((await db.product.findByPk(product.id)).stock).toBe(47)
     expect((await db.ingredient.findByPk(ing.id)).stock).toBe(100) // BOM ignored
   })
@@ -825,13 +863,15 @@ describe('F7 — QR customer immediate-pay path (Phase 3.1)', () => {
       { bundleId: bundle.id, product: stockedProduct.id, quantity: 2 }
     ])
 
-    const res = await customerCreate({
+    const { created, paid } = await createThenPaid({
       store: storeA.id,
       paymentMethod: 'cash',
       customerName: 'QR F7 bundle',
       items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 1 }]
     })
-    expect(res.status).toBe(201)
+    expect(created.status).toBe(201)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
+    expect(paid.status).toBe(200)
     // make_to_order component: finished-good untouched, ingredients per BOM.
     expect((await db.product.findByPk(mtoProduct.id)).stock).toBe(1)
     expect((await db.ingredient.findByPk(mtoIng.id)).stock).toBe(95) // 100 - (5*1)
@@ -843,5 +883,252 @@ describe('F7 — QR customer immediate-pay path (Phase 3.1)', () => {
     await db.order_item.destroy({ where: { bundleId: bundle.id }, force: true })
     await db.product_bundle_item.destroy({ where: { bundleId: bundle.id }, force: true })
     await db.product_bundle.destroy({ where: { id: bundle.id }, force: true })
+  })
+})
+
+// F-REV1 — the deferred paid-transition path expands a bundle into ALL its
+// components at deduction time, so the corresponding cancel/void reversal
+// must restore EXACTLY what that deduction snapshot recorded — never the
+// first component only, and never the bundle config as it reads after the
+// sale. These tests pin the "WHAT WAS DEDUCTED == WHAT CAN BE RESTORED"
+// invariant for bundle FG stock and best_selling.
+describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
+  const createThenPaid = async (body) => {
+    const created = await customerCreate(body)
+    if (created.status !== 201) return { created, paid: null }
+    const paid = await updateOrderStatus(tokenA, {
+      id: created.body.data.id,
+      status: 'paid'
+    })
+    return { created, paid }
+  }
+
+  const makeBundle = async ({ components }) => {
+    const bundle = await db.product_bundle.create({
+      name: nextTag(),
+      store: storeA.id,
+      bundlePrice: 100000,
+      status: 'active',
+      isAvailable: true
+    })
+    await db.product_bundle_item.bulkCreate(
+      components.map((c) => ({
+        bundleId: bundle.id,
+        product: c.product.id,
+        quantity: c.quantity || 1
+      }))
+    )
+    return bundle
+  }
+
+  const repackBundle = async (bundleId, components) => {
+    await db.product_bundle_item.destroy({ where: { bundleId }, force: true })
+    await db.product_bundle_item.bulkCreate(
+      components.map((c) => ({
+        bundleId,
+        product: c.product.id,
+        quantity: c.quantity || 1
+      }))
+    )
+  }
+
+  const bestSellingOf = async (productId) => {
+    const row = await db.best_selling.findOne({
+      where: { productId, store: storeA.id }
+    })
+    return Number(row?.totalSelling || 0)
+  }
+
+  const cleanupOrderWithBundle = async (orderId, bundleId) => {
+    await db.order.destroy({ where: { id: orderId }, force: true })
+    await db.product_bundle_item.destroy({ where: { bundleId }, force: true })
+    await db.product_bundle.destroy({ where: { id: bundleId }, force: true })
+  }
+
+  test('REV-BUNDLE-MULTI-FG — multi-component stocked bundle: every component FG-restored, best_selling symmetric', async () => {
+    const A = await makeProduct({ stock: 10 })
+    const B = await makeProduct({ stock: 10 })
+    const C = await makeProduct({ stock: 10 })
+    const bsBefore = {
+      A: await bestSellingOf(A.id),
+      B: await bestSellingOf(B.id),
+      C: await bestSellingOf(C.id)
+    }
+    const bundle = await makeBundle({ components: [{ product: A }, { product: B }, { product: C }] })
+
+    const { created, paid } = await createThenPaid({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'REV-BUNDLE-MULTI-FG',
+      items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 1 }]
+    })
+    expect(created.status).toBe(201)
+    expect(paid.status).toBe(200)
+
+    expect((await db.product.findByPk(A.id)).stock).toBe(9)
+    expect((await db.product.findByPk(B.id)).stock).toBe(9)
+    expect((await db.product.findByPk(C.id)).stock).toBe(9)
+    expect(await bestSellingOf(A.id)).toBe(bsBefore.A + 1)
+    expect(await bestSellingOf(B.id)).toBe(bsBefore.B + 1)
+    expect(await bestSellingOf(C.id)).toBe(bsBefore.C + 1)
+
+    const cancel = await updateOrderStatus(tokenA, {
+      id: created.body.data.id,
+      status: 'cancelled'
+    })
+    expect(cancel.status).toBe(200)
+
+    expect((await db.product.findByPk(A.id)).stock).toBe(10)
+    expect((await db.product.findByPk(B.id)).stock).toBe(10)
+    expect((await db.product.findByPk(C.id)).stock).toBe(10)
+    expect(await bestSellingOf(A.id)).toBe(bsBefore.A)
+    expect(await bestSellingOf(B.id)).toBe(bsBefore.B)
+    expect(await bestSellingOf(C.id)).toBe(bsBefore.C)
+
+    await cleanupOrderWithBundle(created.body.data.id, bundle.id)
+  })
+
+  test('REV-BUNDLE-MIXED-MODE — stocked/make_to_order/hybrid: FG per mode + ingredients all restored', async () => {
+    const A = await makeProduct({ stock: 10, inventoryMode: 'stocked' })
+    const ingB = await makeIngredient(storeA.id, { stock: 100 })
+    const B = await makeProduct({ stock: 10, inventoryMode: 'make_to_order' })
+    await makeBom(storeA.id, B.id, [{ ingredientId: ingB.id, qty: 5 }])
+    const ingC = await makeIngredient(storeA.id, { stock: 100 })
+    const C = await makeProduct({ stock: 10, inventoryMode: 'hybrid' })
+    await makeBom(storeA.id, C.id, [{ ingredientId: ingC.id, qty: 2 }])
+
+    const bundle = await makeBundle({ components: [{ product: A }, { product: B }, { product: C }] })
+
+    const { created, paid } = await createThenPaid({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'REV-BUNDLE-MIXED-MODE',
+      items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 1 }]
+    })
+    expect(created.status).toBe(201)
+    expect(paid.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(9)
+    expect((await db.product.findByPk(B.id)).stock).toBe(10) // FG untouched
+    expect((await db.product.findByPk(C.id)).stock).toBe(9)
+    expect((await db.ingredient.findByPk(ingB.id)).stock).toBe(95)
+    expect((await db.ingredient.findByPk(ingC.id)).stock).toBe(98)
+
+    const cancel = await updateOrderStatus(tokenA, {
+      id: created.body.data.id,
+      status: 'cancelled'
+    })
+    expect(cancel.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(10)
+    expect((await db.product.findByPk(B.id)).stock).toBe(10) // FG stays untouched
+    expect((await db.product.findByPk(C.id)).stock).toBe(10)
+    expect((await db.ingredient.findByPk(ingB.id)).stock).toBe(100)
+    expect((await db.ingredient.findByPk(ingC.id)).stock).toBe(100)
+
+    await cleanupOrderWithBundle(created.body.data.id, bundle.id)
+  })
+
+  test('REV-BUNDLE-QUANTITY — bundleQty > 1 restores the exact multiplied amounts', async () => {
+    const A = await makeProduct({ stock: 50 })
+    const B = await makeProduct({ stock: 50 })
+    const bundle = await makeBundle({
+      components: [{ product: A, quantity: 3 }, { product: B, quantity: 2 }]
+    })
+
+    const { created, paid } = await createThenPaid({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'REV-BUNDLE-QUANTITY',
+      items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 2 }]
+    })
+    expect(created.status).toBe(201)
+    expect(paid.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(44) // 50 - (3*2)
+    expect((await db.product.findByPk(B.id)).stock).toBe(46) // 50 - (2*2)
+
+    const cancel = await updateOrderStatus(tokenA, {
+      id: created.body.data.id,
+      status: 'void'
+    })
+    expect(cancel.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(50)
+    expect((await db.product.findByPk(B.id)).stock).toBe(50)
+
+    await cleanupOrderWithBundle(created.body.data.id, bundle.id)
+  })
+
+  test('REV-BUNDLE-IDEMPOTENT-REVERSE — repeated cancellation never double-restores', async () => {
+    const A = await makeProduct({ stock: 10 })
+    const bundle = await makeBundle({ components: [{ product: A }] })
+
+    const { created, paid } = await createThenPaid({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'REV-BUNDLE-IDEMPOTENT-REVERSE',
+      items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 1 }]
+    })
+    expect(created.status).toBe(201)
+    expect(paid.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(9)
+
+    const cancel1 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    expect(cancel1.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(10)
+
+    const cancel2 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    expect(cancel2.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(10) // no double restore
+
+    const voidAfterCancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'void' })
+    expect(voidAfterCancel.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(10)
+
+    await cleanupOrderWithBundle(created.body.data.id, bundle.id)
+  })
+
+  test('REV-BUNDLE-AFTER-EDIT — reversal follows the historical sale snapshot, never the current bundle config', async () => {
+    const A = await makeProduct({ stock: 10 })
+    const B = await makeProduct({ stock: 10 })
+    const C = await makeProduct({ stock: 10 })
+    const D = await makeProduct({ stock: 10 })
+    const E = await makeProduct({ stock: 10 })
+    const bundle = await makeBundle({
+      components: [{ product: A }, { product: B }, { product: C }]
+    })
+
+    // T0: order taken while the bundle is A+B+C.
+    const created = await customerCreate({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'REV-BUNDLE-AFTER-EDIT',
+      items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 1 }]
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.data.paymentStatus).toBe('unpaid')
+
+    // T1: admin edits the bundle to A+D before payment.
+    await repackBundle(bundle.id, [{ product: A }, { product: D }])
+
+    // T2: trusted paid reads the CURRENT config — only A and D are deducted.
+    const paid = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'paid' })
+    expect(paid.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(9)
+    expect((await db.product.findByPk(D.id)).stock).toBe(9)
+    expect((await db.product.findByPk(B.id)).stock).toBe(10)
+    expect((await db.product.findByPk(C.id)).stock).toBe(10)
+
+    // T3: admin edits the bundle again (to A+E) AFTER the sale.
+    await repackBundle(bundle.id, [{ product: A }, { product: E }])
+
+    // T4: reversal must restore the SALE's immutable deduction (A,D) — not
+    // the original order composition (A,B,C), not the current config (A,E).
+    const cancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    expect(cancel.status).toBe(200)
+    expect((await db.product.findByPk(A.id)).stock).toBe(10)
+    expect((await db.product.findByPk(D.id)).stock).toBe(10)
+    expect((await db.product.findByPk(B.id)).stock).toBe(10) // never deducted
+    expect((await db.product.findByPk(C.id)).stock).toBe(10) // never deducted
+    expect((await db.product.findByPk(E.id)).stock).toBe(10) // current-config only, never sold
+
+    await cleanupOrderWithBundle(created.body.data.id, bundle.id)
   })
 })
