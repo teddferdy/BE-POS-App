@@ -21,6 +21,23 @@ const {
 const { adjustIngredientStockBatch } = require('../service/stockMutationService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 
+// FND-001 (security): escape every untrusted string that is interpolated into
+// the raw-HTML receipt template at the output boundary. The receipt endpoint
+// returns text/html (not React-rendered), so browser-side escaping never
+// applies here — values must be encoded server-side before interpolation.
+const _escapeHtml = (value) =>
+  String(value == null ? '' : value).replace(
+    /[&<>"']/g,
+    (ch) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[ch]
+  )
+
 // ponytail: validFrom/validUntil opsional — null berarti selalu berlaku
 const isBundleWithinValidityPeriod = (bundle, now = new Date()) => {
   const validFrom = bundle.validFrom ? new Date(bundle.validFrom) : null
@@ -3550,8 +3567,8 @@ exports.getReceiptHTML = async (req, res) => {
       .map(
         (item, i) => `
       <tr>
-        <td style="padding:6px 4px;border-bottom:1px dashed #ccc">${i + 1}. ${item.productName || '-'}</td>
-        <td style="text-align:center;padding:6px 4px;border-bottom:1px dashed #ccc">${item.quantity}</td>
+        <td style="padding:6px 4px;border-bottom:1px dashed #ccc">${i + 1}. ${_escapeHtml(item.productName || '-')}</td>
+        <td style="text-align:center;padding:6px 4px;border-bottom:1px dashed #ccc">${_escapeHtml(item.quantity)}</td>
         <td style="text-align:right;padding:6px 4px;border-bottom:1px dashed #ccc">${formatPrice(item.price)}</td>
         <td style="text-align:right;padding:6px 4px;border-bottom:1px dashed #ccc">${formatPrice(item.totalPrice)}</td>
       </tr>`
@@ -3568,7 +3585,7 @@ exports.getReceiptHTML = async (req, res) => {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Invoice - ${order.orderNumber}</title>
+  <title>Invoice - ${_escapeHtml(order.orderNumber)}</title>
   <style>
     body { font-family: 'Courier New', monospace; font-size: 13px; margin: 0; padding: 20px; color: #000; }
     .receipt { max-width: 380px; margin: 0 auto; }
@@ -3595,14 +3612,14 @@ exports.getReceiptHTML = async (req, res) => {
 <body>
   <div class="receipt" style="max-width: 380px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden;">
     <div class="header" style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); color: #fff; padding: 20px; text-align: center;">
-      ${showLogo && logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px; margin-bottom:8px;" />` : ''}
-      ${showStoreName ? `<h2 style="margin:4px 0; text-transform:uppercase; font-size:16px; font-weight:bold;">${storeData?.name || 'TOKO'}</h2>` : ''}
+      ${showLogo && logoUrl ? `<img src="${_escapeHtml(logoUrl)}" alt="Logo" style="max-height:60px; margin-bottom:8px;" />` : ''}
+      ${showStoreName ? `<h2 style="margin:4px 0; text-transform:uppercase; font-size:16px; font-weight:bold;">${_escapeHtml(storeData?.name) || 'TOKO'}</h2>` : ''}
       ${
         showAddress && storeData
           ? `
-        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.name || ''}</p>
-        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.address || ''}</p>
-        ${storeData.detailLocation ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.detailLocation}</p>` : ''}
+        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.name)}</p>
+        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.address) || ''}</p>
+        ${storeData.detailLocation ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.detailLocation)}</p>` : ''}
         ${
           [
             addressFieldsVisibility.province !== false
@@ -3627,12 +3644,13 @@ exports.getReceiptHTML = async (req, res) => {
                   : null
               ]
                 .filter(Boolean)
+                .map(_escapeHtml)
                 .join(', ')}</p>`
             : ''
         }
-        ${addressFieldsVisibility.postalCode !== false && storeData.postalCode ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Kode Pos: ${storeData.postalCode}</p>` : ''}
-        ${addressFieldsVisibility.phone !== false && storeData.phoneNumber ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Telp: ${storeData.phoneNumber}</p>` : ''}
-        ${addressFieldsVisibility.email !== false && storeData.email ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.email}</p>` : ''}
+        ${addressFieldsVisibility.postalCode !== false && storeData.postalCode ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Kode Pos: ${_escapeHtml(storeData.postalCode)}</p>` : ''}
+        ${addressFieldsVisibility.phone !== false && storeData.phoneNumber ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Telp: ${_escapeHtml(storeData.phoneNumber)}</p>` : ''}
+        ${addressFieldsVisibility.email !== false && storeData.email ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.email)}</p>` : ''}
       `
           : ''
       }
@@ -3641,20 +3659,20 @@ exports.getReceiptHTML = async (req, res) => {
     <div class="meta" style="display:flex; justify-content:space-between; padding:10px 16px; border-bottom:1px solid #eee; font-size:11px;">
       <div>
         <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Invoice</span>
-        <strong>${order.orderNumber}</strong>
+        <strong>${_escapeHtml(order.orderNumber)}</strong>
       </div>
       <div style="text-align: right;">
-        <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">${date}</span>
+        <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">${_escapeHtml(date)}</span>
       </div>
     </div>
 
     <div class="member-info" style="display:flex; justify-content:space-between; padding:8px 16px; border-bottom:1px dashed #ccc; font-size:11px;">
-      <div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Kasir</span><span> ${order.cashierName || '-'}</span></div>
-      ${order.customerName ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Pelanggan</span><span> ${order.customerName}</span></div>` : ''}
-      ${order.table?.name ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Meja</span><span> ${order.table.name}</span></div>` : ''}
+      <div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Kasir</span><span> ${_escapeHtml(order.cashierName || '-')}</span></div>
+      ${order.customerName ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Pelanggan</span><span> ${_escapeHtml(order.customerName)}</span></div>` : ''}
+      ${order.table?.name ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Meja</span><span> ${_escapeHtml(order.table.name)}</span></div>` : ''}
       <div style="margin-top:4px">
-        <span class="status-badge ${order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid'}" style="${order.paymentStatus === 'paid' ? 'background:#d4edda;color:#155724;' : 'background:#fff3cd;color:#856404;'} display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:bold;">
-          ${STATUS_LABELS[order.paymentStatus] || order.paymentStatus || 'BELUM DIBAYAR'}
+        <span class="status-badge ${_escapeHtml(order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid')}" style="${_escapeHtml(order.paymentStatus === 'paid' ? 'background:#d4edda;color:#155724;' : 'background:#fff3cd;color:#856404;')} display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:bold;">
+          ${_escapeHtml(STATUS_LABELS[order.paymentStatus] || order.paymentStatus || 'BELUM DIBAYAR')}
         </span>
       </div>
     </div>
@@ -3677,19 +3695,19 @@ exports.getReceiptHTML = async (req, res) => {
         ${order.serviceChargeAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Biaya Layanan</span><span>${formatPrice(order.serviceChargeAmount)}</span></div>` : ''}
         ${order.taxAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Pajak</span><span>${formatPrice(order.taxAmount)}</span></div>` : ''}
         <div class="grand-total" style="font-weight:bold; font-size:14px; border-top:1px solid #d1d5db; padding-top:8px; margin-top:4px; display:flex; justify-content:space-between;"><span>TOTAL</span><span>${formatPrice(order.totalPrice)}</span></div>
-        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>${order.paymentMethod || '-'}</span><span>${formatPrice(order.totalPrice)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>${_escapeHtml(order.paymentMethod || '-')}</span><span>${formatPrice(order.totalPrice)}</span></div>
       </div>
     </div>
 
     <div class="footer" style="padding:16px; text-align:center; font-size:11px; color:#9ca3af; border-top:1px dashed #e5e7eb;">
-      <p class="footer-it" style="font-style:italic; margin:0 0 8px 0;">${footerText}</p>
+      <p class="footer-it" style="font-style:italic; margin:0 0 8px 0;">${_escapeHtml(footerText)}</p>
       <div class="social" style="display:flex; justify-content:center; gap:12px; margin-top:8px; padding-top:8px; border-top:1px dashed #e5e7eb; font-size:10px; color:#9ca3af;">
         ${
           storeData?.socialMedia
             ? Object.entries(storeData.socialMedia)
                 .map(
                   ([platform, _url]) =>
-                    `<img src="/icon/${platform}.svg" alt="${platform}" style="height:16px;width:auto;" />`
+                    `<img src="/icon/${_escapeHtml(platform)}.svg" alt="${_escapeHtml(platform)}" style="height:16px;width:auto;" />`
                 )
                 .join('')
             : ''
