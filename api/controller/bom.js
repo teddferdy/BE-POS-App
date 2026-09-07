@@ -122,6 +122,39 @@ const bomController = {
         })
       }
 
+      const bomLines = lines.map((l) => ({
+        ingredientId: l.ingredientId,
+        qty: l.qty || 0,
+        unit: l.unit || 'pcs',
+        notes: l.notes
+      }))
+
+      // F7: BASE-UNIT-ONLY contract — a BOM line's unit must match its
+      // ingredient's baseUnit at authoring time (deduction time
+      // independently re-verifies this against live data; this check
+      // exists so misconfiguration is caught immediately rather than
+      // only discovered at the next sale).
+      const authoringIngIds = [...new Set(bomLines.map((l) => l.ingredientId))]
+      const authoringIngs = await db.ingredient.findAll({
+        where: { id: authoringIngIds }
+      })
+      const authoringIngById = new Map(authoringIngs.map((i) => [i.id, i]))
+      for (const line of bomLines) {
+        const ing = authoringIngById.get(line.ingredientId)
+        if (!ing) {
+          return res.status(400).json({
+            success: false,
+            message: `Ingredient ${line.ingredientId} not found`
+          })
+        }
+        if (line.unit !== ing.baseUnit) {
+          return res.status(400).json({
+            success: false,
+            message: `Unit mismatch for ingredient "${ing.name}": BOM line uses "${line.unit}", ingredient base unit is "${ing.baseUnit}"`
+          })
+        }
+      }
+
       const bom = await db.bom_header.create({
         store,
         productId,
@@ -130,18 +163,12 @@ const bomController = {
         status: req.body.status || 'active'
       })
 
-      const bomLines = lines.map((l) => ({
-        bomHeaderId: bom.id,
-        ingredientId: l.ingredientId,
-        qty: l.qty || 0,
-        unit: l.unit || 'pcs',
-        notes: l.notes
-      }))
-      await db.bom_line.bulkCreate(bomLines)
+      await db.bom_line.bulkCreate(
+        bomLines.map((l) => ({ ...l, bomHeaderId: bom.id }))
+      )
 
       // ——— Auto-calculate HPP ———
-      const ingIds = [...new Set(bomLines.map((l) => l.ingredientId))]
-      const ings = await db.ingredient.findAll({ where: { id: ingIds } })
+      const ings = authoringIngs
       const costMap = Object.fromEntries(
         ings.map((i) => [i.id, Number(i.costPrice || 0)])
       )
@@ -214,15 +241,41 @@ const bomController = {
       await bom.update(updateData)
 
       if (lines) {
-        await db.bom_line.destroy({ where: { bomHeaderId: id } })
         const bomLines = lines.map((l) => ({
-          bomHeaderId: id,
           ingredientId: l.ingredientId,
           qty: l.qty || 0,
           unit: l.unit || 'pcs',
           notes: l.notes
         }))
-        await db.bom_line.bulkCreate(bomLines)
+
+        // F7: BASE-UNIT-ONLY contract, validated before touching any
+        // existing bom_line row — a rejected update must leave the
+        // previous, still-valid BOM untouched.
+        const authoringIngIds = [...new Set(bomLines.map((l) => l.ingredientId))]
+        const authoringIngs = await db.ingredient.findAll({
+          where: { id: authoringIngIds }
+        })
+        const authoringIngById = new Map(authoringIngs.map((i) => [i.id, i]))
+        for (const line of bomLines) {
+          const ing = authoringIngById.get(line.ingredientId)
+          if (!ing) {
+            return res.status(400).json({
+              success: false,
+              message: `Ingredient ${line.ingredientId} not found`
+            })
+          }
+          if (line.unit !== ing.baseUnit) {
+            return res.status(400).json({
+              success: false,
+              message: `Unit mismatch for ingredient "${ing.name}": BOM line uses "${line.unit}", ingredient base unit is "${ing.baseUnit}"`
+            })
+          }
+        }
+
+        await db.bom_line.destroy({ where: { bomHeaderId: id } })
+        await db.bom_line.bulkCreate(
+          bomLines.map((l) => ({ ...l, bomHeaderId: id }))
+        )
       }
 
       // ——— Recalculate HPP ———

@@ -18,6 +18,8 @@ const {
   attemptJob,
   recordImmediateAttempt
 } = require('../service/accountingOutboxService')
+const { adjustIngredientStockBatch } = require('../service/stockMutationService')
+const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 
 // ponytail: validFrom/validUntil opsional — null berarti selalu berlaku
 const isBundleWithinValidityPeriod = (bundle, now = new Date()) => {
@@ -925,7 +927,14 @@ exports.createOrder = async (req, res) => {
     // way for a client retry to recover it (the idempotency check only
     // sees "order exists" and never re-attempts the missing steps).
     let accountingJobs = null
-    const order = await db.sequelize.transaction(async (t) => {
+    // F7: wrapped in withDeadlockRetry — ingredient locking (in addition
+    // to the existing product locking) raises the number of distinct rows
+    // this transaction locks per order, which mechanically raises
+    // deadlock probability even with correct lock ordering. A killed
+    // transaction here is guaranteed by Postgres to have committed
+    // nothing, so re-running this whole callback from scratch is safe.
+    const order = await withDeadlockRetry(() =>
+      db.sequelize.transaction(async (t) => {
       // Deliberately a plain, unlocked read — the F2 blueprint's accepted
       // design trade-off. This is inside the checkout transaction (moved
       // here from before it opened) specifically to shrink the window in
@@ -1020,7 +1029,8 @@ exports.createOrder = async (req, res) => {
       )
 
       return createdOrder
-    })
+      })
+    )
 
     const fullOrder = await Order.findOne({
       where: { id: order.id },
@@ -1157,6 +1167,102 @@ const createOrderItems = async (
   }
 }
 
+// F7 — resolves BOM ingredient requirements for a flat list of
+// (productId, quantity) consumption entries, for products whose
+// inventoryMode requires it ('stocked' products are skipped entirely,
+// even if a BOM happens to exist for them). BOM/ingredient STRUCTURE
+// reads here are unlocked (mirrors bundleMap's own pre-existing
+// convention of reading definitional data before any lock is taken) —
+// only ingredient STOCK itself is trusted under a lock, later, inside
+// adjustIngredientStockBatch. Every fail-closed condition throws a 409
+// with `statusCode` set; callers run this before any stock mutation so a
+// rejection here rolls back the whole enclosing transaction.
+const resolveBomIngredientRequirements = async (flatItems, store, productById, t) => {
+  const requirements = []
+  for (const { productId, quantity } of flatItems) {
+    const product = productById.get(productId)
+    if (!product) continue
+    const mode = product.inventoryMode || 'stocked'
+    if (mode === 'stocked') continue
+    const orderQty = Math.floor(Number(quantity)) || 0
+    if (orderQty <= 0) continue
+
+    const bomHeader = await db.bom_header.findOne({
+      where: { productId, store, status: 'active' },
+      include: [{ model: db.bom_line, as: 'lines' }],
+      transaction: t
+    })
+    if (!bomHeader || !bomHeader.lines || bomHeader.lines.length === 0) {
+      const e = new Error(
+        `Produk "${product.nameProduct}" menggunakan mode inventaris "${mode}" tetapi tidak memiliki BOM aktif`
+      )
+      e.statusCode = 409
+      throw e
+    }
+
+    const ingredientIds = [...new Set(bomHeader.lines.map((l) => l.ingredientId))]
+    const ingredients = await db.ingredient.findAll({
+      where: { id: ingredientIds },
+      transaction: t
+    })
+    const ingredientById = new Map(ingredients.map((i) => [i.id, i]))
+
+    // Duplicate BOM lines for the same ingredient are summed BEFORE
+    // multiplying by orderQty, never deduplicated-away.
+    const perIngredientQty = new Map()
+    for (const line of bomHeader.lines) {
+      const lineQty = Number(line.qty)
+      if (!(lineQty > 0)) {
+        const e = new Error(
+          `BOM produk "${product.nameProduct}" memiliki kuantitas bahan baku tidak valid`
+        )
+        e.statusCode = 409
+        throw e
+      }
+      const ing = ingredientById.get(line.ingredientId)
+      if (!ing) {
+        const e = new Error(
+          `BOM produk "${product.nameProduct}" mereferensikan bahan baku yang tidak ditemukan`
+        )
+        e.statusCode = 409
+        throw e
+      }
+      // Defense in depth against a malformed/cross-store BOM link —
+      // never trust that bom.js's authoring-time validation caught this.
+      if (!ing.store || ing.store !== store) {
+        const e = new Error(
+          `BOM produk "${product.nameProduct}" mereferensikan bahan baku "${ing.name}" dari toko lain`
+        )
+        e.statusCode = 409
+        throw e
+      }
+      // BASE-UNIT-ONLY contract — case-sensitive, no conversion.
+      if (line.unit !== ing.baseUnit) {
+        const e = new Error(
+          `Satuan BOM tidak cocok untuk bahan baku "${ing.name}": BOM menggunakan "${line.unit}", satuan dasar bahan baku adalah "${ing.baseUnit}"`
+        )
+        e.statusCode = 409
+        throw e
+      }
+      perIngredientQty.set(
+        line.ingredientId,
+        (perIngredientQty.get(line.ingredientId) || 0) + lineQty
+      )
+    }
+
+    for (const [ingredientId, qtyPerUnit] of perIngredientQty) {
+      const ing = ingredientById.get(ingredientId)
+      requirements.push({
+        productId,
+        ingredientId,
+        ingredientName: ing.name,
+        qty: qtyPerUnit * orderQty
+      })
+    }
+  }
+  return requirements
+}
+
 // Reduce stock & create stock history — wrapped in a transaction for
 // atomicity. Locks every distinct product touched by the order (bundle
 // components and regular items alike) in one query, in a stable order,
@@ -1205,61 +1311,68 @@ const deductStockForOrder = async (
       referenceNote,
       sellName
     }) => {
-      const oldStock = Number(product.stock) || 0
-      // Re-validate against the value just read under the row lock, not the
-      // unlocked pre-check earlier in the request — two concurrent orders
-      // can both pass that pre-check for the last unit, then both reach
-      // here; without this, both would silently succeed (the old code
-      // clamped to 0 instead of rejecting), selling more than was in stock.
-      if (oldStock < deductQty) {
-        const err = new Error(
-          `Stok "${product.nameProduct || 'produk'}" tidak mencukupi. Tersedia: ${oldStock}, diminta: ${deductQty}`
+      // F7: a make_to_order product's own finished-good stock is never
+      // authoritative — ingredients are (resolved/deducted separately,
+      // below). 'hybrid' and the default 'stocked' still deduct product
+      // stock exactly as before. best_selling is still recorded for every
+      // mode (it's a sales-count for reporting, not a stock signal).
+      if (product.inventoryMode !== 'make_to_order') {
+        const oldStock = Number(product.stock) || 0
+        // Re-validate against the value just read under the row lock, not the
+        // unlocked pre-check earlier in the request — two concurrent orders
+        // can both pass that pre-check for the last unit, then both reach
+        // here; without this, both would silently succeed (the old code
+        // clamped to 0 instead of rejecting), selling more than was in stock.
+        if (oldStock < deductQty) {
+          const err = new Error(
+            `Stok "${product.nameProduct || 'produk'}" tidak mencukupi. Tersedia: ${oldStock}, diminta: ${deductQty}`
+          )
+          err.statusCode = 400
+          throw err
+        }
+        const newStock = oldStock - deductQty
+        await product.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
+          { transaction: t }
         )
-        err.statusCode = 400
-        throw err
+        // Keep the in-memory row consistent so a second reference to the
+        // same product later in this loop (another line, or another
+        // component of a different bundle) sees the already-decremented
+        // stock.
+        product.stock = newStock
+
+        await db.sequelize.query(
+          `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+           VALUES ($1, $2, 0, NOW(), NOW())
+           ON CONFLICT (product, store) DO NOTHING`,
+          { bind: [product.id, store], transaction: t }
+        )
+        await db.product_store_stock.update(
+          { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
+          { where: { product: product.id, store }, transaction: t }
+        )
+
+        // ponytail: FIFO - consume oldest batches first
+        await batchService.deductFifo({
+          productId: product.id,
+          store,
+          qty: deductQty,
+          transaction: t
+        })
+
+        stockHistoryRows.push({
+          product: product.id,
+          store,
+          referenceType: 'sale',
+          referenceId: order.id,
+          quantityBefore: oldStock,
+          quantityChange: -deductQty,
+          quantityAfter: newStock,
+          unit: product.unit || 'pcs',
+          notes: referenceNote,
+          createdBy: userId
+        })
       }
-      const newStock = oldStock - deductQty
-      await product.update(
-        { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
-        { transaction: t }
-      )
-      // Keep the in-memory row consistent so a second reference to the
-      // same product later in this loop (another line, or another
-      // component of a different bundle) sees the already-decremented
-      // stock.
-      product.stock = newStock
-
-      await db.sequelize.query(
-        `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-         VALUES ($1, $2, 0, NOW(), NOW())
-         ON CONFLICT (product, store) DO NOTHING`,
-        { bind: [product.id, store], transaction: t }
-      )
-      await db.product_store_stock.update(
-        { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
-        { where: { product: product.id, store }, transaction: t }
-      )
-
-      // ponytail: FIFO - consume oldest batches first
-      await batchService.deductFifo({
-        productId: product.id,
-        store,
-        qty: deductQty,
-        transaction: t
-      })
-
-      stockHistoryRows.push({
-        product: product.id,
-        store,
-        referenceType: 'sale',
-        referenceId: order.id,
-        quantityBefore: oldStock,
-        quantityChange: -deductQty,
-        quantityAfter: newStock,
-        unit: product.unit || 'pcs',
-        notes: referenceNote,
-        createdBy: userId
-      })
 
       // Race-safe upsert instead of findOne + conditional create/update,
       // which could double-insert under concurrent orders touching the
@@ -1318,6 +1431,53 @@ const deductStockForOrder = async (
 
     if (stockHistoryRows.length) {
       await db.stock_history.bulkCreate(stockHistoryRows, {
+        transaction: t
+      })
+    }
+
+    // F7: ingredient deduction — same transaction, after product stock
+    // (global lock order: all product locks already acquired and released
+    // their critical section above; ingredient locking, inside
+    // adjustIngredientStockBatch, only starts now). Flat list mirrors the
+    // exact same bundle-expansion shape as the product loop above, kept
+    // deliberately separate so BOM resolution never entangles with the
+    // already-proven product-deduction logic.
+    const bomFlatItems = []
+    for (const item of items) {
+      if (item.bundleId && bundleMap[item.bundleId]) {
+        const bundle = bundleMap[item.bundleId]
+        const bundleQty = Number(item.quantity) || 1
+        for (const bi of bundle.items) {
+          bomFlatItems.push({
+            productId: bi.product,
+            quantity: bi.quantity * bundleQty
+          })
+        }
+        continue
+      }
+      const pid = item.product || item.productId
+      if (pid) {
+        bomFlatItems.push({
+          productId: pid,
+          quantity: Math.floor(Number(item.quantity)) || 0
+        })
+      }
+    }
+
+    const bomRequirements = await resolveBomIngredientRequirements(
+      bomFlatItems,
+      store,
+      productById,
+      t
+    )
+    if (bomRequirements.length) {
+      await adjustIngredientStockBatch({
+        items: bomRequirements.map((r) => ({ ...r, qty: -r.qty })),
+        store,
+        referenceType: 'sale',
+        referenceId: order.id,
+        notes: `Penjualan: ${orderNumber}`,
+        createdBy: userId,
         transaction: t
       })
     }
@@ -1742,54 +1902,60 @@ const deductStockForPaidOrder = async (
     const product = productById.get(item.product)
     if (!product) continue
 
-    const oldStock = Number(product.stock) || 0
-    const qty = Math.floor(Number(item.quantity)) || 0
-    const newStock = Math.max(oldStock - qty, 0)
-    await product.update(
-      {
-        stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-      },
-      { transaction: t }
-    )
-    product.stock = newStock
+    // F7: a make_to_order product's own finished-good stock is never
+    // authoritative — ingredients are deducted separately, below.
+    // 'hybrid' and the default 'stocked' still deduct product stock
+    // exactly as before.
+    if (product.inventoryMode !== 'make_to_order') {
+      const oldStock = Number(product.stock) || 0
+      const qty = Math.floor(Number(item.quantity)) || 0
+      const newStock = Math.max(oldStock - qty, 0)
+      await product.update(
+        {
+          stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+        },
+        { transaction: t }
+      )
+      product.stock = newStock
 
-    // ponytail: atomic upsert + deduct per-store stock
-    await db.sequelize.query(
-      `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-       VALUES ($1, $2, 0, NOW(), NOW())
-       ON CONFLICT (product, store) DO NOTHING`,
-      { bind: [item.product, effectiveStore], transaction: t }
-    )
-    await db.product_store_stock.update(
-      {
-        stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
-      },
-      {
-        where: { product: item.product, store: effectiveStore },
+      // ponytail: atomic upsert + deduct per-store stock
+      await db.sequelize.query(
+        `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+         VALUES ($1, $2, 0, NOW(), NOW())
+         ON CONFLICT (product, store) DO NOTHING`,
+        { bind: [item.product, effectiveStore], transaction: t }
+      )
+      await db.product_store_stock.update(
+        {
+          stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+        },
+        {
+          where: { product: item.product, store: effectiveStore },
+          transaction: t
+        }
+      )
+
+      // ponytail: FIFO - consume oldest batches first
+      await batchService.deductFifo({
+        productId: product.id,
+        store: effectiveStore,
+        qty,
         transaction: t
-      }
-    )
+      })
 
-    // ponytail: FIFO - consume oldest batches first
-    await batchService.deductFifo({
-      productId: product.id,
-      store: effectiveStore,
-      qty,
-      transaction: t
-    })
-
-    stockHistoryRows.push({
-      product: product.id,
-      store: effectiveStore,
-      referenceType: 'sale',
-      referenceId: orderId,
-      quantityBefore: oldStock,
-      quantityChange: -Number(item.quantity),
-      quantityAfter: newStock,
-      unit: product.unit || 'pcs',
-      notes: `Penjualan: ${orderNumber}`,
-      createdBy: changedBy
-    })
+      stockHistoryRows.push({
+        product: product.id,
+        store: effectiveStore,
+        referenceType: 'sale',
+        referenceId: orderId,
+        quantityBefore: oldStock,
+        quantityChange: -Number(item.quantity),
+        quantityAfter: newStock,
+        unit: product.unit || 'pcs',
+        notes: `Penjualan: ${orderNumber}`,
+        createdBy: changedBy
+      })
+    }
 
     const sellName = item.productName || product.nameProduct
     await db.sequelize.query(
@@ -1819,8 +1985,45 @@ const deductStockForPaidOrder = async (
       transaction: t
     })
   }
+
+  // F7: ingredient deduction, same transaction, after product stock.
+  // Operates purely on order_item.product/quantity — this deferred path
+  // has no bundle-membership context (a bundle's order_item row only
+  // ever carries its first component's product, a pre-existing,
+  // unrelated F5-era limitation this does not attempt to work around),
+  // so a BOM-having bundle component completed via this path only has
+  // that one component's ingredients considered — inherited, not
+  // introduced, by this change.
+  const bomFlatItems = items.map((item) => ({
+    productId: item.product,
+    quantity: item.quantity
+  }))
+  const bomRequirements = await resolveBomIngredientRequirements(
+    bomFlatItems,
+    effectiveStore,
+    productById,
+    t
+  )
+  if (bomRequirements.length) {
+    await adjustIngredientStockBatch({
+      items: bomRequirements.map((r) => ({ ...r, qty: -r.qty })),
+      store: effectiveStore,
+      referenceType: 'sale',
+      referenceId: orderId,
+      notes: `Penjualan: ${orderNumber}`,
+      createdBy: changedBy,
+      transaction: t
+    })
+  }
 }
 exports.deductStockForPaidOrder = deductStockForPaidOrder
+// F5: additive exports only — both functions are unchanged, already used
+// by this file's own two order-completion paths (immediate pay,
+// updateOrderStatus's paid-transition). splitBill.js's completion branch
+// reuses these directly instead of calling accountingService or the
+// outbox a second, parallel way.
+exports.enqueueOrderAccountingJobs = enqueueOrderAccountingJobs
+exports.attemptOrderAccountingEntries = attemptOrderAccountingEntries
 
 exports.updateOrderStatus = async (req, res) => {
   const { id, status, changedBy, changedByName, notes } = req.body
@@ -1933,11 +2136,64 @@ exports.updateOrderStatus = async (req, res) => {
           )
         }
       }
+
+      // F7: ingredient reversal — reverses the EXACT immutable deduction
+      // snapshot recorded in stock_history at sale time, never re-reads
+      // bom_header/bom_line (the production-order cancellation precedent
+      // this deliberately avoids repeating: re-exploding the *current*
+      // BOM would restore the wrong quantity if the recipe changed after
+      // the sale). Grouped by (product, ingredient) exactly as it was
+      // originally recorded, so a future partial-return feature retains
+      // the same attribution this reversal already relies on.
+      const saleIngredientHistory = await db.stock_history.findAll({
+        where: {
+          referenceType: 'sale',
+          referenceId: order.id,
+          ingredient: { [Op.ne]: null }
+        },
+        transaction: t
+      })
+      if (saleIngredientHistory.length) {
+        const byProductIngredient = new Map()
+        for (const row of saleIngredientHistory) {
+          const key = `${row.product}:${row.ingredient}`
+          const existing = byProductIngredient.get(key)
+          if (existing) {
+            existing.qty += Number(row.quantityChange)
+          } else {
+            byProductIngredient.set(key, {
+              productId: row.product,
+              ingredientId: row.ingredient,
+              ingredientName: row.ingredientName,
+              qty: Number(row.quantityChange)
+            })
+          }
+        }
+        await adjustIngredientStockBatch({
+          items: Array.from(byProductIngredient.values()).map((r) => ({
+            ...r,
+            qty: -r.qty // original rows are negative (deduction); reversal restores the exact inverse
+          })),
+          store: effectiveStore,
+          referenceType: 'sale_reversal',
+          referenceId: order.id,
+          notes: `Pembatalan: ${order.orderNumber}`,
+          createdBy: changedBy,
+          transaction: t
+        })
+      }
     }
 
     // Perform the whole status transition atomically.
     let orderJournalJob, cogsJournalJob, reversalJob
-    await db.sequelize.transaction(async (t) => {
+    // F7: wrapped in withDeadlockRetry — this transaction may now also
+    // lock ingredient rows (via deductPaidOrderStock's ingredient step,
+    // or reverseOrderStock's reversal step), raising the number of
+    // distinct rows locked. A killed transaction here is guaranteed by
+    // Postgres to have committed nothing, so re-running this whole
+    // callback from scratch is safe.
+    await withDeadlockRetry(() =>
+      db.sequelize.transaction(async (t) => {
       // Re-read the order under a row lock and derive oldStatus/
       // oldPaymentStatus from THIS fresh read, shadowing the stale
       // pre-transaction values above. Two concurrent status-change requests
@@ -2132,7 +2388,8 @@ exports.updateOrderStatus = async (req, res) => {
           transaction: t
         })
       }
-    })
+      })
+    )
 
     // Best-effort immediate posting for the common case — the outbox rows
     // enqueued above are the actual reliability guarantee; a failure here
@@ -3099,8 +3356,13 @@ exports.getCustomerOrders = async (req, res) => {
         {
           model: db.order_item,
           as: 'items',
+          // `product`/`bundleId`/`bundleName` are required by the BISA-MAKAN
+          // reorder flow to identify what each historical line item actually
+          // was — without them every reorder attempt fails closed (no
+          // product/bundle can be resolved from this response).
           attributes: [
             'id',
+            'product',
             'productName',
             'quantity',
             'price',
@@ -3108,7 +3370,9 @@ exports.getCustomerOrders = async (req, res) => {
             'notes',
             'options',
             'modifiers',
-            'status'
+            'status',
+            'bundleId',
+            'bundleName'
           ]
         },
         { model: db.table, as: 'table', attributes: ['name'] }

@@ -3189,6 +3189,7 @@ CREATE TABLE public.product (
     "deletedAt" timestamp with time zone,
     "estimationTime" integer DEFAULT 0,
     images jsonb DEFAULT '[]'::jsonb,
+    "inventoryMode" character varying(20) DEFAULT 'stocked'::character varying NOT NULL,
     CONSTRAINT product_stock_non_negative CHECK ((stock >= 0))
 );
 
@@ -4546,6 +4547,7 @@ CREATE TABLE public.split_bill (
     amount integer NOT NULL,
     status public.enum_split_bill_status DEFAULT 'pending'::public.enum_split_bill_status,
     "paymentMethod" character varying(255),
+    "idempotencyKey" character varying(255),
     "createdBy" integer,
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone,
@@ -7960,6 +7962,13 @@ CREATE INDEX shift_swap_target_id ON public.shift_swap USING btree ("targetId");
 --
 
 CREATE INDEX split_bill_order ON public.split_bill USING btree ("order");
+
+
+--
+-- Name: split_bill_order_idempotencykey; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX split_bill_order_idempotencykey ON public.split_bill USING btree ("order", "idempotencyKey");
 
 
 --

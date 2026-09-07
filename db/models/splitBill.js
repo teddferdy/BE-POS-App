@@ -23,6 +23,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       status: {
         type: DataTypes.ENUM('pending', 'paid'),
+        allowNull: false,
         defaultValue: 'pending'
       },
       paymentMethod: {
@@ -30,6 +31,14 @@ module.exports = (sequelize, DataTypes) => {
       },
       createdBy: {
         type: DataTypes.INTEGER
+      },
+      // Create-retry idempotency key, scoped (order, idempotencyKey) via a
+      // plain lookup index (not a unique constraint — see the migration
+      // for why: one key legitimately covers multiple rows here, and
+      // create()'s order-row lock already serializes concurrent replays).
+      idempotencyKey: {
+        type: DataTypes.STRING,
+        allowNull: true
       }
     },
     {

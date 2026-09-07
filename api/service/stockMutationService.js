@@ -164,4 +164,168 @@ async function setProductStock({
   })
 }
 
-module.exports = { adjustProductStock, setProductStock }
+/**
+ * F7 — batch ingredient stock mutation, the ingredient-side counterpart to
+ * adjustProductStock above. Deliberately NOT the same single-row
+ * (findByPk) shape: the checkout hot path needs to lock every distinct
+ * ingredient an order touches in one deterministic pass — exactly the
+ * batching discipline order.js's deductStockForOrder already uses for
+ * products (see its own comment on replacing "one findByPk+lock per
+ * line") — so a single-row primitive would force the caller back into
+ * that anti-pattern. This function accepts the whole order's worth of
+ * per-(product, ingredient) contributions at once.
+ *
+ * Handles both deduction (negative qty) and restoration/reversal
+ * (positive qty) — the same locking, revalidation, and snapshot logic
+ * applies either way; only the sign differs.
+ *
+ * Callers MUST already be inside a transaction and pass it in, exactly
+ * like adjustProductStock's contract.
+ *
+ * @param {object} params
+ * @param {Array<{productId:number, ingredientId:number, ingredientName?:string, qty:number}>} params.items
+ *   Signed per-(product, ingredient) quantities. Multiple entries may
+ *   share the same ingredientId (e.g. two products both consuming
+ *   "Sauce") — each is preserved as its own stock_history row even
+ *   though the ingredient's stock counter is mutated exactly once.
+ * @param {number} params.store - the order's own store. Every resolved
+ *   ingredient must belong to this store or the whole batch is rejected —
+ *   defense in depth, never trusts that the caller's BOM resolution
+ *   already guaranteed this.
+ * @param {string} params.referenceType - stock_history.referenceType
+ * @param {number} params.referenceId - stock_history.referenceId
+ * @param {string|null} [params.notes]
+ * @param {number|null} [params.createdBy]
+ * @param {import('sequelize').Transaction} params.transaction - required
+ * @returns {Promise<Array<{ingredientId:number, quantityBefore:number, quantityAfter:number}>>}
+ */
+async function adjustIngredientStockBatch({
+  items,
+  store,
+  referenceType,
+  referenceId,
+  notes = null,
+  createdBy = null,
+  transaction
+}) {
+  if (!transaction) {
+    throw new Error('adjustIngredientStockBatch requires an explicit transaction')
+  }
+  if (!items || items.length === 0) return []
+
+  const ingredientIds = [...new Set(items.map((i) => i.ingredientId))].sort(
+    (a, b) => a - b
+  )
+
+  const ingredients = await db.ingredient.findAll({
+    where: { id: ingredientIds },
+    transaction,
+    lock: transaction.LOCK.UPDATE
+  })
+  const ingredientById = new Map(ingredients.map((i) => [i.id, i]))
+
+  // Defense in depth — never trust that BOM resolution already verified
+  // store ownership; a malformed or directly-tampered record must still
+  // be rejected here, at the point stock is actually mutated. A NULL
+  // ingredient.store never matches any real order store, so it always
+  // fails this check.
+  for (const id of ingredientIds) {
+    const ing = ingredientById.get(id)
+    if (!ing) {
+      const e = new Error(`Ingredient ${id} not found`)
+      e.statusCode = 409
+      throw e
+    }
+    if (!ing.store || ing.store !== store) {
+      const e = new Error(
+        `Ingredient "${ing.name}" does not belong to store ${store}`
+      )
+      e.statusCode = 409
+      throw e
+    }
+  }
+
+  // Aggregate the true, atomic per-ingredient delta — this single number
+  // per ingredient is what must never take stock negative, computed from
+  // the just-locked value, not any pre-transaction estimate.
+  const aggregateDelta = new Map()
+  for (const item of items) {
+    aggregateDelta.set(
+      item.ingredientId,
+      (aggregateDelta.get(item.ingredientId) || 0) + Number(item.qty)
+    )
+  }
+
+  for (const id of ingredientIds) {
+    const ing = ingredientById.get(id)
+    const delta = aggregateDelta.get(id) || 0
+    const projected = Number(ing.stock) + delta
+    if (delta < 0 && projected < 0) {
+      const e = new Error(
+        `Stok bahan baku "${ing.name}" tidak mencukupi. Tersedia: ${ing.stock}, dibutuhkan: ${-delta}`
+      )
+      e.statusCode = 409
+      throw e
+    }
+  }
+
+  // Exactly one atomic SQL delta per distinct ingredient.
+  for (const id of ingredientIds) {
+    const delta = aggregateDelta.get(id) || 0
+    if (delta === 0) continue
+    await db.ingredient.update(
+      { stock: db.sequelize.literal(`GREATEST(stock + (${delta}), 0)`) },
+      { where: { id }, transaction }
+    )
+  }
+
+  // Per-(product, ingredient) stock_history rows — the immutable
+  // deduction/restoration snapshot a future reversal reads, never
+  // re-deriving anything from the BOM. A running before/after cursor per
+  // ingredient keeps each row individually coherent while their
+  // quantityChange values sum to exactly the aggregate delta applied
+  // above.
+  const runningBefore = new Map(
+    ingredientIds.map((id) => [id, Number(ingredientById.get(id).stock)])
+  )
+  const historyRows = []
+  for (const item of items) {
+    const ing = ingredientById.get(item.ingredientId)
+    const before = runningBefore.get(item.ingredientId)
+    const change = Number(item.qty)
+    const after = before + change
+    runningBefore.set(item.ingredientId, after)
+    historyRows.push({
+      store,
+      product: item.productId,
+      ingredient: item.ingredientId,
+      ingredientName: item.ingredientName || ing.name,
+      referenceType,
+      referenceId,
+      quantityBefore: before,
+      quantityChange: change,
+      quantityAfter: after,
+      unit: ing.baseUnit || ing.unit || 'pcs',
+      notes,
+      createdBy
+    })
+  }
+  if (historyRows.length) {
+    await db.stock_history.bulkCreate(historyRows, { transaction })
+  }
+
+  return ingredientIds.map((id) => {
+    const before = Number(ingredientById.get(id).stock)
+    return {
+      ingredientId: id,
+      quantityBefore: before,
+      quantityAfter: before + (aggregateDelta.get(id) || 0)
+    }
+  })
+}
+
+module.exports = {
+  adjustProductStock,
+  setProductStock,
+  adjustIngredientStockBatch
+}

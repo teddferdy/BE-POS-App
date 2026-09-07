@@ -82,6 +82,18 @@ const storeArray = () =>
 
 const statusEnum = z.enum(['active', 'inactive', 'draft']).default('active')
 
+// F7: explicit fulfillment-strategy flag — an unrecognized value must fail
+// clearly at the boundary, never be silently coerced to a valid mode.
+// Base enum has no default: updateProductSchema below overrides the field
+// with this bare (defaultless) version so an omitted field on a partial
+// update parses to undefined, not 'stocked' — Zod's `.partial()` does NOT
+// strip an existing `.default()` from a field (verified), so reusing the
+// create schema's defaulted version here would silently reset every
+// existing product's inventoryMode back to 'stocked' on any unrelated edit.
+const inventoryModeValues = ['stocked', 'make_to_order', 'hybrid']
+const inventoryModeEnumBase = z.enum(inventoryModeValues)
+const inventoryModeEnum = inventoryModeEnumBase.optional().default('stocked')
+
 // ===================== Auth =====================
 exports.loginSchema = z.object({
   userName: z.string().min(1, 'Username/email is required'),
@@ -144,6 +156,7 @@ exports.createProductSchema = z.object({
   currencyId: strToNum().optional().nullable(),
   currencyCode: z.string().optional().nullable(),
   tipeProduk: z.string().optional().default('menu'),
+  inventoryMode: inventoryModeEnum,
   composition: jsonField().optional().default([]),
   redeemPoints: strToNum().optional().default(0),
   estimationTime: strToNum().optional().default(0),
@@ -153,7 +166,8 @@ exports.createProductSchema = z.object({
 })
 
 exports.updateProductSchema = exports.createProductSchema.partial().extend({
-  id: strToNum()
+  id: strToNum(),
+  inventoryMode: inventoryModeEnumBase.optional()
 })
 
 // ===================== Category =====================
@@ -1105,7 +1119,8 @@ exports.createSplitBillSchema = z.object({
         amount: z.union([z.number(), strToNum()])
       })
     )
-    .min(1, 'At least one item is required')
+    .min(1, 'At least one item is required'),
+  idempotencyKey: z.string().max(255).optional().nullable()
 })
 
 // ===================== Currency =====================

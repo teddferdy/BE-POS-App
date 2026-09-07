@@ -114,7 +114,12 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
   })
 
   test('two splits of the same order paid at the same instant: order still completes exactly once, stock deducted exactly once', async () => {
-    const order = await makeUnpaidOrder({ qty: 4 })
+    // F5: totalPrice must match the split amounts exactly for the order
+    // to legitimately complete under the corrected invariant (was
+    // relying on the default totalPrice=50000 while these splits only
+    // summed to 40000 — the order only completed before because the old
+    // check never looked at amounts at all).
+    const order = await makeUnpaidOrder({ qty: 4, totalPrice: 40000 })
     const beforeStock = await db.product.findByPk(product.id)
 
     const createRes = await request(app)
@@ -170,7 +175,8 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     ])
 
     const statuses = [r1.status, r2.status].sort()
-    expect(statuses).toEqual([200, 400])
+    // F5: "already paid" is now a 409 business conflict (was 400).
+    expect(statuses).toEqual([200, 409])
 
     const ledgerRows = await db.transaction.findAll({ where: { order: order.id } })
     expect(ledgerRows.length).toBe(1)
@@ -192,7 +198,8 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     const cancelRes = await request(app)
       .delete(`/split-bill/cancel/${split.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
-    expect(cancelRes.status).toBe(400)
+    // F5: "already paid" is now a 409 business conflict (was 400).
+    expect(cancelRes.status).toBe(409)
 
     const stillThere = await db.split_bill.findByPk(split.id)
     expect(stillThere).not.toBeNull()
@@ -216,26 +223,50 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     expect(gone).toBeNull()
   })
 
-  test('two concurrent create() calls for the same order: only one set of splits survives', async () => {
-    const order = await makeUnpaidOrder({ qty: 1 })
+  // F5: the old "any pending split blocks a new create()" gate is gone —
+  // multiple creation rounds are intentionally allowed as long as the
+  // active total never exceeds order.totalPrice (see the "replacement
+  // split" test below for the legitimate multi-round case). This test
+  // now proves the real replacement invariant: two concurrent creates
+  // that would jointly exceed the order total.
+  test('two concurrent create() calls whose combined amount exceeds the order total: exactly one succeeds, active sum never exceeds the total', async () => {
+    const order = await makeUnpaidOrder({ qty: 1, totalPrice: 50000 })
 
     const [r1, r2] = await Promise.all([
       request(app)
         .post('/split-bill/create')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ order: order.id, items: [{ amount: 5000 }, { amount: 5000 }] }),
+        .send({ order: order.id, items: [{ amount: 30000 }] }),
       request(app)
         .post('/split-bill/create')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ order: order.id, items: [{ amount: 10000 }] })
+        .send({ order: order.id, items: [{ amount: 30000 }] })
     ])
 
-    const statuses = [r1.status, r2.status].sort()
-    expect(statuses).toEqual([201, 400])
+    const statuses = [r1.status, r2.status].sort((a, b) => a - b)
+    expect(statuses).toEqual([201, 409])
 
-    const allSplits = await db.split_bill.findAll({ where: { order: order.id } })
-    // Only the winning create()'s items, never both sets.
-    expect(allSplits.length).toBeLessThanOrEqual(2)
+    const activeSum = await db.split_bill.sum('amount', { where: { order: order.id } })
+    expect(activeSum).toBeLessThanOrEqual(order.totalPrice)
+  })
+
+  test('multiple creation rounds are allowed as long as the combined active total stays within the order total', async () => {
+    const order = await makeUnpaidOrder({ qty: 1, totalPrice: 50000 })
+
+    const first = await request(app)
+      .post('/split-bill/create')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ order: order.id, items: [{ amount: 20000 }] })
+    expect(first.status).toBe(201)
+
+    const second = await request(app)
+      .post('/split-bill/create')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ order: order.id, items: [{ amount: 30000 }] })
+    expect(second.status).toBe(201)
+
+    const activeSum = await db.split_bill.sum('amount', { where: { order: order.id } })
+    expect(activeSum).toBe(50000)
   })
 
   test('merge combines two pending splits atomically', async () => {
