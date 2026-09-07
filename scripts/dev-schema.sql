@@ -3189,6 +3189,7 @@ CREATE TABLE public.product (
     "deletedAt" timestamp with time zone,
     "estimationTime" integer DEFAULT 0,
     images jsonb DEFAULT '[]'::jsonb,
+    "inventoryMode" character varying(20) DEFAULT 'stocked'::character varying NOT NULL,
     CONSTRAINT product_stock_non_negative CHECK ((stock >= 0))
 );
 
