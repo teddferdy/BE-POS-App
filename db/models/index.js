@@ -200,6 +200,10 @@ const pendingMigrations = [
       { name: 'overtimeRate', definition: 'DECIMAL(15,2) DEFAULT 0' },
       { name: 'overtimeFactor', definition: 'DECIMAL(10,2) DEFAULT 1.5' }
     ]
+  },
+  {
+    table: 'product_review',
+    columns: [{ name: 'deviceId', definition: 'VARCHAR(64)' }]
   }
 ]
 
@@ -247,6 +251,10 @@ sequelize.addHook('afterConnect', async () => {
   // ponytail: buat tabel baru yang belum ada (jangan drop/ubah yang sudah ada)
   try {
     await db.product_review.sync()
+    await sequelize.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_product_review_device
+       ON "product_review" ("productId", "deviceId") WHERE "deviceId" IS NOT NULL`
+    )
   } catch (e) {
     console.error('[auto-migrate] Error creating product_review:', e.message)
   }

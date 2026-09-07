@@ -21,6 +21,23 @@ const {
 const { adjustIngredientStockBatch } = require('../service/stockMutationService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 
+// FND-001 (security): escape every untrusted string that is interpolated into
+// the raw-HTML receipt template at the output boundary. The receipt endpoint
+// returns text/html (not React-rendered), so browser-side escaping never
+// applies here — values must be encoded server-side before interpolation.
+const _escapeHtml = (value) =>
+  String(value == null ? '' : value).replace(
+    /[&<>"']/g,
+    (ch) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[ch]
+  )
+
 // ponytail: validFrom/validUntil opsional — null berarti selalu berlaku
 const isBundleWithinValidityPeriod = (bundle, now = new Date()) => {
   const validFrom = bundle.validFrom ? new Date(bundle.validFrom) : null
@@ -124,6 +141,44 @@ const getEffectiveStock = async (product, store) => {
     // product_store_stock table may not exist; fall back to base stock
   }
   return base
+}
+
+// AUD-2 (security): store-tenancy guards for the public customer-order
+// mutation surface. A product is orderable through a store when it is
+// explicitly assigned to that store (product_store row) OR it has no
+// product_store rows at all (unassigned/global) — the exact rule the
+// customer menu applies (getCustomerMenu). A product assigned to a
+// different store is treated exactly like a product this store does not
+// have, so foreign and nonexistent products are indistinguishable.
+const isProductOrderableAtStore = async (productId, store) => {
+  if (!productId || !store) return false
+  try {
+    const rows = await db.product_store.findAll({
+      where: { product: productId }
+    })
+    if (!rows.length) return true
+    return rows.some((r) => Number(r.store) === Number(store))
+  } catch {
+    // product_store table may not exist yet; nothing is store-assigned, so
+    // every product behaves like the legacy global product set.
+    return true
+  }
+}
+
+// A bundle is orderable through a store when its `store` column holds that
+// store — either as a scalar value or as one element of a JSONB array
+// (mirrors the scalar-or-array shape handled by arrayStoreScope). Bundles
+// with no store assignment are NOT orderable, and a bundle assigned to a
+// different store is treated exactly like a bundle this store does not
+// have.
+const isBundleOrderableAtStore = (bundle, store) => {
+  if (!bundle || !store) return false
+  const assigned = bundle.store
+  if (assigned === null || assigned === undefined) return false
+  if (Array.isArray(assigned)) {
+    return assigned.some((s) => Number(s) === Number(store))
+  }
+  return Number(assigned) === Number(store)
 }
 
 // Compute the server-side unit price for an item, including the base product
@@ -1884,10 +1939,65 @@ const deductStockForPaidOrder = async (
   })
   if (items.length === 0) return
 
+  // Flatten bundle order_items into their component products so the
+  // deferred paid-transition path deducts every component exactly as the
+  // immediate-POS path does. The order_item row for a bundle only ever
+  // carries its FIRST component's product (pre-existing F5-era
+  // limitation), so the bundle's components are expanded from the CURRENT
+  // product_bundle config — an accepted edit-window skew: if the bundle
+  // composition changed after the order was taken, deduction reflects the
+  // bundle as it reads today, never a snapshot. When a bundle can no
+  // longer be resolved to any component, the legacy single-product
+  // deduction of item.product is preserved.
+  const flatItems = []
+  for (const item of items) {
+    if (item.bundleId) {
+      const bundle = await db.product_bundle.findByPk(item.bundleId, {
+        include: [
+          {
+            model: db.product_bundle_item,
+            as: 'items',
+            include: [{ model: Product, as: 'productData' }]
+          }
+        ],
+        transaction: t
+      })
+      const bundleQty = Number(item.quantity) || 1
+      const members = (bundle && bundle.items) || []
+      if (!members.length) {
+        flatItems.push({
+          product: item.product,
+          productId: item.product,
+          quantity: Number(item.quantity) || 0,
+          productName: item.productName,
+          referenceNote: `Penjualan: ${orderNumber}`
+        })
+        continue
+      }
+      for (const bi of members) {
+        flatItems.push({
+          product: bi.product,
+          productId: bi.product,
+          quantity: (Number(bi.quantity) || 1) * bundleQty,
+          productName: bi.productData?.nameProduct || item.productName,
+          referenceNote: `Penjualan bundle: ${bundle.name} (${orderNumber})`
+        })
+      }
+      continue
+    }
+    flatItems.push({
+      product: item.product,
+      productId: item.product,
+      quantity: Number(item.quantity) || 0,
+      productName: item.productName,
+      referenceNote: `Penjualan: ${orderNumber}`
+    })
+  }
+
   // Lock every distinct product once, in a stable order, instead of one
   // findByPk+lock per item.
   const productIds = [
-    ...new Set(items.map((it) => it.product).filter(Boolean))
+    ...new Set(flatItems.map((it) => it.product).filter(Boolean))
   ].sort((a, b) => a - b)
   const products = await Product.findAll({
     where: { id: productIds },
@@ -1898,14 +2008,10 @@ const deductStockForPaidOrder = async (
 
   const stockHistoryRows = []
 
-  for (const item of items) {
+  for (const item of flatItems) {
     const product = productById.get(item.product)
     if (!product) continue
 
-    // F7: a make_to_order product's own finished-good stock is never
-    // authoritative — ingredients are deducted separately, below.
-    // 'hybrid' and the default 'stocked' still deduct product stock
-    // exactly as before.
     if (product.inventoryMode !== 'make_to_order') {
       const oldStock = Number(product.stock) || 0
       const qty = Math.floor(Number(item.quantity)) || 0
@@ -1949,10 +2055,10 @@ const deductStockForPaidOrder = async (
         referenceType: 'sale',
         referenceId: orderId,
         quantityBefore: oldStock,
-        quantityChange: -Number(item.quantity),
+        quantityChange: -qty,
         quantityAfter: newStock,
         unit: product.unit || 'pcs',
-        notes: `Penjualan: ${orderNumber}`,
+        notes: item.referenceNote,
         createdBy: changedBy
       })
     }
@@ -1986,20 +2092,13 @@ const deductStockForPaidOrder = async (
     })
   }
 
-  // F7: ingredient deduction, same transaction, after product stock.
-  // Operates purely on order_item.product/quantity — this deferred path
-  // has no bundle-membership context (a bundle's order_item row only
-  // ever carries its first component's product, a pre-existing,
-  // unrelated F5-era limitation this does not attempt to work around),
-  // so a BOM-having bundle component completed via this path only has
-  // that one component's ingredients considered — inherited, not
-  // introduced, by this change.
-  const bomFlatItems = items.map((item) => ({
-    productId: item.product,
-    quantity: item.quantity
-  }))
+  // F7: ingredient deduction, same transaction, after product stock. Uses
+  // the SAME flattened/expanded item list as the product loop above, so a
+  // BOM-having bundle component reached through this deferred path has its
+  // ingredients resolved exactly like the immediate path does — each
+  // component, not just the first one the order_item row happens to carry.
   const bomRequirements = await resolveBomIngredientRequirements(
-    bomFlatItems,
+    flatItems,
     effectiveStore,
     productById,
     t
@@ -2059,22 +2158,75 @@ exports.updateOrderStatus = async (req, res) => {
 
     // Restore stock when an order is cancelled/voided.
     const reverseOrderStock = async (t) => {
-      const items = await OrderItem.findAll({
-        where: { order: id },
+      // F-REV1: reversal is driven by the immutable stock_history 'sale'
+      // snapshot written when the order was paid — NOT by re-reading the
+      // bundle config and NOT by the order_item rows (a bundle's order_item
+      // carries only its first component's product). A bundle sale deducts
+      // FG stock for EVERY component (see the flatItems expansion in
+      // deductStockForPaidOrder / deductStockForOrder), so the reversal
+      // restores exactly the products and quantities the 'sale' rows
+      // recorded — even if the bundle configuration has since changed.
+      const saleHistory = await db.stock_history.findAll({
+        where: { referenceType: 'sale', referenceId: id },
         transaction: t
       })
 
-      for (const item of items) {
-        const product = await Product.findByPk(item.product, {
-          transaction: t
-        })
-        if (!product) continue
+      // Finished-good restore: every product the sale dipped goes back by
+      // the exact recorded quantity. Ingredient rows (ingredient set) are
+      // the BOM consumption trail, handled separately below — a
+      // make_to_order product has no FG 'sale' row, so it never receives a
+      // FG restore here.
+      const fgRestore = new Map()
+      for (const row of saleHistory) {
+        if (row.ingredient != null) continue
+        const productId = Number(row.product)
+        if (!productId) continue
+        const change = Number(row.quantityChange) || 0
+        if (!(change < 0)) continue
+        fgRestore.set(productId, (fgRestore.get(productId) || 0) - change)
+      }
 
+      // best_selling was incremented for every flat sale product — including
+      // single make_to_order lines, which never touch FG stock and so have
+      // no FG 'sale' row. Their increment is recovered from the immutable
+      // non-bundle order lines (a non-bundle line's product/quantity is
+      // exact), so their best_selling is decremented too. Bundle-owned
+      // make_to_order components have no immutable product-level quantity
+      // anywhere (their order_item line is the bundle's first component
+      // only) — same pre-existing attribution limit, out of F-REV1 scope.
+      const bsDecrement = new Map(fgRestore)
+      const nonBundleLines = await OrderItem.findAll({
+        where: { order: id, bundleId: null },
+        transaction: t
+      })
+      for (const line of nonBundleLines) {
+        const productId = Number(line.product)
+        if (!productId) continue
+        if (fgRestore.has(productId)) continue
+        const qty = Math.floor(Number(line.quantity)) || 0
+        if (!(qty > 0)) continue
+        bsDecrement.set(productId, (bsDecrement.get(productId) || 0) + qty)
+      }
+
+      const productIds = [
+        ...new Set([...fgRestore.keys(), ...bsDecrement.keys()])
+      ].sort((a, b) => a - b)
+      const products = productIds.length
+        ? await Product.findAll({
+            where: { id: productIds },
+            transaction: t,
+            lock: t.LOCK.UPDATE
+          })
+        : []
+      const productById = new Map(products.map((p) => [p.id, p]))
+
+      for (const [productId, restoreQty] of fgRestore) {
+        const product = productById.get(productId)
+        if (!product) continue
         const oldStock = Number(product.stock) || 0
-        const qty = Math.floor(Number(item.quantity)) || 0
-        const newStock = oldStock + qty
+        const newStock = oldStock + restoreQty
         await product.update(
-          { stock: db.sequelize.literal(`stock + ${qty}`) },
+          { stock: db.sequelize.literal(`stock + ${restoreQty}`) },
           { transaction: t }
         )
 
@@ -2083,24 +2235,21 @@ exports.updateOrderStatus = async (req, res) => {
           `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
            VALUES ($1, $2, 0, NOW(), NOW())
            ON CONFLICT (product, store) DO NOTHING`,
-          { bind: [item.product, effectiveStore], transaction: t }
+          { bind: [productId, effectiveStore], transaction: t }
         )
         await db.product_store_stock.update(
-          { stock: db.sequelize.literal(`stock + ${qty}`) },
-          {
-            where: { product: item.product, store: effectiveStore },
-            transaction: t
-          }
+          { stock: db.sequelize.literal(`stock + ${restoreQty}`) },
+          { where: { product: productId, store: effectiveStore }, transaction: t }
         )
 
         await db.stock_history.create(
           {
-            product: product.id,
+            product: productId,
             store: effectiveStore,
             referenceType: 'sale_reversal',
             referenceId: order.id,
             quantityBefore: oldStock,
-            quantityChange: Number(item.quantity),
+            quantityChange: restoreQty,
             quantityAfter: newStock,
             unit: product.unit || 'pcs',
             notes: `Pembatalan: ${order.orderNumber}`,
@@ -2108,14 +2257,15 @@ exports.updateOrderStatus = async (req, res) => {
           },
           { transaction: t }
         )
+      }
 
-        const sellName = item.productName || product.nameProduct
+      // best_selling: undo exactly what the sale incremented for the same
+      // (productId, store) rows (the table's unique key), floored at zero.
+      for (const [productId, decQty] of bsDecrement) {
+        const product = productById.get(productId)
+        if (!product) continue
         const findBs = await db.best_selling.findOne({
-          where: {
-            productId: product.id,
-            nameProduct: sellName,
-            store: effectiveStore
-          },
+          where: { productId, store: effectiveStore },
           transaction: t
         })
         if (findBs) {
@@ -2123,14 +2273,11 @@ exports.updateOrderStatus = async (req, res) => {
             {
               totalSelling: Math.max(
                 0,
-                Number(findBs.totalSelling) - Number(item.quantity)
+                Number(findBs.totalSelling) - decQty
               )
             },
             {
-              where: {
-                productId: product.id,
-                nameProduct: sellName
-              },
+              where: { productId, store: effectiveStore },
               transaction: t
             }
           )
@@ -2515,6 +2662,31 @@ exports.getKitchenOrders = async (req, res) => {
   }
 }
 
+// ——— Public customer menu (no auth) ———
+const CUSTOMER_MENU_PRODUCT_ATTRIBUTES = [
+  'id',
+  'nameProduct',
+  'category',
+  'description',
+  'price',
+  'image',
+  'images',
+  'isAvailable',
+  'stock',
+  'options',
+  'modifiers',
+  'composition',
+  'estimationTime'
+]
+
+const CUSTOMER_MENU_CATEGORY_ATTRIBUTES = [
+  'id',
+  'name',
+  'value',
+  'image',
+  'status'
+]
+
 exports.getCustomerMenu = async (req, res) => {
   const { store } = req.query
 
@@ -2554,6 +2726,7 @@ exports.getCustomerMenu = async (req, res) => {
 
     const products = await db.product.findAll({
       where: productWhere,
+      attributes: CUSTOMER_MENU_PRODUCT_ATTRIBUTES,
       include: [
         { model: db.category, as: 'categoryData', attributes: ['name'] }
       ],
@@ -2565,12 +2738,32 @@ exports.getCustomerMenu = async (req, res) => {
 
     const categories = await db.category.findAll({
       where: categoryWhere,
+      attributes: CUSTOMER_MENU_CATEGORY_ATTRIBUTES,
       order: [['name', 'ASC']]
+    })
+
+    const customerProducts = products.map((p) => {
+      const plain = p.get({ plain: true })
+      const dto = {}
+      for (const key of CUSTOMER_MENU_PRODUCT_ATTRIBUTES) {
+        dto[key] = plain[key]
+      }
+      dto.categoryData = plain.categoryData || null
+      return dto
+    })
+
+    const customerCategories = categories.map((c) => {
+      const plain = c.get({ plain: true })
+      const dto = {}
+      for (const key of CUSTOMER_MENU_CATEGORY_ATTRIBUTES) {
+        dto[key] = plain[key]
+      }
+      return dto
     })
 
     return res.status(200).json({
       message: 'Success',
-      data: { products, categories }
+      data: { products: customerProducts, categories: customerCategories }
     })
   } catch (error) {
     console.error('Error:', error)
@@ -2595,6 +2788,15 @@ exports.createCustomerOrder = async (req, res) => {
   try {
     if (!store || !items || !items.length) {
       return res.status(400).json({ message: 'store and items are required' })
+    }
+
+    for (const item of items) {
+      const qty = item && item.quantity
+      if (!Number.isInteger(qty) || qty <= 0) {
+        return res.status(400).json({
+          message: 'quantity must be a positive integer for every item'
+        })
+      }
     }
 
     // Public, unauthenticated endpoint on a QR-ordering flow — flaky mobile
@@ -2637,7 +2839,15 @@ exports.createCustomerOrder = async (req, res) => {
 
     let member = null
     if (customerId) {
-      member = await db.member.findByPk(customerId)
+      // AUD-3 (security): never resolve a customerId across stores. A
+      // foreign or unknown customerId is indistinguishable and rejected —
+      // no existence side-channel for other stores' members.
+      member = await db.member.findOne({
+        where: { id: customerId, store }
+      })
+      if (!member) {
+        return res.status(400).json({ message: 'Customer not found' })
+      }
     } else if (customerName) {
       member = await db.member.findOne({
         where: {
@@ -2676,7 +2886,11 @@ exports.createCustomerOrder = async (req, res) => {
           !bundle ||
           !bundle.isAvailable ||
           bundle.status !== 'active' ||
-          !isBundleWithinValidityPeriod(bundle)
+          !isBundleWithinValidityPeriod(bundle) ||
+          // AUD-2 (security): a bundle assigned to a different store (or
+          // not assigned at all) is unavailable for this store — foreign
+          // and nonexistent bundles stay indistinguishable.
+          !(await isBundleOrderableAtStore(bundle, store))
         ) {
           return res.status(400).json({
             message: `Bundle not available: ${item.bundleName || item.bundleId}`
@@ -2696,7 +2910,14 @@ exports.createCustomerOrder = async (req, res) => {
         item.subtotal = serverPrice * Number(item.quantity)
       } else if (item.productId) {
         const prod = await Product.findByPk(item.productId)
-        if (!prod) {
+        if (
+          !prod ||
+          // AUD-2 (security): a product assigned to a different store (or
+          // not assigned to this store while other rows exist) is treated
+          // exactly like an unknown product — foreign and nonexistent
+          // products stay indistinguishable.
+          !(await isProductOrderableAtStore(prod.id, store))
+        ) {
           return res.status(400).json({
             message: `Product not found: ${item.productName || item.productId}`
           })
@@ -2720,6 +2941,18 @@ exports.createCustomerOrder = async (req, res) => {
               .status(400)
               .json({ message: `Product in bundle "${bundle.name}" not found` })
           }
+          // AUD-2 (security): a bundle component owned by a different store
+          // makes the whole bundle unavailable here — components cannot
+          // smuggle store-2 inventory into a store-1 order.
+          if (!(await isProductOrderableAtStore(prod.id, store))) {
+            return res.status(400).json({
+              message: `Bundle not available: ${item.bundleName || item.bundleId}`
+            })
+          }
+          // F7: a make_to_order product's finished-good stock is not
+          // authoritative — ingredients (resolved at deduction time) are.
+          // Skip the finished-good availability pre-check for that mode.
+          if (prod.inventoryMode === 'make_to_order') continue
           const needed = bi.quantity * bundleQty
           const avail = await getEffectiveStock(prod, store)
           if (avail !== null && avail < needed) {
@@ -2742,6 +2975,10 @@ exports.createCustomerOrder = async (req, res) => {
           message: `Product not found: ${item.productName || item.productId}`
         })
       }
+      // F7: a make_to_order product's finished-good stock is not
+      // authoritative — ingredients (resolved at deduction time) are.
+      // Skip the finished-good availability pre-check for that mode.
+      if (prod.inventoryMode === 'make_to_order') continue
       const avail = await getEffectiveStock(prod, store)
       if (avail !== null && avail < Number(item.quantity)) {
         return res.status(400).json({
@@ -2855,7 +3092,13 @@ exports.createCustomerOrder = async (req, res) => {
       serviceChargeAmount: 0,
       totalPrice,
       paymentMethod: paymentMethod || null,
-      paymentStatus: paymentMethod ? 'paid' : 'unpaid',
+      // AUD-1 (security): a public, unauthenticated QR request can never
+      // self-authorize a paid state. Server-side paymentStatus is fixed to
+      // 'unpaid' regardless of any client-supplied paymentMethod/status
+      // fields; the declared paymentMethod is stored only as intent and is
+      // consumed when the cashier authoritatively marks the order paid
+      // (see the order-status transition in updateOrderStatus).
+      paymentStatus: 'unpaid',
       splitCount: splitCount || null,
       idempotencyKey: idempotencyKey || null,
       publicToken: crypto.randomBytes(24).toString('hex')
@@ -2866,9 +3109,12 @@ exports.createCustomerOrder = async (req, res) => {
     if (await hasOrderColumn('session')) {
       qrOrderData.session = session || null
     }
-    // Deduct stock only when the order is paid immediately. Unpaid orders
-    // have their stock deducted exactly once when they transition to paid.
-    const deductStock = qrOrderData.paymentStatus === 'paid'
+    // Public QR orders are always created unpaid. Stock deduction, ledger
+    // and accounting entries happen exactly once, later, when the cashier
+    // marks the order paid through the authorized order-status transition
+    // (see updateOrderStatus) — the same unit that currently handles paid
+    // transitions for plain, immediate-POS and non-instant orders.
+    const deductStock = false
 
     // Order header, its items, and (when paid immediately) the stock
     // deduction all commit or roll back together — previously the order +
@@ -2877,7 +3123,16 @@ exports.createCustomerOrder = async (req, res) => {
     // insufficient-stock rejection there left a "paid" order with a real
     // payment record behind, despite no stock ever having been deducted.
     let accountingJobs = null
-    const order = await db.sequelize.transaction(async (t) => {
+    // F7: wrapped in withDeadlockRetry — this path now reuses
+    // deductStockForOrder, so it locks ingredient rows (in addition to the
+    // existing product locking), which raises the number of distinct rows
+    // this transaction locks per order and with it the mechanical deadlock
+    // probability even with correct lock ordering. A killed transaction is
+    // guaranteed by Postgres to have committed nothing, so re-running the
+    // whole callback from scratch is safe — order/stock/ledger all commit
+    // or all roll back together, and retry cannot duplicate anything.
+    const order = await withDeadlockRetry(() =>
+      db.sequelize.transaction(async (t) => {
       qrOrderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await db.order.create(qrOrderData, { transaction: t })
 
@@ -2889,113 +3144,20 @@ exports.createCustomerOrder = async (req, res) => {
       }
 
       if (deductStock) {
-        // Lock every distinct product touched by this order in one query,
-        // in a stable (sorted) order — was one findByPk+lock per
-        // component/item in whatever order the cart listed them, which
-        // could deadlock against another concurrent order locking the same
-        // two products in the opposite order.
-        const productIdSet = new Set()
-        for (const item of items) {
-          if (item.bundleId && bundleMap[item.bundleId]) {
-            for (const bi of bundleMap[item.bundleId].items) {
-              productIdSet.add(bi.product)
-            }
-          } else if (item.productId) {
-            productIdSet.add(item.productId)
-          }
-        }
-        const productIds = [...productIdSet].sort((a, b) => a - b)
-        const products = productIds.length
-          ? await Product.findAll({
-              where: { id: productIds },
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-          : []
-        const productById = new Map(products.map((p) => [p.id, p]))
-
-        const deductAndTrack = async ({ product, deductQty, referenceNote }) => {
-          const oldStock = Number(product.stock) || 0
-          // Re-validate against the freshly locked value — two concurrent
-          // customer orders can both pass the earlier, unlocked stock
-          // pre-check for the last unit; without this, both would silently
-          // succeed (the old code clamped to 0 instead of rejecting),
-          // overselling the item.
-          if (oldStock < deductQty) {
-            const err = new Error(
-              `Stok "${product.nameProduct || 'produk'}" tidak mencukupi. Tersedia: ${oldStock}, diminta: ${deductQty}`
-            )
-            err.statusCode = 400
-            throw err
-          }
-          const newStock = oldStock - deductQty
-          await product.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
-            { transaction: t }
-          )
-          product.stock = newStock
-
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [product.id, store], transaction: t }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
-            { where: { product: product.id, store }, transaction: t }
-          )
-
-          // ponytail: FIFO - consume oldest batches first
-          await batchService.deductFifo({
-            productId: product.id,
-            store,
-            qty: deductQty,
-            transaction: t
-          })
-
-          await db.stock_history.create(
-            {
-              product: product.id,
-              store,
-              referenceType: 'sale',
-              referenceId: createdOrder.id,
-              quantityBefore: oldStock,
-              quantityChange: -deductQty,
-              quantityAfter: newStock,
-              unit: product.unit || 'pcs',
-              notes: referenceNote,
-              createdBy: req.user?.id
-            },
-            { transaction: t }
-          )
-        }
-
-        for (const item of items) {
-          if (item.bundleId && bundleMap[item.bundleId]) {
-            const bundle = bundleMap[item.bundleId]
-            const bundleQty = Number(item.quantity) || 1
-            for (const bi of bundle.items) {
-              const product = productById.get(bi.product)
-              if (!product) continue
-              await deductAndTrack({
-                product,
-                deductQty: bi.quantity * bundleQty,
-                referenceNote: `Penjualan bundle: ${bundle.name} (${orderNumber})`
-              })
-            }
-            continue
-          }
-
-          const product = item.productId ? productById.get(item.productId) : null
-          if (!product) continue
-
-          await deductAndTrack({
-            product,
-            deductQty: Math.floor(Number(item.quantity)) || 0,
-            referenceNote: `Penjualan: ${orderNumber}`
-          })
-        }
+        // F7 (Phase 3.1): reuse the same F7-aware deduction unit as the
+        // immediate-POS path instead of the previous inline copy — product
+        // deduction, inventoryMode semantics, BOM ingredient deduction,
+        // best_selling, bundle expansion, product+ingredient locking, and
+        // tenancy checks are all handled identically here.
+        await deductStockForOrder(
+          createdOrder,
+          items,
+          bundleMap,
+          store,
+          orderNumber,
+          req.user?.id,
+          t
+        )
       }
 
       // Committed atomically with the order/items/stock-deduction above —
@@ -3093,7 +3255,8 @@ exports.createCustomerOrder = async (req, res) => {
       }
 
       return createdOrder
-    })
+      })
+    )
 
     if (accountingJobs) {
       await attemptOrderAccountingEntries(accountingJobs)
@@ -3138,41 +3301,53 @@ exports.createCustomerOrder = async (req, res) => {
       }
     }
     console.error('Error:', error)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    // Mirror createOrder: surface fail-closed stock/BOM errors (409) and
+    // other explicitly-tagged statusCodes instead of collapsing to 500.
+    return res.status(error.statusCode || 500).json({
+      error: error.message || 'Internal Server Error'
+    })
   }
 }
 
 // ——— Public customer member lookup by name ———
+// SEC-005: this is an unauthenticated endpoint, so it must never act as a
+// loyalty-balance disclosure or a member enumeration oracle.
+//   * Strict store scoping — a member is only matched when it belongs to the
+//     requested store (no `store IS NULL` global-member fallback that would let
+//     any tenant read another tenant's global members).
+//   * Minimal response — totalPoints / tier / discountPercent (redeemable
+//     loyalty data) are never exposed to an unauthenticated caller; only a
+//     membership confirmation and the member's identity are returned.
+//   * Literal name match — % / _ / \ are escaped so an unauthenticated caller
+//     cannot use the wildcard trick to enumerate member names.
 exports.getCustomerMember = async (req, res) => {
   const { name, store } = req.query
   try {
     if (!name || !store) {
       return res.status(200).json({ data: null })
     }
+    const storeId = Number(store)
+    if (!Number.isInteger(storeId) || storeId <= 0) {
+      return res.status(400).json({ message: 'Invalid store value' })
+    }
+    // Literal-match the name: escape the PostgreSQL LIKE wildcards so a name
+    // value can never act as a pattern.
+    const escapedName = name.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`)
     const Op = require('sequelize').Op
     const member = await db.member.findOne({
       where: {
-        name: { [Op.iLike]: name.trim() },
-        [Op.or]: [{ store: Number(store) }, { store: null }],
+        name: { [Op.iLike]: escapedName },
+        store: storeId,
         status: 'active'
       }
     })
     if (!member) return res.status(200).json({ data: null })
 
-    let tier = null
-    if (member.tier) {
-      const t = await db.member_tier.findByPk(member.tier)
-      if (t) {
-        tier = { id: t.id, name: t.name, discountPercent: t.discountPercent }
-      }
-    }
-
     return res.status(200).json({
       data: {
+        isMember: true,
         id: member.id,
-        name: member.name,
-        totalPoints: member.totalPoints,
-        tier
+        name: member.name
       }
     })
   } catch (error) {
@@ -3231,8 +3406,17 @@ exports.getCustomerOrder = async (req, res) => {
 
 // ——— Public customer review (no auth) ———
 exports.createCustomerReview = async (req, res) => {
-  const { name, userName, productId, store, storeId, rating, comment, orderId } =
-    req.body
+  const {
+    name,
+    userName,
+    productId,
+    store,
+    storeId,
+    rating,
+    comment,
+    orderId,
+    deviceId
+  } = req.body
   try {
     if (!productId || !rating) {
       return res
@@ -3255,20 +3439,95 @@ exports.createCustomerReview = async (req, res) => {
       .trim()
       .slice(0, 100)
     const storeNum = Number(store ?? storeId) || null
-    const review = await db.product_review.create({
-      productId: Number(productId),
-      store: storeNum,
-      userName: reviewName,
-      rating: ratingNum,
-      comment: (comment || '').toString().trim(),
-      orderId: orderId ? Number(orderId) : null,
-      status: 'published'
-    })
-    return res.status(201).json({
-      success: true,
-      message: 'Review submitted',
-      data: review
-    })
+    // SEC-007 — store tenancy: a review may only attribute a product to a
+    // store that actually sells it, using the exact membership rule the
+    // customer menu applies (explicit product_store row OR global product).
+    // Non-breaking: the official customer flow always sends a store, and
+    // products reachable on a store's menu satisfy this check. Store-less
+    // (legacy) submissions are still accepted as before.
+    if (storeNum && !(await isProductOrderableAtStore(productId, storeNum))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product is not available at this store'
+      })
+    }
+    const commentText = (comment || '').toString().trim().slice(0, 2000)
+    const device = (deviceId || '').toString().trim().slice(0, 64) || null
+    // Optional same-device idempotency: one review per (productId, deviceId).
+    // The unique index makes this race-safe; a repeated submission returns the
+    // earlier review instead of creating a duplicate.
+    if (device) {
+      const existing = await db.product_review.findOne({
+        where: { productId: Number(productId), deviceId: device }
+      })
+      if (existing) {
+        return res.json({
+          success: true,
+          message: 'Review already submitted',
+          data: existing
+        })
+      }
+    }
+    // Optional but verified order claim: if an orderId is supplied it must
+    // exist, belong to the same store, and actually contain the reviewed
+    // product. The official flow does not send one yet, so this never rejects
+    // it — it only fails closed on fabricated/foreign order attributions.
+    let orderIdNum = null
+    if (orderId) {
+      orderIdNum = Number(orderId)
+      const claimedOrder = await Order.findByPk(orderIdNum)
+      if (!claimedOrder || Number(claimedOrder.store) !== storeNum) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid order for this review'
+        })
+      }
+      const inOrder = await db.order_item.findOne({
+        where: { order: orderIdNum, product: Number(productId) }
+      })
+      if (!inOrder) {
+        return res.status(400).json({
+          success: false,
+          message: 'This product is not part of the claimed order'
+        })
+      }
+    }
+    // Optional moderation gate: default keeps the existing auto-publish
+    // behavior; set REVIEW_AUTO_PUBLISH=false to queue reviews as pending
+    // (hidden from getProductReviews' published filter) instead.
+    const status =
+      process.env.REVIEW_AUTO_PUBLISH === 'false' ? 'pending' : 'published'
+    try {
+      const review = await db.product_review.create({
+        productId: Number(productId),
+        store: storeNum,
+        userName: reviewName,
+        rating: ratingNum,
+        comment: commentText,
+        orderId: orderIdNum,
+        deviceId: device,
+        status
+      })
+      return res.status(201).json({
+        success: true,
+        message: 'Review submitted',
+        data: review
+      })
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError' && device) {
+        const winner = await db.product_review.findOne({
+          where: { productId: Number(productId), deviceId: device }
+        })
+        if (winner) {
+          return res.json({
+            success: true,
+            message: 'Review already submitted',
+            data: winner
+          })
+        }
+      }
+      throw error
+    }
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ success: false, error: 'Internal Server Error' })
@@ -3321,8 +3580,21 @@ exports.getCustomerOrders = async (req, res) => {
       return res.status(400).json({ message: 'Invalid store value' })
     }
 
-    const where = { store: storeId, source: 'qr' }
-    if (tableId) where.tableId = Number(tableId)
+    if (!tableId) {
+      return res.status(400).json({ message: 'tableId is required' })
+    }
+    const tableIdNum = Number(tableId)
+    if (isNaN(tableIdNum)) {
+      return res.status(400).json({ message: 'Invalid table value' })
+    }
+    const table = await db.table.findOne({
+      where: { id: tableIdNum, store: storeId }
+    })
+    if (!table) {
+      return res.status(400).json({ message: 'Table not found' })
+    }
+
+    const where = { store: storeId, source: 'qr', tableId: tableIdNum }
     if (session && (await hasOrderColumn('session'))) {
       where.session = session
     }
@@ -3470,8 +3742,8 @@ exports.getReceiptHTML = async (req, res) => {
       .map(
         (item, i) => `
       <tr>
-        <td style="padding:6px 4px;border-bottom:1px dashed #ccc">${i + 1}. ${item.productName || '-'}</td>
-        <td style="text-align:center;padding:6px 4px;border-bottom:1px dashed #ccc">${item.quantity}</td>
+        <td style="padding:6px 4px;border-bottom:1px dashed #ccc">${i + 1}. ${_escapeHtml(item.productName || '-')}</td>
+        <td style="text-align:center;padding:6px 4px;border-bottom:1px dashed #ccc">${_escapeHtml(item.quantity)}</td>
         <td style="text-align:right;padding:6px 4px;border-bottom:1px dashed #ccc">${formatPrice(item.price)}</td>
         <td style="text-align:right;padding:6px 4px;border-bottom:1px dashed #ccc">${formatPrice(item.totalPrice)}</td>
       </tr>`
@@ -3488,7 +3760,7 @@ exports.getReceiptHTML = async (req, res) => {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Invoice - ${order.orderNumber}</title>
+  <title>Invoice - ${_escapeHtml(order.orderNumber)}</title>
   <style>
     body { font-family: 'Courier New', monospace; font-size: 13px; margin: 0; padding: 20px; color: #000; }
     .receipt { max-width: 380px; margin: 0 auto; }
@@ -3515,14 +3787,14 @@ exports.getReceiptHTML = async (req, res) => {
 <body>
   <div class="receipt" style="max-width: 380px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden;">
     <div class="header" style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); color: #fff; padding: 20px; text-align: center;">
-      ${showLogo && logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height:60px; margin-bottom:8px;" />` : ''}
-      ${showStoreName ? `<h2 style="margin:4px 0; text-transform:uppercase; font-size:16px; font-weight:bold;">${storeData?.name || 'TOKO'}</h2>` : ''}
+      ${showLogo && logoUrl ? `<img src="${_escapeHtml(logoUrl)}" alt="Logo" style="max-height:60px; margin-bottom:8px;" />` : ''}
+      ${showStoreName ? `<h2 style="margin:4px 0; text-transform:uppercase; font-size:16px; font-weight:bold;">${_escapeHtml(storeData?.name) || 'TOKO'}</h2>` : ''}
       ${
         showAddress && storeData
           ? `
-        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.name || ''}</p>
-        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.address || ''}</p>
-        ${storeData.detailLocation ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.detailLocation}</p>` : ''}
+        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.name)}</p>
+        <p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.address) || ''}</p>
+        ${storeData.detailLocation ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.detailLocation)}</p>` : ''}
         ${
           [
             addressFieldsVisibility.province !== false
@@ -3547,12 +3819,13 @@ exports.getReceiptHTML = async (req, res) => {
                   : null
               ]
                 .filter(Boolean)
+                .map(_escapeHtml)
                 .join(', ')}</p>`
             : ''
         }
-        ${addressFieldsVisibility.postalCode !== false && storeData.postalCode ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Kode Pos: ${storeData.postalCode}</p>` : ''}
-        ${addressFieldsVisibility.phone !== false && storeData.phoneNumber ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Telp: ${storeData.phoneNumber}</p>` : ''}
-        ${addressFieldsVisibility.email !== false && storeData.email ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${storeData.email}</p>` : ''}
+        ${addressFieldsVisibility.postalCode !== false && storeData.postalCode ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Kode Pos: ${_escapeHtml(storeData.postalCode)}</p>` : ''}
+        ${addressFieldsVisibility.phone !== false && storeData.phoneNumber ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">Telp: ${_escapeHtml(storeData.phoneNumber)}</p>` : ''}
+        ${addressFieldsVisibility.email !== false && storeData.email ? `<p style="margin:2px 0; font-size:11px; color:#9ca3af;">${_escapeHtml(storeData.email)}</p>` : ''}
       `
           : ''
       }
@@ -3561,20 +3834,20 @@ exports.getReceiptHTML = async (req, res) => {
     <div class="meta" style="display:flex; justify-content:space-between; padding:10px 16px; border-bottom:1px solid #eee; font-size:11px;">
       <div>
         <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Invoice</span>
-        <strong>${order.orderNumber}</strong>
+        <strong>${_escapeHtml(order.orderNumber)}</strong>
       </div>
       <div style="text-align: right;">
-        <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">${date}</span>
+        <span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">${_escapeHtml(date)}</span>
       </div>
     </div>
 
     <div class="member-info" style="display:flex; justify-content:space-between; padding:8px 16px; border-bottom:1px dashed #ccc; font-size:11px;">
-      <div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Kasir</span><span> ${order.cashierName || '-'}</span></div>
-      ${order.customerName ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Pelanggan</span><span> ${order.customerName}</span></div>` : ''}
-      ${order.table?.name ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Meja</span><span> ${order.table.name}</span></div>` : ''}
+      <div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Kasir</span><span> ${_escapeHtml(order.cashierName || '-')}</span></div>
+      ${order.customerName ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Pelanggan</span><span> ${_escapeHtml(order.customerName)}</span></div>` : ''}
+      ${order.table?.name ? `<div><span class="label" style="color:#9ca3af; font-size:9px; font-weight:600;">Meja</span><span> ${_escapeHtml(order.table.name)}</span></div>` : ''}
       <div style="margin-top:4px">
-        <span class="status-badge ${order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid'}" style="${order.paymentStatus === 'paid' ? 'background:#d4edda;color:#155724;' : 'background:#fff3cd;color:#856404;'} display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:bold;">
-          ${STATUS_LABELS[order.paymentStatus] || order.paymentStatus || 'BELUM DIBAYAR'}
+        <span class="status-badge ${_escapeHtml(order.paymentStatus === 'paid' ? 'status-paid' : 'status-unpaid')}" style="${_escapeHtml(order.paymentStatus === 'paid' ? 'background:#d4edda;color:#155724;' : 'background:#fff3cd;color:#856404;')} display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:bold;">
+          ${_escapeHtml(STATUS_LABELS[order.paymentStatus] || order.paymentStatus || 'BELUM DIBAYAR')}
         </span>
       </div>
     </div>
@@ -3597,19 +3870,19 @@ exports.getReceiptHTML = async (req, res) => {
         ${order.serviceChargeAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Biaya Layanan</span><span>${formatPrice(order.serviceChargeAmount)}</span></div>` : ''}
         ${order.taxAmount > 0 ? `<div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>Pajak</span><span>${formatPrice(order.taxAmount)}</span></div>` : ''}
         <div class="grand-total" style="font-weight:bold; font-size:14px; border-top:1px solid #d1d5db; padding-top:8px; margin-top:4px; display:flex; justify-content:space-between;"><span>TOTAL</span><span>${formatPrice(order.totalPrice)}</span></div>
-        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>${order.paymentMethod || '-'}</span><span>${formatPrice(order.totalPrice)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:12px;"><span>${_escapeHtml(order.paymentMethod || '-')}</span><span>${formatPrice(order.totalPrice)}</span></div>
       </div>
     </div>
 
     <div class="footer" style="padding:16px; text-align:center; font-size:11px; color:#9ca3af; border-top:1px dashed #e5e7eb;">
-      <p class="footer-it" style="font-style:italic; margin:0 0 8px 0;">${footerText}</p>
+      <p class="footer-it" style="font-style:italic; margin:0 0 8px 0;">${_escapeHtml(footerText)}</p>
       <div class="social" style="display:flex; justify-content:center; gap:12px; margin-top:8px; padding-top:8px; border-top:1px dashed #e5e7eb; font-size:10px; color:#9ca3af;">
         ${
           storeData?.socialMedia
             ? Object.entries(storeData.socialMedia)
                 .map(
                   ([platform, _url]) =>
-                    `<img src="/icon/${platform}.svg" alt="${platform}" style="height:16px;width:auto;" />`
+                    `<img src="/icon/${_escapeHtml(platform)}.svg" alt="${_escapeHtml(platform)}" style="height:16px;width:auto;" />`
                 )
                 .join('')
             : ''
