@@ -2515,6 +2515,31 @@ exports.getKitchenOrders = async (req, res) => {
   }
 }
 
+// ——— Public customer menu (no auth) ———
+const CUSTOMER_MENU_PRODUCT_ATTRIBUTES = [
+  'id',
+  'nameProduct',
+  'category',
+  'description',
+  'price',
+  'image',
+  'images',
+  'isAvailable',
+  'stock',
+  'options',
+  'modifiers',
+  'composition',
+  'estimationTime'
+]
+
+const CUSTOMER_MENU_CATEGORY_ATTRIBUTES = [
+  'id',
+  'name',
+  'value',
+  'image',
+  'status'
+]
+
 exports.getCustomerMenu = async (req, res) => {
   const { store } = req.query
 
@@ -2554,6 +2579,7 @@ exports.getCustomerMenu = async (req, res) => {
 
     const products = await db.product.findAll({
       where: productWhere,
+      attributes: CUSTOMER_MENU_PRODUCT_ATTRIBUTES,
       include: [
         { model: db.category, as: 'categoryData', attributes: ['name'] }
       ],
@@ -2565,12 +2591,32 @@ exports.getCustomerMenu = async (req, res) => {
 
     const categories = await db.category.findAll({
       where: categoryWhere,
+      attributes: CUSTOMER_MENU_CATEGORY_ATTRIBUTES,
       order: [['name', 'ASC']]
+    })
+
+    const customerProducts = products.map((p) => {
+      const plain = p.get({ plain: true })
+      const dto = {}
+      for (const key of CUSTOMER_MENU_PRODUCT_ATTRIBUTES) {
+        dto[key] = plain[key]
+      }
+      dto.categoryData = plain.categoryData || null
+      return dto
+    })
+
+    const customerCategories = categories.map((c) => {
+      const plain = c.get({ plain: true })
+      const dto = {}
+      for (const key of CUSTOMER_MENU_CATEGORY_ATTRIBUTES) {
+        dto[key] = plain[key]
+      }
+      return dto
     })
 
     return res.status(200).json({
       message: 'Success',
-      data: { products, categories }
+      data: { products: customerProducts, categories: customerCategories }
     })
   } catch (error) {
     console.error('Error:', error)
@@ -2595,6 +2641,15 @@ exports.createCustomerOrder = async (req, res) => {
   try {
     if (!store || !items || !items.length) {
       return res.status(400).json({ message: 'store and items are required' })
+    }
+
+    for (const item of items) {
+      const qty = item && item.quantity
+      if (!Number.isInteger(qty) || qty <= 0) {
+        return res.status(400).json({
+          message: 'quantity must be a positive integer for every item'
+        })
+      }
     }
 
     // Public, unauthenticated endpoint on a QR-ordering flow — flaky mobile
@@ -3250,8 +3305,21 @@ exports.getCustomerOrders = async (req, res) => {
       return res.status(400).json({ message: 'Invalid store value' })
     }
 
-    const where = { store: storeId, source: 'qr' }
-    if (tableId) where.tableId = Number(tableId)
+    if (!tableId) {
+      return res.status(400).json({ message: 'tableId is required' })
+    }
+    const tableIdNum = Number(tableId)
+    if (isNaN(tableIdNum)) {
+      return res.status(400).json({ message: 'Invalid table value' })
+    }
+    const table = await db.table.findOne({
+      where: { id: tableIdNum, store: storeId }
+    })
+    if (!table) {
+      return res.status(400).json({ message: 'Table not found' })
+    }
+
+    const where = { store: storeId, source: 'qr', tableId: tableIdNum }
     if (session && (await hasOrderColumn('session'))) {
       where.session = session
     }
