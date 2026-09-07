@@ -24,9 +24,16 @@ const layout = {
 }
 
 const getData = async (req) => {
-  const { store, startDate, endDate } = req.query
+  // F6-02: the caller's store is the already-validated req.storeId (set by
+  // validateStoreAccess), never the client-writable req.query.store — an
+  // omitted store must never widen the query to every tenant.
+  const store = req.storeId
+  const { startDate, endDate } = req.query
   const replacements = {}
-  let orderConditions = `"paymentStatus" = 'paid'`
+  // F6-09: a return can flip paymentStatus to 'refunded' after the sale —
+  // the original sale must stay in gross figures; the return-side queries
+  // below are what reduce it to a net figure, not this filter.
+  let orderConditions = `"paymentStatus" IN ('paid', 'refunded')`
 
   if (store) {
     orderConditions += ` AND o."store" = :store`
@@ -59,9 +66,13 @@ const getData = async (req) => {
 
   const rows = []
   if (dailyOrders.length) {
+    // F6-01: hppSnapshot (or its price fallback) is a PER-UNIT figure — it
+    // must be multiplied by quantity, exactly like
+    // accountingService.computeOrderCogs already does for the GL. Summing
+    // it alone silently understates COGS for every line with quantity > 1.
     const dailyHpp = await db.sequelize.query(
       `SELECT DATE(o."createdAt") as tanggal,
-              COALESCE(SUM(COALESCE(oi."hppSnapshot", oi."price", 0)), 0) as "totalHpp"
+              COALESCE(SUM(COALESCE(oi."hppSnapshot", oi."price", 0) * oi."quantity"), 0) as "totalHpp"
        FROM order_item oi
        JOIN "order" o ON o.id = oi."order"
        WHERE ${orderConditions}
@@ -90,28 +101,45 @@ const getData = async (req) => {
     const expenseMap = {}
     for (const row of dailyExpenses) expenseMap[row.tanggal] = Number(row.totalExpense || 0)
 
-    // F4: refund impact, sourced directly from approved sales_return rows
-    // — the same figure the sales-return GL journal already posts
-    // (accountingService.postSalesReturnJournal) — never inferred from
-    // order.paymentStatus, which cannot be trusted for this purpose (see
-    // the cashRegister.js cash-ledger fix for why). Grouped by the
-    // return's own approval date, independent of the underlying order's
-    // current status.
+    // F4: refund impact, sourced directly from approved sales_return_item
+    // rows — the same line-item grain profitPerProduct.js's F6-03
+    // reconciliation uses — never inferred from order.paymentStatus,
+    // which cannot be trusted for this purpose (see the cashRegister.js
+    // cash-ledger fix for why). Grouped by the return's own approval
+    // date, independent of the underlying order's current status or date
+    // (F6 §8: a January sale returned in February reduces February's
+    // figures, not January's — matches this report's pre-existing
+    // convention).
     let refundConditions = `sr.status = 'approved' AND sr."approvedAt" IS NOT NULL`
     const refundReplacements = {}
     if (store) { refundConditions += ` AND sr."store" = :store`; refundReplacements.store = store }
     if (startDate) { refundConditions += ` AND sr."approvedAt" >= :startDate`; refundReplacements.startDate = replacements.startDate }
     if (endDate) { refundConditions += ` AND sr."approvedAt" <= :endDate`; refundReplacements.endDate = replacements.endDate }
 
+    // F6-03: aggregated independently of dailyOrders/dailyHpp above so
+    // neither side's rows can multiply the other's — sales_return_item ->
+    // sales_return and sales_return_item -> order_item (via .orderItem)
+    // are both many-to-one, so this join produces at most one row per
+    // sales_return_item; multiple approved returns against the same
+    // order_item simply add more (already-1:1) rows here, correctly
+    // summed once each by GROUP BY.
     const dailyRefunds = await db.sequelize.query(
-      `SELECT DATE(sr."approvedAt") as tanggal, COALESCE(SUM(sr."refundAmount"), 0) as "totalRefund"
-       FROM sales_return sr
+      `SELECT DATE(sr."approvedAt") as tanggal,
+              COALESCE(SUM(sri."qty" * sri."price"), 0) as "totalRefund",
+              COALESCE(SUM(sri."qty" * COALESCE(oi."hppSnapshot", 0)), 0) as "totalReturnedHpp"
+       FROM sales_return_item sri
+       JOIN sales_return sr ON sr.id = sri."salesReturn"
+       JOIN order_item oi ON oi.id = sri."orderItem"
        WHERE ${refundConditions}
        GROUP BY DATE(sr."approvedAt")`,
       { replacements: refundReplacements, type: db.sequelize.QueryTypes.SELECT }
     )
     const refundMap = {}
-    for (const row of dailyRefunds) refundMap[row.tanggal] = Number(row.totalRefund || 0)
+    const returnedHppMap = {}
+    for (const row of dailyRefunds) {
+      refundMap[row.tanggal] = Number(row.totalRefund || 0)
+      returnedHppMap[row.tanggal] = Number(row.totalReturnedHpp || 0)
+    }
 
     for (const row of dailyOrders) {
       const tanggal = row.tanggal
@@ -119,7 +147,10 @@ const getData = async (req) => {
       const totalDiscount = Number(row.totalDiscount || 0)
       const totalRefund = refundMap[tanggal] || 0
       const netRevenue = totalPenjualan - totalDiscount - totalRefund
-      const totalHpp = hppMap[tanggal] || 0
+      // F6-03: net of the same approved returns' COGS reversal — the
+      // returned units' original cost must not still count against a
+      // period whose revenue no longer includes them.
+      const totalHpp = (hppMap[tanggal] || 0) - (returnedHppMap[tanggal] || 0)
       const totalExpense = expenseMap[tanggal] || 0
       const grossProfit = netRevenue - totalHpp
       const netProfit = grossProfit - totalExpense

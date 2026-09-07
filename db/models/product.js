@@ -149,6 +149,17 @@ module.exports = (sequelize, DataTypes) => {
       estimationTime: {
         type: DataTypes.INTEGER,
         defaultValue: 0
+      },
+      // F7: explicit fulfillment-strategy flag, independent of whether a
+      // BOM happens to exist for this product — 'stocked' (default) means
+      // BOM is ignored entirely at checkout, regardless of whether one is
+      // defined. Allowed values: 'stocked' | 'make_to_order' | 'hybrid',
+      // enforced at the application boundary (validation schema/checkout
+      // logic), not a DB-level enum or constraint.
+      inventoryMode: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: 'stocked'
       }
     },
     {

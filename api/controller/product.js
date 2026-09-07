@@ -613,6 +613,7 @@ exports.postAddProduct = async (req, res) => {
     currencyId,
     currencyCode,
     tipeProduk,
+    inventoryMode,
     composition,
     redeemPoints,
     estimationTime
@@ -760,6 +761,7 @@ exports.postAddProduct = async (req, res) => {
       status: normalizeStatus(status),
       createdBy,
       tipeProduk,
+      inventoryMode,
       image: imageUrl || image,
       images: gallery,
       supplier: normalizedSupplier,
@@ -869,6 +871,7 @@ exports.editProductByLocationAndId = async (req, res) => {
     currencyId,
     currencyCode,
     tipeProduk,
+    inventoryMode,
     composition,
     redeemPoints,
     estimationTime
@@ -1026,6 +1029,7 @@ exports.editProductByLocationAndId = async (req, res) => {
       currencyId: currencyId || null,
       currencyCode: currencyCode || null,
       tipeProduk,
+      ...(inventoryMode !== undefined ? { inventoryMode } : {}),
       composition: composition || [],
       estimationTime: estimationTime || 0,
       ...(actorId !== null && actorId > 0 ? { modifiedBy: actorId } : {})
