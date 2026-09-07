@@ -2720,6 +2720,10 @@ exports.createCustomerOrder = async (req, res) => {
               .status(400)
               .json({ message: `Product in bundle "${bundle.name}" not found` })
           }
+          // F7: a make_to_order product's finished-good stock is not
+          // authoritative — ingredients (resolved at deduction time) are.
+          // Skip the finished-good availability pre-check for that mode.
+          if (prod.inventoryMode === 'make_to_order') continue
           const needed = bi.quantity * bundleQty
           const avail = await getEffectiveStock(prod, store)
           if (avail !== null && avail < needed) {
@@ -2742,6 +2746,10 @@ exports.createCustomerOrder = async (req, res) => {
           message: `Product not found: ${item.productName || item.productId}`
         })
       }
+      // F7: a make_to_order product's finished-good stock is not
+      // authoritative — ingredients (resolved at deduction time) are.
+      // Skip the finished-good availability pre-check for that mode.
+      if (prod.inventoryMode === 'make_to_order') continue
       const avail = await getEffectiveStock(prod, store)
       if (avail !== null && avail < Number(item.quantity)) {
         return res.status(400).json({
@@ -2877,7 +2885,16 @@ exports.createCustomerOrder = async (req, res) => {
     // insufficient-stock rejection there left a "paid" order with a real
     // payment record behind, despite no stock ever having been deducted.
     let accountingJobs = null
-    const order = await db.sequelize.transaction(async (t) => {
+    // F7: wrapped in withDeadlockRetry — this path now reuses
+    // deductStockForOrder, so it locks ingredient rows (in addition to the
+    // existing product locking), which raises the number of distinct rows
+    // this transaction locks per order and with it the mechanical deadlock
+    // probability even with correct lock ordering. A killed transaction is
+    // guaranteed by Postgres to have committed nothing, so re-running the
+    // whole callback from scratch is safe — order/stock/ledger all commit
+    // or all roll back together, and retry cannot duplicate anything.
+    const order = await withDeadlockRetry(() =>
+      db.sequelize.transaction(async (t) => {
       qrOrderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await db.order.create(qrOrderData, { transaction: t })
 
@@ -2889,113 +2906,20 @@ exports.createCustomerOrder = async (req, res) => {
       }
 
       if (deductStock) {
-        // Lock every distinct product touched by this order in one query,
-        // in a stable (sorted) order — was one findByPk+lock per
-        // component/item in whatever order the cart listed them, which
-        // could deadlock against another concurrent order locking the same
-        // two products in the opposite order.
-        const productIdSet = new Set()
-        for (const item of items) {
-          if (item.bundleId && bundleMap[item.bundleId]) {
-            for (const bi of bundleMap[item.bundleId].items) {
-              productIdSet.add(bi.product)
-            }
-          } else if (item.productId) {
-            productIdSet.add(item.productId)
-          }
-        }
-        const productIds = [...productIdSet].sort((a, b) => a - b)
-        const products = productIds.length
-          ? await Product.findAll({
-              where: { id: productIds },
-              transaction: t,
-              lock: t.LOCK.UPDATE
-            })
-          : []
-        const productById = new Map(products.map((p) => [p.id, p]))
-
-        const deductAndTrack = async ({ product, deductQty, referenceNote }) => {
-          const oldStock = Number(product.stock) || 0
-          // Re-validate against the freshly locked value — two concurrent
-          // customer orders can both pass the earlier, unlocked stock
-          // pre-check for the last unit; without this, both would silently
-          // succeed (the old code clamped to 0 instead of rejecting),
-          // overselling the item.
-          if (oldStock < deductQty) {
-            const err = new Error(
-              `Stok "${product.nameProduct || 'produk'}" tidak mencukupi. Tersedia: ${oldStock}, diminta: ${deductQty}`
-            )
-            err.statusCode = 400
-            throw err
-          }
-          const newStock = oldStock - deductQty
-          await product.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
-            { transaction: t }
-          )
-          product.stock = newStock
-
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [product.id, store], transaction: t }
-          )
-          await db.product_store_stock.update(
-            { stock: db.sequelize.literal(`GREATEST(stock - ${deductQty}, 0)`) },
-            { where: { product: product.id, store }, transaction: t }
-          )
-
-          // ponytail: FIFO - consume oldest batches first
-          await batchService.deductFifo({
-            productId: product.id,
-            store,
-            qty: deductQty,
-            transaction: t
-          })
-
-          await db.stock_history.create(
-            {
-              product: product.id,
-              store,
-              referenceType: 'sale',
-              referenceId: createdOrder.id,
-              quantityBefore: oldStock,
-              quantityChange: -deductQty,
-              quantityAfter: newStock,
-              unit: product.unit || 'pcs',
-              notes: referenceNote,
-              createdBy: req.user?.id
-            },
-            { transaction: t }
-          )
-        }
-
-        for (const item of items) {
-          if (item.bundleId && bundleMap[item.bundleId]) {
-            const bundle = bundleMap[item.bundleId]
-            const bundleQty = Number(item.quantity) || 1
-            for (const bi of bundle.items) {
-              const product = productById.get(bi.product)
-              if (!product) continue
-              await deductAndTrack({
-                product,
-                deductQty: bi.quantity * bundleQty,
-                referenceNote: `Penjualan bundle: ${bundle.name} (${orderNumber})`
-              })
-            }
-            continue
-          }
-
-          const product = item.productId ? productById.get(item.productId) : null
-          if (!product) continue
-
-          await deductAndTrack({
-            product,
-            deductQty: Math.floor(Number(item.quantity)) || 0,
-            referenceNote: `Penjualan: ${orderNumber}`
-          })
-        }
+        // F7 (Phase 3.1): reuse the same F7-aware deduction unit as the
+        // immediate-POS path instead of the previous inline copy — product
+        // deduction, inventoryMode semantics, BOM ingredient deduction,
+        // best_selling, bundle expansion, product+ingredient locking, and
+        // tenancy checks are all handled identically here.
+        await deductStockForOrder(
+          createdOrder,
+          items,
+          bundleMap,
+          store,
+          orderNumber,
+          req.user?.id,
+          t
+        )
       }
 
       // Committed atomically with the order/items/stock-deduction above —
@@ -3093,7 +3017,8 @@ exports.createCustomerOrder = async (req, res) => {
       }
 
       return createdOrder
-    })
+      })
+    )
 
     if (accountingJobs) {
       await attemptOrderAccountingEntries(accountingJobs)
@@ -3138,7 +3063,11 @@ exports.createCustomerOrder = async (req, res) => {
       }
     }
     console.error('Error:', error)
-    return res.status(500).json({ error: 'Internal Server Error' })
+    // Mirror createOrder: surface fail-closed stock/BOM errors (409) and
+    // other explicitly-tagged statusCodes instead of collapsing to 500.
+    return res.status(error.statusCode || 500).json({
+      error: error.message || 'Internal Server Error'
+    })
   }
 }
 

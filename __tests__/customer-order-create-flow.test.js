@@ -67,3 +67,52 @@ describe('POST /order/customer-create — QR order paid immediately', () => {
     expect(Number(ledgerRows[0].amount)).toBe(Number(res.body.data.totalPrice))
   })
 })
+
+describe('POST /order/customer-create — QR order unpaid & exactly-once', () => {
+  test('no paymentMethod: order left unpaid, NO inventory deduction at creation', async () => {
+    const beforeStock = (await db.product.findByPk(product.id)).stock
+
+    const res = await request(app)
+      .post('/order/customer-create')
+      .send({
+        store: location.id,
+        customerName: 'QR Unpaid',
+        items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
+      })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data.paymentStatus).toBe('unpaid')
+
+    // Unpaid orders must not touch inventory during creation — the later
+    // mark-paid transition (deductStockForPaidOrder) is what deducts.
+    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock)
+    const ledgerRows = await db.transaction.findAll({
+      where: { order: res.body.data.id }
+    })
+    expect(ledgerRows.length).toBe(0)
+  })
+
+  test('retried submit with the same idempotencyKey: returns existing order, no double deduction', async () => {
+    const beforeStock = (await db.product.findByPk(product.id)).stock
+    const body = {
+      store: location.id,
+      paymentMethod: 'cash',
+      customerName: 'QR Idem',
+      idempotencyKey: `qr-idem-${Date.now()}`,
+      items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }]
+    }
+
+    const r1 = await request(app).post('/order/customer-create').send(body)
+    expect(r1.status).toBe(201)
+
+    const r2 = await request(app).post('/order/customer-create').send(body)
+    expect(r2.status).toBe(200)
+    expect(r2.body.data.id).toBe(r1.body.data.id)
+
+    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock - 1)
+    const ledgerRows = await db.transaction.findAll({
+      where: { order: r1.body.data.id }
+    })
+    expect(ledgerRows.length).toBe(1)
+  })
+})

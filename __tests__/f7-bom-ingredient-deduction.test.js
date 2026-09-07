@@ -62,6 +62,9 @@ const makeBom = async (store, productId, lines, overrides = {}) => {
 const createOrder = (token, body) =>
   request(app).post('/order/create').set('Authorization', `Bearer ${token}`).send(body)
 
+const customerCreate = (body) =>
+  request(app).post('/order/customer-create').send(body)
+
 const updateOrderStatus = (token, body) =>
   request(app).put('/order/update-status').set('Authorization', `Bearer ${token}`).send(body)
 
@@ -725,5 +728,120 @@ describe('F7 — deadlock retry (real Postgres deadlock, not mocked)', () => {
     expect((await db.ingredient.findByPk(ingX.id)).stock).toBe(90)
     expect((await db.ingredient.findByPk(ingY.id)).stock).toBe(90)
     expect(attemptsA + attemptsB).toBeGreaterThan(2)
+  })
+})
+
+describe('F7 — QR customer immediate-pay path (Phase 3.1)', () => {
+  test('make_to_order: finished-good stock untouched, ingredients deducted per BOM', async () => {
+    const ing = await makeIngredient(storeA.id, { stock: 100 })
+    // FG stock deliberately below demand — must NOT reject on finished
+    // goods; BOM ingredient availability is authoritative for this mode.
+    const product = await makeProduct({ stock: 1, inventoryMode: 'make_to_order' })
+    await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 5 }])
+
+    const res = await customerCreate({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'QR F7',
+      items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.data.paymentStatus).toBe('paid')
+    expect((await db.product.findByPk(product.id)).stock).toBe(1) // FG untouched
+    expect((await db.ingredient.findByPk(ing.id)).stock).toBe(90) // 100 - (5*2)
+  })
+
+  test('hybrid: both finished-good stock and ingredients deducted', async () => {
+    const ing = await makeIngredient(storeA.id, { stock: 100 })
+    const product = await makeProduct({ stock: 50, inventoryMode: 'hybrid' })
+    await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 4 }])
+
+    const res = await customerCreate({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'QR F7',
+      items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
+    })
+    expect(res.status).toBe(201)
+    expect((await db.product.findByPk(product.id)).stock).toBe(48)
+    expect((await db.ingredient.findByPk(ing.id)).stock).toBe(92) // 100 - (4*2)
+  })
+
+  test('make_to_order with insufficient ingredient: 409, atomic rollback, no finished-good 400', async () => {
+    const ing = await makeIngredient(storeA.id, { stock: 2 })
+    const product = await makeProduct({ stock: 0, inventoryMode: 'make_to_order' })
+    await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 5 }])
+
+    const ordersBefore = await db.order.count({ where: { store: storeA.id } })
+    const res = await customerCreate({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'QR F7',
+      items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }]
+    })
+    // Must be the F7 ingredient-shortage 409, never a finished-good 400.
+    expect(res.status).toBe(409)
+    expect((await db.product.findByPk(product.id)).stock).toBe(0)
+    expect((await db.ingredient.findByPk(ing.id)).stock).toBe(2)
+    // Entire order rolled back — no order row, no ingredient stock_history.
+    expect(await db.order.count({ where: { store: storeA.id } })).toBe(ordersBefore)
+    const historyRows = await db.stock_history.findAll({
+      where: { referenceType: 'sale', ingredient: ing.id }
+    })
+    expect(historyRows.length).toBe(0)
+  })
+
+  test('stocked: finished-good stock deducted, ingredient stock untouched (regression)', async () => {
+    const ing = await makeIngredient(storeA.id, { stock: 100 })
+    const product = await makeProduct({ stock: 50, inventoryMode: 'stocked' })
+    await makeBom(storeA.id, product.id, [{ ingredientId: ing.id, qty: 5 }])
+
+    const res = await customerCreate({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'QR F7',
+      items: [{ productId: product.id, productName: product.nameProduct, quantity: 3 }]
+    })
+    expect(res.status).toBe(201)
+    expect((await db.product.findByPk(product.id)).stock).toBe(47)
+    expect((await db.ingredient.findByPk(ing.id)).stock).toBe(100) // BOM ignored
+  })
+
+  test('bundle with a make_to_order BOM component: each component expanded & deducted per inventoryMode', async () => {
+    const mtoIng = await makeIngredient(storeA.id, { stock: 100 })
+    const mtoProduct = await makeProduct({ stock: 1, inventoryMode: 'make_to_order' })
+    await makeBom(storeA.id, mtoProduct.id, [{ ingredientId: mtoIng.id, qty: 5 }])
+    const stockedProduct = await makeProduct({ stock: 50, inventoryMode: 'stocked' })
+
+    const bundle = await db.product_bundle.create({
+      name: nextTag(),
+      store: storeA.id,
+      bundlePrice: 30000,
+      status: 'active',
+      isAvailable: true
+    })
+    await db.product_bundle_item.bulkCreate([
+      { bundleId: bundle.id, product: mtoProduct.id, quantity: 1 },
+      { bundleId: bundle.id, product: stockedProduct.id, quantity: 2 }
+    ])
+
+    const res = await customerCreate({
+      store: storeA.id,
+      paymentMethod: 'cash',
+      customerName: 'QR F7 bundle',
+      items: [{ bundleId: bundle.id, bundleName: bundle.name, quantity: 1 }]
+    })
+    expect(res.status).toBe(201)
+    // make_to_order component: finished-good untouched, ingredients per BOM.
+    expect((await db.product.findByPk(mtoProduct.id)).stock).toBe(1)
+    expect((await db.ingredient.findByPk(mtoIng.id)).stock).toBe(95) // 100 - (5*1)
+    // stocked component: finished-good deducted for the bundle quantity.
+    expect((await db.product.findByPk(stockedProduct.id)).stock).toBe(48) // 50 - (2*1)
+
+    // Cleanup: the QR order's order_item references the bundle (FK), so
+    // drop those rows before the bundle records themselves.
+    await db.order_item.destroy({ where: { bundleId: bundle.id }, force: true })
+    await db.product_bundle_item.destroy({ where: { bundleId: bundle.id }, force: true })
+    await db.product_bundle.destroy({ where: { id: bundle.id }, force: true })
   })
 })
