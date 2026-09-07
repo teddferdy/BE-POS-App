@@ -3127,36 +3127,44 @@ exports.createCustomerOrder = async (req, res) => {
 }
 
 // ——— Public customer member lookup by name ———
+// SEC-005: this is an unauthenticated endpoint, so it must never act as a
+// loyalty-balance disclosure or a member enumeration oracle.
+//   * Strict store scoping — a member is only matched when it belongs to the
+//     requested store (no `store IS NULL` global-member fallback that would let
+//     any tenant read another tenant's global members).
+//   * Minimal response — totalPoints / tier / discountPercent (redeemable
+//     loyalty data) are never exposed to an unauthenticated caller; only a
+//     membership confirmation and the member's identity are returned.
+//   * Literal name match — % / _ / \ are escaped so an unauthenticated caller
+//     cannot use the wildcard trick to enumerate member names.
 exports.getCustomerMember = async (req, res) => {
   const { name, store } = req.query
   try {
     if (!name || !store) {
       return res.status(200).json({ data: null })
     }
+    const storeId = Number(store)
+    if (!Number.isInteger(storeId) || storeId <= 0) {
+      return res.status(400).json({ message: 'Invalid store value' })
+    }
+    // Literal-match the name: escape the PostgreSQL LIKE wildcards so a name
+    // value can never act as a pattern.
+    const escapedName = name.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`)
     const Op = require('sequelize').Op
     const member = await db.member.findOne({
       where: {
-        name: { [Op.iLike]: name.trim() },
-        [Op.or]: [{ store: Number(store) }, { store: null }],
+        name: { [Op.iLike]: escapedName },
+        store: storeId,
         status: 'active'
       }
     })
     if (!member) return res.status(200).json({ data: null })
 
-    let tier = null
-    if (member.tier) {
-      const t = await db.member_tier.findByPk(member.tier)
-      if (t) {
-        tier = { id: t.id, name: t.name, discountPercent: t.discountPercent }
-      }
-    }
-
     return res.status(200).json({
       data: {
+        isMember: true,
         id: member.id,
-        name: member.name,
-        totalPoints: member.totalPoints,
-        tier
+        name: member.name
       }
     })
   } catch (error) {
