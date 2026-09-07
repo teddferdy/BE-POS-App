@@ -30,6 +30,9 @@ module.exports = (sequelize, DataTypes) => {
       orderId: {
         type: DataTypes.INTEGER
       },
+      deviceId: {
+        type: DataTypes.STRING(64)
+      },
       status: {
         type: DataTypes.STRING(20),
         defaultValue: 'published'

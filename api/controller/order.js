@@ -3247,20 +3247,95 @@ exports.createCustomerReview = async (req, res) => {
       .trim()
       .slice(0, 100)
     const storeNum = Number(store ?? storeId) || null
-    const review = await db.product_review.create({
-      productId: Number(productId),
-      store: storeNum,
-      userName: reviewName,
-      rating: ratingNum,
-      comment: (comment || '').toString().trim(),
-      orderId: orderId ? Number(orderId) : null,
-      status: 'published'
-    })
-    return res.status(201).json({
-      success: true,
-      message: 'Review submitted',
-      data: review
-    })
+    // SEC-007 — store tenancy: a review may only attribute a product to a
+    // store that actually sells it, using the exact membership rule the
+    // customer menu applies (explicit product_store row OR global product).
+    // Non-breaking: the official customer flow always sends a store, and
+    // products reachable on a store's menu satisfy this check. Store-less
+    // (legacy) submissions are still accepted as before.
+    if (storeNum && !(await isProductOrderableAtStore(productId, storeNum))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product is not available at this store'
+      })
+    }
+    const commentText = (comment || '').toString().trim().slice(0, 2000)
+    const device = (deviceId || '').toString().trim().slice(0, 64) || null
+    // Optional same-device idempotency: one review per (productId, deviceId).
+    // The unique index makes this race-safe; a repeated submission returns the
+    // earlier review instead of creating a duplicate.
+    if (device) {
+      const existing = await db.product_review.findOne({
+        where: { productId: Number(productId), deviceId: device }
+      })
+      if (existing) {
+        return res.json({
+          success: true,
+          message: 'Review already submitted',
+          data: existing
+        })
+      }
+    }
+    // Optional but verified order claim: if an orderId is supplied it must
+    // exist, belong to the same store, and actually contain the reviewed
+    // product. The official flow does not send one yet, so this never rejects
+    // it — it only fails closed on fabricated/foreign order attributions.
+    let orderIdNum = null
+    if (orderId) {
+      orderIdNum = Number(orderId)
+      const claimedOrder = await Order.findByPk(orderIdNum)
+      if (!claimedOrder || Number(claimedOrder.store) !== storeNum) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid order for this review'
+        })
+      }
+      const inOrder = await db.order_item.findOne({
+        where: { order: orderIdNum, product: Number(productId) }
+      })
+      if (!inOrder) {
+        return res.status(400).json({
+          success: false,
+          message: 'This product is not part of the claimed order'
+        })
+      }
+    }
+    // Optional moderation gate: default keeps the existing auto-publish
+    // behavior; set REVIEW_AUTO_PUBLISH=false to queue reviews as pending
+    // (hidden from getProductReviews' published filter) instead.
+    const status =
+      process.env.REVIEW_AUTO_PUBLISH === 'false' ? 'pending' : 'published'
+    try {
+      const review = await db.product_review.create({
+        productId: Number(productId),
+        store: storeNum,
+        userName: reviewName,
+        rating: ratingNum,
+        comment: commentText,
+        orderId: orderIdNum,
+        deviceId: device,
+        status
+      })
+      return res.status(201).json({
+        success: true,
+        message: 'Review submitted',
+        data: review
+      })
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError' && device) {
+        const winner = await db.product_review.findOne({
+          where: { productId: Number(productId), deviceId: device }
+        })
+        if (winner) {
+          return res.json({
+            success: true,
+            message: 'Review already submitted',
+            data: winner
+          })
+        }
+      }
+      throw error
+    }
   } catch (error) {
     console.error('Error:', error)
     return res.status(500).json({ success: false, error: 'Internal Server Error' })
