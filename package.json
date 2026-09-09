@@ -13,7 +13,7 @@
     "seed:regions": "node scripts/seed-regions.js",
     "migrate": "npx sequelize-cli db:migrate",
     "migrate:create": "npx sequelize-cli migration:generate",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --forceExit --detectOpenHandles",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit --detectOpenHandles",
     "test:isolation": "node --experimental-vm-modules node_modules/.bin/jest __tests__/ingredient-isolation.test.js --forceExit --detectOpenHandles"
   },
   "author": "",
