@@ -120,6 +120,27 @@ const generateOrderNumber = () => {
   return `ORD${timestamp}${random}`
 }
 
+// F-04: the idempotent-replay recovery must only engage when the unique
+// constraint that fired is one of the ORDER-header uniqueness indexes a
+// same-intent replay can legitimately explain — the (store, idempotencyKey)
+// partial index, plus the orderNumber/publicToken full-unique indexes (a
+// same-key race loser can collide on any of them). Any OTHER constraint
+// (an order_item or child-table unique, a future index) must NOT be misread
+// as a replay: fail closed so a real failure is never masked as a 200.
+//
+// Note the index name is lowercase 'idempotencykey' — the migration declared
+// the index unquoted, and PostgreSQL folds unquoted identifiers to lowercase.
+const ORDER_REPLAY_UNIQUE_CONSTRAINTS = [
+  'order_store_idempotencykey_unique',
+  'order_orderNumber_key',
+  'order_public_token_unique'
+]
+const isOrderReplayRelevantUniqueError = (error) =>
+  error?.name === 'SequelizeUniqueConstraintError' &&
+  ORDER_REPLAY_UNIQUE_CONSTRAINTS.includes(
+    error?.parent?.constraint || error?.original?.constraint
+  )
+
 // Resolve effective stock for a product in a store. Uses the store-specific
 // stock row (product_store_stock) when present, otherwise falls back to the
 // base product stock. This matches how the cashier UI displays stock and how
@@ -1124,8 +1145,8 @@ exports.createOrder = async (req, res) => {
     // findOne check and both attempt to create — the unique index on
     // (store, idempotencyKey) lets exactly one succeed; the loser lands
     // here. Rather than a raw 500, return the winner's order, same as the
-    // fast-path replay above.
-    if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+    // fast-path replay above. Scoped (F-04) to that specific constraint only.
+    if (isOrderReplayRelevantUniqueError(error) && idempotencyKey) {
       const existing = await Order.findOne({ where: { store, idempotencyKey } })
       if (existing) {
         const fullOrder = await fetchFullOrder(existing.id)
@@ -1822,6 +1843,11 @@ exports.getOrdersByStore = async (req, res) => {
       req.user?.roleType === 'super_admin'
         ? req.storeId || store || null
         : req.storeId || req.user?.store || null
+    if (!reqStore && req.user?.roleType !== 'super_admin') {
+      return res.status(403).json({
+        message: 'Store assignment required'
+      })
+    }
     const where = {}
     if (reqStore) where.store = reqStore
     if (status) where.status = status
@@ -1893,6 +1919,11 @@ exports.getOrderById = async (req, res) => {
       req.user?.roleType === 'super_admin'
         ? req.storeId || null
         : req.storeId || req.user?.store || null
+    if (!reqStore && req.user?.roleType !== 'super_admin') {
+      return res.status(403).json({
+        message: 'Store assignment required'
+      })
+    }
     const order = await Order.findOne({
       where: { id, ...(reqStore ? { store: reqStore } : {}) },
       include: [
@@ -2356,6 +2387,24 @@ exports.updateOrderStatus = async (req, res) => {
       })
       const oldStatus = lockedOrder.status
       const oldPaymentStatus = lockedOrder.paymentStatus
+      // F-03: a cancelled/voided/refunded order is terminal for revenue — its
+      // stock was restored and a refund was already recorded. Re-marking it
+      // 'paid' would silently re-deduct stock on top of the refund (the
+      // oldPaymentStatus skip-guard only protects *orders that were still
+      // paid*, never one that was refunded back) and present the order as
+      // newly paid. Reject before any mutation — the whole transaction rolls
+      // back, so no stock, ledger, status-history or journal row is touched.
+      if (
+        status === 'paid' &&
+        (['cancelled', 'void'].includes(oldStatus) ||
+          oldPaymentStatus === 'refunded')
+      ) {
+        const err = new Error(
+          'Cannot re-mark a cancelled, voided or refunded order as paid. Create a new order to sell again.'
+        )
+        err.statusCode = 409
+        throw err
+      }
       const isCancelling =
         ['cancelled', 'void'].includes(status) &&
         !['cancelled', 'void'].includes(oldStatus)
@@ -2576,6 +2625,33 @@ exports.updateOrderItemStatus = async (req, res) => {
   const { id, itemId, itemStatus } = req.body
 
   try {
+    // HIGH-3: was OrderItem.findOne({ where: { id: itemId, order: id } })
+    // with no store ownership check — any authenticated user could flip the
+    // status of another tenant's order item (integer IDOR) and cascade-flip
+    // the parent order status too.
+    //
+    // Fix: verify the parent order belongs to the caller's store BEFORE
+    // touching any item row. No mutation occurs until ownership is confirmed.
+    // super_admin is unrestricted (intentional global access).
+    const orderWhere = { id }
+    const userStore = req.storeId ?? req.user?.store
+    if (req.user?.roleType !== 'super_admin') {
+      if (!userStore) {
+        return res.status(403).json({
+          message: 'Store assignment required'
+        })
+      }
+      orderWhere.store = userStore
+    }
+    const parentOrder = await Order.findOne({ where: orderWhere })
+    if (!parentOrder) {
+      // 404 rather than 403 — same-as-missing to avoid revealing existence
+      // of foreign orders to an attacker probing sequential IDs.
+      return res.status(404).json({
+        message: 'Order not found'
+      })
+    }
+
     const item = await OrderItem.findOne({ where: { id: itemId, order: id } })
 
     if (!item) {
@@ -2621,7 +2697,18 @@ exports.updateOrderItemStatus = async (req, res) => {
 }
 
 exports.getKitchenOrders = async (req, res) => {
-  const { store } = req.query
+  // HIGH-2: was `const { store } = req.query` then `whereClause = store ? { store } : {}`
+  // — a non-super admin hitting the endpoint WITHOUT a store query got the
+  // kitchen queue of EVERY store (fail-open). The filter must come from the
+  // pinned req.storeId (validateStoreAccess: JWT store for non-super, or the
+  // client-selected store / null-global for super_admin).
+  const store = req.storeId ?? req.user?.store
+  if (!store && req.user?.roleType !== 'super_admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Store assignment required'
+    })
+  }
 
   try {
     // ponytail: order-level status is 'paid' at POS — kitchen cares about item status only
@@ -2773,7 +2860,7 @@ exports.getCustomerMenu = async (req, res) => {
 
 exports.createCustomerOrder = async (req, res) => {
   const {
-    store,
+    store: bodyStore,
     tableId,
     items,
     customerName,
@@ -2785,10 +2872,34 @@ exports.createCustomerOrder = async (req, res) => {
     idempotencyKey
   } = req.body
 
+  // N-5: authoritative store — set inside the try from the server-resolved
+  // table (or body for table-less). Declared here so the idempotency catch
+  // block can still read it.
+  let store = null
+
   try {
-    if (!store || !items || !items.length) {
+    if (!bodyStore || !items || !items.length) {
       return res.status(400).json({ message: 'store and items are required' })
     }
+
+    // N-5 (security): public, unauthenticated QR-order endpoint — the client-
+    // supplied `store` is not trusted as tenant authority. A valid table
+    // belonging to the claimed store (the physical QR/table is the
+    // server-authoritative capability) is required, and the authoritative
+    // store for persistence + realtime derivation is taken from the table row
+    // itself. An attacker thus cannot direct a row or emission into a store
+    // without presenting a real table of that store. The deployed customer QR
+    // (order-app) always encodes both table and store.
+    if (tableId === undefined || tableId === null || tableId === '') {
+      return res.status(400).json({ message: 'tableId is required' })
+    }
+    const table = await db.table.findOne({
+      where: { id: tableId, store: bodyStore }
+    })
+    if (!table) {
+      return res.status(400).json({ message: 'Table not found' })
+    }
+    store = Number(table.store) || Number(bodyStore)
 
     for (const item of items) {
       const qty = item && item.quantity
@@ -2819,12 +2930,6 @@ exports.createCustomerOrder = async (req, res) => {
       Date.now().toString().slice(-8) +
       Math.random().toString(36).slice(2, 6).toUpperCase()
 
-    const table = tableId
-      ? await db.table.findOne({ where: { id: tableId, store } })
-      : null
-    if (tableId && !table) {
-      return res.status(400).json({ message: 'Table not found' })
-    }
     if (
       table &&
       ['occupied', 'reserved', 'maintenance'].includes(table.status)
@@ -3133,6 +3238,32 @@ exports.createCustomerOrder = async (req, res) => {
     // or all roll back together, and retry cannot duplicate anything.
     const order = await withDeadlockRetry(() =>
       db.sequelize.transaction(async (t) => {
+      // F-05: re-read the table row UNDER A ROW LOCK inside the same
+      // transaction that creates the booking, and re-check its status from
+      // that fresh, locked value. The earlier status check above is a fast,
+      // friendly 400 pre-check only — this is the authoritative one: a
+      // concurrent table-status mutation (operator update, queue seat
+      // activation) now serializes against the booking instead of racing it.
+      const lockedTable = await db.table.findOne({
+        where: { id: tableId, store },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      })
+      if (!lockedTable) {
+        const err = new Error('Table not found')
+        err.statusCode = 400
+        throw err
+      }
+      if (['occupied', 'reserved', 'maintenance'].includes(lockedTable.status)) {
+        const err = new Error(
+          lockedTable.status === 'occupied'
+            ? 'Table is already occupied'
+            : 'Table is not available'
+        )
+        err.statusCode = 400
+        throw err
+      }
+
       qrOrderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await db.order.create(qrOrderData, { transaction: t })
 
@@ -3289,8 +3420,9 @@ exports.createCustomerOrder = async (req, res) => {
     // Two requests with the same idempotencyKey can both pass the earlier
     // findOne check and both attempt to create — the unique index on
     // (store, idempotencyKey) lets exactly one succeed; return the
-    // winner's order to the loser instead of a raw 500.
-    if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+    // winner's order to the loser instead of a raw 500. Scoped (F-04) to
+    // that specific constraint only.
+    if (isOrderReplayRelevantUniqueError(error) && idempotencyKey) {
       const existingOrder = await Order.findOne({ where: { store, idempotencyKey } })
       if (existingOrder) {
         const fullOrder = await fetchFullOrder(existingOrder.id)

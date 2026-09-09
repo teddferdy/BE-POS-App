@@ -46,33 +46,35 @@ function getSerializedValue(value) {
 const exportMasterController = {
   async exportAll(req, res) {
     try {
-      const { store } = req.query
+      // CRIT-4: tenant comes EXCLUSIVELY from req.storeId (authorization
+      // context, set by validateStoreAccess from the trusted JWT) — never from
+      // query/body/cookie.
+      const effectiveStore =
+        req.storeId !== undefined && req.storeId !== null
+          ? parseInt(req.storeId, 10)
+          : null
+
+      // Tenant (non-super_admin) accounts must always have a store.
+      if (req.user?.roleType !== 'super_admin' && effectiveStore === null) {
+        return res.status(403).json({
+          success: false,
+          message: 'Akun Anda belum ditetapkan ke toko'
+        })
+      }
 
       const entities = [
-        { model: 'category', sheetName: 'Kategori', filterable: true },
-        { model: 'supplier', sheetName: 'Supplier', filterable: true },
-        { model: 'department', sheetName: 'Departemen', filterable: false },
-        { model: 'position', sheetName: 'Posisi', filterable: true },
-        {
-          model: 'taxConfig',
-          sheetName: 'Konfigurasi Pajak',
-          filterable: true
-        },
-        {
-          model: 'type_payment',
-          sheetName: 'Metode Pembayaran',
-          filterable: true
-        },
-        {
-          model: 'ingredientCategory',
-          sheetName: 'Kategori Bahan Baku',
-          filterable: true
-        },
-        { model: 'ingredient', sheetName: 'Bahan Baku', filterable: true },
-        { model: 'discount', sheetName: 'Diskon', filterable: true },
-        { model: 'currency', sheetName: 'Mata Uang', filterable: true },
-        { model: 'location', sheetName: 'Toko', filterable: true },
-        { model: 'product', sheetName: 'Produk', filterable: false }
+        { model: 'category', sheetName: 'Kategori' },
+        { model: 'supplier', sheetName: 'Supplier' },
+        { model: 'department', sheetName: 'Departemen' },
+        { model: 'position', sheetName: 'Posisi' },
+        { model: 'taxConfig', sheetName: 'Konfigurasi Pajak' },
+        { model: 'type_payment', sheetName: 'Metode Pembayaran' },
+        { model: 'ingredientCategory', sheetName: 'Kategori Bahan Baku' },
+        { model: 'ingredient', sheetName: 'Bahan Baku' },
+        { model: 'discount', sheetName: 'Diskon' },
+        { model: 'currency', sheetName: 'Mata Uang' },
+        { model: 'location', sheetName: 'Toko' },
+        { model: 'product', sheetName: 'Produk' }
       ]
 
       const workbook = new ExcelJS.Workbook()
@@ -81,24 +83,36 @@ const exportMasterController = {
         const Model = db[entity.model]
         if (!Model) continue
 
+        const isScoped = effectiveStore !== null
+        const junction = JUNCTION_TABLE_MODELS[entity.model]
+        const hasStoreColumn = Object.prototype.hasOwnProperty.call(
+          Model.rawAttributes || {},
+          'store'
+        )
+
         const where = {}
-        if (store && entity.filterable) {
-          const junction = JUNCTION_TABLE_MODELS[entity.model]
-          if (junction && (await hasTable(junction.table))) {
-            const rows = await db.sequelize.query(
-              `SELECT "${junction.fk}" AS id FROM "${junction.table}" WHERE store = ${Number(store)} AND "deletedAt" IS NULL`,
-              { type: db.sequelize.QueryTypes.SELECT }
-            )
-            const ids = rows.map((r) => r.id)
-            if (ids.length === 0) {
-              where.id = { [Op.in]: [-1] }
-            } else {
-              where.id = { [Op.in]: ids }
+
+        if (isScoped && junction && (await hasTable(junction.table))) {
+          // Tenant-scoped export: filter through the store junction table.
+          const rows = await db.sequelize.query(
+            `SELECT "${junction.fk}" AS id FROM "${junction.table}" WHERE store = :store AND "deletedAt" IS NULL`,
+            {
+              replacements: { store: effectiveStore },
+              type: db.sequelize.QueryTypes.SELECT
             }
-          } else {
-            where.store = store
-          }
+          )
+          const ids = rows.map((r) => r.id)
+          where.id = { [Op.in]: ids.length ? ids : [-1] }
+        } else if (isScoped && hasStoreColumn) {
+          // Tenant-scoped export: filter by the entity's own store column.
+          where.store = effectiveStore
+        } else if (isScoped) {
+          // No store linkage (e.g. department, ingredientCategory): global
+          // reference data is NOT included in tenant-scoped exports. It is
+          // only exported by a global (super_admin, store=null) export.
+          continue
         }
+        // Global export (effectiveStore === null): no tenant scoping at all.
 
         const records = await Model.findAll({
           where,

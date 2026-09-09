@@ -1,15 +1,20 @@
 'use strict'
 const db = require('../../../db/models')
+const { assertReportStore } = require('./getReportStore')
 
 const defaultColumns = [
-  { key: 'tanggal', label: 'Tanggal', type: 'date', width: 14, align: 'left' },
-  { key: 'totalTransaksi', label: 'Total Transaksi', type: 'number', width: 16, align: 'right' },
-  { key: 'totalPenjualanBersih', label: 'Total Penjualan', type: 'currency', width: 20, align: 'right' },
-  { key: 'totalHpp', label: 'HPP', type: 'currency', width: 20, align: 'right' },
-  { key: 'foodCostPersen', label: 'Food Cost', type: 'percent', width: 12, align: 'right' },
-  { key: 'grossProfit', label: 'Laba Kotor', type: 'currency', width: 20, align: 'right' },
-  { key: 'netProfit', label: 'Laba Bersih', type: 'currency', width: 20, align: 'right' },
-  { key: 'totalCovers', label: 'Covers', type: 'number', width: 12, align: 'right' }
+  { key: 'date', label: 'Tanggal', type: 'date', width: 14, align: 'left' },
+  { key: 'totalTransaksi', label: 'Transaksi', type: 'number', width: 12, align: 'right' },
+  { key: 'totalPenjualanKotor', label: 'Penjualan Kotor', type: 'currency', width: 18, align: 'right' },
+  { key: 'diskon', label: 'Diskon', type: 'currency', width: 16, align: 'right' },
+  { key: 'pajak', label: 'Pajak', type: 'currency', width: 16, align: 'right' },
+  { key: 'serviceCharge', label: 'Service Charge', type: 'currency', width: 16, align: 'right' },
+  { key: 'totalPenjualanBersih', label: 'Penjualan Bersih', type: 'currency', width: 18, align: 'right' },
+  { key: 'totalHpp', label: 'HPP', type: 'currency', width: 18, align: 'right' },
+  { key: 'grossProfit', label: 'Laba Kotor', type: 'currency', width: 18, align: 'right' },
+  { key: 'operationalExpense', label: 'Biaya Ops', type: 'currency', width: 16, align: 'right' },
+  { key: 'netProfit', label: 'Laba Bersih', type: 'currency', width: 18, align: 'right' },
+  { key: 'totalCovers', label: 'Covers', type: 'number', width: 10, align: 'right' }
 ]
 
 const totals = ['totalTransaksi', 'totalPenjualanBersih', 'totalHpp', 'grossProfit', 'netProfit', 'totalCovers']
@@ -24,10 +29,7 @@ const layout = {
 }
 
 const getData = async (req) => {
-  // F6-02: the caller's store is the already-validated req.storeId (set by
-  // validateStoreAccess), never the client-writable req.query.store — an
-  // omitted store must never widen the query to every tenant.
-  const store = req.storeId
+  const store = assertReportStore(req)
   const { startDate, endDate } = req.query
   const replacements = {}
   // F6-09: a return can flip paymentStatus to 'refunded' after the sale —

@@ -20,6 +20,26 @@ const { Op } = require('sequelize')
 
 const isSuperAdmin = (req) => req.user?.roleType === 'super_admin'
 
+// Resolve the EFFECTIVE store id for an authenticated request.
+//
+// - super_admin: the requested store (already merged from query/body into
+//   req.storeId by validateStoreAccess) wins, with the legacy cookie switch
+//   as a fallback — preserves the existing global store-selector behavior.
+// - everyone else: ONLY the server-pinned req.storeId or the JWT `store`
+//   claim. Client-controlled query/body/cookie values are NEVER consulted
+//   (N-11 fail-open) — an attacker-forged cookie/query store cannot redirect
+//   an assigned account, and an unassigned account resolves to null (the
+//   403 'Store assignment required' guard in validateStoreAccess closes it
+//   at the middleware boundary, and controllers calling this helper stay
+//   closed even on routes that forget that guard).
+function resolveStoreId(req) {
+  if (isSuperAdmin(req)) {
+    return req.storeId || req.cookies?.store || req.user?.store
+  }
+  const storeId = req.storeId || req.user?.store
+  return Number.isFinite(Number(storeId)) ? Number(storeId) : null
+}
+
 // super_admin: unrestricted, same as before this fix (explicit product
 // behavior — see PANDUAN-SUPER-ADMIN.md / requireRole('super_admin', ...)
 // usage across routes).
@@ -140,6 +160,7 @@ function relatedStoreInclude(req, { model, as, attributes, parentShape = 'scalar
 
 module.exports = {
   isSuperAdmin,
+  resolveStoreId,
   scalarStoreScope,
   arrayStoreScope,
   supplierStoreScope,

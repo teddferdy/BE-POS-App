@@ -563,7 +563,10 @@ describe('Tenant isolation', () => {
       JWT_SECRET
     )
     const res = await getReturn(noStoreToken, created.body.data.id)
-    expect(res.status).toBe(404)
+    // N-11: unassigned accounts are rejected centrally by
+    // validateStoreAccess (403 'Store assignment required') before any
+    // controller reaches tenant data — fail-closed, never open.
+    expect(res.status).toBe(403)
     await db.user.destroy({ where: { id: noStoreUser.id }, force: true })
   })
 

@@ -4,17 +4,22 @@ const Notification = db.notification
 
 exports.getAllNotifications = async (req, res) => {
   try {
-    const { page = 1, limit = 20, isRead, store, search } = req.query
+    const { page = 1, limit = 20, isRead, search } = req.query
     const offset = (page - 1) * limit
 
     const userRole = req.user?.roleType
-    const userStore = req.user?.store
+    // Authoritative target store: set by validateStoreAccess. For non-super-
+    // admin req.storeId is pinned to the caller's own store (a foreign
+    // ?store= is rejected 403 at the middleware), so the client query value
+    // is never trusted here. super_admin filters via the client ?store= when
+    // provided, otherwise sees all/global notifications.
+    const userStore = req.storeId ?? req.user?.store
 
     let whereCondition = {}
 
-    if (store) {
-      whereCondition.store = store
-    } else if (userRole === 'admin' || userRole === 'user') {
+    if (userRole === 'admin' || userRole === 'user') {
+      whereCondition.store = userStore
+    } else if (userRole === 'super_admin' && userStore !== undefined && userStore !== null) {
       whereCondition.store = userStore
     }
 

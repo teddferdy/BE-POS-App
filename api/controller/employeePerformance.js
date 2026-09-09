@@ -4,10 +4,13 @@ const { Op } = require('sequelize')
 const employeePerformanceController = {
   async getPerformance(req, res) {
     try {
-      const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, page = 1, limit = 30 } = req.query
+      const effectiveStore = req.storeId ?? req.user?.store
+      if (!effectiveStore && req.user?.roleType !== 'super_admin') {
+        return res.status(403).json({ success: false, message: 'Store assignment required' })
+      }
 
-      const where = store || userStore ? { store: store || userStore } : {}
+      const where = effectiveStore ? { store: effectiveStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -48,13 +51,16 @@ const employeePerformanceController = {
   async getEmployeePerformance(req, res) {
     try {
       const { id } = req.params
-      const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, page = 1, limit = 30 } = req.query
+      const effectiveStore = req.storeId ?? req.user?.store
+      if (!effectiveStore && req.user?.roleType !== 'super_admin') {
+        return res.status(403).json({ success: false, message: 'Store assignment required' })
+      }
 
       const where = {
         cashier: parseInt(id)
       }
-      if (store || userStore) where.store = store || userStore
+      if (effectiveStore) where.store = effectiveStore
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -116,14 +122,16 @@ const employeePerformanceController = {
 
   async getTopPerformers(req, res) {
     try {
-      const { store, startDate, endDate, limit = 10 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, limit = 10 } = req.query
+      const effectiveStore = req.storeId ?? req.user?.store
+      if (!effectiveStore && req.user?.roleType !== 'super_admin') {
+        return res.status(403).json({ success: false, message: 'Store assignment required' })
+      }
 
       const safeLimit = Math.min(Math.max(1, parseInt(limit) || 10), 100)
-      const resolvedStore = store || userStore
 
       const where = {}
-      if (resolvedStore) where.store = String(resolvedStore)
+      if (effectiveStore) where.store = String(effectiveStore)
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)

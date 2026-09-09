@@ -505,9 +505,23 @@ describe('POS controllers — transactional audit calls', () => {
   })
 
   test('PUT /pos/product/update-price-by-store records an audit entry', async () => {
-    const res = await request(app)
+    // C-11: the 'base' price is the authoritative product.price that applies to
+    // every store — a tenant admin must not be able to globally re-price it
+    // (403), only super_admin may. Both assertions below lock in that boundary
+    // and verify the legitimate super_admin path still records an audit entry.
+    const forbidden = await request(app)
       .put('/pos/product/update-price-by-store')
       .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        productId: productPrice.id,
+        storePrices: [{ storeId: 'base', price: 6000 }]
+      })
+
+    expect(forbidden.status).toBe(403)
+
+    const res = await request(app)
+      .put('/pos/product/update-price-by-store')
+      .set('Authorization', `Bearer ${superAdminToken}`)
       .send({
         productId: productPrice.id,
         storePrices: [{ storeId: 'base', price: 6000 }]

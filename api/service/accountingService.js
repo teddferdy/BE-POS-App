@@ -111,6 +111,16 @@ const DEFAULT_ACCOUNTS = [
 
 const toNumber = (v) => Math.round((Number(v) || 0) * 100) / 100
 
+// PostgreSQL reports this unique constraint as 'account_store_code_unique'
+// (and, in some error paths, its 21-char prefix 'account_store_code').
+const ACCOUNT_UNIQUE_CONSTRAINTS = ['account_store_code_unique', 'account_store_code']
+
+const isAccountStoreCodeUniqueError = (err) => {
+  if (err?.name !== 'SequelizeUniqueConstraintError') return false
+  const constraint = err?.parent?.constraint || err?.original?.constraint
+  return ACCOUNT_UNIQUE_CONSTRAINTS.includes(constraint)
+}
+
 const findAccount = async (store, code) => {
   return db.account.findOne({
     where: { store, code, status: 'active' }
@@ -132,19 +142,33 @@ const findOrCreateAccount = async (
   if (existing) return existing
   const defaults = DEFAULT_ACCOUNTS.find((a) => a.code === code)
   if (!defaults && !overrides.name) return null
-  return db.account.create(
-    {
-      store,
-      code,
-      name: overrides.name || defaults.name,
-      type: overrides.type || defaults.type,
-      normalBalance: overrides.normalBalance || defaults.normalBalance,
-      description: overrides.description || defaults.description || null,
-      isSystem: true,
-      createdBy
-    },
-    { transaction }
-  )
+  try {
+    return await db.account.create(
+      {
+        store,
+        code,
+        name: overrides.name || defaults.name,
+        type: overrides.type || defaults.type,
+        normalBalance: overrides.normalBalance || defaults.normalBalance,
+        description: overrides.description || defaults.description || null,
+        isSystem: true,
+        createdBy
+      },
+      { transaction }
+    )
+  } catch (err) {
+    // F-08: two postings provisioning the SAME (store, code) can both reach
+    // the INSERT before either commits. The unique index
+    // account_store_code_unique lets exactly one win; the loser re-reads the
+    // winner's row instead of failing the whole posting. Only THIS constraint
+    // is retried this way — any other unique violation keeps propagating.
+    if (isAccountStoreCodeUniqueError(err)) {
+      const winner = await db.account.findOne({ where: { store, code }, transaction })
+      if (winner) return winner
+      throw err
+    }
+    throw err
+  }
 }
 
 async function ensureDefaultAccounts(store, createdBy = null) {
@@ -153,14 +177,27 @@ async function ensureDefaultAccounts(store, createdBy = null) {
   if (existing > 0) return []
   const created = []
   for (const acc of DEFAULT_ACCOUNTS) {
-    created.push(
-      await db.account.create({
-        store,
-        ...acc,
-        isSystem: true,
-        createdBy
-      })
-    )
+    try {
+      created.push(
+        await db.account.create({
+          store,
+          ...acc,
+          isSystem: true,
+          createdBy
+        })
+      )
+    } catch (err) {
+      // F-08: concurrent first postings may both see the count-0 fast path
+      // above and both INSERT the same DEFAULT_ACCOUNTS rows. The (store,
+      // code) unique index lets exactly one row forward; a losing insert is
+      // skipped (the winner created the same row) instead of failing a
+      // legitimate posting. Anything OTHER than that specific collision keeps
+      // throwing — a real provisioning failure must not be silently hidden.
+      if (isAccountStoreCodeUniqueError(err)) {
+        continue
+      }
+      throw err
+    }
   }
   return created
 }
@@ -170,14 +207,33 @@ function makeEntryNumber(store, seq) {
   return `JV-${String(store).padStart(4, '0')}-${pad}`
 }
 
-async function nextSeq(store, transaction) {
-  const last = await db.journal_entry.findOne({
-    where: { store },
-    order: [['id', 'DESC']],
-    paranoid: false,
-    transaction
-  })
-  return (last?.id || 0) + 1
+// Per-store atomic entryNumber source.
+//
+// The old implementation read MAX(id)+1 inside a quick SELECT — two concurrent
+// postings for the same store both read the same MAX(id) and both issued the
+// SAME entryNumber (and, combined with the non-atomic duplicate check, both
+// created a full journal for the same business event). The counter lives in
+// its own table (journal_entry_sequence, seeded from MAX(id) by the Phase 3
+// migration) and is bumped while holding a FOR UPDATE lock on that store's row
+// — which ALSO serializes concurrent journal creation for a store, so the
+// duplicate check below never races against an in-flight concurrent insert.
+async function nextEntrySeq(store, transaction) {
+  await db.sequelize.query(
+    `INSERT INTO journal_entry_sequence (store, counter, "createdAt", "updatedAt")
+     VALUES ($1, 0, NOW(), NOW())
+     ON CONFLICT (store) DO NOTHING`,
+    { bind: [store], transaction }
+  )
+  const [rows] = await db.sequelize.query(
+    `SELECT counter FROM journal_entry_sequence WHERE store = $1 FOR UPDATE`,
+    { bind: [store], transaction }
+  )
+  const seq = Number(rows[0]?.counter || 0) + 1
+  await db.sequelize.query(
+    `UPDATE journal_entry_sequence SET counter = $2 WHERE store = $1`,
+    { bind: [store, seq], transaction }
+  )
+  return seq
 }
 
 async function existingEntry(store, sourceType, referenceId, transaction) {
@@ -188,7 +244,16 @@ async function existingEntry(store, sourceType, referenceId, transaction) {
 }
 
 // Core double-entry writer: balances lines, dedupes by (sourceType, referenceId)
-// and never throws — callers must not break the primary transaction.
+// and posts atomically. The entry + lines are written inside ONE transaction
+// (its own when the caller doesn't supply one). The DB unique index on
+// (store, sourceType, referenceId) is the final backstop — if it fires anyway,
+// the existing entry is replayed instead of creating a duplicate.
+//
+// SEMANTIC CHANGE: genuine DB failures now THROW instead of returning null.
+// Every posting is dispatched through the accounting outbox, whose attemptJob
+// catches the error and leaves the job pending for a bounded retry — silently
+// returning null made the caller mark a job 'posted' while no entry existed.
+// The null returns below are deliberate no-ops (nothing to post), not errors.
 async function createJournalEntry({
   store,
   date,
@@ -199,53 +264,68 @@ async function createJournalEntry({
   createdBy,
   transaction
 }) {
-  try {
-    if (!store || !lines || lines.length === 0) return null
-    await ensureDefaultAccounts(store, createdBy)
+  if (!store || !lines || lines.length === 0) return null
+  await ensureDefaultAccounts(store, createdBy)
 
-    const clean = lines
-      .filter((l) => toNumber(l.debit) > 0 || toNumber(l.credit) > 0)
-      .map((l) => ({
-        account: l.account,
-        debit: toNumber(l.debit),
-        credit: toNumber(l.credit),
-        description: l.description || null
-      }))
-    if (clean.length === 0) return null
+  const clean = lines
+    .filter((l) => toNumber(l.debit) > 0 || toNumber(l.credit) > 0)
+    .map((l) => ({
+      account: l.account,
+      debit: toNumber(l.debit),
+      credit: toNumber(l.credit),
+      description: l.description || null
+    }))
+  if (clean.length === 0) return null
 
-    const totalDebit = toNumber(clean.reduce((s, l) => s + l.debit, 0))
-    const totalCredit = toNumber(clean.reduce((s, l) => s + l.credit, 0))
-    if (totalDebit <= 0 && totalCredit <= 0) return null
+  const totalDebit = toNumber(clean.reduce((s, l) => s + l.debit, 0))
+  const totalCredit = toNumber(clean.reduce((s, l) => s + l.credit, 0))
+  if (totalDebit <= 0 && totalCredit <= 0) return null
 
-    const dup = await existingEntry(store, sourceType, referenceId, transaction)
+  const insertEntry = async (t) => {
+    const seq = await nextEntrySeq(store, t)
+
+    // Dedupe runs AFTER acquiring the store's counter lock, so any
+    // concurrent posting either joined the queue (it will see our commit
+    // below) or already committed the exact same entry (we see it here).
+    const dup = await existingEntry(store, sourceType, referenceId, t)
     if (dup) return dup
 
-    const seq = await nextSeq(store, transaction)
-    const entry = await db.journal_entry.create(
-      {
-        store,
-        entryNumber: makeEntryNumber(store, seq),
-        date: date || new Date(),
-        description: description || sourceType,
-        sourceType,
-        referenceId: referenceId || null,
-        totalDebit,
-        totalCredit,
-        createdBy
-      },
-      { transaction }
-    )
+    let entry
+    try {
+      entry = await db.journal_entry.create(
+        {
+          store,
+          entryNumber: makeEntryNumber(store, seq),
+          date: date || new Date(),
+          description: description || sourceType,
+          sourceType,
+          referenceId: referenceId || null,
+          totalDebit,
+          totalCredit,
+          createdBy
+        },
+        { transaction: t }
+      )
+    } catch (insertError) {
+      // Final DB backstop. Only the own-transaction path can replay safely —
+      // the caller-supplied-transaction path exposes the conflict instead.
+      if (insertError.name === 'SequelizeUniqueConstraintError' && !transaction) {
+        const existing = await existingEntry(store, sourceType, referenceId)
+        if (existing) return existing
+      }
+      throw insertError
+    }
     for (const line of clean) {
       await db.journal_entry_line.create(
         { ...line, journalEntry: entry.id, createdBy },
-        { transaction }
+        { transaction: t }
       )
     }
     return entry
-  } catch (error) {
-    console.error(`createJournalEntry(${sourceType}) error:`, error.message)
-    return null
   }
+
+  if (transaction) return insertEntry(transaction)
+  return db.sequelize.transaction(insertEntry)
 }
 
 // Reverse an existing entry by creating a new entry with swapped debit/credit.

@@ -1,6 +1,5 @@
 'use strict'
 const db = require('../../db/models')
-const { Op } = require('sequelize')
 const accountingService = require('./accountingService')
 
 // Durable retry queue for accounting journal posting.
@@ -91,22 +90,28 @@ async function attemptJob(row) {
   }
 }
 
-async function markPosted(outboxRow) {
-  await outboxRow.update({
-    status: 'posted',
-    postedAt: new Date(),
-    lastError: null
-  })
+async function markPosted(outboxRow, transaction) {
+  await outboxRow.update(
+    {
+      status: 'posted',
+      postedAt: new Date(),
+      lastError: null
+    },
+    { transaction }
+  )
 }
 
-async function markAttemptFailed(outboxRow, error) {
+async function markAttemptFailed(outboxRow, error, transaction) {
   const attempts = outboxRow.attempts + 1
   const exhausted = attempts >= MAX_ATTEMPTS
-  await outboxRow.update({
-    attempts,
-    lastError: String(error).slice(0, 2000),
-    status: exhausted ? 'failed' : 'pending'
-  })
+  await outboxRow.update(
+    {
+      attempts,
+      lastError: String(error).slice(0, 2000),
+      status: exhausted ? 'failed' : 'pending'
+    },
+    { transaction }
+  )
   if (exhausted) {
     try {
       const Sentry = require('../instrument')
@@ -136,25 +141,50 @@ async function recordImmediateAttempt(outboxRow, result) {
   }
 }
 
-// Drains up to `limit` retryable rows, oldest first. Meant to be called
-// from a scheduler tick (accountingOutboxScheduler.js) or a manual ops
-// script — nothing here assumes which.
+// Drains up to `limit` retryable rows, oldest first. The claim uses
+// FOR UPDATE SKIP LOCKED inside one transaction, so two concurrent drains
+// (an immediate post-commit attempt racing a scheduler tick, or two
+// scheduler instances) never pick up the same row: whichever worker locks it
+// first processes it, the other worker skips it. Duplicate processing is
+// additionally made harmless by the journal DB constraint + idempotent replay
+// in createJournalEntry. Meant to be called from a scheduler tick
+// (accountingOutboxScheduler.js) or a manual ops script.
 async function drainAccountingOutbox({ limit = 50 } = {}) {
-  const rows = await db.accounting_outbox.findAll({
-    where: { status: 'pending', attempts: { [Op.lt]: MAX_ATTEMPTS } },
-    order: [['createdAt', 'ASC']],
-    limit
-  })
-
+  let processed = 0
   let posted = 0
   let failed = 0
-  for (const row of rows) {
-    const result = await attemptJob(row)
-    await recordImmediateAttempt(row, result)
-    if (result.ok) posted += 1
-    else failed += 1
-  }
-  return { processed: rows.length, posted, failed }
+
+  await db.sequelize.transaction(async (claimTx) => {
+    const [claimed] = await db.sequelize.query(
+      `SELECT id FROM accounting_outbox
+       WHERE status = 'pending' AND attempts < :maxAttempts
+       ORDER BY "createdAt" ASC
+       LIMIT :limit
+       FOR UPDATE SKIP LOCKED`,
+      {
+        replacements: { maxAttempts: MAX_ATTEMPTS, limit },
+        transaction: claimTx
+      }
+    )
+
+    for (const { id } of claimed) {
+      const row = await db.accounting_outbox.findByPk(id, {
+        transaction: claimTx
+      })
+      if (!row) continue
+      processed += 1
+      const result = await attemptJob(row)
+      if (result.ok) {
+        posted += 1
+        await markPosted(row, claimTx)
+      } else {
+        failed += 1
+        await markAttemptFailed(row, result.error, claimTx)
+      }
+    }
+  })
+
+  return { processed, posted, failed }
 }
 
 module.exports = {

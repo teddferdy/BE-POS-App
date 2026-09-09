@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { resolveStoreId } = require('../../utils/tenantScope')
 
 const generateRequestNumber = () => {
   const date = new Date()
@@ -189,7 +190,7 @@ const goodsRequestController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -259,7 +260,7 @@ const goodsRequestController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const { items, requestedBy, notes, requestDate, neededDate } = req.body
       const createdBy = req.user?.id || null
 
@@ -338,7 +339,7 @@ const goodsRequestController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const { items, requestedBy, notes, requestDate, neededDate } = req.body
 
@@ -438,7 +439,7 @@ const goodsRequestController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -486,7 +487,7 @@ const goodsRequestController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const approvedBy = req.user?.id || null
 

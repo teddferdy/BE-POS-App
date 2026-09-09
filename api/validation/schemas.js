@@ -100,23 +100,23 @@ exports.loginSchema = z.object({
   password: z.string().min(1, 'Password is required')
 })
 
+// Public self-registration. Caller-controlled tenant/privilege fields
+// (`store`, `userType`, `shift`, `position`, `accessMenu`) are NOT accepted —
+// Zod strips them before the controller ever sees them. A registered public
+// user is always unassigned (`store: null`) and stores are assigned later by
+// an authorized admin via /auth/change-profile-user. (CRIT-1)
 exports.registerSchema = z
   .object({
     userName: z.string().min(1, 'Username is required'),
     password: z.string().min(6, 'Password min 6 characters'),
     confirmPassword: z.string().min(1, 'Confirm password is required'),
     email: z.string().email('Invalid email').optional().or(z.literal('')),
-    userType: z.enum(['admin', 'user']).default('user'),
     fullName: z.string().optional().default(''),
     phoneNumber: z.string().optional().default(''),
     gender: z.string().optional().default(''),
     address: z.string().optional().default(''),
     dateOfBirth: z.string().optional().nullable(),
-    placeOfBirth: z.string().optional().default(''),
-    store: optionalStrToNum().nullable(),
-    shift: strToNum().optional().default(0),
-    position: strToNum().optional().default(0),
-    accessMenu: jsonField().optional().nullable()
+    placeOfBirth: z.string().optional().default('')
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Password and confirm password do not match',

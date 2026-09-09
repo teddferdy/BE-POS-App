@@ -159,21 +159,42 @@ describe('Store data isolation — location', () => {
     expect(res.status).toBe(403)
   })
 
+  // C-7 fix (2026-09-09): getLocationById now pins non-super-admin to their
+  // OWN location — a location record's own id IS the tenant's store id, so
+  // the caller's JWT `store` claim must equal the requested location's id.
+  // adminStore1Token/adminStore2Token carry a hardcoded store:1/store:2
+  // claim used throughout this file for unrelated (product/etc) fixtures
+  // and are NOT tied to loc1.id/loc2.id's actual (autoincrement) values —
+  // these two location-detail tests need their own tokens whose store claim
+  // genuinely matches the location under test.
   test('admin store 1 can access own location detail', async () => {
+    const ownToken = jwt.sign(
+      { id: 9995, userName: 'admin_loc1_owner', roleType: 'admin', store: loc1.id },
+      JWT_SECRET
+    )
     const res = await request(app)
       .get(`/location/get-location-detail/${loc1.id}`)
-      .set('Authorization', `Bearer ${adminStore1Token}`)
+      .set('Authorization', `Bearer ${ownToken}`)
 
     expect(res.status).toBe(200)
     expect(res.body.data.name).toBe('ISO_STORE_1')
   })
 
-  test('admin store 1 can access store 2 location detail (no isolation on this endpoint)', async () => {
+  // C-7 fix (2026-09-09): this endpoint used to have NO tenant boundary at
+  // all — Location.findByPk(dbId) returned any store's contact/business
+  // data (email, managerName, dailyTarget, ...) to any authenticated user.
+  // This test previously asserted that gap as correct ("no isolation on
+  // this endpoint"); it now asserts the fixed, tenant-scoped contract.
+  test('admin store 1 CANNOT access store 2 location detail (C-7 fix)', async () => {
+    const ownToken = jwt.sign(
+      { id: 9994, userName: 'admin_loc1_owner2', roleType: 'admin', store: loc1.id },
+      JWT_SECRET
+    )
     const res = await request(app)
       .get(`/location/get-location-detail/${loc2.id}`)
-      .set('Authorization', `Bearer ${adminStore1Token}`)
+      .set('Authorization', `Bearer ${ownToken}`)
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(404)
   })
 })
 

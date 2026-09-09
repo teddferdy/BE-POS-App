@@ -20,6 +20,13 @@ const toDateOnly = (d) => {
 //  1. Tanggal shift yang diminta sudah lewat (H+1 setelah tanggal_selesai), ATAU
 //  2. Batas approvals dia (expires_at) sudah terlewati.
 // Ini mencegah dashboard penuh data sampah swap yang tak lagi relevan.
+// MED-1: unbounded scan — one store with a large pile of stale pending
+// swaps could dominate a tick (2 user lookups + an update + a notification
+// per row), delaying every other store's expiries on the same run.
+// Bounded + deterministic (oldest id first) so work is proportional and
+// any remainder rolls into the next tick.
+const MAX_SWAPS_PER_TICK = 50
+
 async function expirePendingSwaps() {
   const today = toDateOnly(Date.now())
 
@@ -37,7 +44,9 @@ async function expirePendingSwaps() {
           expires_at: { [Op.not]: null, [Op.lt]: new Date() }
         }
       ]
-    }
+    },
+    order: [['id', 'ASC']],
+    limit: MAX_SWAPS_PER_TICK
   })
 
   let count = 0

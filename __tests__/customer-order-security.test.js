@@ -16,6 +16,7 @@ let store2 = null
 let table1 = null
 let table2 = null
 let table2Store2 = null
+let tableQty = null
 let category = null
 let product = null
 let initialProductStock = 0
@@ -74,6 +75,7 @@ beforeAll(async () => {
 
   table1 = await db.table.create({ store: store1.id, name: 'SEC_TABLE_1' })
   table2 = await db.table.create({ store: store1.id, name: 'SEC_TABLE_2' })
+  tableQty = await db.table.create({ store: store1.id, name: 'SEC_TABLE_QTY' })
   table2Store2 = await db.table.create({ store: store2.id, name: 'SEC_TABLE_2_S2' })
 
   category = await db.category.create({ name: 'SEC_CATEGORY' })
@@ -248,7 +250,7 @@ afterAll(async () => {
   }
   await db.category.destroy({ where: { id: category?.id }, force: true })
   await db.table.destroy(
-    { where: { id: [table1?.id, table2?.id, table2Store2?.id].filter(Boolean) }, force: true }
+    { where: { id: [table1?.id, table2?.id, table2Store2?.id, tableQty?.id].filter(Boolean) }, force: true }
   )
   await db.location.destroy(
     { where: { id: [store1?.id, store2?.id].filter(Boolean) }, force: true }
@@ -259,6 +261,7 @@ describe('SEC-001/SEC-006 — quantity trust boundary on customer-create', () =>
   const post = (quantity, extra = {}) =>
     request(app).post('/order/customer-create').send({
       store: store1.id,
+      tableId: tableQty.id,
       paymentMethod: 'cash',
       customerName: 'SEC Qty',
       items: [{ productId: product.id, productName: product.nameProduct, quantity }],
@@ -324,10 +327,10 @@ describe('SEC-001/SEC-006 — quantity trust boundary on customer-create', () =>
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: tableQty.id,
         customerName: 'SEC Qty Unpaid',
         items: [{ productId: product.id, productName: product.nameProduct, quantity: 0 }]
       })
-
     expect(res.status).toBe(400)
     expect((await db.product.findByPk(product.id)).stock).toBe(before.stock)
   })
@@ -470,6 +473,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         paymentMethod: 'cash',
         customerName: 'SEC Cross Product',
         items: [
@@ -490,6 +494,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         customerName: 'SEC Cross Product Unpaid',
         items: [
           {
@@ -513,6 +518,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         customerName: 'SEC Cross Bundle',
         items: [
           { bundleId: store2Bundle.id, bundleName: store2Bundle.name, quantity: 1 }
@@ -532,6 +538,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         customerName: 'SEC Cross Bundle Component',
         items: [
           {
@@ -554,6 +561,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         paymentMethod: 'cash',
         customerId: memberStore2.id,
         customerName: 'SEC Cross Member',
@@ -571,6 +579,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         paymentMethod: 'cash',
         customerId: memberStore1.id,
         customerName: 'SEC Same Store Member',
@@ -592,6 +601,7 @@ describe('SEC-PAYMENT-SPOOF — public customer-create cannot self-authorize a p
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         paymentMethod: 'cash',
         customerName: 'SEC Spoof',
         items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }]
@@ -623,6 +633,7 @@ describe('SEC-PAYMENT-SPOOF — public customer-create cannot self-authorize a p
       .post('/order/customer-create')
       .send({
         store: store1.id,
+        tableId: table1.id,
         customerName: 'SEC Spoof Matrix',
         items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }],
         ...extra

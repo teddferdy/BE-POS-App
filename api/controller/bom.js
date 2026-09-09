@@ -104,7 +104,10 @@ const bomController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.cookies.store — cookie is client-controlled.
+      // Use server-pinned req.storeId (validateStoreAccess JWT store) with
+      // req.user?.store as a fallback for routes missing middleware.
+      const store = req.storeId ?? req.user?.store
       const { productId, name, notes, lines } = req.body
       if (!productId || !lines?.length) {
         return res

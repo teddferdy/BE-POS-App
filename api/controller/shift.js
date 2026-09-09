@@ -10,6 +10,7 @@ const {
   clearRemovedMembers
 } = require('../../utils/shiftChain')
 const { scalarStoreScope } = require('../../utils/tenantScope')
+const { authorizedStoreIds, normalizeStoreIds } = require('../../utils/storeValidation')
 
 const serializeShift = (shift) => ({
   id: shift.id,
@@ -197,8 +198,21 @@ exports.postNewShift = async (req, res) => {
       karyawan,
       status
     } = req.body
-    const rawStore = req.body.store || req.storeId || req.user?.store
-    const stores = toStoreArray(rawStore)
+    let stores
+    if (req.user?.roleType === 'super_admin') {
+      const rawStore = req.body.store || req.storeId || req.user?.store
+      stores = toStoreArray(rawStore)
+    } else {
+      // C-3: single-store tenant — reject ambiguous/foreign/null store; pin own.
+      const authz = authorizedStoreIds(req)
+      if (!authz.ok) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengakses data di toko Anda'
+        })
+      }
+      stores = authz.stores
+    }
 
     const rangeError = validateTimeRange(jam_mulai, jam_selesai)
     if (rangeError) {
@@ -354,7 +368,20 @@ exports.editShiftById = async (req, res) => {
       })
     }
 
-    const stores = toStoreArray(store)
+    let stores
+    if (req.user?.roleType === 'super_admin') {
+      stores = toStoreArray(store)
+    } else {
+      // C-3: single-store tenant edit must not expand scope nor null the store.
+      const authz = authorizedStoreIds(req)
+      if (!authz.ok) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengakses data di toko Anda'
+        })
+      }
+      stores = authz.stores
+    }
 
     const duplicateWhere = { // nosemgrep: Sequelize SQL query, nilai divalidasi zod + koersi — bukan NoSQL injection
       id: { [Op.ne]: id },

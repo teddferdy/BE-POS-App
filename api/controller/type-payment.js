@@ -4,9 +4,15 @@ const ExcelJS = require('exceljs')
 const TypePayment = db.type_payment
 const { createAudit } = require('../../utils/auditLog')
 const { scalarStoreScope } = require('../../utils/tenantScope')
+const { normalizeStoreIds, authorizedStoreIds } = require('../../utils/storeValidation')
 
 // Resolves the store payload sent by the FE (single id, JSON string array, or 'all')
 // into a list of store ids to attach rows to. Empty array means global (store null).
+//
+// C-1 hardening: the RAW resolveStoreIds is only used as a pure normalizer for the
+// super_admin multi-store path. For non-super-admin, callers MUST gate through
+// authorizedStoreIds() (which rejects ANY foreign/ambiguous representation) BEFORE
+// any write happens. Never trust this raw list for a tenant write.
 const resolveStoreIds = (rawStore, userStore) => {
   let s = rawStore
   if (s === undefined || s === null) s = userStore
@@ -25,6 +31,9 @@ const resolveStoreIds = (rawStore, userStore) => {
     .filter((n) => Number.isFinite(n) && n > 0)
   return [...new Set(ids)]
 }
+
+// Column of numbers deduplicated, dropping non-positive/non-integer entries.
+const dedupePositive = (ids) => [...new Set(ids.filter((n) => Number.isFinite(n) && n > 0))]
 
 // Matches store-specific rows plus global (store null) rows for reads.
 const buildStoreWhere = (store) => {
@@ -185,8 +194,21 @@ exports.getTypePaymentById = async (req, res) => {
 
 exports.postNewTypePayment = async (req, res) => {
   const { name, type, icon, status, feeType, fee, tenor, sortOrder } = req.body
-  const rawStore = req.body.store ?? req.user?.store
-  const stores = resolveStoreIds(rawStore, req.user?.store)
+  let stores
+  if (req.user?.roleType === 'super_admin') {
+    stores = resolveStoreIds(req.body.store, req.user?.store)
+  } else {
+    // C-1: single-store tenant — reject ambiguously/foreign store immediately;
+    // pin the write to the authorized own store.
+    const authz = authorizedStoreIds(req)
+    if (!authz.ok) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat mengakses data di toko Anda'
+      })
+    }
+    stores = authz.stores
+  }
   const statusValue =
     status !== undefined
       ? status === true
@@ -250,8 +272,20 @@ exports.postNewTypePayment = async (req, res) => {
 
 exports.editTypePaymentById = async (req, res) => {
   const body = req.body
-  const rawStore = body.store ?? req.user?.store
-  const stores = resolveStoreIds(rawStore, req.user?.store)
+  let stores
+  if (req.user?.roleType === 'super_admin') {
+    stores = resolveStoreIds(body.store, req.user?.store)
+  } else {
+    // C-1: single-store tenant edits must not expand scope.
+    const authz = authorizedStoreIds(req)
+    if (!authz.ok) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat mengakses data di toko Anda'
+      })
+    }
+    stores = authz.stores
+  }
   try {
     const existing = await TypePayment.findByPk(req.params.id)
     if (!existing) {
@@ -266,10 +300,13 @@ exports.editTypePaymentById = async (req, res) => {
         message: 'Metode pembayaran sistem tidak dapat diedit'
       })
     }
+    // C-9: `existing.store &&` short-circuited when the type_payment was
+    // global (store: null, non-system) — any tenant admin could edit it.
+    // A non-system global type_payment must only be mutated by
+    // super_admin, matching the isSystem guard above for the system case.
     if (
       req.user?.roleType !== 'super_admin' &&
-      existing.store &&
-      Number(existing.store) !== Number(req.user?.store)
+      (!existing.store || Number(existing.store) !== Number(req.user?.store))
     ) {
       return res.status(403).json({
         success: false,
@@ -408,7 +445,14 @@ exports.downloadData = async (req, res) => {
   try {
     const { store } = req.query
     const where = {}
-    if (store) where.store = store
+    // C-1: a client `?store=` must never let a store admin export another
+    // store's (or every store's) payment types. Pin non-super-admin to own.
+    const authz = authorizedStoreIds(req)
+    if (req.user?.roleType === 'super_admin') {
+      if (store) where.store = Number(store)
+    } else if (authz.ok) {
+      where.store = authz.stores[0]
+    }
 
     const typePayments = await TypePayment.findAll({
       where,

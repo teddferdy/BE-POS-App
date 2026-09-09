@@ -2,21 +2,34 @@ const db = require('../../db/models')
 const inventoryService = require('../service/inventoryService')
 const reconcileService = require('../service/reconcileService')
 const batchService = require('../service/batchService')
-const { scalarStoreScope } = require('../../utils/tenantScope')
+const { scalarStoreScope, isSuperAdmin } = require('../../utils/tenantScope')
 
-const getStoreId = (req) =>
-  req.query.storeId ||
-  req.query.store ||
-  req.cookies?.store ||
-  req.user?.store ||
-  null
+// HIGH-5: The original `getStoreId(req)` helper accepted untrusted inputs:
+//   req.query.storeId  — validateStoreAccess is blind to `query.storeId`
+//   req.query.store    — partially validated, but `storeId` key bypasses it
+//   req.cookies?.store — never validated by validateStoreAccess
+//   req.user?.store    — safe, but superseded by the attack-controlled inputs above
+//
+// The helper is replaced with a single trusted source: req.storeId (pinned
+// by validateStoreAccess from the JWT store claim). For super_admin with an
+// explicit ?store param that IS validated by validateStoreAccess, req.storeId
+// is already set to that value. No cookie, no query.storeId, no fail-open.
+//
+// getTenantStoreId() is the ONLY authoritative store source in this file.
+const getTenantStoreId = (req) => req.storeId ?? req.user?.store ?? null
 
 const inventoryController = {
   async getForecasts(req, res) {
     try {
-      const storeId = getStoreId(req)
-      const where = {}
-      if (storeId) where.store = storeId
+      // HIGH-5 fix: use trusted server-side store only.
+      const storeId = getTenantStoreId(req)
+      // Fail closed: non-super-admin without a store cannot see any forecasts.
+      if (!storeId && !isSuperAdmin(req)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Store required' })
+      }
+      const where = scalarStoreScope(req, {})
       if (req.query.productId) where.product = parseInt(req.query.productId)
 
       const forecasts = await db.stock_forecast.findAll({
@@ -59,7 +72,8 @@ const inventoryController = {
 
   async runForecast(req, res) {
     try {
-      const storeId = getStoreId(req)
+      // HIGH-5 fix: use trusted server-side store only.
+      const storeId = getTenantStoreId(req)
       const productId = req.query.productId
         ? parseInt(req.query.productId)
         : null
@@ -93,7 +107,8 @@ const inventoryController = {
 
   async getDeadStock(req, res) {
     try {
-      const storeId = getStoreId(req)
+      // HIGH-5 fix: use trusted server-side store only.
+      const storeId = getTenantStoreId(req)
       if (!storeId) {
         return res
           .status(400)
@@ -112,7 +127,8 @@ const inventoryController = {
 
   async getExpiringSoon(req, res) {
     try {
-      const storeId = getStoreId(req)
+      // HIGH-5 fix: use trusted server-side store only.
+      const storeId = getTenantStoreId(req)
       const withinDays = parseInt(req.query.days || 30)
       const results = await inventoryService.getExpiringBatches(
         storeId,
@@ -130,7 +146,8 @@ const inventoryController = {
   async getValuation(req, res) {
     try {
       const { method = 'FIFO' } = req.query
-      const storeId = getStoreId(req)
+      // HIGH-5 fix: use trusted server-side store only.
+      const storeId = getTenantStoreId(req)
       const productId = req.query.productId
         ? parseInt(req.query.productId)
         : null
@@ -167,9 +184,10 @@ const inventoryController = {
 
   async getBatches(req, res) {
     try {
-      const storeId = getStoreId(req)
-      const where = {}
-      if (storeId) where.store = storeId
+      // HIGH-5 fix: use trusted server-side store only.
+      // Non-super-admin: scalarStoreScope always adds store = <tenantStore>.
+      // Super-admin without ?store: no store filter (intentional global access).
+      const where = scalarStoreScope(req, {})
       if (req.query.productId) where.product = parseInt(req.query.productId)
       if (req.query.status) where.status = req.query.status
 
@@ -236,8 +254,8 @@ const inventoryController = {
 
   async getReconcile(req, res) {
     try {
-      const storeId =
-        req.query.storeId || req.query.store || req.cookies?.store || null
+      // HIGH-5 fix: use trusted server-side store only.
+      const storeId = getTenantStoreId(req)
       const productId = req.query.productId
         ? parseInt(req.query.productId)
         : null
@@ -258,8 +276,8 @@ const inventoryController = {
 
   async postReconcile(req, res) {
     try {
-      const storeId =
-        req.body.storeId || req.body.store || req.cookies?.store || null
+      // HIGH-5 fix: use trusted server-side store only; body storeId/cookie removed.
+      const storeId = getTenantStoreId(req)
       const productId = req.body.productId ? parseInt(req.body.productId) : null
       const direction = req.body.direction || 'store-to-global'
       if (!['store-to-global', 'global-to-store'].includes(direction)) {
@@ -283,8 +301,8 @@ const inventoryController = {
 
   async postWriteOffExpired(req, res) {
     try {
-      const storeId =
-        req.body.storeId || req.body.store || req.cookies?.store || null
+      // HIGH-5 fix: use trusted server-side store only; body storeId/cookie removed.
+      const storeId = getTenantStoreId(req)
       const productId = req.body.productId ? parseInt(req.body.productId) : null
       const result = await batchService.writeOffExpired({
         storeId,

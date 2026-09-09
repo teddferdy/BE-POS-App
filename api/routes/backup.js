@@ -20,6 +20,7 @@ router.put(
 router.post(
   '/create',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin'),
   backupController.createBackup
 )
@@ -40,12 +41,14 @@ router.get(
 router.post(
   '/restore/:id',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin'),
   backupController.restoreBackup
 )
 router.delete(
   '/delete/:id',
   authorization,
+  validateStoreAccess,
   requireRole('super_admin'),
   backupController.deleteBackup
 )

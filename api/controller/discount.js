@@ -6,6 +6,7 @@ const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { scalarStoreScope } = require('../../utils/tenantScope')
+const { authorizedWriteStore } = require('../../utils/storeValidation')
 
 const attachStoreData = async (rows) => {
   if (!rows?.length) return rows
@@ -512,7 +513,17 @@ exports.postNewDiscount = async (req, res) => {
     code,
     conditions
   } = req.body
-  const store = req.body.store !== undefined ? req.body.store : req.user?.store
+  // Store write target. For non-super-admin the store is always the caller's
+  // own (rejects a foreign/ambiguous/array storeId that would otherwise create
+  // a discount in another tenant's namespace).
+  const storeAuthz = authorizedWriteStore(req)
+  if (!storeAuthz.ok) {
+    return res.status(403).json({
+      success: false,
+      message: 'Anda hanya dapat mengakses data di toko Anda'
+    })
+  }
+  const store = storeAuthz.storeId ?? req.user?.store
   const safeStartDate =
     startDate && !isNaN(Date.parse(startDate)) ? startDate : null
   const safeEndDate = endDate && !isNaN(Date.parse(endDate)) ? endDate : null
@@ -632,7 +643,17 @@ exports.lookupByCode = async (req, res) => {
 
 exports.editDiscountById = async (req, res) => {
   const body = req.body || {}
-  const store = body.store || req.user?.store
+  // Store write target must be authorized: non-super-admin is pinned to own,
+  // so a foreign/array body.store cannot reassign the discount (or its store
+  // column) into another tenant's namespace.
+  const storeAuthz = authorizedWriteStore(req)
+  if (!storeAuthz.ok) {
+    return res.status(403).json({
+      success: false,
+      message: 'Anda hanya dapat mengakses data di toko Anda'
+    })
+  }
+  const store = storeAuthz.storeId ?? req.user?.store
 
   if (!body.name) {
     return res.status(400).json({
@@ -686,7 +707,7 @@ exports.editDiscountById = async (req, res) => {
           maximumDiscount: body.maximumDiscount,
           startDate: safeStartDate,
           endDate: safeEndDate,
-          store: body.store,
+          store,
           code: body.code || null,
           conditions: body.conditions || null,
           modifiedBy: req.user?.id,

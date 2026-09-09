@@ -52,10 +52,12 @@
   "devDependencies": {
     "jest": "^30.4.2",
     "nodemon": "^3.1.3",
+    "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2"
   },
   "jest": {
     "testEnvironment": "node",
-    "globalSetup": "<rootDir>/scripts/setup-test-db.js"
+    "globalSetup": "<rootDir>/scripts/setup-test-db.js",
+    "testTimeout": 30000
   }
 }

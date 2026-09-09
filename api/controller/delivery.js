@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { emitToStore } = require('../service/socket')
 const { scalarStoreScope, nullableArrayStoreScope } = require('../../utils/tenantScope')
+const { authorizedStoreIds } = require('../../utils/storeValidation')
 
 const generateDeliveryNumber = () => {
   const date = new Date()
@@ -581,9 +582,25 @@ const deliveryController = {
         notes
       } = req.body
 
+      let driverStore
+      if (req.user?.roleType === 'super_admin') {
+        driverStore = store || null
+      } else {
+        // C-4: single-store tenant — reject ambiguous/foreign/multi-store;
+        // default to own store as a JSONB array (driver.store convention).
+        const authz = authorizedStoreIds(req)
+        if (!authz.ok) {
+          return res.status(403).json({
+            success: false,
+            message: 'Anda hanya dapat mengakses data di toko Anda'
+          })
+        }
+        driverStore = [authz.stores[0]]
+      }
+
       const driver = await db.driver.create({
         name,
-        store: store || null,
+        store: driverStore,
         phone: phone || null,
         email: email || null,
         vehicleType: vehicleType || null,
@@ -630,9 +647,27 @@ const deliveryController = {
           .json({ success: false, message: 'Driver not found' })
       }
 
+      // C-4: a store admin must not reassign an (owned) driver into a foreign /
+      // global namespace. Super_admin may legitimately manage multi-store.
+      let effectiveStore = driver.store
+      if (store !== undefined) {
+        if (req.user?.roleType === 'super_admin') {
+          effectiveStore = store
+        } else {
+          const authz = authorizedStoreIds(req)
+          if (!authz.ok) {
+            return res.status(403).json({
+              success: false,
+              message: 'Anda hanya dapat mengakses data di toko Anda'
+            })
+          }
+          effectiveStore = [authz.stores[0]]
+        }
+      }
+
       await driver.update({
         name: name !== undefined ? name : driver.name,
-        store: store !== undefined ? store : driver.store,
+        store: store !== undefined ? effectiveStore : driver.store,
         phone: phone !== undefined ? phone : driver.phone,
         email: email !== undefined ? email : driver.email,
         vehicleType:

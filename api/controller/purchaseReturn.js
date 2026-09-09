@@ -49,7 +49,6 @@ async function attachPriceInfo(json, poId) {
 const purchaseReturnController = {
   async getAll(req, res) {
     try {
-      const { store: cookieStore } = req.cookies
       const userRole = req.user?.roleType
       const {
         page = 1,
@@ -57,14 +56,24 @@ const purchaseReturnController = {
         status,
         startDate,
         endDate,
-        store: queryStore,
         search,
         supplier
       } = req.query
 
+      // HIGH-9: was `req.cookies.store` (client-controlled cookie) with a
+      // fail-open `{}` fallback — a store admin could list every store's
+      // returns. The tenant is always the pinned req.storeId
+      // (validateStoreAccess resolved the JWT store for non-super, or the
+      // client-selected store / null for super_admin).
+      const effectiveStore = req.storeId ?? req.user?.store
+      if (!effectiveStore && req.user?.roleType !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Store assignment required'
+        })
+      }
+
       const where = {}
-      const effectiveStore =
-        userRole === 'super_admin' ? queryStore || cookieStore : cookieStore
       if (effectiveStore) where.store = effectiveStore
       if (status) where.status = status
       if (search) {
@@ -194,8 +203,16 @@ const purchaseReturnController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      // HIGH-9: was `req.storeId || req.cookies.store` — the cookie is a
+      // client-controlled value; tenant comes from the pinned req.storeId only.
+      const store = req.storeId ?? req.user?.store
       const userRole = req.user?.roleType
+      if (!store && userRole !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Store assignment required'
+        })
+      }
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -289,8 +306,15 @@ const purchaseReturnController = {
     try {
       const { id } = req.params
       const { resolution = 'credit' } = req.body
-      const store = req.storeId || req.cookies.store
+      // HIGH-9: cookie store removed — tenant comes from req.storeId only.
+      const store = req.storeId ?? req.user?.store
       const userRole = req.user?.roleType
+      if (!store && userRole !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Store assignment required'
+        })
+      }
 
       if (!['credit', 'replacement'].includes(resolution)) {
         return res.status(400).json({
@@ -471,8 +495,15 @@ const purchaseReturnController = {
   async reject(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      // HIGH-9: cookie store removed — tenant comes from req.storeId only.
+      const store = req.storeId ?? req.user?.store
       const userRole = req.user?.roleType
+      if (!store && userRole !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Store assignment required'
+        })
+      }
 
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -581,7 +612,19 @@ const purchaseReturnController = {
     try {
       const { poId } = req.params
 
+      // HIGH-9: this was `where = { purchaseOrder: poId }` with no tenant
+      // filter — a store A admin could list store B's returns by guessing
+      // the other store's purchase-order id. Scope to the pinned store.
+      const userRole = req.user?.roleType
+      const store = req.storeId ?? req.user?.store
+      if (!store && userRole !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Store assignment required'
+        })
+      }
       const where = { purchaseOrder: poId }
+      if (store && userRole !== 'super_admin') where.store = store
 
       const returns = await db.purchase_return.findAll({
         where,
@@ -684,6 +727,25 @@ const purchaseReturnController = {
         })
       }
 
+      // HIGH-9: was `req.storeId || req.cookies.store || po.store` — the
+      // cookie is client-controlled and could push a non-super admin onto a
+      // foreign store. Tenant now comes only from the pinned req.storeId; for
+      // super_admin acting without a selected store context the PO's own
+      // store is the legitimate tenant anchor (the PO is data itself).
+      const store = req.storeId ?? po.store
+
+      // The return is always written against the caller's own tenant. A
+      // non-super admin may only return from a purchase order that belongs
+      // to their own store.
+      if (req.user?.roleType !== 'super_admin') {
+        if (!store || Number(po.store) !== Number(store)) {
+          return res.status(403).json({
+            success: false,
+            message: 'Anda hanya dapat mengelola retur di toko Anda'
+          })
+        }
+      }
+
       if (po.status !== 'received' && po.status !== 'ordered') {
         return res.status(400).json({
           success: false,
@@ -697,8 +759,6 @@ const purchaseReturnController = {
           message: 'At least one item is required'
         })
       }
-
-      const store = req.storeId || req.cookies.store || po.store
 
       // Fetch PO items to validate return qty against receivedQty
       const poItems = await db.purchase_order_item.findAll({

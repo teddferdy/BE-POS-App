@@ -75,13 +75,17 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(order.status).toBe('cancelled')
   })
 
-  test('cancelling a paid order does not leave it payable-again without re-deducting stock', async () => {
-    // Regression test for a deterministic (non-concurrent) bug: cancel used
-    // to leave paymentStatus stuck at 'paid', so re-marking the order paid
-    // afterwards saw oldPaymentStatus === 'paid' and skipped re-deducting
-    // stock — even though cancellation had just restored it. Stock ended up
-    // permanently duplicated after a single cancel-then-re-pay cycle, with
-    // no concurrency involved at all.
+  test('cancelling a paid order sets paymentStatus refunded and a refund; re-marking it paid is rejected (F-03)', async () => {
+    // Original regression intent: cancel used to leave paymentStatus stuck at
+    // 'paid', so re-marking the order paid afterwards saw oldPaymentStatus ===
+    // 'paid' and skipped re-deducting stock — even though cancellation had
+    // just restored it. Stock ended up permanently duplicated after a single
+    // cancel-then-re-pay cycle, with no concurrency involved at all.
+    //
+    // Phase 3 (F-03) supersedes the second half of that behavior: a cancelled/
+    // refunded order is terminal — re-marking it 'paid' core-deducts stock on
+    // top of an already-issued refund. The transition is now rejected with 409
+    // and stock stays exactly where the cancellation left it.
     const createRes = await request(app)
       .post('/order/create')
       .set('Authorization', `Bearer ${cashierToken}`)
@@ -122,12 +126,16 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${cashierToken}`)
       .send({ id: orderId, status: 'paid', store: location.id })
-    expect(rePaidRes.status).toBe(200)
+
+    // F-03: the resurrection is rejected instead of silently re-deducting.
+    expect(rePaidRes.status).toBe(409)
 
     const afterRePaid = await db.product.findByPk(product.id)
-    // Must be re-deducted back to 15, not left at 20 (the duplication bug)
-    // and not driven to 10 (a double deduction).
-    expect(afterRePaid.stock).toBe(15)
+    expect(afterRePaid.stock).toBe(20) // untouched by the rejected transition
+
+    const still = await db.order.findByPk(orderId)
+    expect(still.status).toBe('cancelled')
+    expect(still.paymentStatus).toBe('refunded')
   })
 
   test('cancelling a pending/unpaid order does not inflate stock that was never deducted', async () => {

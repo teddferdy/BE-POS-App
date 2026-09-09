@@ -24,10 +24,23 @@ const waiterRequestController = {
         return res.status(400).json({ message: 'store and type are required' })
       }
 
-      const storeId = Number(store)
-      if (isNaN(storeId)) {
-        return res.status(400).json({ message: 'Invalid store value' })
+      // N-5 (security): public, unauthenticated endpoint — derive the store
+      // from a valid table belonging to the claimed store (the physical QR/
+      // table is the server-authoritative capability), and reject a
+      // table-less or mismatched request so an attacker cannot direct the
+      // persisted row or its realtime emission into an arbitrary store.
+      const tableIdNum =
+        tableId === '' || tableId == null ? null : Number(tableId)
+      if (!Number.isInteger(tableIdNum)) {
+        return res.status(400).json({ message: 'tableId is required' })
       }
+      const table = await db.table.findOne({
+        where: { id: tableIdNum, store: Number(store) }
+      })
+      if (!table) {
+        return res.status(400).json({ message: 'Table not found' })
+      }
+      const storeId = Number(table.store) || Number(store)
 
       const allowedTypes = ['sendok', 'tisu', 'refill', 'bill', 'call']
       if (!allowedTypes.includes(type)) {
@@ -36,15 +49,13 @@ const waiterRequestController = {
 
       const requestNumber = generateRequestNumber()
 
-      const tableIdNum =
-        tableId === '' || tableId == null ? null : Number(tableId)
       const orderIdNum =
         orderId === '' || orderId == null ? null : Number(orderId)
 
       const waiterRequest = await db.waiter_request.create({
         store: [storeId],
         requestNumber,
-        tableId: Number.isInteger(tableIdNum) ? tableIdNum : null,
+        tableId: tableIdNum,
         orderId: Number.isInteger(orderIdNum) ? orderIdNum : null,
         type,
         notes: notes || null,
@@ -80,20 +91,37 @@ const waiterRequestController = {
   },
 
   // ——— Public — customer views their own requests (by store + table) ———
+  // C-8: this endpoint is unauthenticated, so it MUST NOT allow an attacker to
+  // list another tenant's requests by guessing a `store` value alone. Require
+  // BOTH store and tableId, verify the table physically belongs to that store
+  // (same capability check as customerCreate — the physical QR/table is the
+  // server-authoritative capability), and return ONLY that table's requests.
   async getCustomerList(req, res) {
     try {
       const { store, tableId, limit = 50 } = req.query
       const storeId = Number(store)
-      if (isNaN(storeId)) {
+      const tableNum =
+        tableId === '' || tableId == null ? NaN : Number(tableId)
+
+      if (!Number.isInteger(storeId) || storeId <= 0) {
         return res.status(400).json({ message: 'Invalid store value' })
       }
+      if (!Number.isInteger(tableNum)) {
+        return res.status(400).json({ message: 'tableId is required' })
+      }
 
-      const where = { store: { [Op.contains]: [storeId] } }
-      if (tableId) {
-        const tableNum = Number(tableId)
-        if (!isNaN(tableNum)) {
-          where.tableId = tableNum
-        }
+      // Verify the table belongs to the claimed store; otherwise reject
+      // (prevents a store-A/table-B cross-tenant read).
+      const table = await db.table.findOne({
+        where: { id: tableNum, store: storeId }
+      })
+      if (!table) {
+        return res.status(400).json({ message: 'Table not found' })
+      }
+
+      const where = {
+        store: { [Op.contains]: [storeId] },
+        tableId: tableNum
       }
 
       const requests = await db.waiter_request.findAll({

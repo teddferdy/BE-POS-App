@@ -17,11 +17,12 @@ beforeAll(async () => {
   // `store` FKs to location.id — create two real locations so the spoof
   // attempt below targets a genuinely different, valid store. attendance.userId
   // FKs to user.id, so the token subject needs a real user row too.
-  ownStore = await db.location.create({ name: 'ATT_OWN_STORE', status: 'active' })
-  otherStore = await db.location.create({ name: 'ATT_OTHER_STORE', status: 'active' })
+  const suffix = Date.now()
+  ownStore = await db.location.create({ name: `ATT_OWN_STORE_${suffix}`, status: 'active' })
+  otherStore = await db.location.create({ name: `ATT_OTHER_STORE_${suffix}`, status: 'active' })
   employee = await db.user.create({
-    userName: 'employee_store1_att',
-    email: 'employee_store1_att@test.com',
+    userName: `employee_store1_att_${suffix}`,
+    email: `employee_store1_att_${suffix}@test.com`,
     roleType: 'user',
     userType: 'user',
     store: ownStore.id,
@@ -40,12 +41,17 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await db.attendance.destroy({ where: { userId: employee?.id }, force: true })
-  await db.user.destroy({ where: { id: employee?.id }, force: true })
-  await db.location.destroy({
-    where: { id: [ownStore?.id, otherStore?.id].filter(Boolean) },
-    force: true
-  })
+  if (employee?.id) {
+    await db.attendance.destroy({ where: { userId: employee.id }, force: true })
+    await db.user.destroy({ where: { id: employee.id }, force: true })
+  }
+  const locIds = [ownStore?.id, otherStore?.id].filter(Boolean)
+  if (locIds.length > 0) {
+    await db.location.destroy({
+      where: { id: locIds },
+      force: true
+    })
+  }
 })
 
 // Regression test: /attendance/clock used to resolve the clock-in store from

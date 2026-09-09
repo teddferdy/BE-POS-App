@@ -10,6 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
 let storeA = null
 let storeB = null
+let tableA = null
 let category = null
 let tokenA = null
 let counter = 0
@@ -63,7 +64,9 @@ const createOrder = (token, body) =>
   request(app).post('/order/create').set('Authorization', `Bearer ${token}`).send(body)
 
 const customerCreate = (body) =>
-  request(app).post('/order/customer-create').send(body)
+  request(app)
+    .post('/order/customer-create')
+    .send({ tableId: tableA?.id, ...body })
 
 const updateOrderStatus = (token, body) =>
   request(app).put('/order/update-status').set('Authorization', `Bearer ${token}`).send(body)
@@ -99,6 +102,7 @@ const makeUnpaidOrderWithItem = async ({ store, product, quantity, price = 20000
 beforeAll(async () => {
   storeA = await db.location.create({ name: 'F7_STORE_A', status: 'active' })
   storeB = await db.location.create({ name: 'F7_STORE_B', status: 'active' })
+  tableA = await db.table.create({ store: storeA.id, name: 'F7_TABLE' })
   category = await db.category.create({ name: 'F7_CATEGORY' })
   tokenA = jwt.sign({ id: 9401, userName: 'f7_admin_a', roleType: 'admin', store: storeA.id }, JWT_SECRET)
 })
@@ -111,6 +115,7 @@ afterAll(async () => {
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
+  await db.table.destroy({ where: { id: tableA?.id }, force: true })
   await db.product_store_stock.destroy({ where: {}, force: true })
   await db.best_selling.destroy({ where: {}, force: true })
   await db.product.destroy({ where: { category: category.id }, force: true })

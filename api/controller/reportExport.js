@@ -44,6 +44,13 @@ const exportOne = async (req, res) => {
     if (!def) return res.status(404).json({ success: false, message: 'Report tidak ditemukan' })
     if (!VALID_FORMATS.includes(format)) return res.status(400).json({ success: false, message: 'Format tidak didukung' })
 
+    if (req.user?.roleType !== 'super_admin') {
+      const tenantStore = req.storeId ?? req.user?.store
+      if (!tenantStore) {
+        return res.status(403).json({ success: false, message: 'Store assignment required' })
+      }
+    }
+
     const data = await def.getData(req)
     const configRow = await db.reportConfig.findOne({ where: { key } })
     const config = configRow?.config || null
@@ -52,6 +59,9 @@ const exportOne = async (req, res) => {
 
     await exportReport({ format, spec, filename: def.filename(req), res })
   } catch (err) {
+    if (err.statusCode === 403 || err.message === 'Store assignment required') {
+      return res.status(403).json({ success: false, message: err.message })
+    }
     console.error('Export error:', err)
     if (!res.headersSent) return res.status(500).json({ success: false, message: err.message })
     res.end()

@@ -1,20 +1,48 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
+const { isSuperAdmin, scalarStoreScope } = require('../../utils/tenantScope')
+
+// HIGH-1: The original implementation read `req.cookies?.store || req.user?.store`
+// as the effective tenant. The cookie is a client-controlled value that
+// validateStoreAccess never inspects, so a store-A user could set
+// Cookie: store=6 and read store 6's sales reports.
+//
+// Authority order (guaranteed server-side, never client-supplied):
+//   req.storeId  — pinned by validateStoreAccess from the JWT store claim;
+//                  super_admin: explicitly-requested store or null.
+//   req.user?.store — JWT claim fallback for any middleware gap.
+// The query/cookie store hint from the client is IGNORED for authorization.
+// For super_admin: an explicit ?store is honoured (same as before) because
+// that is intentional global-access behaviour; no store → sees all rows.
+const effectiveTenantStore = (req) => {
+  // req.storeId is set by validateStoreAccess:
+  //   - non-super: always the caller's JWT store (null → would have been 403'd)
+  //   - super_admin: the explicit ?store value, or null for global access
+  // Fall back to req.user?.store to tolerate routes missing the middleware.
+  return req.storeId ?? req.user?.store ?? null
+}
 
 const reportingController = {
   async getSalesSummary(req, res) {
     try {
-      const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, page = 1, limit = 30 } = req.query
+      // HIGH-1 fix: ignore req.query.store and req.cookies.store for
+      // authorization; derive the tenant from the pinned server-side context.
+      const tenantStore = effectiveTenantStore(req)
 
-      const effectiveStore = store || userStore
-      if (!effectiveStore) {
+      if (!tenantStore && !isSuperAdmin(req)) {
         return res
-          .status(400)
-          .json({ success: false, message: 'Store required' })
+          .status(403)
+          .json({ success: false, message: 'Store assignment required' })
       }
 
-      const where = { store: effectiveStore }
+      // scalarStoreScope: super_admin without store → unrestricted;
+      // tenant → always WHERE store = <tenantStore>.
+      const where = scalarStoreScope(req, {})
+      // Override with the effective store if scalarStoreScope didn't add one
+      // (handles case where req.user.store differs from req.storeId edge):
+      if (tenantStore && !isSuperAdmin(req)) where.store = tenantStore
+
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -50,10 +78,19 @@ const reportingController = {
 
   async getProductSalesSummary(req, res) {
     try {
-      const { store, startDate, endDate, page = 1, limit = 50 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, page = 1, limit = 50 } = req.query
+      // HIGH-1 fix: tenant from pinned server-side context only.
+      const tenantStore = effectiveTenantStore(req)
 
-      const where = store || userStore ? { store: store || userStore } : {}
+      // MEDIUM fix: unassigned non-super-admin MUST fail closed, not leak all
+      // stores' product sales data with an empty WHERE clause.
+      if (!tenantStore && !isSuperAdmin(req)) {
+        return res
+          .status(403)
+          .json({ success: false, message: 'Store assignment required' })
+      }
+
+      const where = tenantStore ? { store: tenantStore } : {}
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -96,10 +133,18 @@ const reportingController = {
 
   async getCategorySalesSummary(req, res) {
     try {
-      const { store, startDate, endDate, page = 1, limit = 20 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, page = 1, limit = 20 } = req.query
+      // HIGH-1 fix: tenant from pinned server-side context only.
+      const tenantStore = effectiveTenantStore(req)
 
-      const where = store || userStore ? { store: store || userStore } : {}
+      const where = tenantStore ? { store: tenantStore } : {}
+      // MEDIUM fix: fail closed for unassigned non-super-admin.
+      if (!tenantStore && !isSuperAdmin(req)) {
+        return res
+          .status(403)
+          .json({ success: false, message: 'Store assignment required' })
+      }
+
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)
@@ -142,10 +187,18 @@ const reportingController = {
 
   async getKasirPerformance(req, res) {
     try {
-      const { store, startDate, endDate, page = 1, limit = 30 } = req.query
-      const userStore = req.cookies?.store || req.user?.store
+      const { startDate, endDate, page = 1, limit = 30 } = req.query
+      // HIGH-1 fix: tenant from pinned server-side context only.
+      const tenantStore = effectiveTenantStore(req)
 
-      const where = store || userStore ? { store: store || userStore } : {}
+      const where = tenantStore ? { store: tenantStore } : {}
+      // MEDIUM fix: fail closed for unassigned non-super-admin.
+      if (!tenantStore && !isSuperAdmin(req)) {
+        return res
+          .status(403)
+          .json({ success: false, message: 'Store assignment required' })
+      }
+
       if (startDate || endDate) {
         where.report_date = {}
         if (startDate) where.report_date[Op.gte] = new Date(startDate)

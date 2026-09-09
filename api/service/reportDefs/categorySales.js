@@ -1,6 +1,7 @@
 'use strict'
 const db = require('../../../db/models')
 const { Op } = require('sequelize')
+const { assertReportStore } = require('./getReportStore')
 
 const defaultColumns = [
   { key: 'category', label: 'Kategori', type: 'string', width: 24, align: 'left' },
@@ -14,10 +15,10 @@ const filename = () => 'penjualan-per-kategori'
 const label = 'Penjualan per Kategori'
 
 const getData = async (req) => {
-  const { store, startDate, endDate } = req.query
-  const userStore = req.cookies?.store || req.user?.store
+  const { startDate, endDate } = req.query
+  const store = assertReportStore(req)
 
-  const where = store || userStore ? { store: store || userStore } : {}
+  const where = store ? { store } : {}
   if (startDate || endDate) {
     where.report_date = {}
     if (startDate) where.report_date[Op.gte] = new Date(startDate)

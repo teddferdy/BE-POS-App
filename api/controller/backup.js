@@ -38,6 +38,30 @@ const ensureDir = () => {
 
 const sanitizeFilename = (name) => name.replace(/[^a-zA-Z0-9._-]/g, '_')
 
+// CRIT-3: backup artifacts are reachable by primary key. Access rule keyed on
+// the CALLER'S REAL store from the JWT (never on caller-supplied params):
+//  - global super_admin (store null in token) -> full access
+//  - store-bound super_admin            -> ONLY their own store's artifacts
+// Tenant roles never reach these ops (requireRole('super_admin') upstream).
+const canAccessBackupArtifact = (record, req) => {
+  const callerStore =
+    req.user?.store != null ? parseInt(req.user.store, 10) : null
+  if (callerStore === null) return true
+  if (!record) return false
+  const recordStore = record.store != null ? parseInt(record.store, 10) : null
+  return recordStore === callerStore
+}
+
+// Effective store for a backup artifact: always the caller's REAL store when
+// the caller is a store-bound super_admin; only a global super_admin may
+// choose an explicit store.
+const effectiveBackupStore = (req) => {
+  const callerStore =
+    req.user?.store != null ? parseInt(req.user.store, 10) : null
+  if (callerStore !== null) return callerStore
+  return req.storeId || null
+}
+
 const runPgDump = async ({ outputFile, format = 'custom' }) => {
   const c = DB_CONFIG()
   const args = ['--no-owner', '--no-privileges']
@@ -154,8 +178,32 @@ const cronMatches = (cron, date) => {
   )
 }
 
+// MED-2: the schedule this controls (retention, cron) drives
+// runScheduledBackupIfDue -> cleanupRetention(), an unattended background
+// sweep that deletes old backups FOR EVERY STORE, not just one — there is
+// no per-request "caller" by the time it runs, so the only place the
+// authorization boundary can be enforced is here, at configuration time.
+// requireRole('super_admin') alone does not distinguish a global super_admin
+// from a store-bound one (canAccessBackupArtifact already restricts the
+// latter to their own store's artifacts) — without this check a store-bound
+// super_admin could shorten the global retention window and cause another
+// store's (or the global admin's) backups to be deleted, despite having no
+// direct access to those artifacts at all.
+const requireGlobalSuperAdmin = (req, res) => {
+  if (req.user?.store != null) {
+    res.status(403).json({
+      success: false,
+      message:
+        'Hanya super admin global yang dapat mengatur jadwal backup sistem'
+    })
+    return false
+  }
+  return true
+}
+
 exports.getSchedule = async (req, res) => {
   try {
+    if (!requireGlobalSuperAdmin(req, res)) return
     return res.status(200).json({ success: true, data: readSchedule() })
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message })
@@ -164,6 +212,7 @@ exports.getSchedule = async (req, res) => {
 
 exports.setSchedule = async (req, res) => {
   try {
+    if (!requireGlobalSuperAdmin(req, res)) return
     const { enabled, cron, retention } = req.body
     const current = readSchedule()
     const schedule = {
@@ -202,7 +251,8 @@ exports.createBackup = async (req, res) => {
     await runPgDump({ outputFile, format: 'custom' })
 
     const stat = fs.statSync(outputFile)
-    const location = await db.location.findByPk(req.storeId || null, {
+    const backupStore = effectiveBackupStore(req)
+    const location = await db.location.findByPk(backupStore, {
       attributes: ['name']
     })
 
@@ -213,10 +263,14 @@ exports.createBackup = async (req, res) => {
       format: 'custom',
       status: 'success',
       trigger: req.body?.trigger === 'scheduled' ? 'scheduled' : 'manual',
-      store: req.storeId || null,
+      store: backupStore,
       createdBy: req.user?.id || null,
       metadata: {
-        storeName: location?.name || null
+        storeName: location?.name || null,
+        // NOTE: pg_dump always dumps the ENTIRE shared database. This flag
+        // records that explicitly so the artifact is never mistaken for a
+        // tenant-isolated per-store dump. (CRIT-3)
+        globalDump: backupStore == null
       }
     })
 
@@ -236,7 +290,12 @@ exports.createBackup = async (req, res) => {
 
 exports.listBackups = async (req, res) => {
   try {
-    const store = req.storeId || null
+    // Store-bound super_admin always sees ONLY their own store. A global
+    // super_admin may narrow the listing with an explicit store, otherwise
+    // the listing is global (with the global nature documented). (CRIT-3)
+    const boundCallerStore =
+      req.user?.store != null ? parseInt(req.user.store, 10) : null
+    const store = boundCallerStore !== null ? boundCallerStore : req.storeId || null
     const { limit = 50, offset = 0 } = req.query
     const where = {}
     if (store) where.store = store
@@ -270,6 +329,12 @@ exports.downloadBackup = async (req, res) => {
         .status(404)
         .json({ success: false, message: 'Backup tidak ditemukan' })
     }
+    if (!canAccessBackupArtifact(record, req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat mengakses backup toko Anda'
+      })
+    }
     const filepath = record.filepath
     if (!fs.existsSync(filepath)) {
       return res.status(404).json({
@@ -297,6 +362,12 @@ exports.restoreBackup = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: 'Backup tidak ditemukan' })
+    }
+    if (!canAccessBackupArtifact(record, req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat mengakses backup toko Anda'
+      })
     }
     const filepath = record.filepath
     if (!fs.existsSync(filepath)) {
@@ -333,6 +404,12 @@ exports.deleteBackup = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: 'Backup tidak ditemukan' })
+    }
+    if (!canAccessBackupArtifact(record, req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat mengakses backup toko Anda'
+      })
     }
     if (fs.existsSync(record.filepath)) {
       fs.unlinkSync(record.filepath)
@@ -389,7 +466,11 @@ exports.runScheduledBackupIfDue = async (date = new Date()) => {
       trigger: 'scheduled',
       store: null,
       createdBy: null,
-      metadata: { source: 'scheduler' }
+      metadata: {
+        source: 'scheduler',
+        // Explicit: scheduled backups are full-DB (global) dumps. (CRIT-3)
+        globalDump: true
+      }
     })
     await exports.cleanupRetention()
     return true

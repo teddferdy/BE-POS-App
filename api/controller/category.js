@@ -11,6 +11,7 @@ const {
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { relatedStoreInclude } = require('../../utils/tenantScope')
+const { authorizedStoreIds } = require('../../utils/storeValidation')
 
 // category has no store column of its own — ownership is many-to-many via
 // the category_store junction table (a category can be assigned to several
@@ -411,13 +412,26 @@ exports.addNewCategory = async (req, res) => {
             : 'inactive'
           : 'active'
 
-    const parsedStores = body.store
-      ? parseStoreField(body.store)
-      : req.storeId || req.cookies.store
-        ? [parseInt(req.storeId || req.cookies.store, 10)]
-        : req.user?.store
-          ? [parseInt(req.user.store, 10)]
-          : []
+    // C-2: resolve/store the store assignment list for the junction table.
+    // A single-store tenant must NOT be able to assign a category into another
+    // tenant's store. Reject any ambiguous/foreign representation before write.
+    let parsedStores
+    if (req.user?.roleType === 'super_admin') {
+      parsedStores = body.store
+        ? parseStoreField(body.store)
+        : parseStoreField(
+            req.storeId || req.cookies?.store || req.user?.store
+          )
+    } else {
+      const authz = authorizedStoreIds(req)
+      if (!authz.ok) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengakses data di toko Anda'
+        })
+      }
+      parsedStores = authz.stores
+    }
 
     const createdCategory = await Category.create({
       name: body?.name,
@@ -574,7 +588,20 @@ exports.editCategoryById = async (req, res) => {
 
     // Sync junction table
     if (body.store !== undefined) {
-      const parsedStores = parseStoreField(body.store)
+      let parsedStores
+      if (req.user?.roleType === 'super_admin') {
+        parsedStores = parseStoreField(body.store)
+      } else {
+        // C-2: tenant admin must not reassign a category into a foreign store.
+        const authz = authorizedStoreIds(req)
+        if (!authz.ok) {
+          return res.status(403).json({
+            success: false,
+            message: 'Anda hanya dapat mengakses data di toko Anda'
+          })
+        }
+        parsedStores = authz.stores
+      }
       await syncCategoryStores(Number(req.params.id), parsedStores)
     }
 

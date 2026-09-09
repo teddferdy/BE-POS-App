@@ -674,6 +674,22 @@ exports.postAddProduct = async (req, res) => {
         parsedStores = []
       }
     }
+    // HIGH-7: validate the submitted stores[] against the caller's own store.
+    // super_admin may bind a product to any store (intentional multi-store
+    // administration). For tenant admins, any foreign store ID in the array
+    // is a cross-tenant write attempt — reject the entire request.
+    if (!isSuperAdmin(req) && parsedStores.length > 0) {
+      const callerStore = Number(req.storeId ?? req.user?.store)
+      const foreignStores = parsedStores.filter(
+        (s) => Number(s) !== callerStore
+      )
+      if (foreignStores.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat menambahkan produk ke toko Anda sendiri'
+        })
+      }
+    }
 
     let parsedPriceTiers = []
     if (priceTiers) {
@@ -946,6 +962,22 @@ exports.editProductByLocationAndId = async (req, res) => {
         parsedStores = []
       }
     }
+    // HIGH-7: validate the submitted stores[] against the caller's own store.
+    // super_admin may bind a product to any store (intentional multi-store
+    // administration). For tenant admins, any foreign store ID in the array
+    // is a cross-tenant write attempt — reject the entire request.
+    if (!isSuperAdmin(req) && stores !== undefined && parsedStores.length > 0) {
+      const callerStore = Number(req.storeId ?? req.user?.store)
+      const foreignStores = parsedStores.filter(
+        (s) => Number(s) !== callerStore
+      )
+      if (foreignStores.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengubah produk untuk toko Anda sendiri'
+        })
+      }
+    }
 
     let parsedPriceTiers = []
     if (priceTiers) {
@@ -1036,7 +1068,11 @@ exports.editProductByLocationAndId = async (req, res) => {
     }
 
     const newStock = Number(reqBody.stock) || 0
-    const storeId = req.cookies?.store || req.body?.storeId
+    // HIGH-7: storeId for per-store shadow stock must derive from trusted
+    // server-side context (req.storeId / JWT claim), never unvalidated cookies.
+    const storeId = isSuperAdmin(req)
+      ? (req.storeId ?? (req.body?.storeId ? Number(req.body.storeId) : null))
+      : (req.storeId ?? req.user?.store ?? null)
 
     // Everything below is a real business mutation (product row + per-store
     // shadow stock + audit ledger) that previously ran as four separate,
@@ -1643,6 +1679,18 @@ exports.importProduct = async (req, res) => {
             ? null
             : storeByName[storeNameLower] || null
 
+          // HIGH-7: Tenant admin store boundary during import
+          let effectiveImportStoreId = storeId
+          if (!isSuperAdmin(req)) {
+            const callerStore = Number(req.storeId ?? req.user?.store)
+            if (storeName && !isAllStores && storeId && storeId !== callerStore) {
+              throw new Error(
+                `Anda tidak memiliki izin untuk mengimport produk ke toko "${storeName}"`
+              )
+            }
+            effectiveImportStoreId = callerStore
+          }
+
           const productData = {
             nameProduct: product.nameProduct,
             sku: product.sku || null,
@@ -1680,16 +1728,43 @@ exports.importProduct = async (req, res) => {
           }
 
           const no = parseInt(product.no)
-          let existingProduct = no
-            ? await Product.findByPk(no, { transaction: t, paranoid: false })
-            : null
+          let existingProduct = null
+          if (no) {
+            existingProduct = await findProductInScope(req, no, {
+              transaction: t,
+              paranoid: false
+            })
+            if (!existingProduct && !isSuperAdmin(req)) {
+              const existsGlobally = await Product.findByPk(no, {
+                transaction: t,
+                paranoid: false
+              })
+              if (existsGlobally) {
+                throw new Error(`Produk dengan No "${no}" milik toko lain`)
+              }
+            }
+          }
           // Fallback: find by SKU if No didn't match (handles old templates)
           if (!existingProduct && product.sku) {
-            existingProduct = await Product.findOne({
+            const bySku = await Product.findOne({
               where: { sku: product.sku },
               paranoid: false,
               transaction: t
             })
+            if (bySku) {
+              if (!isSuperAdmin(req)) {
+                const inScope = await findProductInScope(req, bySku.id, {
+                  transaction: t,
+                  paranoid: false
+                })
+                if (!inScope) {
+                  throw new Error(
+                    `Produk dengan SKU "${product.sku}" milik toko lain`
+                  )
+                }
+              }
+              existingProduct = bySku
+            }
           }
 
           if (existingProduct) {
@@ -1706,8 +1781,8 @@ exports.importProduct = async (req, res) => {
             )
 
             // Sync junction table
-            if (storeId) {
-              await syncProductStores(existingProduct.id, [storeId], t)
+            if (effectiveImportStoreId) {
+              await syncProductStores(existingProduct.id, [effectiveImportStoreId], t)
             }
 
             results.updated.push({
@@ -1725,15 +1800,15 @@ exports.importProduct = async (req, res) => {
             )
 
             // Create junction rows
-            if (storeId) {
-              await syncProductStores(newProduct.id, [storeId], t)
+            if (effectiveImportStoreId) {
+              await syncProductStores(newProduct.id, [effectiveImportStoreId], t)
             }
 
             if (productData.stock > 0) {
               await StockHistory.create(
                 {
                   product: newProduct.id,
-                  store: req.cookies?.store || null,
+                  store: effectiveImportStoreId || null,
                   referenceType: 'adjustment',
                   quantityBefore: 0,
                   quantityChange: productData.stock,

@@ -40,6 +40,7 @@ let store1 = null
 let store2 = null
 let category = null
 let product = null
+const tables = {}
 const createdOrderIds = []
 
 const randomKey = (prefix = 'fnd002') =>
@@ -50,6 +51,7 @@ const customerCreate = (overrides = {}) => {
   const { store: storeId, ip, noKey = false, key } = overrides
   const payload = {
     store: storeId,
+    tableId: tables[storeId]?.id,
     items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }]
   }
   if (!noKey) payload.idempotencyKey = key || randomKey()
@@ -101,6 +103,8 @@ beforeAll(async () => {
     store: store2.id,
     stock: product.stock
   })
+  tables[store1.id] = await db.table.create({ store: store1.id, name: 'FND002_TABLE_1' })
+  tables[store2.id] = await db.table.create({ store: store2.id, name: 'FND002_TABLE_2' })
 })
 
 afterAll(async () => {
@@ -112,6 +116,10 @@ afterAll(async () => {
   }
   await db.product_store.destroy({ where: { product: product?.id }, force: true })
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
+  await db.table.destroy({
+    where: { id: Object.values(tables).map((t) => t.id).filter(Boolean) },
+    force: true
+  })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
