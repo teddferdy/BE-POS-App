@@ -2528,6 +2528,26 @@ ALTER SEQUENCE public.journal_entry_line_id_seq OWNED BY public.journal_entry_li
 
 
 --
+-- Name: journal_entry_sequence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.journal_entry_sequence (
+    store integer NOT NULL,
+    counter bigint DEFAULT 0 NOT NULL,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: journal_entry_sequence journal_entry_sequence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.journal_entry_sequence
+    ADD CONSTRAINT journal_entry_sequence_pkey PRIMARY KEY (store);
+
+
+--
 -- Name: kasir_performance; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6272,6 +6292,13 @@ ALTER TABLE ONLY public.ar_payment
 
 
 --
+-- Name: ar_payment_arid_reference_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ar_payment_arid_reference_uniq ON public.ar_payment USING btree ("arId", reference) WHERE (reference IS NOT NULL);
+
+
+--
 -- Name: attendance attendance_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7556,6 +7583,20 @@ CREATE INDEX journal_entry_line_journal_idx ON public.journal_entry_line USING b
 --
 
 CREATE INDEX journal_entry_store_date_idx ON public.journal_entry USING btree (store, date);
+
+
+--
+-- Name: journal_entry_store_source_reference_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX journal_entry_store_source_reference_uniq ON public.journal_entry USING btree (store, "sourceType", "referenceId") WHERE ("deletedAt" IS NULL);
+
+
+--
+-- Name: journal_entry_store_entrynumber_uniq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX journal_entry_store_entrynumber_uniq ON public.journal_entry USING btree (store, "entryNumber");
 
 
 --

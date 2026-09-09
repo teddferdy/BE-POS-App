@@ -12,6 +12,16 @@ let running = false
 
 const MAX_GENERATIONS_PER_TEMPLATE = 30
 
+// MED-1: this scan had no LIMIT — a single store with a large backlog of
+// due recurring templates could process its entire backlog (each template
+// worth up to MAX_GENERATIONS_PER_TEMPLATE transactions) before any other
+// store's due template was even read, monopolizing the tick and delaying
+// every other tenant. Bounding the batch, ordered oldest-due-first, makes
+// each tick's work proportional and fair: whichever templates are most
+// overdue (across ALL stores) go first, and any remainder is picked up by
+// the next tick (60s later by default) rather than starving on this one.
+const MAX_TEMPLATES_PER_TICK = 20
+
 async function generateDueRecurringExpenses() {
   const now = new Date()
 
@@ -21,7 +31,9 @@ async function generateDueRecurringExpenses() {
       nextDueDate: { [Op.lte]: now },
       status: 'approved',
       isActive: true
-    }
+    },
+    order: [['nextDueDate', 'ASC']],
+    limit: MAX_TEMPLATES_PER_TICK
   })
 
   for (const tpl of templates) {
@@ -145,4 +157,8 @@ const stopExpenseScheduler = () => {
   }
 }
 
-module.exports = { startExpenseScheduler, stopExpenseScheduler }
+module.exports = {
+  startExpenseScheduler,
+  stopExpenseScheduler,
+  generateDueRecurringExpenses
+}

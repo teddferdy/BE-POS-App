@@ -1,5 +1,6 @@
 'use strict'
 const db = require('../../../db/models')
+const { assertReportStore } = require('./getReportStore')
 
 const defaultColumns = [
   { key: 'keterangan', label: 'Keterangan', type: 'string', width: 28, align: 'left' },
@@ -10,8 +11,7 @@ const filename = () => 'arus-kas'
 const label = 'Arus Kas'
 
 const getData = async (req) => {
-  const userRole = req.user?.roleType
-  const store = userRole === 'super_admin' ? req.query.store : req.storeId || req.query.store
+  const store = assertReportStore(req)
   const { startDate, endDate } = req.query
   const replacements = {}
   let txConditions = '1=1'

@@ -9,6 +9,9 @@ exports.getDailyReport = async (req, res) => {
     const { rows } = await reportDefs.daily.getData(req)
     return res.json({ success: true, data: rows })
   } catch (err) {
+    if (err.statusCode === 403) {
+      return res.status(403).json({ success: false, message: err.message })
+    }
     console.error('Daily report error:', err)
     return res.status(500).json({ success: false, message: err.message })
   }
@@ -20,6 +23,9 @@ exports.getSalesSummary = async (req, res) => {
     // longer comment in getBestSellerReport below) — no need for, and no
     // safe reason to add, a client-writable cookie fallback on top of it.
     const store = req.storeId
+    if (!store && req.user?.roleType !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Store assignment required' })
+    }
     const { startDate, endDate, filter } = req.query
 
     let dateRange = {}
@@ -223,6 +229,9 @@ exports.getBestSellerReport = async (req, res) => {
     // silently substituting an unverified source instead of just scoping
     // to nothing, which is what a falsy req.storeId is supposed to mean.
     const store = req.storeId
+    if (!store && req.user?.roleType !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Store assignment required' })
+    }
     const { limit = 10 } = req.query
 
     const where = store ? { store } : {}
@@ -305,6 +314,9 @@ exports.getCashFlow = async (req, res) => {
     // raw, unparsed value) here for super_admin was redundant with what
     // validateStoreAccess already resolved it to.
     const store = req.storeId
+    if (!store && req.user?.roleType !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Store assignment required' })
+    }
     const { startDate, endDate } = req.query
     const replacements = {}
     let txConditions = '1=1'
@@ -479,6 +491,9 @@ exports.getProfitPerProduct = async (req, res) => {
     const { rows } = await reportDefs.profitPerProduct.getData(req)
     return res.json({ success: true, data: rows })
   } catch (err) {
+    if (err.statusCode === 403) {
+      return res.status(403).json({ success: false, message: err.message })
+    }
     return res.status(500).json({ success: false, message: err.message })
   }
 }

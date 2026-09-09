@@ -151,11 +151,32 @@ const accountsReceivableController = {
         })
       }
 
-      const order = await db.order.findByPk(orderId)
+      // HIGH-8: was `db.order.findByPk(orderId)` with no tenant guard —
+      // any authenticated user could create an AR record referencing another
+      // store's order (financial record fabrication + cross-tenant order
+      // metadata disclosure via invoiceNo / customerName from the foreign order).
+      //
+      // Fix: verify the order belongs to the caller's store before creating
+      // the AR row. Foreign orders return 403 before any DB write.
+      // super_admin: intentional unrestricted access, no store constraint.
+      const orderWhere = { id: orderId }
+      if (store && req.user?.roleType !== 'super_admin') {
+        orderWhere.store = store
+      }
+      const order = await db.order.findOne({ where: orderWhere })
       if (!order) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'Order not found' })
+        // Return 403 for tenant callers (store ownership failed) so the
+        // caller cannot enumerate foreign order IDs via 404 vs 403 diff.
+        // For super_admin the record genuinely doesn't exist → 404.
+        const status =
+          req.user?.roleType !== 'super_admin' ? 403 : 404
+        return res.status(status).json({
+          success: false,
+          message:
+            req.user?.roleType !== 'super_admin'
+              ? 'Order not found or does not belong to your store'
+              : 'Order not found'
+        })
       }
 
       const invoiceNo = `INV-${order.orderNumber || order.id}-${Date.now()}`
@@ -208,36 +229,59 @@ const accountsReceivableController = {
           .json({ success: false, message: 'Amount is required' })
       }
 
+      const amountNum = Number(amount)
+
+      // F-01: the whole read-check-write runs inside ONE transaction with the
+      // AR row locked (FOR UPDATE). Previously the AR was read outside any
+      // transaction and each payment computed its new balance from that stale
+      // snapshot — two concurrent payments both saw paidAmount=0 and both
+      // overwrote paidAmount with their own value, so applied payments could
+      // exceed the balance while the AR row showed far less was paid.
       const where = { id }
       if (req.storeId && req.user?.roleType !== 'super_admin') {
         where.store = req.storeId
       }
-      const ar = await db.accounts_receivable.findOne({ where })
-      if (!ar) {
-        return res.status(404).json({ success: false, message: 'AR not found' })
-      }
-
-      if (ar.status === 'PAID') {
-        return res
-          .status(400)
-          .json({ success: false, message: 'AR is already fully paid' })
-      }
-
-      // Over-payment guard
-      if (Number(ar.paidAmount) + Number(amount) > Number(ar.totalAmount)) {
-        const remaining = Number(ar.totalAmount) - Number(ar.paidAmount)
-        return res.status(400).json({
-          success: false,
-          message: `Over-payment not allowed. Remaining: ${remaining}, attempting: ${amount}`
-        })
-      }
 
       const t = await db.sequelize.transaction()
+      let payment
       try {
-        const payment = await db.ar_payment.create(
+        const ar = await db.accounts_receivable.findOne({
+          where,
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        })
+        if (!ar) {
+          await t.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'AR not found' })
+        }
+
+        if (ar.status === 'PAID') {
+          await t.rollback()
+          return res
+            .status(400)
+            .json({ success: false, message: 'AR is already fully paid' })
+        }
+
+        // Over-payment guard evaluated against the LOCKED, up-to-date balance.
+        if (Number(ar.paidAmount) + amountNum > Number(ar.totalAmount)) {
+          const remaining = Number(ar.totalAmount) - Number(ar.paidAmount)
+          await t.rollback()
+          return res.status(400).json({
+            success: false,
+            message: `Over-payment not allowed. Remaining: ${remaining}, attempting: ${amount}`
+          })
+        }
+
+        // The reference column doubles as a client idempotency key — the
+        // partial unique index (arId, reference) WHERE reference IS NOT NULL
+        // means a retried/duplicate submission of the SAME reference can never
+        // apply twice (see the SequelizeUniqueConstraintError replay below).
+        payment = await db.ar_payment.create(
           {
             arId: ar.id,
-            amount: Number(amount),
+            amount: amountNum,
             paymentDate: paymentDate || new Date(),
             paymentMethod: paymentMethod || 'cash',
             reference: reference || null,
@@ -247,18 +291,27 @@ const accountsReceivableController = {
           { transaction: t }
         )
 
-        const newPaidAmount = Number(ar.paidAmount) + Number(amount)
+        const newPaidAmount = Number(ar.paidAmount) + amountNum
         const newOutstanding = Number(ar.totalAmount) - newPaidAmount
         const newStatus = newOutstanding <= 0 ? 'PAID' : 'PARTIAL'
 
-        await ar.update(
+        // Defense-in-depth: the guarded UPDATE fails (no row affected) if the
+        // balance moved since the locked read, aborting the whole payment
+        // instead of committing an inconsistent AR + orphaned payment row.
+        const [affected] = await db.accounts_receivable.update(
           {
             paidAmount: newPaidAmount,
             outstandingAmount: newOutstanding,
             status: newStatus
           },
-          { transaction: t }
+          {
+            where: { id, ...(where.store ? { store: where.store } : {}), outstandingAmount: { [Op.gte]: amountNum } },
+            transaction: t
+          }
         )
+        if (affected === 0) {
+          throw new Error('AR balance changed concurrently; payment aborted')
+        }
 
         await t.commit()
 
@@ -275,6 +328,21 @@ const accountsReceivableController = {
           .json({ success: true, message: 'Payment recorded', data: payment })
       } catch (err) {
         await t.rollback()
+        // Idempotent replay: two concurrent submissions with the same
+        // (arId, reference) — one wins, the other hits the partial unique
+        // index and replays the winner instead of erroring.
+        if (err.name === 'SequelizeUniqueConstraintError' && reference) {
+          const existing = await db.ar_payment.findOne({
+            where: { arId: Number(id), reference }
+          })
+          if (existing) {
+            return res.status(200).json({
+              success: true,
+              message: 'Payment already recorded',
+              data: existing
+            })
+          }
+        }
         throw err
       }
     } catch (error) {

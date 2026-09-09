@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { resolveStoreId } = require('../../utils/tenantScope')
 const {
   generateExpenseNumber,
   addInterval
@@ -13,16 +14,7 @@ const toStoreId = (value) => {
 }
 
 const getStore = (req) => {
-  const raw =
-    req.user?.roleType === 'super_admin'
-      ? req.storeId || null
-      : req.storeId ||
-        req.body.storeId ||
-        req.body.store ||
-        req.query.store ||
-        req.cookies.store ||
-        req.cookies.activeStore ||
-        req.user?.store
+  const raw = resolveStoreId(req)
   return toStoreId(raw)
 }
 

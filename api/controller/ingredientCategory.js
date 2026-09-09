@@ -4,6 +4,16 @@ const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const ExcelJS = require('exceljs')
 
+// Ingredients are store-scoped (see ingredient model). For non-super-admin,
+// scope ingredient reads to the caller's store plus shared (store:null) rows,
+// mirroring ingredient.js. super_admin sees all.
+const ingredientScope = (req) => {
+  if (req.user?.roleType === 'super_admin') return {}
+  const store = Number(req.storeId ?? req.user?.store)
+  if (!Number.isFinite(store) || store <= 0) return { [Op.or]: [{ store: null }] }
+  return { [Op.or]: [{ store }, { store: null }] }
+}
+
 const ingredientCategoryController = {
   async getAll(req, res) {
     try {
@@ -20,7 +30,7 @@ const ingredientCategoryController = {
       let supplierFilteredIds = null
       if (supplier) {
         const usedCategories = await db.ingredient.findAll({
-          where: { supplier: Number(supplier) },
+          where: { supplier: Number(supplier), ...ingredientScope(req) },
           attributes: ['category'],
           group: ['category']
         })
@@ -99,7 +109,7 @@ const ingredientCategoryController = {
 
       // ponytail: sertakan bahan baku yang termasuk kategori ini
       const ingredients = await db.ingredient.findAll({
-        where: { category: id },
+        where: { category: id, ...ingredientScope(req) },
         attributes: ['id', 'name', 'stock', 'minStock', 'unit', 'status', 'costPrice'],
         order: [['updatedAt', 'DESC']]
       })

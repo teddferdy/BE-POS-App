@@ -1,5 +1,6 @@
 'use strict'
 const db = require('../../../db/models')
+const { assertReportStore } = require('./getReportStore')
 
 const defaultColumns = [
   { key: 'productName', label: 'Produk', type: 'string', width: 28, align: 'left' },
@@ -14,10 +15,7 @@ const filename = () => 'laba-per-produk'
 const label = 'Laba per Produk'
 
 const getData = async (req) => {
-  // F6-02: the caller's store is the already-validated req.storeId (set by
-  // validateStoreAccess), never the client-writable req.query.store — an
-  // omitted store must never widen the query to every tenant.
-  const store = req.storeId
+  const store = assertReportStore(req)
   const { startDate, endDate } = req.query
   const replacements = {}
   // F6-09: a return can flip paymentStatus to 'refunded' after the sale —

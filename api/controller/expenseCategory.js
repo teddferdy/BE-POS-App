@@ -1,13 +1,13 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { resolveStoreId } = require('../../utils/tenantScope')
 
 const expenseCategoryController = {
   async getAll(req, res) {
     try {
       const { status, search, store: queryStore } = req.query
-      let store =
-        queryStore || req.storeId || req.cookies.store || req.user?.store
+      let store = resolveStoreId(req)
       if (req.user?.roleType !== 'super_admin') {
         store = req.user?.store
       }
@@ -59,7 +59,7 @@ const expenseCategoryController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
       const { name, description, icon, accountCode, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -105,7 +105,7 @@ const expenseCategoryController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
       const { name, description, icon, accountCode, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -165,7 +165,7 @@ const expenseCategoryController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
 
       const category = await db.expense_category.findOne({
         where: { id, ...(store ? { store } : {}) }

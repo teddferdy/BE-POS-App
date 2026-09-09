@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { resolveStoreId } = require('../../utils/tenantScope')
 
 const generateProductionNo = () => {
   const date = new Date()
@@ -101,7 +102,7 @@ const productionOrderController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -171,7 +172,7 @@ const productionOrderController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const { productItemId, plannedQty, scheduledDate, notes, status } =
         req.body
 
@@ -227,7 +228,7 @@ const productionOrderController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const { productItemId, plannedQty, scheduledDate, notes, status } =
         req.body
@@ -283,7 +284,7 @@ const productionOrderController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -327,7 +328,7 @@ const productionOrderController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const validStatuses = [
@@ -444,7 +445,7 @@ const productionOrderController = {
   async startProduction(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -636,7 +637,7 @@ const productionOrderController = {
     try {
       const { id } = req.params
       const { producedQty } = req.body
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }

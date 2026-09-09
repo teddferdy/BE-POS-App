@@ -1,11 +1,12 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { resolveStoreId } = require('../../utils/tenantScope')
 
 const currencyController = {
   async getAll(req, res) {
     try {
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
       const { page = 1, limit = 10, search, status } = req.query
 
       const where = {}
@@ -56,7 +57,7 @@ const currencyController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
 
       const currency = await db.currency.findOne({
         where: { id, ...(store ? { store } : {}) }
@@ -83,7 +84,7 @@ const currencyController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
       const { code, name, symbol, exchangeRate, isDefault, status } = req.body
 
       if (!code || !name || !symbol) {
@@ -151,7 +152,7 @@ const currencyController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
       const { code, name, symbol, exchangeRate, isDefault, status } = req.body
 
       const currency = await db.currency.findOne({
@@ -217,7 +218,7 @@ const currencyController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
 
       const currency = await db.currency.findOne({
         where: { id, ...(store ? { store } : {}) }
@@ -259,7 +260,7 @@ const currencyController = {
   async setDefault(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      const store = resolveStoreId(req)
 
       const currency = await db.currency.findOne({
         where: { id, ...(store ? { store } : {}) }

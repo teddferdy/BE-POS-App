@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { resolveStoreId } = require('../../utils/tenantScope')
 const {
   uploadToCloudinaryWithDedup
 } = require('../../utils/cloudinaryStorage')
@@ -311,7 +312,7 @@ const applyStock = async (items, receipt, transaction, userId) => {
 const goodsReceiptController = {
   async getAll(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const {
         page = 1,
@@ -400,7 +401,7 @@ const goodsReceiptController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -462,7 +463,7 @@ const goodsReceiptController = {
   async getByPO(req, res) {
     try {
       const { poId } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { purchaseOrderId: poId }
@@ -492,7 +493,7 @@ const goodsReceiptController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const {
         purchaseOrderId,
         items,
@@ -882,7 +883,7 @@ const goodsReceiptController = {
 
   async exportExcel(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const { status, startDate, endDate, store: queryStore } = req.query
 
@@ -926,7 +927,7 @@ const goodsReceiptController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const {
         notes,
@@ -1171,7 +1172,7 @@ const goodsReceiptController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const where = { id }
@@ -1256,7 +1257,7 @@ const goodsReceiptController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       if (!['completed', 'cancelled'].includes(status)) {

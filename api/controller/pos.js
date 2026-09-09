@@ -3,7 +3,7 @@ const { Op } = require('sequelize')
 const batchService = require('../service/batchService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
-const { scalarStoreScope } = require('../../utils/tenantScope')
+const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
 const {
   getConnectionStatus,
   sendDocument,
@@ -11,7 +11,22 @@ const {
   restartClient
 } = require('../../utils/whatsappClient')
 
-const getStoreId = (req) => req.query.storeId || 'default'
+// N-3 (security): authoritative store for WhatsApp session management. For
+// non-super-admin the store MUST be req.storeId (pinned by validateStoreAccess);
+// a client-supplied ?storeId that targets another store is rejected. Only
+// super_admin may explicitly target an arbitrary store. Returns a numeric store
+// id or null.
+const getAuthorizedStoreId = (req) => {
+  if (isSuperAdmin(req)) {
+    const s = Number(req.query.storeId)
+    return Number.isFinite(s) ? s : null
+  }
+  const own = Number(req.storeId)
+  if (!Number.isFinite(own)) return null
+  const claimed = Number(req.query.storeId)
+  if (Number.isFinite(claimed) && claimed !== own) return null
+  return own
+}
 
 let _psExists = null
 let _csExists = null
@@ -778,7 +793,7 @@ const posController = {
   // Stock adjustment
   async adjust(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       let {
         productId,
         qty,
@@ -1002,7 +1017,8 @@ const posController = {
 
       let result
       try {
-        result = await db.sequelize.transaction(async (t) => {
+        result = await withDeadlockRetry(() =>
+          db.sequelize.transaction(async (t) => {
           // Bare-column lock only — no `include` — same Postgres
           // FOR-UPDATE-vs-outer-join constraint F2/F3 hit elsewhere. This
           // lock is what serializes the cumulative quantity/amount
@@ -1218,7 +1234,8 @@ const posController = {
 
           return returnOrder
         })
-      } catch (txError) {
+      )
+    } catch (txError) {
         if (txError.isIdempotencyRace) {
           const existing = await db.sales_return.findOne({
             where: { order: id, idempotencyKey },
@@ -1317,7 +1334,7 @@ const posController = {
   // Dashboard summary
   async getDashboardSummary(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       let { startDate, endDate, filter, page, pageSize } = req.query
       page = Math.max(parseInt(page) || 1, 1)
       pageSize = Math.min(Math.max(parseInt(pageSize) || 5, 1), 50)
@@ -2511,7 +2528,22 @@ order: [['updatedAt', 'DESC']],
   async getPriceByStore(req, res) {
     try {
       const { productId } = req.query
-      const storeIds = req.query.storeIds ? req.query.storeIds.split(',') : []
+      // N-2 (security): tenant store selection. For non-super-admin, the
+      // authoritative tenant is req.storeId (pinned by validateStoreAccess);
+      // a client-supplied ?storeIds= is never trusted as tenant authority and
+      // can, at most, be intersected with the caller's own store.
+      let storeIds = req.query.storeIds ? req.query.storeIds.split(',') : []
+      if (!isSuperAdmin(req)) {
+        const own = Number(req.storeId)
+        if (!Number.isFinite(own)) {
+          storeIds = []
+        } else {
+          storeIds = storeIds
+            .map((s) => Number(s))
+            .filter((s) => Number.isFinite(s) && s === own)
+          if (storeIds.length === 0) storeIds = [own]
+        }
+      }
 
       if (!productId) {
         return res.status(400).json({
@@ -2561,7 +2593,7 @@ order: [['updatedAt', 'DESC']],
   // Update product price by store
   async updatePriceByStore(req, res) {
     try {
-      const { productId, storePrices } = req.body
+      let { productId, storePrices } = req.body
 
       if (
         !productId ||
@@ -2573,6 +2605,31 @@ order: [['updatedAt', 'DESC']],
           success: false,
           message: 'productId and storePrices array are required'
         })
+      }
+
+      // N-2 (security): for non-super-admin, store selection must come from
+      // the authoritative req.storeId. Any client-supplied storeId that is
+      // not the caller's own store is rejected before any write.
+      //
+      // C-11: the 'base' sentinel writes the SHARED product.price, which is the
+      // authoritative checkout price for EVERY store that sells the product
+      // (getServerItemPrice reads prod.price; product_store_price rows are not
+      // consulted at checkout). A tenant admin therefore must NOT be able to
+      // rewrite it — that silently re-prices products at other stores. Restrict
+      // base-price writes to super_admin (global scope); tenant admins may only
+      // update their own store's product_store_price rows.
+      if (!isSuperAdmin(req)) {
+        const own = Number(req.storeId)
+        const hasBase = storePrices.some((sp) => sp.storeId === 'base')
+        const foreign = storePrices.some(
+          (sp) => sp.storeId !== 'base' && Number(sp.storeId) !== own
+        )
+        if (!Number.isFinite(own) || hasBase || foreign) {
+          return res.status(403).json({
+            success: false,
+            message: 'Anda hanya dapat mengakses harga di toko Anda'
+          })
+        }
       }
 
       const product = await db.product.findByPk(productId)
@@ -2643,7 +2700,13 @@ order: [['updatedAt', 'DESC']],
       }
 
       const waAttrs = await orderAttrs()
-      const order = await db.order.findByPk(orderId, {
+      // N-1 (security): order must belong to the caller's tenant. The store
+      // is derived from the authoritative req.storeId (pinned by
+      // validateStoreAccess), never from the body; a foreign order is
+      // indistinguishable from a nonexistent one and is rejected before any
+      // external WhatsApp/email send can occur.
+      const order = await db.order.findOne({
+        where: { id: orderId, ...scalarStoreScope(req) },
         include: [
           { model: db.order_item, as: 'items' },
           { model: db.table, as: 'table' }
@@ -2823,7 +2886,10 @@ order: [['updatedAt', 'DESC']],
       }
 
       const emailAttrs = await orderAttrs()
-      const order = await db.order.findByPk(orderId, {
+      // N-1 (security): tenant-scoped order load — a foreign order is
+      // rejected before any response can leak its details.
+      const order = await db.order.findOne({
+        where: { id: orderId, ...scalarStoreScope(req) },
         include: [
           { model: db.order_item, as: 'items' },
           { model: db.table, as: 'table' }
@@ -2873,6 +2939,24 @@ order: [['updatedAt', 'DESC']],
           success: false,
           message: 'Product not found'
         })
+      }
+
+      // Tenant integrity: a non-super-admin may only add a batch/stock for a
+      // product actually assigned to their own store. Without this, a store-a
+      // admin could inflate the shared stock of a product that only other
+      // stores sell, recording a store-a batch/stock_history for a foreign
+      // product. super_admin (global ops) is exempt.
+      if (req.user?.roleType !== 'super_admin') {
+        const membership = await db.product_store.findOne({
+          where: { product: productId, store: effectiveStore },
+          paranoid: false
+        })
+        if (!membership) {
+          return res.status(403).json({
+            success: false,
+            message: 'Product is not assigned to your store'
+          })
+        }
       }
 
       const oldStock = Number(product.stock) || 0
@@ -2972,8 +3056,14 @@ order: [['updatedAt', 'DESC']],
   // Get WhatsApp connection status
   async getWhatsAppStatus(req, res) {
     try {
-      const storeId = getStoreId(req)
-      const status = await getConnectionStatus(storeId)
+      const storeId = getAuthorizedStoreId(req)
+      if (storeId === null && !isSuperAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengakses status WhatsApp di toko Anda'
+        })
+      }
+      const status = await getConnectionStatus(storeId == null ? 'default' : storeId)
       return res.status(200).json({
         success: true,
         message: 'WhatsApp status',
@@ -2990,8 +3080,14 @@ order: [['updatedAt', 'DESC']],
   // Logout WhatsApp
   async logoutWhatsApp(req, res) {
     try {
-      const storeId = getStoreId(req)
-      await logout(storeId)
+      const storeId = getAuthorizedStoreId(req)
+      if (storeId === null && !isSuperAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat memutuskan WhatsApp di toko Anda'
+        })
+      }
+      await logout(storeId == null ? 'default' : storeId)
       return res.status(200).json({
         success: true,
         message:
@@ -3008,12 +3104,18 @@ order: [['updatedAt', 'DESC']],
   // Restart WhatsApp client (logout + re-init)
   async restartWhatsApp(req, res) {
     try {
-      const storeId = getStoreId(req)
-      const result = await restartClient(storeId)
+      const storeId = getAuthorizedStoreId(req)
+      if (storeId === null && !isSuperAdmin(req)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat me-restart WhatsApp di toko Anda'
+        })
+      }
+      const result = await restartClient(storeId == null ? 'default' : storeId)
       return res.status(200).json({
         success: true,
         message: 'WhatsApp client restarting',
-        data: { initialized: !!result, storeId }
+        data: { initialized: !!result, storeId: storeId == null ? 'default' : storeId }
       })
     } catch (error) {
       return res.status(500).json({

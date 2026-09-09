@@ -4,6 +4,7 @@ const excelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { setProductStock } = require('../service/stockMutationService')
+const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
 
 const generateOpnameNumber = () => {
   const date = new Date()
@@ -171,7 +172,7 @@ const stockOpnameController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const whereClause = { id }
@@ -248,7 +249,7 @@ const stockOpnameController = {
 
   async create(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userStore = req.user?.store
       const {
         items,
@@ -541,7 +542,7 @@ const stockOpnameController = {
   async update(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const { items, notes, date, auditDate, auditor } = req.body
 
@@ -659,7 +660,7 @@ const stockOpnameController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const whereClause = { id }
@@ -716,7 +717,7 @@ const stockOpnameController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       if (!['completed', 'cancelled'].includes(status)) {
@@ -962,7 +963,7 @@ const stockOpnameController = {
 
   async downloadExcel(req, res) {
     try {
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
 
       const locationWhere = { status: 'active' }
@@ -1139,7 +1140,17 @@ const stockOpnameController = {
         if (lokasi) itemLokasiNames.add(lokasi)
       })
 
-      let effectiveStore = req.cookies?.store || req.user?.store
+      // SO-01: was `req.cookies?.store || req.user?.store` — cookie-parser
+      // is mounted and no route ever sets a `store` cookie server-side, so
+      // it is entirely attacker-controlled. Checking it BEFORE the JWT
+      // claim let a store-A admin attribute an uploaded stock_opname to any
+      // other store by sending `Cookie: store=<foreign>`. resolveStoreId is
+      // the same trusted helper already used by every other function in
+      // this file (getById/create/update/delete/changeStatus/downloadExcel)
+      // — non-super-admin always resolves to their own pinned store; a
+      // cookie can only steer a super_admin's own already-unrestricted
+      // store selection, never a tenant's.
+      let effectiveStore = resolveStoreId(req)
 
       if (!effectiveStore && itemLokasiNames.size > 0) {
         const firstLokasi = [...itemLokasiNames][0]
@@ -1302,8 +1313,13 @@ const stockOpnameController = {
         })
       }
 
+      // N-4 (security): never trust the supplied ids alone as proof of tenant
+      // ownership. The query is scoped so a non-super-admin can only ever load
+      // rows belonging to their own store (req.storeId); foreign or
+      // nonexistent rows are indistinguishable and excluded. Super_admin
+      // retains global export.
       const opnames = await db.stockOpname.findAll({
-        where: { id: { [Op.in]: ids } },
+        where: { id: { [Op.in]: ids }, ...scalarStoreScope(req) },
         include: [
           { model: db.stockOpnameItem, as: 'items' },
           { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
@@ -1404,9 +1420,14 @@ const stockOpnameController = {
 
   async checkExists(req, res) {
     try {
-      const { store } = req.query
-      const cookieStore = req.cookies?.store
-      const effectiveStore = store || cookieStore
+      // SO-02: was `req.query.store || req.cookies?.store` — validateStoreAccess
+      // validates req.query.store when present (rejecting a mismatched
+      // explicit value for non-super-admin), but omitting the query param
+      // entirely fell through to the raw, unvalidated cookie. resolveStoreId
+      // is the trusted equivalent already used elsewhere in this file: for
+      // non-super-admin it is always the caller's own pinned store,
+      // regardless of what the client sends via query or cookie.
+      const effectiveStore = resolveStoreId(req)
 
       if (!effectiveStore) {
         return res.status(400).json({
@@ -1440,9 +1461,10 @@ const stockOpnameController = {
 
   async getCompositionItems(req, res) {
     try {
-      const { store } = req.query
-      const cookieStore = req.cookies?.store
-      const effectiveStore = store || cookieStore
+      // SO-03: same fix as checkExists (SO-02) — resolveStoreId replaces the
+      // query-then-cookie fallback so an omitted query param can never fall
+      // through to the unvalidated, attacker-controlled cookie.
+      const effectiveStore = resolveStoreId(req)
 
       if (!effectiveStore) {
         return res.status(400).json({

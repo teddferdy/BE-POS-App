@@ -2523,11 +2523,12 @@ describe('POST/PUT /supplier — store-array injection on create/update (P2)', (
       .set('Authorization', `Bearer ${adminStore1Token}`)
       .send({ name: 'IDOR_SUPPLIER_INJECTION_TEST', phone: '0810000001', store: [store1.id, store2.id, 999999] })
 
-    expect(res.status).toBe(201)
-    const created = await db.supplier.findByPk(res.body.data.id)
-    expect(created.store).toEqual([store1.id])
-
-    await db.supplier.destroy({ where: { id: created.id }, force: true })
+    // A store-1 admin requesting a foreign/multi-store array is a scope-
+    // expansion attempt. Fail closed: the WHOLE request is rejected (no
+    // supplier is created, so no cross-tenant write can occur).
+    expect(res.status).toBe(403)
+    const created = await db.supplier.findOne({ where: { name: 'IDOR_SUPPLIER_INJECTION_TEST' } })
+    expect(created).toBeNull()
   })
 
   test('store 1 admin cannot expand an existing own-store supplier\'s store array via update', async () => {
@@ -2538,7 +2539,7 @@ describe('POST/PUT /supplier — store-array injection on create/update (P2)', (
       .set('Authorization', `Bearer ${adminStore1Token}`)
       .send({ store: [store1.id, store2.id] })
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(403)
     const updated = await db.supplier.findByPk(sup.id)
     expect(updated.store).toEqual([store1.id])
 

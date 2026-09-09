@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { createAudit } = require('../../utils/auditLog')
+const { scalarStoreScope, isSuperAdmin } = require('../../utils/tenantScope')
 
 const stockHistoryController = {
   async getAll(req, res) {
@@ -18,7 +19,11 @@ const stockHistoryController = {
 
       let store = queryStore || req.user?.store
       if (req.user?.roleType !== 'super_admin') {
-        store = req.user?.store
+        // HIGH-4: always use the pinned server-side store (validateStoreAccess
+        // already blocked a foreign ?store for tenant roles). req.storeId is
+        // the authoritative value; fall back to JWT claim for routes that lack
+        // the middleware (defensive).
+        store = req.storeId ?? req.user?.store
       }
 
       const where = {}
@@ -84,8 +89,18 @@ const stockHistoryController = {
     try {
       const { productId } = req.params
 
+      // HIGH-4: was `where: { product: productId }` with no store filter —
+      // any authenticated user with a guessed productId received stock
+      // movements from ALL stores for that product (confirmed: store 1 and
+      // store 6 both have rows in stock_history).
+      // scalarStoreScope adds `store = <userStore>` for non-super-admin and
+      // is unrestricted for super_admin (intentional global access).
+      // Rows with store: null (historical entries without a store context)
+      // are intentionally excluded for tenant users; super_admin sees them.
+      const where = scalarStoreScope(req, { product: productId })
+
       const history = await db.stock_history.findAll({
-        where: { product: productId },
+        where,
         order: [['createdAt', 'DESC']]
       })
 
@@ -345,8 +360,9 @@ const stockHistoryController = {
 
   async autoGeneratePOFromLowStock(req, res) {
     try {
-      const store =
-        req.storeId || req.cookies?.store || req.query?.store || req.body?.store
+      const store = isSuperAdmin(req)
+        ? (req.storeId || req.query?.store || req.body?.store || null)
+        : (req.storeId ?? req.user?.store ?? null)
       const createdBy = req.user?.id || null
 
       const ingredientWhere = { status: 'active' }

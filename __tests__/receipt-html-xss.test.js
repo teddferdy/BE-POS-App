@@ -37,6 +37,7 @@ const assertNotExecutable = (html, payload) => {
 let store = null
 let category = null
 let product = null
+let table = null
 const createdOrderIds = []
 
 const ESCAPE_PAYLOADS = [
@@ -49,6 +50,7 @@ const ESCAPE_PAYLOADS = [
 const createOrder = async (fields) => {
   const res = await request(app).post('/order/customer-create').send({
     store: store.id,
+    tableId: table.id,
     items: [
       {
         productId: String(product.id),
@@ -81,6 +83,7 @@ beforeAll(async () => {
     isAvailable: true
   })
   await db.product_store.create({ product: product.id, store: store.id })
+  table = await db.table.create({ store: store.id, name: 'RECEIPT_XSS_TABLE' })
 })
 
 afterAll(async () => {
@@ -88,6 +91,7 @@ afterAll(async () => {
     await db.order_item.destroy({ where: { order: orderId }, force: true })
     await db.order.destroy({ where: { id: orderId }, force: true })
   }
+  await db.table.destroy({ where: { id: table?.id }, force: true })
   await db.product_store.destroy({ where: { product: product?.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })

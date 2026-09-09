@@ -935,11 +935,16 @@ const supplierController = {
         })
       }
 
-      const supplierStores = normalizeStores(supplier.store)
+      // C-9: `supplierStores.length > 0 &&` short-circuited for a global
+      // supplier (store: null/[]) — any tenant admin could mutate it. Reads
+      // of a global supplier stay open to every store (list queries already
+      // treat store:null as visible everywhere via
+      // Op.or:[{store:null},{store:{Op.contains:[storeId]}}]) — but
+      // MUTATING a shared/global supplier record must be restricted to
+      // super_admin, same as the other C-9 findings.
       if (
         req.user?.roleType !== 'super_admin' &&
-        supplierStores.length > 0 &&
-        !supplierStores.includes(Number(store))
+        (supplierStores.length === 0 || !supplierStores.includes(Number(store)))
       ) {
         return res.status(403).json({
           success: false,
@@ -1091,11 +1096,16 @@ const supplierController = {
         })
       }
 
+      // C-9 (same class, found via repository-wide pattern search): the
+      // original `store && supplierStores.length > 0 && !includes` let the
+      // guard evaluate to false — and DELETE proceed — whenever the target
+      // supplier was global (supplierStores.length === 0), for ANY tenant
+      // admin. A destructive delete of a shared/global supplier must be
+      // restricted to super_admin.
       const supplierStores = normalizeStores(supplier.store)
       if (
-        store &&
-        supplierStores.length > 0 &&
-        !supplierStores.includes(store)
+        req.user?.roleType !== 'super_admin' &&
+        (supplierStores.length === 0 || !supplierStores.includes(store))
       ) {
         return res.status(403).json({
           success: false,

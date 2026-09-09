@@ -25,6 +25,7 @@ const resetLimiter = rateLimit({
 
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const { loginSchema, registerSchema } = require('../validation/schemas')
 
@@ -64,7 +65,14 @@ router.post(
 )
 
 // Get User By Location (all authenticated users)
-router.get('/get-user', authorization, authController.userByLocation)
+// CRIT-2: validateStoreAccess pins req.storeId from the trusted token; the
+// controller never lets a caller-omitted `location` widen beyond their store.
+router.get(
+  '/get-user',
+  authorization,
+  validateStoreAccess,
+  authController.userByLocation
+)
 
 // Get All User - Super Admin only
 router.get(

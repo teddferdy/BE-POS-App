@@ -31,31 +31,64 @@ const {
 } = require('../../utils/emailService')
 
 // Get User By Location
+// CRIT-2: ordinary roles (user/admin/kasir) are ALWAYS restricted to their own
+// store (`req.storeId`, set by validateStoreAccess from the trusted token).
+// Omitting `location` MUST never mean "all stores". Only an explicit
+// super_admin global query may select another store, and it must always pass
+// an explicit `location` so it cannot accidentally dump the whole user table.
 exports.userByLocation = async (req, res) => {
   const { location } = req.query
   const userRole = req.user?.roleType
-  const userStore = req.user?.store
+  const userStore = req.storeId || req.user?.store || null
 
-  // Admin and User can only access users in their store
-  if (userRole === 'admin' || userRole === 'user') {
-    if (location && parseInt(location) !== userStore) {
-      return res.status(403).json({
-        message: 'Anda hanya dapat mengakses user di toko Anda'
+  let targetStore = null
+
+  if (userRole === 'super_admin') {
+    if (location === undefined || location === '') {
+      return res.status(400).json({
+        message: 'Location wajib diisi'
       })
     }
+    const parsed = parseInt(location, 10)
+    if (!Number.isInteger(parsed)) {
+      return res.status(400).json({
+        message: 'Location tidak valid'
+      })
+    }
+    targetStore = parsed
+  } else {
+    // Ordinary tenant users: always their own store. An explicit location
+    // that differs from their store is rejected (kasir included).
+    if (userStore === null || userStore === undefined) {
+      return res.status(403).json({
+        message: 'Akun Anda belum ditetapkan ke toko'
+      })
+    }
+    targetStore = parseInt(userStore, 10)
+    if (Number.isNaN(targetStore)) {
+      return res.status(403).json({
+        message: 'Akun Anda belum ditetapkan ke toko'
+      })
+    }
+    if (location !== undefined && location !== '') {
+      const requested = parseInt(location, 10)
+      if (Object.is(requested, NaN) || requested !== targetStore) {
+        return res.status(403).json({
+          message: 'Anda hanya dapat mengakses user di toko Anda'
+        })
+      }
+    }
   }
-
-  console.log('Location query parameter:', location)
 
   try {
     // Fetch users and location data in parallel
     const [users, locationData] = await Promise.all([
       User.findAll({
-        where: location ? { store: location } : {},
+        where: { store: targetStore },
         attributes: { exclude: ['password'] } // Exclude password in query
       }),
       Location.findOne({
-        where: location ? { id: location } : {}
+        where: { id: targetStore }
       })
     ])
 
@@ -404,19 +437,18 @@ exports.login = async (req, res) => {
   }
 }
 
-// Register
+// Register (public, unauthenticated)
+// CRIT-1: caller-controlled `store`/`userType`/`shift`/`position`/`accessMenu`
+// are stripped by registerSchema. This endpoint ALWAYS creates an unassigned
+// (store: null), non-privileged (roleType 'user', userType 'user') account and
+// does NOT issue a JWT — a store is assigned later by an authorized admin via
+// /auth/change-profile-user, after which normal login applies.
 exports.registerNewUser = async (req, res) => {
   const body = req.body
 
   try {
-    // Validate userType
-    if (!['admin', 'user'].includes(body?.userType)) {
-      return res.status(400).json({
-        message: 'Gagal Menyimpan User - Tipe Pengguna Salah'
-      })
-    }
-
-    // Ensure password and confirmPassword match
+    // Password and confirmPassword have already been validated by the schema,
+    // but keep the check as a defense in depth.
     if (body?.password !== body?.confirmPassword) {
       return res.status(400).json({
         message: 'Password dan Konfirmasi Password Tidak Cocok'
@@ -433,20 +465,18 @@ exports.registerNewUser = async (req, res) => {
     if (!findUser) {
       const employeeID = String(Math.floor(100000 + Math.random() * 900000))
 
-      // Provide default values for fields that may be null
-      const shift = body?.shift !== undefined ? body.shift : 0 // Set to 0 or a default valid value
-      const position = body?.position !== undefined ? body.position : 0 // Set to 0 or a default valid value
-
       // Get default role (Staff/Karyawan) - roleType 'user'
       const defaultRole = await db.role.findOne({
         where: { roleType: 'user' }
       })
 
-      // Create new user in the database (password auto-hashed by model hook)
+      // Create new user in the database (password auto-hashed by model hook).
+      // Public registration is always unassigned + non-privileged: ignoring
+      // anything the caller says about store/role (CRIT-1).
       const createUser = await User.create({
-        roleType: 'user', // Default role is user
+        roleType: 'user', // Default role is user (never caller-controlled)
         roleId: defaultRole?.id || null, // Assign default role ID
-        userType: body.userType || 'user', // Use the provided userType, default to 'user'
+        userType: 'user', // Default userType is user (never caller-controlled)
         userName: body?.userName,
         password: body?.password,
         email: body?.email,
@@ -457,10 +487,10 @@ exports.registerNewUser = async (req, res) => {
         gender: body?.gender || '',
         dateOfBirth: body?.dateOfBirth || null,
         placeOfBirth: body?.placeOfBirth || '',
-        store: body.store || null, // Store ID should not be null, ensure FE sends it
-        shift: shift, // Assign default value if undefined
-        position: position, // Assign default value if undefined
-        accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : null,
+        store: null, // Unassigned — admin must assign a store via change-profile-user
+        shift: null, // Not caller-controlled (CRIT-1)
+        position: null, // Not caller-controlled (CRIT-1)
+        accessMenu: null,
         status: 'active',
         modifiedAt: moment().format('YYYY-MM-DD HH:mm:ss')
       })
@@ -475,14 +505,9 @@ exports.registerNewUser = async (req, res) => {
       const result = createUser.toJSON()
       delete result.password // Remove the password before sending it back
 
-      // Generate token
-      result.token = generateToken({
-        id: result?.id,
-        userName: result?.userName,
-        fullName: result?.fullName,
-        roleType: result?.roleType || 'user'
-      })
-
+      // Deliberately NO token here: public registration must not mint an
+      // authenticated session (CRIT-1). The account can only be used after an
+      // admin assigns its store; normal login then issues the token.
       return res.status(200).json({
         message: 'Success Menyimpan User',
         data: result

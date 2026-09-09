@@ -78,11 +78,11 @@ const countBundleUsage = async (bundleId) => {
 const bundleController = {
   async getAll(req, res) {
     try {
-      const userRole = req.user?.roleType
-      const effectiveStore =
-        userRole === 'super_admin'
-          ? req.storeId || req.query.store || req.cookies.store
-          : req.storeId || req.cookies.store
+      // MEDIUM fix: removed req.cookies.store — cookie is client-controlled and
+      // never validated by validateStoreAccess.  For super_admin the explicit
+      // ?store (→ req.storeId) is honoured; absent → null (global). For
+      // non-super-admin req.storeId is always the JWT-pinned store.
+      const effectiveStore = req.storeId ?? req.user?.store
       const { status, search, page = 1, limit = 10 } = req.query
 
       // ponytail: expire dulu supaya stats & list akurat
@@ -252,8 +252,12 @@ const bundleController = {
           ? ((discountAmount / originalPrice) * 100).toFixed(2)
           : 0
 
+      // MEDIUM fix: removed req.cookies.store. For super_admin, an explicit
+      // body.store is preserved (intentional multi-store bundle creation).
+      // For non-super-admin, req.storeId is the JWT-pinned authoritative store;
+      // body.store is ignored because validateStoreAccess already enforced it.
       const effectiveStore =
-        store !== undefined ? store : req.storeId || req.cookies.store || null
+        store !== undefined ? store : (req.storeId ?? req.user?.store ?? null)
 
       let imageUrl = image || null
       if (req.file) {

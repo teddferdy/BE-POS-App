@@ -725,6 +725,24 @@ exports.getLocationById = async (req, res) => {
     }
     const dbId = parseInt(locationId.replace('loc-', ''))
 
+    // C-7: a location record IS a store (its own id is the tenant's store
+    // id) — Location.findByPk(dbId) with no ownership check let any
+    // authenticated user read ANY store's contact/business data (email,
+    // managerName, dailyTarget, phoneNumber, ...) by guessing loc-N. This
+    // route intentionally allows "all authenticated users" (no requireRole)
+    // to view a location's own profile — non-super-admin must be pinned to
+    // req.storeId (their own store); super_admin keeps the existing global
+    // access. Same 404 for both "not found" and "not yours" so probing
+    // foreign ids can't be distinguished from a nonexistent one.
+    if (
+      req.user?.roleType !== 'super_admin' &&
+      Number(dbId) !== Number(req.storeId)
+    ) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Location not found' })
+    }
+
     const location = await Location.findByPk(dbId)
     if (!location) {
       return res

@@ -1,6 +1,7 @@
 'use strict'
 const db = require('../../../db/models')
 const { Op } = require('sequelize')
+const { assertReportStore } = require('./getReportStore')
 
 const defaultColumns = [
   { key: 'name', label: 'Toko', type: 'string', width: 18, align: 'left' },
@@ -13,7 +14,7 @@ const filename = () => 'ringkasan-penjualan'
 const label = 'Ringkasan Penjualan'
 
 const getData = async (req) => {
-  const store = req.storeId || req.cookies?.store
+  const store = assertReportStore(req)
   const { startDate, endDate, filter } = req.query
 
   let dateRange = {}

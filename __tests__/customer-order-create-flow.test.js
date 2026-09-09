@@ -12,6 +12,7 @@ let location = null
 let category = null
 let product = null
 let adminToken = null
+let table = null
 
 // The cashier is the trusted paid-transition authority: only the
 // authenticated order-status transition may turn a public QR order into a
@@ -38,6 +39,7 @@ beforeAll(async () => {
     store: location.id,
     stock: product.stock
   })
+  table = await db.table.create({ store: location.id, name: 'CUST_ORD_TABLE' })
 })
 
 afterAll(async () => {
@@ -45,6 +47,7 @@ afterAll(async () => {
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: location.id }, force: true })
+  await db.table.destroy({ where: { id: table?.id }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
@@ -62,6 +65,7 @@ describe('POST /order/customer-create — QR paid only via trusted cashier trans
       .post('/order/customer-create')
       .send({
         store: location.id,
+        tableId: table.id,
         paymentMethod: 'cash',
         customerName: 'QR Customer',
         items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
@@ -98,6 +102,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
       .post('/order/customer-create')
       .send({
         store: location.id,
+        tableId: table.id,
         customerName: 'QR Unpaid',
         items: [{ productId: product.id, productName: product.nameProduct, quantity: 2 }]
       })
@@ -118,6 +123,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
     const beforeStock = (await db.product.findByPk(product.id)).stock
     const body = {
       store: location.id,
+      tableId: table.id,
       paymentMethod: 'cash',
       customerName: 'QR Idem',
       idempotencyKey: `qr-idem-${Date.now()}`,

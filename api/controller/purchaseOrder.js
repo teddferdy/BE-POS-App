@@ -4,6 +4,7 @@ const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const batchService = require('../service/batchService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
+const { resolveStoreId } = require('../../utils/tenantScope')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -804,7 +805,7 @@ const purchaseOrderController = {
   async receive(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const { items, receivedDate } = req.body
 
       const where = { id }
@@ -1107,7 +1108,7 @@ const purchaseOrderController = {
   async cancel(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
 
       const where = { id }
       if (store) where.store = store
@@ -1490,7 +1491,7 @@ const purchaseOrderController = {
               }
             ],
             notes: notes?.trim() || null,
-            store: req.storeId || req.cookies.store || req.user?.store
+            store: resolveStoreId(req)
           })
         } catch (error) {
           errors.push(`Row ${rowNumber}: ${error.message}`)

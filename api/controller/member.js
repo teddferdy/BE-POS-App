@@ -310,10 +310,15 @@ exports.editMember = async (req, res) => {
       })
     }
 
+    // C-9: `member.store &&` short-circuited when the member was global
+    // (store: null — a chain-wide loyalty member, intentionally readable/
+    // redeemable at any store during checkout), letting ANY tenant admin
+    // edit it. A global member's own ADMIN record (name/phone/tier/points)
+    // must only be mutated by super_admin — falsy store is no longer an
+    // implicit pass.
     if (
       req.user?.roleType !== 'super_admin' &&
-      member.store &&
-      Number(member.store) !== Number(req.user?.store)
+      (!member.store || Number(member.store) !== Number(req.user?.store))
     ) {
       return res.status(403).json({
         success: false,
@@ -421,10 +426,11 @@ exports.deleteMember = async (req, res) => {
       })
     }
 
+    // C-9: same falsy-store bypass as editMember — a global member must
+    // only be deleted by super_admin, not any tenant admin.
     if (
       req.user?.roleType !== 'super_admin' &&
-      member.store &&
-      Number(member.store) !== Number(req.user?.store)
+      (!member.store || Number(member.store) !== Number(req.user?.store))
     ) {
       return res.status(403).json({
         success: false,

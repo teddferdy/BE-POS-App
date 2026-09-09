@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { resolveStoreId } = require('../../utils/tenantScope')
 
 const generateTripNumber = () => {
   const date = new Date()
@@ -175,7 +176,7 @@ const businessTripController = {
   async getById(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -207,7 +208,7 @@ const businessTripController = {
       const store =
         userRole === 'super_admin' && resBody.store != null
           ? resBody.store
-          : req.storeId || req.cookies.store
+          : resolveStoreId(req)
       const {
         employeeId,
         employeeName,
@@ -329,7 +330,7 @@ const businessTripController = {
     try {
       const { id } = req.params
       const resBody = req.body || {}
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -463,7 +464,7 @@ const businessTripController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
@@ -506,7 +507,7 @@ const businessTripController = {
     try {
       const { id } = req.params
       const { status } = req.body
-      const store = req.storeId || req.cookies.store
+      const store = resolveStoreId(req)
       const userRole = req.user?.roleType
       const approvedBy = req.user?.id || null
 

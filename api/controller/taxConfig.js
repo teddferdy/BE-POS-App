@@ -37,8 +37,9 @@ const taxConfigController = {
 
   async getAll(req, res) {
     try {
-      const store =
-        req.storeId || req.query.store || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.cookies.store — cookie is client-controlled and
+      // never validated by validateStoreAccess. Use server-pinned storeId only.
+      const store = req.storeId ?? req.user?.store
       const { page = 1, limit = 10, search, status } = req.query
 
       // Auto-seed default PPh 2026 data if table is empty
@@ -101,8 +102,8 @@ const taxConfigController = {
   async getById(req, res) {
     try {
       const id = String(req.params.id || '').trim()
-      const store =
-        req.storeId || req.query.store || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.cookies.store — use server-pinned storeId only.
+      const store = req.storeId ?? req.user?.store
 
       const tax = await db.taxConfig.findOne({ // codacy-ignore-line
         where: {
@@ -134,8 +135,11 @@ const taxConfigController = {
 
   async create(req, res) {
     try {
-      const store =
-        req.storeId || req.body.store || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.body.store and req.cookies.store — only
+      // server-pinned req.storeId is authoritative for tenant data writes.
+      // super_admin may legitimately create global (null-store) tax configs;
+      // that path is preserved by the ?? req.user?.store fallback.
+      const store = req.storeId ?? req.user?.store
       const { name, rate, type, description, status } = req.body
       const createdBy = req.user?.id || null
 
@@ -186,7 +190,10 @@ const taxConfigController = {
       // Also stopped falling back to req.body.store: req.storeId is
       // already the middleware-validated value, the same convention
       // getById/delete already use — never trust the raw body value.
-      const store = req.storeId || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.cookies.store. req.storeId is the
+      // middleware-validated server-side value; JWT fallback only for routes
+      // missing middleware (should not occur on authenticated update routes).
+      const store = req.storeId ?? req.user?.store
       const { name, rate, type, description, status } = req.body
       const modifiedBy = req.user?.id || null
 
@@ -239,7 +246,8 @@ const taxConfigController = {
   async delete(req, res) {
     try {
       const { id } = req.params
-      const store = req.storeId || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.cookies.store — use server-pinned storeId.
+      const store = req.storeId ?? req.user?.store
 
       const tax = await db.taxConfig.findOne({
         where: {
@@ -329,8 +337,9 @@ const taxConfigController = {
 
   async downloadData(req, res) {
     try {
-      const store =
-        req.storeId || req.query.store || req.cookies.store || req.user?.store
+      // MEDIUM fix: removed req.query.store and req.cookies.store — only
+      // server-pinned req.storeId is authoritative for tenant data access.
+      const store = req.storeId ?? req.user?.store
       const where = {}
       if (store) where.store = store
 
@@ -456,7 +465,8 @@ const taxConfigController = {
             : 'active'
 
           taxesToCreate.push({
-            store: req.storeId || req.cookies.store || req.user?.store,
+            // MEDIUM fix: removed req.cookies.store — use server-pinned storeId only.
+            store: req.storeId ?? req.user?.store,
             name: name.trim(),
             rate: parseInt(rate),
             type: mappedType,

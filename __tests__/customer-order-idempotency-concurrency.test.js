@@ -23,6 +23,7 @@ let store2 = null
 let category = null
 let product = null
 let table = null
+let table2 = null
 let adminToken = null
 
 // The cashier is the trusted paid-transition authority: only the authenticated
@@ -72,6 +73,7 @@ beforeAll(async () => {
     stock: product.stock
   })
   table = await db.table.create({ store: store1.id, name: 'SEC004_TABLE' })
+  table2 = await db.table.create({ store: store2.id, name: 'SEC004_TABLE_2' })
 })
 
 afterAll(async () => {
@@ -88,7 +90,7 @@ afterAll(async () => {
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })
-  await db.table.destroy({ where: { id: table?.id }, force: true })
+  await db.table.destroy({ where: { id: [table?.id, table2?.id].filter(Boolean) }, force: true })
   await db.location.destroy({ where: { id: [store1?.id, store2?.id].filter(Boolean) }, force: true })
 })
 
@@ -151,7 +153,7 @@ describe('SEC-004 — idempotency scoped per (store, idempotencyKey), not global
     const idempotencyKey = `sec004-crossstore-${Date.now()}`
 
     const res1 = await makeCustomerCreate(store1.id, table.id, idempotencyKey)
-    const res2 = await makeCustomerCreate(store2.id, undefined, idempotencyKey)
+    const res2 = await makeCustomerCreate(store2.id, table2.id, idempotencyKey)
 
     expect(res1.status).toBe(201)
     expect(res2.status).toBe(201)
