@@ -1,0 +1,33 @@
+node_modules
+npm-debug.log
+
+.git
+.github
+.vercel
+
+# Never bake secrets or local dev state into the image — Render env vars
+# supply these at runtime instead.
+.env
+.env.*
+!.env.example
+
+__tests__
+*.test.js
+.early.coverage
+
+# WhatsApp session state — belongs to the separate whatsapp-server.js
+# process (documented as local/ngrok-only), not this container.
+.wwebjs_auth
+.wwebjs_auth_default
+
+# Local backup artifacts (see PHASE 6D-0: not a durable destination on
+# Render's ephemeral filesystem either way — never ship stale local dumps).
+backups
+
+docs
+*.md
+!README.md
+
+# NOTE: data/ is intentionally NOT excluded — api/routes/faq.js does
+# `require('../../data/faq.json')` synchronously at boot; omitting it
+# would crash the container on startup.
