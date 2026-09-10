@@ -29,6 +29,22 @@ const generateBundleSku = (prefix = 'BNDL') => {
   return `${prefix}-${year}${month}${day}-${random}`
 }
 
+// F-1: same validity-window contract order.js's createCustomerOrder uses to
+// decide whether a bundle is actually orderable (isBundleWithinValidityPeriod)
+// — duplicated here (not imported) because that helper is private to
+// order.js and this remediation's scope excludes touching order logic. Kept
+// deliberately identical so a bundle shown to the customer is always one
+// that would actually be accepted at checkout.
+const isBundleWithinValidityPeriod = (bundle, now = new Date()) => {
+  const validFrom = bundle.validFrom ? new Date(bundle.validFrom) : null
+  const validUntil = bundle.validUntil ? new Date(bundle.validUntil) : null
+  if (validFrom && isNaN(validFrom.getTime())) return true
+  if (validUntil && isNaN(validUntil.getTime())) return true
+  if (validFrom && validFrom > now) return false
+  if (validUntil && validUntil < now) return false
+  return true
+}
+
 // ponytail: bundle yang sudah lewat validUntil otomatis non-aktif —
 // dipanggil lazy di getAll/getById, pola sama seperti discount.
 // Kasir juga tetap aman karena query di product.js sudah filter validUntil.
@@ -154,6 +170,89 @@ const bundleController = {
     } catch (error) {
       console.error('Bundle getAll error:', error)
       return res.status(500).json({ message: error.message })
+    }
+  },
+
+  // F-1: public, unauthenticated customer-facing bundle listing. Mirrors the
+  // existing promoController.getCustomerActivePromos pattern (public route,
+  // no requireRole, store-scoped query, customer-safe attribute allowlist) —
+  // BISA-MAKAN-APP (anonymous QR customer app) has no login flow and cannot
+  // legitimately reach the authenticated getAll above.
+  //
+  // "Public" does not mean unscoped: store is required and validated, and a
+  // bundle is only returned when its own `store` array contains the
+  // requested store — the exact same ownership rule
+  // order.js's isBundleOrderableAtStore enforces at checkout time (including
+  // that an unassigned/null-store bundle is orderable nowhere, unlike
+  // products/categories, so it is never customer-visible either). No
+  // requireRole/validateStoreAccess is added — this route is intentionally
+  // public, matching promo.js's own public customer route.
+  async getCustomerActive(req, res) {
+    try {
+      const { store } = req.query
+      if (!store) {
+        return res.status(400).json({ message: 'store is required' })
+      }
+      const storeId = Number(store)
+      if (isNaN(storeId)) {
+        return res.status(400).json({ message: 'Invalid store value' })
+      }
+
+      const storeWhere = { store: { [Op.contains]: [storeId] } }
+      await expireStaleBundles(storeWhere)
+
+      const bundles = await db.product_bundle.findAll({
+        where: {
+          ...storeWhere,
+          status: 'active',
+          isAvailable: true
+        },
+        attributes: [
+          'id',
+          'store',
+          'name',
+          'sku',
+          'description',
+          'image',
+          'bundlePrice',
+          'originalPrice',
+          'discountAmount',
+          'discountPercentage',
+          'minQuantity',
+          'maxQuantity',
+          'isAvailable',
+          'status',
+          'validFrom',
+          'validUntil'
+        ],
+        include: [
+          {
+            model: db.product_bundle_item,
+            as: 'items',
+            attributes: ['id', 'bundleId', 'product', 'quantity', 'unitPrice', 'isOptional'],
+            include: [
+              {
+                model: db.product,
+                as: 'productData',
+                attributes: ['id', 'nameProduct', 'price', 'image', 'stock']
+              }
+            ]
+          }
+        ],
+        order: [['updatedAt', 'DESC']]
+      })
+
+      const now = new Date()
+      const items = bundles.filter((b) => isBundleWithinValidityPeriod(b, now))
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get customer active bundles',
+        data: { items }
+      })
+    } catch (error) {
+      console.error('Bundle getCustomerActive error:', error)
+      return res.status(500).json({ message: 'Internal server error' })
     }
   },
 
