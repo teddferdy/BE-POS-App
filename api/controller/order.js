@@ -141,27 +141,61 @@ const isOrderReplayRelevantUniqueError = (error) =>
     error?.parent?.constraint || error?.original?.constraint
   )
 
+// Single source of truth for the "store row wins, else base stock" rule used
+// by BOTH order validation (getEffectiveStock) and the public customer menu
+// (batched lookup in getCustomerMenu) so the two paths can never drift.
+// product_store_stock.stock is NOT NULL DEFAULT 0 — a present row is always
+// authoritative, and an explicit zero is a real zero, never "missing".
+const resolveEffectiveStock = (product, pssRow) => {
+  const base =
+    product && product.stock !== null && product.stock !== undefined
+      ? Number(product.stock)
+      : null
+  return pssRow && pssRow.stock !== null && pssRow.stock !== undefined
+    ? Number(pssRow.stock)
+    : base
+}
+
 // Resolve effective stock for a product in a store. Uses the store-specific
 // stock row (product_store_stock) when present, otherwise falls back to the
 // base product stock. This matches how the cashier UI displays stock and how
 // stock is deducted on sale (both base and per-store are kept in sync).
 const getEffectiveStock = async (product, store) => {
   if (!product || !store) return null
-  const base =
-    product.stock !== null && product.stock !== undefined
-      ? Number(product.stock)
-      : null
   try {
     const pss = await db.product_store_stock.findOne({
       where: { product: product.id, store }
     })
-    if (pss && pss.stock !== null && pss.stock !== undefined) {
-      return Number(pss.stock)
-    }
+    return resolveEffectiveStock(product, pss)
   } catch {
     // product_store_stock table may not exist; fall back to base stock
+    return resolveEffectiveStock(product, null)
   }
-  return base
+}
+
+// Batched per-store effective stock for a set of products — semantically
+// identical to getEffectiveStock(product, store) but a single query, so the
+// public customer menu does not run an N+1 per product. Returns
+// Map<productId, effectiveStock>.
+const getEffectiveStockMap = async (products, store) => {
+  const productById = new Map(
+    products.filter((p) => p && p.id != null).map((p) => [String(p.id), p])
+  )
+  const map = new Map()
+  for (const [id] of productById) map.set(id, resolveEffectiveStock(productById.get(id), null))
+  if (!map.size || !store) return map
+  try {
+    const rows = await db.product_store_stock.findAll({
+      where: { product: Array.from(productById.keys()), store },
+      attributes: ['product', 'stock']
+    })
+    for (const row of rows) {
+      map.set(String(row.product), resolveEffectiveStock(productById.get(String(row.product)), row))
+    }
+  } catch {
+    // product_store_stock table may not exist; every product falls back to base stock
+  }
+  return map
 }
 
 // AUD-2 (security): store-tenancy guards for the public customer-order
@@ -2763,7 +2797,8 @@ const CUSTOMER_MENU_PRODUCT_ATTRIBUTES = [
   'options',
   'modifiers',
   'composition',
-  'estimationTime'
+  'estimationTime',
+  'inventoryMode'
 ]
 
 const CUSTOMER_MENU_CATEGORY_ATTRIBUTES = [
@@ -2838,6 +2873,15 @@ exports.getCustomerMenu = async (req, res) => {
       dto.categoryData = plain.categoryData || null
       return dto
     })
+
+    // F4-03: expose the authoritative per-store effective stock using the SAME
+    // resolution rule as order validation (getEffectiveStock — store row wins,
+    // including zero; otherwise base stock), batched in a single query so the
+    // public menu avoids an N+1. Raw `stock` stays backward-compatible.
+    const effectiveStockById = await getEffectiveStockMap(products, storeId)
+    for (const dto of customerProducts) {
+      dto.effectiveStock = effectiveStockById.get(String(dto.id)) ?? null
+    }
 
     const customerCategories = categories.map((c) => {
       const plain = c.get({ plain: true })
