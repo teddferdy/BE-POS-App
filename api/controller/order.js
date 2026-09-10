@@ -2641,7 +2641,7 @@ exports.updateOrderStatus = async (req, res) => {
       if (!r3.ok) console.error('Accounting reversal deferred to retry queue:', r3.error)
     }
 
-    createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
+    await createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
 
     return res.status(200).json({
       message: 'Order status updated',
