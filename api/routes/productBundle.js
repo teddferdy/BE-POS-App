@@ -35,6 +35,14 @@ router.get(
   bundleController.getAll
 )
 
+// F-1: public — customer QR app (no login) needs active bundles for its
+// store. Mirrors promo.js's '/customer-active' (no auth, no requireRole);
+// store-scoping is enforced inside the controller, not by this middleware
+// chain. Must stay before '/get-by-id/:id' would be irrelevant here since
+// this is a distinct static path, but kept adjacent to get-all for
+// readability.
+router.get('/customer-active', bundleController.getCustomerActive)
+
 router.get(
   '/get-by-id/:id',
   authorization,
