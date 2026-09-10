@@ -1,5 +1,4 @@
 'use strict'
-const ExcelJS = require('exceljs')
 const { formatValue } = require('../formatters')
 
 const accentToArgb = (hex) => {
@@ -21,7 +20,6 @@ const applyColumnWidths = (ws, columns) => {
 }
 
 const addBrandHeader = (ws, spec, startRow) => {
-  const accent = spec.accentColor || '#0f172a'
   const brand = spec.brand || {}
   const branding = spec.branding || { showLogo: true, showAddress: true, showPhone: true }
   let r = startRow
@@ -44,7 +42,7 @@ const addBrandHeader = (ws, spec, startRow) => {
         // We'll treat logo as taking no extra column; just show brand name left-aligned.
         // For MVP: skip image embed, show text placeholder if needed.
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
@@ -112,7 +110,6 @@ const addInfoBlock = (ws, spec, startRow) => {
 }
 
 const addTable = (ws, spec, startRow) => {
-  const colCount = spec.columns.length
   const headerRow = startRow
   const accent = spec.accentColor || '#0f172a'
   const argb = accentToArgb(accent)
@@ -158,7 +155,6 @@ const addTable = (ws, spec, startRow) => {
 
 const addTotalsRow = (ws, spec, startRow) => {
   if (!spec.totals || spec.totals.length === 0 || !spec.rows || spec.rows.length === 0) return startRow
-  const colCount = spec.columns.length
   let r = startRow
   const acc = {}
   for (const row of spec.rows) {
@@ -238,7 +234,7 @@ const addDataBar = (ws, spec, startRow, endRow, colIdx) => {
         color: { argb: 'FF4F46E5' } // indigo-600
       }]
     })
-  } catch (e) {
+  } catch {
     // if dataBar not supported (older ExcelJS), silently skip
   }
 }

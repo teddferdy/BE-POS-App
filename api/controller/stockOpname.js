@@ -4,7 +4,7 @@ const excelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { setProductStock } = require('../service/stockMutationService')
-const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
+const { scalarStoreScope, resolveStoreId } = require('../../utils/tenantScope')
 
 const generateOpnameNumber = () => {
   const date = new Date()

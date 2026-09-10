@@ -1,5 +1,4 @@
 'use strict'
-const ExcelJS = require('exceljs')
 
 const layoutModules = {
   summary: require('./excel/layouts/summary'),

@@ -1,12 +1,10 @@
 'use strict'
 const ExcelJS = require('exceljs')
 const style = require('../style')
-const { formatValue } = require('../../formatters')
 
 const buildExcelWorkbook = async (spec) => {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Laporan')
-  const colCount = spec.columns.length
 
   let rowIndex = 1
 

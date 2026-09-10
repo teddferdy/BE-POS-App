@@ -10,7 +10,7 @@ const {
   clearRemovedMembers
 } = require('../../utils/shiftChain')
 const { scalarStoreScope } = require('../../utils/tenantScope')
-const { authorizedStoreIds, normalizeStoreIds } = require('../../utils/storeValidation')
+const { authorizedStoreIds } = require('../../utils/storeValidation')
 
 const serializeShift = (shift) => ({
   id: shift.id,

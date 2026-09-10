@@ -1,10 +1,7 @@
 const { exec } = require('child_process')
-const { promisify } = require('util')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-
-const execAsync = promisify(exec)
 
 // ESC/POS Commands
 const ESC_POS = {
@@ -110,7 +107,6 @@ class ThermalPrinter {
       change = 0,
       customerName,
       customerPhone,
-      notes,
       qrCodeData,
       footerText = 'Terima kasih telah berbelanja!'
     } = data
