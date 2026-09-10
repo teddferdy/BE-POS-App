@@ -870,7 +870,7 @@ const expenseController = {
           where: store ? { id: store } : undefined
         })
         storeNameMap = Object.fromEntries(locations.map((l) => [l.id, l.name]))
-      } catch (e) {
+      } catch {
         storeNameMap = {}
       }
 

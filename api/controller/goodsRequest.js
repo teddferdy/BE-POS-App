@@ -564,7 +564,7 @@ const goodsRequestController = {
                 }
               }
             }
-          } catch (catalogError) {
+          } catch {
             priceByProduct = {}
             priceByName = {}
           }

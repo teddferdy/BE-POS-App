@@ -842,7 +842,7 @@ const ingredientController = {
 
   async getProductNames(req, res) {
     try {
-      const { category, supplier } = req.query
+      const { supplier } = req.query
 
       if (!supplier) {
         return res.status(400).json({

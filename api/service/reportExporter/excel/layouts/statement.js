@@ -7,7 +7,7 @@ const buildExcelWorkbook = async (spec) => {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Laporan')
   const colCount = spec.columns.length // expect 2: keterangan, nominal
-  const [keteranganCol, nominalCol] = spec.columns
+  const [, nominalCol] = spec.columns
 
   let rowIndex = 1
 
@@ -111,7 +111,6 @@ const buildExcelWorkbook = async (spec) => {
   saldoRow.getCell(2).value = formatValue(saldo, nominalCol.type)
   saldoRow.getCell(2).font = { bold: true, size: 12 }
   // Fill background with accent
-  const accArgb = style.accentToArgb(spec.accentColor || '#0f172a')
   saldoRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
   saldoRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
   // Add top border

@@ -28,7 +28,6 @@ const isRetryableDeadlockError = (err) => {
  */
 async function withDeadlockRetry(fn, { retries = 2, baseDelayMs = 50 } = {}) {
   let attempt = 0
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
       return await fn()

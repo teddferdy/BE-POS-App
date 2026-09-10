@@ -6,7 +6,6 @@ const { formatValue } = require('../../formatters')
 const buildExcelWorkbook = async (spec) => {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Laporan')
-  const colCount = spec.columns.length
 
   // Determine value column for ranking
   const valueKey = spec.layout?.valueKey
@@ -26,7 +25,6 @@ const buildExcelWorkbook = async (spec) => {
   if (hasValue) {
     augColumns.push({ key: '__share', label: 'Share %', type: 'percent', width: 10, align: 'right' })
   }
-  const augColCount = augColumns.length
 
   // Build augmented rows: prepend rank (1-based), append share (value/total)
   const augRows = []
@@ -137,8 +135,6 @@ const buildExcelWorkbook = async (spec) => {
     // augColumns: [rank] + orig[0..valueColIdx] + [valueCol] + orig[valueColIdx+1..] + [share]
     // So value column position = 1 (rank) + valueColIdx (original index) + 1 = valueColIdx + 2
     const valueColPos = valueColIdx + 2 // 1-based column index in augColumns
-    const colLetter = String.fromCharCode(64 + valueColPos) // A=1
-    const startRow = 4 // after brand(?, title?, info?) + header row = assume 4 for simplicity; better compute
     // Let's compute startRow similarly as summary: but we can approximate 4; for small data it's fine.
     // Actually compute: brandRows + titleRows + infoRows + 1 (header) = first data row
     let brandRows = 0

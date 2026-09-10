@@ -49,7 +49,6 @@ async function attachPriceInfo(json, poId) {
 const purchaseReturnController = {
   async getAll(req, res) {
     try {
-      const userRole = req.user?.roleType
       const {
         page = 1,
         limit = 10,

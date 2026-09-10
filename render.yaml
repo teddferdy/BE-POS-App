@@ -1,0 +1,72 @@
+# Render Blueprint — BE-POS-App demo runtime.
+#
+# Database is intentionally NOT declared here: the demo uses an external Neon
+# Postgres project (see PHASE 6D-0 report), not a Render-managed database.
+#
+# Every secret-shaped value below is `sync: false` — Render will prompt for
+# it in the dashboard on first deploy and store it there. Nothing here
+# contains, or should ever be edited to contain, an actual credential.
+services:
+  - type: web
+    name: be-pos-app-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    # Manual deploys only, until this demo is deliberately wired to
+    # auto-deploy (verified field name: autoDeployTrigger, not the
+    # deprecated `autoDeploy: true/false`).
+    autoDeployTrigger: off
+    envVars:
+      # Fixed, non-secret: selects config/config.js's `production` block
+      # (POSTGRES_* + SSL) and api/index.js's stricter required-env check.
+      - key: NODE_ENV
+        value: production
+
+      # --- Neon Postgres (see PHASE 6D-0 report: config/config.js reads
+      # these four discrete vars, NOT a single DATABASE_URL — that env var
+      # name exists in .env.production but is never actually consumed by
+      # the app). Use Neon's DIRECT (non-pooled) connection host: this
+      # process keeps its own long-lived Sequelize pool, and stacking that
+      # on top of Neon's PgBouncer pooler is unnecessary for a single
+      # always-on Render instance. ---
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: POSTGRES_DATABASE
+        sync: false
+
+      # --- Auth (required — api/index.js exits at boot without this in
+      # production) ---
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: JWT_EXPIRED_IN
+        value: 1d
+
+      # --- CORS: which deployed frontend(s) may call this API. See
+      # api/utils/corsOptions.js — CORS_ORIGIN accepts a comma-separated
+      # list; FRONTEND_URL appends one more origin on top of the built-in
+      # defaults. Set at least one to whatever Vercel URL(s) this demo's
+      # FE-POS-App / BISA-MAKAN-APP are actually deployed at. ---
+      - key: FRONTEND_URL
+        sync: false
+
+      # --- Optional: image upload (categories/employees/goods
+      # receipts/invoices/purchase returns/product bundles). The app boots
+      # fine without these; those specific endpoints fail per-request if
+      # unset. ---
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+      # --- Optional: error tracking, no-ops without a DSN. ---
+      - key: SENTRY_DSN
+        sync: false

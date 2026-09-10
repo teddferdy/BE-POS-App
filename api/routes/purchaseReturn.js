@@ -8,8 +8,6 @@ const purchaseReturnController = require('../controller/purchaseReturn')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
-const { validate } = require('../middleware/validate')
-const { createPurchaseReturnSchema } = require('../validation/schemas')
 
 const uploadDir = '/tmp/uploads'
 if (!fs.existsSync(uploadDir)) {

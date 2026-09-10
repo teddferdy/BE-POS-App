@@ -4,7 +4,7 @@ const ExcelJS = require('exceljs')
 const TypePayment = db.type_payment
 const { createAudit } = require('../../utils/auditLog')
 const { scalarStoreScope } = require('../../utils/tenantScope')
-const { normalizeStoreIds, authorizedStoreIds } = require('../../utils/storeValidation')
+const { authorizedStoreIds } = require('../../utils/storeValidation')
 
 // Resolves the store payload sent by the FE (single id, JSON string array, or 'all')
 // into a list of store ids to attach rows to. Empty array means global (store null).
@@ -31,9 +31,6 @@ const resolveStoreIds = (rawStore, userStore) => {
     .filter((n) => Number.isFinite(n) && n > 0)
   return [...new Set(ids)]
 }
-
-// Column of numbers deduplicated, dropping non-positive/non-integer entries.
-const dedupePositive = (ids) => [...new Set(ids.filter((n) => Number.isFinite(n) && n > 0))]
 
 // Matches store-specific rows plus global (store null) rows for reads.
 const buildStoreWhere = (store) => {

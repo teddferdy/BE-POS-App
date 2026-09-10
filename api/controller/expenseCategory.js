@@ -6,7 +6,7 @@ const { resolveStoreId } = require('../../utils/tenantScope')
 const expenseCategoryController = {
   async getAll(req, res) {
     try {
-      const { status, search, store: queryStore } = req.query
+      const { status, search } = req.query
       let store = resolveStoreId(req)
       if (req.user?.roleType !== 'super_admin') {
         store = req.user?.store

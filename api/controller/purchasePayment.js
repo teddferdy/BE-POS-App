@@ -1,7 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
-const { scalarStoreScope, resolveStoreId } = require('../../utils/tenantScope')
+const { scalarStoreScope } = require('../../utils/tenantScope')
 const {
   enqueueAccountingJob,
   attemptJob,

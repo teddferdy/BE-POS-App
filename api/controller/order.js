@@ -2213,7 +2213,6 @@ exports.updateOrderStatus = async (req, res) => {
     // already dedup-guarded by referenceId). The guards that actually
     // decide whether to mutate stock use a fresh, row-locked read taken
     // inside the transaction instead — see lockedOrder below.
-    const oldStatus = order.status
     const effectiveStore = store || order.store || null
 
     // Reduce stock exactly once when an order transitions to paid. Orders that
