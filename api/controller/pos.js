@@ -2563,15 +2563,27 @@ order: [['updatedAt', 'DESC']],
         })
       }
 
-      const storePrices =
+      const rawPrices =
         storeIds.length > 0
           ? await db.product_store_price.findAll({
               where: {
                 product: productId,
                 store: storeIds
-              }
+              },
+              include: [
+                { model: db.location, as: 'storeData', attributes: ['id', 'name'] }
+              ]
             })
           : []
+
+      const storePrices = rawPrices.map((row) => ({
+        id: row.id,
+        product: row.product,
+        store: row.store,
+        storeId: row.store,
+        storeName: row.storeData?.name ?? null,
+        price: row.price
+      }))
 
       return res.status(200).json({
         success: true,
