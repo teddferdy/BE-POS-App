@@ -310,10 +310,16 @@ const generateCustomerNumber = async (store, t) => {
   return rows[0]?.lastValue || 1
 }
 
+// F-SMOKE-01: a store-scoped equality (`where: { store, ... }`) silently
+// drops global (store: null) configs — GET /tax-config already matches
+// store-or-global via Op.or (see taxConfigController.getAll), so the FE's
+// displayed rate and this authoritative one diverged whenever a config
+// applied globally instead of to one specific store. Mirror the same
+// store-or-global match here so both sides resolve the same active rows.
 const getActiveTaxRate = async (store) => {
   try {
     const taxConfigs = await db.taxConfig.findAll({
-      where: { store, type: 'ppn', status: 'active' },
+      where: { [Op.or]: [{ store }, { store: null }], type: 'ppn', status: 'active' },
       attributes: ['rate']
     })
     if (taxConfigs.length > 0) {
@@ -328,7 +334,7 @@ const getActiveTaxRate = async (store) => {
 const getServiceChargeRate = async (store) => {
   try {
     const configs = await db.taxConfig.findAll({
-      where: { store, type: 'service_charge', status: 'active' },
+      where: { [Op.or]: [{ store }, { store: null }], type: 'service_charge', status: 'active' },
       attributes: ['rate']
     })
     if (configs.length > 0) {
