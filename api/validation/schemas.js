@@ -1252,7 +1252,14 @@ exports.createPosReturnSchema = z.object({
 
 exports.updatePriceByStoreSchema = z.object({
   productId: strToNum(),
-  storePrices: z.union([z.string(), z.array(z.any()), z.record(z.any())])
+  storePrices: z
+    .array(
+      z.object({
+        storeId: z.union([z.literal('base'), strToNum()]),
+        price: z.coerce.number()
+      })
+    )
+    .min(1, 'At least one store price is required')
 })
 
 exports.sendInvoiceWaSchema = z.object({
