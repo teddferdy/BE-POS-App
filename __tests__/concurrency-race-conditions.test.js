@@ -5,6 +5,7 @@ const request = require('supertest')
 const jwt = require('jsonwebtoken')
 const app = require('../api/index')
 const db = require('../db/models')
+const { Op } = require('sequelize')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
@@ -389,4 +390,239 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
     // row's lock) — well past Jest's 5s default for a real, unmocked
     // concurrency test.
   )
+})
+
+// PHASE 19 BATCH 3B: permanent regression coverage for the two concurrency
+// scenarios previously verified only as one-off audit evidence (BATCH 2B-1
+// concurrent cancellation, BATCH 2C-2 refund/return consistency). Both
+// exercise the real HTTP routes, real Postgres transactions and row locks —
+// nothing here is mocked.
+
+describe('Concurrent paid-order cancellation — refund and stock restoration happen exactly once (order.js updateOrderStatus)', () => {
+  let location, category, product, token, order
+
+  beforeAll(async () => {
+    location = await db.location.create({ name: 'RACE_CANCEL_STORE', status: 'active' })
+    category = await db.category.create({ name: 'RACE_CANCEL_CATEGORY' })
+    product = await db.product.create({
+      nameProduct: 'RACE_CANCEL_PRODUCT',
+      category: category.id,
+      price: 10000,
+      stock: 10
+    })
+    token = jwt.sign(
+      { id: 8806, userName: 'race_cancel_admin', roleType: 'admin', store: location.id },
+      JWT_SECRET
+    )
+
+    const createRes = await request(app)
+      .post('/order/create')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        store: location.id,
+        items: [{ product: product.id, quantity: 1 }],
+        paymentMethod: 'cash',
+        cashierName: 'Race Cancel Admin'
+      })
+    expect(createRes.status).toBe(201)
+    order = createRes.body.data
+
+    const afterCreate = await db.product.findByPk(product.id)
+    expect(afterCreate.stock).toBe(9)
+  })
+
+  afterAll(async () => {
+    await db.order_status.destroy({ where: {}, force: true })
+    await db.order_item.destroy({ where: {}, force: true })
+    await db.transaction.destroy({ where: {}, force: true })
+    await db.stock_history.destroy({ where: { product: product.id }, force: true })
+    await db.order.destroy({ where: { store: location.id }, force: true })
+    await db.best_selling.destroy({ where: { productId: product.id }, force: true })
+    await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
+    await db.product.destroy({ where: { id: product.id }, force: true })
+    await db.category.destroy({ where: { id: category.id }, force: true })
+    await db.location.destroy({ where: { id: location.id }, force: true })
+  })
+
+  test('two simultaneous cancel requests for the same paid order produce exactly one refund and restore stock exactly once', async () => {
+    const cancelOrder = () =>
+      request(app)
+        .put('/order/update-status')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ id: order.id, status: 'cancelled', store: location.id })
+
+    // Genuinely concurrent — both in flight before either resolves, racing
+    // on the same order row's lock inside updateOrderStatus's transaction.
+    const [resA, resB] = await Promise.all([cancelOrder(), cancelOrder()])
+
+    // Per the contract: the loser of the race may legally land on the
+    // order's already-cancelled terminal state rather than erroring, so we
+    // do not require a specific [200, xxx] pairing — only that neither
+    // response is a server error, and that the cancellation actually
+    // happened at least once.
+    expect(resA.status).toBeLessThan(500)
+    expect(resB.status).toBeLessThan(500)
+    expect([resA.status, resB.status]).toContain(200)
+
+    const finalOrder = await db.order.findByPk(order.id)
+    expect(finalOrder.status).toBe('cancelled')
+    expect(finalOrder.paymentStatus).toBe('refunded')
+
+    // ONE cancellation -> ONE refund. A duplicate refund would show up as
+    // two negative-amount transaction rows here.
+    const refundTxns = await db.transaction.findAll({
+      where: { order: order.id, amount: { [Op.lt]: 0 } }
+    })
+    expect(refundTxns.length).toBe(1)
+    expect(Number(refundTxns[0].amount)).toBe(-Number(finalOrder.totalPrice))
+
+    // ONE cancellation -> ONE stock restoration. 9 -> 10, never 11 (double
+    // restore) and never left at 9 (no restore at all).
+    const finalProduct = await db.product.findByPk(product.id)
+    expect(finalProduct.stock).toBe(10)
+    expect(finalProduct.stock).toBeGreaterThanOrEqual(0)
+
+    const reversalHistoryCount = await db.stock_history.count({
+      where: { product: product.id, referenceType: 'sale_reversal', referenceId: order.id }
+    })
+    expect(reversalHistoryCount).toBe(1)
+  })
+})
+
+describe('Concurrent sales return of the same sold unit — return, refund and stock restoration happen exactly once (pos.js returnSalesOrder + salesReturn.js approve)', () => {
+  let location, category, product, adminUser, token, order, orderItem
+
+  beforeAll(async () => {
+    location = await db.location.create({ name: 'RACE_RETURN_STORE', status: 'active' })
+    category = await db.category.create({ name: 'RACE_RETURN_CATEGORY' })
+    product = await db.product.create({
+      nameProduct: 'RACE_RETURN_PRODUCT',
+      category: category.id,
+      price: 10000,
+      stock: 10
+    })
+    // sales_return.createdBy has a real FK to user.id (unlike order.js's
+    // createdBy/changedBy columns), so a JWT-only fabricated id 404s at
+    // INSERT time with a SequelizeForeignKeyConstraintError — a real
+    // db.user row is required here, matching sales-return-hardening.test.js's
+    // own fixture convention.
+    adminUser = await db.user.create({
+      userName: 'race_return_admin',
+      email: 'race_return_admin@test.com',
+      roleType: 'admin',
+      userType: 'admin',
+      store: location.id,
+      status: 'active'
+    })
+    token = jwt.sign(
+      { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: location.id },
+      JWT_SECRET
+    )
+
+    const createRes = await request(app)
+      .post('/order/create')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        store: location.id,
+        items: [{ product: product.id, quantity: 1 }],
+        paymentMethod: 'cash',
+        cashierName: 'Race Return Admin'
+      })
+    expect(createRes.status).toBe(201)
+    order = createRes.body.data
+    orderItem = order.items[0]
+
+    const afterCreate = await db.product.findByPk(product.id)
+    expect(afterCreate.stock).toBe(9)
+  })
+
+  afterAll(async () => {
+    await db.sales_return_item.destroy({ where: {}, force: true })
+    await db.sales_return.destroy({ where: { order: order.id }, force: true })
+    await db.order_status.destroy({ where: {}, force: true })
+    await db.order_item.destroy({ where: {}, force: true })
+    await db.transaction.destroy({ where: {}, force: true })
+    await db.stock_history.destroy({ where: { product: product.id }, force: true })
+    await db.order.destroy({ where: { store: location.id }, force: true })
+    await db.best_selling.destroy({ where: { productId: product.id }, force: true })
+    await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
+    await db.product.destroy({ where: { id: product.id }, force: true })
+    await db.category.destroy({ where: { id: category.id }, force: true })
+    await db.user.destroy({ where: { id: adminUser.id }, force: true })
+    await db.location.destroy({ where: { id: location.id }, force: true })
+  })
+
+  test('two concurrent return attempts for the same single sold unit: exactly one is created, approved, refunded, and stock is restored exactly once', async () => {
+    // Each "attempt" is the real end-to-end business operation (create,
+    // then — only if creation actually reserved the unit — approve, which
+    // is where returnSalesOrder/approve's own row locks execute the real
+    // stock-restore and refund side effects). Both attempts are launched
+    // together via Promise.all below, so both create() calls genuinely
+    // race on the same order row's lock before either commits.
+    const attemptReturn = async () => {
+      const createRes = await request(app)
+        .post(`/pos/order/${order.id}/return`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          items: [{ productId: product.id, orderItemId: orderItem.id, qty: 1 }],
+          reason: 'concurrent return race'
+        })
+      if (createRes.status !== 201) {
+        return { createRes, approveRes: null }
+      }
+      const approveRes = await request(app)
+        .patch(`/sales-return/approve/${createRes.body.data.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ id: createRes.body.data.id })
+      return { createRes, approveRes }
+    }
+
+    const [flowA, flowB] = await Promise.all([attemptReturn(), attemptReturn()])
+
+    // Only one unit was ever sold — create-time reservation (the locked
+    // order re-read + returnedQtyMap check in returnSalesOrder, already
+    // proven in sales-return-hardening.test.js's own concurrency suite)
+    // must let exactly one of the two qty=1 requests through.
+    const createStatuses = [flowA.createRes.status, flowB.createRes.status].sort(
+      (a, b) => a - b
+    )
+    expect(createStatuses).toEqual([201, 409])
+
+    const winner = flowA.createRes.status === 201 ? flowA : flowB
+    expect(winner.approveRes.status).toBe(200)
+
+    // ONE valid return — the 409'd attempt created zero rows.
+    const returns = await db.sales_return.findAll({ where: { order: order.id } })
+    expect(returns.length).toBe(1)
+    expect(returns[0].status).toBe('approved')
+
+    // ONE returned quantity, not two.
+    const items = await db.sales_return_item.findAll({
+      where: { salesReturn: returns[0].id }
+    })
+    const totalReturnedQty = items.reduce((s, i) => s + Number(i.qty), 0)
+    expect(totalReturnedQty).toBe(1)
+
+    // ONE refund transaction, for exactly the approved return's amount.
+    const refundTxns = await db.transaction.findAll({
+      where: { order: order.id, amount: { [Op.lt]: 0 } }
+    })
+    expect(refundTxns.length).toBe(1)
+    expect(Number(refundTxns[0].amount)).toBe(-Number(returns[0].refundAmount))
+
+    // ONE stock restoration: 9 -> 10, never 11 (double restore), never
+    // negative.
+    const finalProduct = await db.product.findByPk(product.id)
+    expect(finalProduct.stock).toBe(10)
+    expect(finalProduct.stock).toBeGreaterThanOrEqual(0)
+
+    const restoreHistoryCount = await db.stock_history.count({
+      where: {
+        product: product.id,
+        referenceType: 'sale_return',
+        referenceId: returns[0].id
+      }
+    })
+    expect(restoreHistoryCount).toBe(1)
+  })
 })
