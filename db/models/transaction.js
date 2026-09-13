@@ -19,7 +19,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       amount: {
         allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.BIGINT
       },
       cardNumber: {
         type: DataTypes.STRING
@@ -44,11 +44,11 @@ module.exports = (sequelize, DataTypes) => {
       // non-cash tenders. See cashRegister.cashSalesReceived for the
       // aggregate formula that consumes these two fields.
       cashReceived: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         allowNull: true
       },
       changeGiven: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         allowNull: false,
         defaultValue: 0
       }

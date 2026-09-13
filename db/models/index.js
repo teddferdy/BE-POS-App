@@ -4,6 +4,10 @@ const fs = require('fs')
 const path = require('path')
 const Sequelize = require('sequelize')
 const process = require('process')
+const pg = require('pg')
+// BIGINT (int8) is returned as string by pg by default to avoid precision loss beyond 2^53.
+// Our monetary values are far below 9e15 (safe integer), so return as Number for API compatibility.
+try { pg.types.setTypeParser(20, (val) => (val === null ? null : Number(val))) } catch {}
 
 const basename = path.basename(__filename)
 const env = process.env.NODE_ENV || 'development'
