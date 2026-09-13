@@ -70,7 +70,7 @@ module.exports = {
       fields: ['store', 'name'],
       type: 'unique',
       name: 'uq_member_store_name'
-    })
+    }).catch(() => {})
 
     await queryInterface.sequelize.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS uq_member_global_name

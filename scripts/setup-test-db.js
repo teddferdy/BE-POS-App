@@ -85,7 +85,43 @@ module.exports = async () => {
     })
   }
 
-  // 3. Truncate every table so each run starts from clean state.
+  // 3. Ensure store-scoped member constraints exist even when dev-schema.sql is stale.
+  // CI clones the dev DB from a committed dev-schema.sql snapshot; if that snapshot
+  // predates C13 (20260913000001), the test DB would otherwise miss uq_member_store_name
+  // and uq_member_global_name, causing the DB-level C13 test to pass locally (where the
+  // developer's test DB was already migrated) but fail in a fresh CI clone.
+  // The explicit SQL below idempotently guarantees the two C13 objects.
+  // The old global constraint uq_member_name (20260620000004) is removed if present to
+  // match the migration's intended final state; the new composite and partial index are
+  // created if missing. All statements are guarded so re-runs are safe.
+  try {
+    run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-c', `DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_member_name' AND conrelid = 'public.member'::regclass) THEN
+          ALTER TABLE "member" DROP CONSTRAINT uq_member_name;
+        END IF;
+      EXCEPTION WHEN OTHERS THEN NULL; END $$;`
+    ])
+  } catch {}
+  try {
+    run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-c', `DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_member_store_name' AND conrelid = 'public.member'::regclass) THEN
+          ALTER TABLE "member" ADD CONSTRAINT uq_member_store_name UNIQUE (store, name);
+        END IF;
+      EXCEPTION WHEN duplicate_table THEN NULL; WHEN duplicate_object THEN NULL; WHEN OTHERS THEN NULL; END $$;`
+    ])
+  } catch {}
+  try {
+    run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-c', `CREATE UNIQUE INDEX IF NOT EXISTS uq_member_global_name ON "member" (name) WHERE store IS NULL`
+    ])
+  } catch {}
+
+  // 4. Truncate every table so each run starts from clean state.
   run('psql', [
     '-h',
     DB_HOST,
