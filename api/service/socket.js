@@ -139,6 +139,11 @@ const initSocket = (server) => {
 const emitToKitchen = (storeId, event, data) => {
   if (io) {
     io.to(`kitchen-${storeId}`).emit(event, data)
+    // P0: a super_admin's "All Stores" KDS view joins `kitchen-all` (only
+    // reachable by a verified super_admin socket — see canJoinStore) instead
+    // of any single store's room, so it must also receive every store's
+    // kitchen events or its board silently stops updating in realtime.
+    io.to('kitchen-all').emit(event, data)
   }
 }
 
