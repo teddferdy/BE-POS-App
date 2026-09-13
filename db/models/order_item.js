@@ -26,7 +26,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       price: {
         allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.BIGINT
       },
       discountType: {
         type: DataTypes.ENUM('none', 'percent', 'nominal'),
@@ -37,11 +37,11 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       discountAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       totalPrice: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       options: {
