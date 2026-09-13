@@ -101,18 +101,27 @@ exports.getTableWithActiveOrders = async (req, res) => {
     const locMap = {}
     for (const l of locations) locMap[l.id] = l.name
 
+    // hasOrderColumn guard for redeemedPoints (added in 20260917) — same as order.js getOrderAttributes
+    let orderInclude = {
+      model: Order,
+      as: 'orders',
+      where: {
+        status: ['pending', 'confirmed', 'preparing', 'ready', 'served']
+      },
+      required: false
+    }
+    try {
+      const [col] = await db.sequelize.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = 'order' AND column_name = 'redeemedPoints' LIMIT 1`,
+        { type: db.sequelize.QueryTypes.SELECT }
+      )
+      if (!col) {
+        orderInclude.attributes = { exclude: ['redeemedPoints'] }
+      }
+    } catch {}
     const tables = await Table.findAll({
       where: store ? { store } : {},
-      include: [
-        {
-          model: Order,
-          as: 'orders',
-          where: {
-            status: ['pending', 'confirmed', 'preparing', 'ready', 'served']
-          },
-          required: false
-        }
-      ],
+      include: [orderInclude],
       order: [['createdAt', 'DESC']]
     })
 
