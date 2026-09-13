@@ -59,7 +59,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'pending'
       },
       subTotal: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       discountType: {
@@ -71,7 +71,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       discountAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       taxRate: {
@@ -79,7 +79,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       taxAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       serviceChargeRate: {
@@ -87,7 +87,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       serviceChargeAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       totalQuantity: {
@@ -95,7 +95,7 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0
       },
       totalPrice: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       paymentMethod: {
