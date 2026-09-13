@@ -41,5 +41,8 @@ yarn-error.log*
 # git worktrees
 .worktrees/
 
+# Claude Code worktrees / local config
+.claude/
+
 # superpowers scratch workspace
 .superpowers/
