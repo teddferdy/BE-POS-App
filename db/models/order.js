@@ -175,6 +175,11 @@ module.exports = (sequelize, DataTypes) => {
       cashRegisterId: {
         type: DataTypes.INTEGER,
         allowNull: true
+      },
+      redeemedPoints: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: 0
       }
     },
     {

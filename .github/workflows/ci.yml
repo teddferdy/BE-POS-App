@@ -53,6 +53,7 @@ jobs:
         run: npm test
         env:
           NODE_ENV: test
+          NODE_OPTIONS: --max-old-space-size=6144
           DB_DEV_HOST: localhost
           DB_DEV_PORT: 5432
           DB_DEV_USERNAME: postgres
