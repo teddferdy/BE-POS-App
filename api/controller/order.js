@@ -53,6 +53,7 @@ let _productStoreExists = null
 let _categoryStoreExists = null
 let _orderPromoCampaignCol = null
 let _orderSessionCol = null
+let _orderRedeemedPointsCol = null
 const hasTable = async (tableName) => {
   if (tableName === 'product_store') {
     if (_productStoreExists !== null) return _productStoreExists
@@ -98,6 +99,19 @@ const hasOrderColumn = async (colName) => {
       return false
     }
   }
+  if (colName === 'redeemedPoints') {
+    if (_orderRedeemedPointsCol !== null) return _orderRedeemedPointsCol
+    try {
+      const [results] = await db.sequelize.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_name = 'order' AND column_name = 'redeemedPoints' LIMIT 1`
+      )
+      _orderRedeemedPointsCol = results.length > 0
+      return _orderRedeemedPointsCol
+    } catch {
+      _orderRedeemedPointsCol = false
+      return false
+    }
+  }
   return true
 }
 
@@ -108,6 +122,9 @@ const getOrderAttributes = async () => {
   }
   if (!(await hasOrderColumn('session'))) {
     exclude.push('session')
+  }
+  if (!(await hasOrderColumn('redeemedPoints'))) {
+    exclude.push('redeemedPoints')
   }
   if (exclude.length === 0) return undefined
   return { exclude }
@@ -575,13 +592,15 @@ const calculateOrderTotals = (
   } else if (discountType === 'nominal') {
     discountAmount = discountValue
   }
+  if (discountAmount < 0) discountAmount = 0
+  if (discountAmount > subTotal) discountAmount = subTotal
 
   const afterDiscount = subTotal - discountAmount
   const taxAmount = Math.round(afterDiscount * (taxRate / 100))
   const serviceChargeAmount = Math.round(
     afterDiscount * (serviceChargeRate / 100)
   )
-  const totalPrice = afterDiscount + taxAmount + serviceChargeAmount
+  const totalPrice = Math.max(0, afterDiscount + taxAmount + serviceChargeAmount)
 
   return {
     subTotal,
@@ -676,15 +695,42 @@ const resolveOrderDiscount = async ({
   const POINT_VALUE = 1
   let redeemedPointsUsed = 0
   let pointDiscountAmount = 0
-  if (redeemedPoints > 0 && customerId) {
-    try {
-      const member = await db.member.findByPk(customerId)
-      if (member && (member.totalPoints || 0) >= redeemedPoints) {
-        pointDiscountAmount = redeemedPoints * POINT_VALUE
-        redeemedPointsUsed = redeemedPoints
+  if (redeemedPoints !== undefined && redeemedPoints !== null && redeemedPoints !== '') {
+    const rp = Number(redeemedPoints)
+    if (!Number.isFinite(rp) || !Number.isInteger(rp) || rp < 0) {
+      const e = new Error('redeemedPoints must be a non-negative integer')
+      e.statusCode = 400
+      throw e
+    }
+    if (rp > 0) {
+      if (!customerId) {
+        const e = new Error('customerId is required when redeeming points')
+        e.statusCode = 400
+        throw e
       }
-    } catch (e) {
-      console.error('Point redemption error:', e.message)
+      try {
+        const member = await db.member.findByPk(customerId)
+        if (!member) {
+          const e = new Error('Member not found')
+          e.statusCode = 404
+          throw e
+        }
+        if (member.store !== null && Number(member.store) !== Number(store)) {
+          const e = new Error('Member does not belong to this store')
+          e.statusCode = 403
+          throw e
+        }
+        if ((member.totalPoints || 0) < rp) {
+          const e = new Error('Insufficient point balance')
+          e.statusCode = 400
+          throw e
+        }
+        pointDiscountAmount = rp * POINT_VALUE
+        redeemedPointsUsed = rp
+      } catch (e) {
+        if (e.statusCode) throw e
+        console.error('Point redemption error:', e.message)
+      }
     }
   }
 
@@ -714,6 +760,10 @@ const loadAndPriceOrderItems = async (items, store) => {
   const productById = new Map()
 
   for (const item of items) {
+    const qty = Number(item.quantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return { ok: false, message: `Quantity must be greater than 0` }
+    }
     if (item.bundleId) {
       const bundle = await db.product_bundle.findByPk(item.bundleId, {
         include: [
@@ -743,9 +793,9 @@ const loadAndPriceOrderItems = async (items, store) => {
       item.price = bundlePrice
       item.basePrice = bundlePrice
       item.unitPrice = bundlePrice
-      item.subtotal = bundlePrice * Number(item.quantity)
+      item.subtotal = bundlePrice * qty
 
-      const bundleQty = Number(item.quantity) || 1
+      const bundleQty = qty
       for (const bi of bundle.items) {
         const prod = bi.productData
         if (!prod) {
@@ -782,10 +832,10 @@ const loadAndPriceOrderItems = async (items, store) => {
     item.basePrice = Number(prod.price) || 0
     item.price = serverPrice
     item.unitPrice = serverPrice
-    item.subtotal = serverPrice * Number(item.quantity)
+    item.subtotal = serverPrice * qty
 
     const avail = await getEffectiveStock(prod, store)
-    if (avail !== null && avail < Number(item.quantity)) {
+    if (avail !== null && avail < qty) {
       return {
         ok: false,
         message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${avail}, diminta: ${item.quantity}`
@@ -890,6 +940,17 @@ const calculateFinalTotals = async ({
     )
   }
 
+  // Final invariant guard: discount never exceeds subTotal, total never negative.
+  // Covers promo / nominal huge discounts, point stacking, and any future path.
+  if (totals.discountAmount < 0) totals.discountAmount = 0
+  if (totals.discountAmount > totals.subTotal) totals.discountAmount = totals.subTotal
+  const finalAfterDiscount = totals.subTotal - totals.discountAmount
+  totals.taxAmount = Math.round(finalAfterDiscount * (taxRate / 100))
+  totals.serviceChargeAmount = Math.round(
+    finalAfterDiscount * (serviceChargeRate / 100)
+  )
+  totals.totalPrice = Math.max(0, finalAfterDiscount + totals.taxAmount + totals.serviceChargeAmount)
+
   return { totals, promoDiscountAmount, appliedCampaignId, campaignWithSubtotal }
 }
 
@@ -918,6 +979,7 @@ exports.createOrder = async (req, res) => {
     customerName,
     customerPhone,
     notes,
+    useTax,
     source,
     paymentMethod,
     currencyId,
@@ -968,7 +1030,8 @@ exports.createOrder = async (req, res) => {
     }
     const { bundleMap, productById } = pricing
 
-    const taxRate = await getActiveTaxRate(store)
+    const useTaxFlag = useTax === undefined ? true : Boolean(useTax)
+    const taxRate = useTaxFlag ? await getActiveTaxRate(store) : 0
     const serviceChargeRate = await getServiceChargeRate(store)
 
     const {
@@ -1033,6 +1096,9 @@ exports.createOrder = async (req, res) => {
     }
     if (await hasOrderColumn('promoCampaignId')) {
       orderData.promoCampaignId = appliedCampaignId
+    }
+    if (await hasOrderColumn('redeemedPoints')) {
+      orderData.redeemedPoints = discount.redeemedPointsUsed || 0
     }
     // Order header, its items, the stock deduction, the payment-ledger
     // row, and the initial status row must all commit or all roll back

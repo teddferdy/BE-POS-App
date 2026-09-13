@@ -225,8 +225,8 @@ exports.createOrderSchema = z.object({
   totalCovers: strToNum().optional().default(0),
   shiftId: strToNum().optional().nullable(),
   subTotal: strToNum().optional().default(0),
-  taxRate: z.string().optional().default('0'),
-  serviceChargeRate: z.string().optional().default('0'),
+  taxRate: z.any().optional(),
+  serviceChargeRate: z.any().optional(),
   paymentMethod: z
     .enum([
       'cash',
@@ -258,7 +258,8 @@ exports.createOrderSchema = z.object({
   ).optional(),
   changeAmount: z.any().transform((v) =>
     v === '' || v === null || v === undefined ? null : Number(v)
-  ).optional()
+  ).optional(),
+  useTax: z.boolean().optional().default(true)
 })
 
 exports.updateOrderStatusSchema = z.object({
