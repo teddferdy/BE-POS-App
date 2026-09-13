@@ -6683,6 +6683,14 @@ ALTER TABLE ONLY public.member
 
 
 --
+-- Name: member uq_member_store_name; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member
+    ADD CONSTRAINT uq_member_store_name UNIQUE (store, name);
+
+
+--
 -- Name: member_point_history member_point_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8192,6 +8200,13 @@ CREATE INDEX waiter_request_status ON public.waiter_request USING btree (status)
 --
 
 CREATE INDEX waiter_request_store ON public.waiter_request USING gin (store) WHERE ("deletedAt" IS NULL);
+
+
+--
+-- Name: uq_member_global_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_member_global_name ON public.member USING btree (name) WHERE (store IS NULL);
 
 
 --

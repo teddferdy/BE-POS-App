@@ -900,7 +900,8 @@ const fetchFullOrder = async (orderId) =>
     where: { id: orderId },
     include: [
       { model: OrderItem, as: 'items' },
-      { model: db.transaction, as: 'transactions' }
+      { model: db.transaction, as: 'transactions' },
+      { model: Table, as: 'table' }
     ]
   })
 
@@ -1152,7 +1153,8 @@ exports.createOrder = async (req, res) => {
       where: { id: order.id },
       include: [
         { model: OrderItem, as: 'items' },
-        { model: db.transaction, as: 'transactions' }
+        { model: db.transaction, as: 'transactions' },
+        { model: Table, as: 'table' }
       ]
     })
 
@@ -1919,6 +1921,10 @@ exports.getOrdersByStore = async (req, res) => {
         {
           model: OrderItem,
           as: 'items'
+        },
+        {
+          model: Table,
+          as: 'table'
         }
       ],
       order: [['createdAt', 'DESC']],
@@ -2770,6 +2776,10 @@ exports.getKitchenOrders = async (req, res) => {
               [Op.in]: ['pending', 'preparing', 'ready']
             }
           }
+        },
+        {
+          model: Table,
+          as: 'table'
         }
       ],
       order: [['createdAt', 'DESC']],
