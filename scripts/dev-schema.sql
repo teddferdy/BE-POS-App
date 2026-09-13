@@ -2863,7 +2863,8 @@ CREATE TABLE public."order" (
     session character varying(255),
     "idempotencyKey" character varying(255),
     "publicToken" character varying(64),
-    "cashRegisterId" integer
+    "cashRegisterId" integer,
+    "redeemedPoints" integer DEFAULT 0
 );
 
 
