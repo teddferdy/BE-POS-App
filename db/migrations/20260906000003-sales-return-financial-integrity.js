@@ -38,61 +38,84 @@ module.exports = {
       )
     }
 
-    // sales_return.order — no FK existed at all previously.
-    await queryInterface.addConstraint('sales_return', {
-      fields: ['order'],
-      type: 'foreign key',
-      name: 'sales_return_order_fkey',
-      references: { table: 'order', field: 'id' },
-      onUpdate: 'CASCADE',
-      onDelete: 'RESTRICT'
-    })
+    // sales_return.order — no FK existed at all previously (but may already exist in prod via earlier sync).
+    const srOrderFk = await queryInterface.sequelize.query(
+      `SELECT conname FROM pg_constraint WHERE conname = 'sales_return_order_fkey' AND conrelid = 'public.sales_return'::regclass`,
+      { type: Sequelize.QueryTypes.SELECT }
+    )
+    if (srOrderFk.length === 0) {
+      await queryInterface.addConstraint('sales_return', {
+        fields: ['order'],
+        type: 'foreign key',
+        name: 'sales_return_order_fkey',
+        references: { table: 'order', field: 'id' },
+        onUpdate: 'CASCADE',
+        onDelete: 'RESTRICT'
+      })
+    }
 
     // Raw ALTER rather than changeColumn+ENUM redeclare — avoids any risk
     // of Sequelize attempting to recreate the existing enum type just to
     // flip a nullability flag.
     await queryInterface.sequelize.query(
       'ALTER TABLE "sales_return" ALTER COLUMN "status" SET NOT NULL'
-    )
+    ).catch(() => {})
 
     // sales_return_item.product — tighten from the existing CASCADE
     // (a product delete would otherwise silently destroy return history).
-    await queryInterface.removeConstraint(
-      'sales_return_item',
-      'sales_return_item_product_fkey'
+    // Idempotent: only re-create if the current constraint is not already RESTRICT.
+    const sriFk = await queryInterface.sequelize.query(
+      `SELECT confdeltype FROM pg_constraint WHERE conname = 'sales_return_item_product_fkey' AND conrelid = 'public.sales_return_item'::regclass`,
+      { type: Sequelize.QueryTypes.SELECT }
     )
-    await queryInterface.addConstraint('sales_return_item', {
-      fields: ['product'],
-      type: 'foreign key',
-      name: 'sales_return_item_product_fkey',
-      references: { table: 'product', field: 'id' },
-      onUpdate: 'CASCADE',
-      onDelete: 'RESTRICT'
-    })
+    const needTighten = sriFk.length === 0 || sriFk[0].confdeltype !== 'r' // 'r' = RESTRICT
+    if (needTighten) {
+      await queryInterface.removeConstraint(
+        'sales_return_item',
+        'sales_return_item_product_fkey'
+      ).catch(() => {})
+      await queryInterface.addConstraint('sales_return_item', {
+        fields: ['product'],
+        type: 'foreign key',
+        name: 'sales_return_item_product_fkey',
+        references: { table: 'product', field: 'id' },
+        onUpdate: 'CASCADE',
+        onDelete: 'RESTRICT'
+      }).catch(() => {})
+    }
 
-    // Approval metadata + idempotency.
-    await queryInterface.addColumn('sales_return', 'approvedBy', {
-      type: Sequelize.INTEGER,
-      allowNull: true,
-      references: { model: 'user', key: 'id' },
-      onUpdate: 'CASCADE',
-      onDelete: 'SET NULL'
-    })
-    await queryInterface.addColumn('sales_return', 'approvedAt', {
-      type: Sequelize.DATE,
-      allowNull: true
-    })
-    await queryInterface.addColumn('sales_return', 'refundReference', {
-      type: Sequelize.STRING,
-      allowNull: true
-    })
-    await queryInterface.addColumn('sales_return', 'idempotencyKey', {
-      type: Sequelize.STRING,
-      allowNull: true
-    })
+    // Approval metadata + idempotency (idempotent for prod where previous sync may have partially applied).
+    const srDesc = await queryInterface.describeTable('sales_return')
+    if (!srDesc.approvedBy) {
+      await queryInterface.addColumn('sales_return', 'approvedBy', {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        references: { model: 'user', key: 'id' },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL'
+      })
+    }
+    if (!srDesc.approvedAt) {
+      await queryInterface.addColumn('sales_return', 'approvedAt', {
+        type: Sequelize.DATE,
+        allowNull: true
+      })
+    }
+    if (!srDesc.refundReference) {
+      await queryInterface.addColumn('sales_return', 'refundReference', {
+        type: Sequelize.STRING,
+        allowNull: true
+      })
+    }
+    if (!srDesc.idempotencyKey) {
+      await queryInterface.addColumn('sales_return', 'idempotencyKey', {
+        type: Sequelize.STRING,
+        allowNull: true
+      })
+    }
 
     await queryInterface.sequelize.query(`
-      CREATE UNIQUE INDEX sales_return_order_idempotencykey_unique
+      CREATE UNIQUE INDEX IF NOT EXISTS sales_return_order_idempotencykey_unique
       ON sales_return ("order", "idempotencyKey")
       WHERE "idempotencyKey" IS NOT NULL
     `)
