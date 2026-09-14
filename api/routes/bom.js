@@ -21,6 +21,13 @@ router.get(
   requireRole('super_admin', 'admin'),
   bomController.getById
 )
+router.get(
+  '/get-by-product/:productId',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  bomController.getByProduct
+)
 router.post(
   '/add',
   authorization,

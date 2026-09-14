@@ -83,6 +83,57 @@ const picInclude = {
   attributes: ['id', 'fullName', 'userName']
 }
 
+// F21 Batch 3: purchase_order_item already carries a real `ingredient` FK
+// (validated at PO creation) — this resolves an item's ingredient identity
+// from that FK whenever it's reachable in whichever object shape the four
+// call sites below hand it (the raw create-flow item + its separately
+// resolved `poItem`, or a goods_receipt_item loaded with its nested
+// poItemData/poItemData.ingredientData association), instead of the
+// previous Op.iLike name match, which breaks silently on an ingredient
+// rename and can resolve non-deterministically when two ingredients in the
+// same store share a name. Name matching is kept ONLY as the fallback for
+// a GR line that was never linked to a PO item at all (free-text/manual
+// receiving) — unchanged legacy behavior for that case.
+//
+// When an authoritative id IS present but does not resolve to a real
+// ingredient row for this store (deleted, or a forged/mismatched store),
+// this throws instead of silently skipping the stock/cost/ledger update —
+// every call site already wraps its transaction in try/rollback/re-throw,
+// so the whole receipt fails atomically rather than completing with a
+// quietly-missed mutation.
+const resolveIngredientForItem = async ({ item, poItem, store, transaction }) => {
+  const authoritativeId =
+    Number(item?.ingredient) ||
+    Number(poItem?.ingredient) ||
+    Number(item?.poItemData?.ingredient) ||
+    Number(item?.poItemData?.ingredientData?.id) ||
+    null
+
+  if (authoritativeId) {
+    const ingredient = await db.ingredient.findOne({
+      where: { id: authoritativeId, store },
+      transaction
+    })
+    if (!ingredient) {
+      throw new Error(
+        `Goods receipt references ingredient #${authoritativeId}, which was not found for this store (deleted, or store mismatch)`
+      )
+    }
+    return ingredient
+  }
+
+  const ingName =
+    item?.ingredientName ||
+    item?.poItemData?.ingredientName ||
+    item?.poItemData?.ingredientData?.name
+  if (!ingName) return null
+
+  return db.ingredient.findOne({
+    where: { name: { [Op.iLike]: ingName.trim() }, store },
+    transaction
+  })
+}
+
 // ponytail: weighted-average HPP update when GR costPrice differs from PO price
 const applyCostPrice = async ({ item, qty, store, transaction }) => {
   const costPrice = parseInt(item.costPrice) || 0
@@ -104,10 +155,14 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
     }
   }
 
-  const ingName = item.ingredientName || item.poItemData?.ingredientName
-  if (ingName) {
-    const ingredient = await db.ingredient.findOne({
-      where: { name: { [Op.iLike]: ingName.trim() }, store },
+  {
+    // No separate `poItem` here — item.ingredient (create flow) or
+    // item.poItemData.ingredient/.ingredientData (applyStock flow) already
+    // covers both callers via resolveIngredientForItem's own priority chain.
+    const ingredient = await resolveIngredientForItem({
+      item,
+      poItem: null,
+      store,
       transaction
     })
     if (ingredient) {
@@ -160,16 +215,11 @@ const reverseStock = async (items, store, transaction, userId) => {
       })
     }
 
-    const ingName =
-      grItem.ingredientName ||
-      grItem.poItemData?.ingredientName ||
-      grItem.poItemData?.ingredientData?.name
-    if (ingName) {
-      const ingredient = await db.ingredient.findOne({
-        where: {
-          name: { [Op.iLike]: ingName.trim() },
-          store: store || null
-        },
+    {
+      const ingredient = await resolveIngredientForItem({
+        item: grItem,
+        poItem: null,
+        store: store || null,
         transaction
       })
       if (ingredient) {
@@ -267,13 +317,11 @@ const applyStock = async (items, receipt, transaction, userId) => {
       }
     }
 
-    const ingName =
-      item.ingredientName ||
-      item.poItemData?.ingredientName ||
-      item.poItemData?.ingredientData?.name
-    if (ingName) {
-      const ingredient = await db.ingredient.findOne({
-        where: { name: { [Op.iLike]: ingName.trim() }, store: receipt.store },
+    {
+      const ingredient = await resolveIngredientForItem({
+        item,
+        poItem: null,
+        store: receipt.store,
         transaction
       })
       if (ingredient) {
@@ -764,12 +812,16 @@ const goodsReceiptController = {
             }
           }
 
-          if (item.ingredientName) {
-            const ingredient = await db.ingredient.findOne({
-              where: {
-                name: { [Op.iLike]: item.ingredientName.trim() },
-                store: effectiveStore
-              },
+          {
+            // `poItem` (resolved above via purchaseOrderItem id / ingredient
+            // FK / ingredientName, in that priority order) is passed
+            // explicitly here — it's the one call site where the PO item
+            // was already resolved into a separate local variable rather
+            // than nested inside `item` itself.
+            const ingredient = await resolveIngredientForItem({
+              item,
+              poItem,
+              store: effectiveStore,
               transaction
             })
 

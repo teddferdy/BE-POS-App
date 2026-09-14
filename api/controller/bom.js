@@ -102,6 +102,42 @@ const bomController = {
     }
   },
 
+  // F21 Batch 3 (P2): lets a product-editing page ask "does this product
+  // already have a BOM" without duplicating bom_header's own existence
+  // check (already used internally by create's duplicate-BOM guard) or
+  // pulling the full get-all list. Read-only, no new business logic.
+  async getByProduct(req, res) {
+    try {
+      const { productId } = req.params
+      const store = req.storeId
+      const where = { productId }
+      if (store) where.store = store
+      const bom = await db.bom_header.findOne({
+        where,
+        include: [
+          {
+            model: db.bom_line,
+            as: 'lines',
+            attributes: ['id']
+          }
+        ]
+      })
+
+      if (!bom)
+        return res
+          .status(404)
+          .json({ success: false, message: 'BOM not found for this product' })
+      return res
+        .status(200)
+        .json({ success: true, message: 'Success', data: bom })
+    } catch (error) {
+      console.error('Error =>', error)
+      return res
+        .status(500)
+        .json({ success: false, message: 'Internal server error' })
+    }
+  },
+
   async create(req, res) {
     try {
       // MEDIUM fix: removed req.cookies.store — cookie is client-controlled.
