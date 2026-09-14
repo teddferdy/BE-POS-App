@@ -5,6 +5,7 @@ const request = require('supertest')
 const jwt = require('jsonwebtoken')
 const app = require('../api/index')
 const db = require('../db/models')
+const ingredientController = require('../api/controller/ingredient')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
@@ -272,5 +273,58 @@ describe('Unauthenticated access', () => {
   test('returns 401 without token', async () => {
     const res = await request(app).get('/ingredient/get-all')
     expect(res.status).toBe(401)
+  })
+})
+
+// ===================== F21-03 DEFENSE IN DEPTH =====================
+// getAll previously computed its own store scope from the raw, client-
+// supplied req.query.store instead of the hardened resolveStoreId(req)
+// helper every other function in this file already uses. Over the real
+// route chain, validateStoreAccess already 403s a mismatched ?store= for
+// non-super-admin, so the leak is not reachable via HTTP today — but the
+// controller itself was not independently safe: it trusted req.query.store
+// over req.storeId (the value the middleware actually verified and pinned).
+// This drives the controller directly, the way store-price-contract.test.js
+// already does elsewhere in this suite, to prove the controller's OWN store
+// resolution — not just the route's middleware — is now correct. This is
+// exactly the defense-in-depth class of bug utils/tenantScope.js's own
+// header comment describes: a controller trusting client input directly is
+// only ever as safe as the specific middleware chain in front of it.
+describe('F21-03 getAll trusts req.storeId over a forged req.query.store', () => {
+  const mockRes = () => {
+    const res = { status: jest.fn(() => res), json: jest.fn(() => res) }
+    return res
+  }
+
+  test('a non-super-admin request with req.storeId=store1 but req.query.store=store2 never returns store2 data', async () => {
+    const req = {
+      query: { store: String(ingStore2.store) },
+      user: { roleType: 'admin', store: ingStore1.store },
+      storeId: ingStore1.store
+    }
+    const res = mockRes()
+
+    await ingredientController.getAll(req, res)
+
+    const payload = res.json.mock.calls[0][0]
+    const names = (payload.data || []).map((i) => i.name)
+    expect(names).toContain('TEST_ISOLATION_STORE1')
+    expect(names).not.toContain('TEST_ISOLATION_STORE2')
+  })
+
+  test('a super_admin request with an explicit req.query.store still scopes to that store', async () => {
+    const req = {
+      query: { store: String(ingStore2.store) },
+      user: { roleType: 'super_admin' },
+      storeId: ingStore2.store
+    }
+    const res = mockRes()
+
+    await ingredientController.getAll(req, res)
+
+    const payload = res.json.mock.calls[0][0]
+    const names = (payload.data || []).map((i) => i.name)
+    expect(names).toContain('TEST_ISOLATION_STORE2')
+    expect(names).not.toContain('TEST_ISOLATION_STORE1')
   })
 })

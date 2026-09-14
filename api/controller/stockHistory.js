@@ -2,7 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { createAudit } = require('../../utils/auditLog')
-const { scalarStoreScope, isSuperAdmin } = require('../../utils/tenantScope')
+const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
 
 const stockHistoryController = {
   async getAll(req, res) {
@@ -204,7 +204,17 @@ const stockHistoryController = {
 
   async getLowStockAll(req, res) {
     try {
-      const { page = 1, limit = 20, store, type, search } = req.query
+      const { page = 1, limit = 20, type, search } = req.query
+      // F21-02: this previously read the raw client-supplied req.query.store
+      // instead of the middleware-validated req.storeId. validateStoreAccess
+      // always pins req.storeId to the caller's own store for non-super-admin
+      // regardless of what (or whether) a store query param was supplied, so
+      // omitting the param used to fall through the `if (store)` filter below
+      // and return every store's low-stock data. resolveStoreId is the same
+      // hardened helper already used by getDashboardSummary/other controllers
+      // — super_admin keeps its existing "explicit store, else all stores"
+      // behavior; everyone else is now always scoped to req.storeId.
+      const store = resolveStoreId(req)
 
       const [products, ingredients, locations, productStores] =
         await Promise.all([

@@ -1503,9 +1503,21 @@ order: [['updatedAt', 'DESC']],
         )
       ])
 
+      // F21-01: unlike the ingredient count directly below, this query had
+      // no store scope at all — Product has no `store` column of its own
+      // (it's assigned to stores via the product_store join table), so the
+      // fix mirrors the same EXISTS-against-product_store scoping the
+      // already-correct low-stock detail list uses (stockHistory.js
+      // getLowStockAll), not a bare `AND store = :store`.
+      let lowStockProductQuery = `SELECT COUNT(*)::int as count FROM "product" p WHERE p.status = 'active' AND p."deletedAt" IS NULL AND p."minStock" > 0 AND p."stock" <= p."minStock"`
+      const productReplacements = {}
+      if (store) {
+        lowStockProductQuery += ` AND EXISTS (SELECT 1 FROM "product_store" ps WHERE ps.product = p.id AND ps.store = :store)`
+        productReplacements.store = store
+      }
       const [lowStockProductCount] = await db.sequelize.query(
-        `SELECT COUNT(*)::int as count FROM "product" WHERE status = 'active' AND "deletedAt" IS NULL AND "minStock" > 0 AND "stock" <= "minStock"`,
-        { type: db.sequelize.QueryTypes.SELECT }
+        lowStockProductQuery,
+        { replacements: productReplacements, type: db.sequelize.QueryTypes.SELECT }
       )
       let lowStockIngQuery = `SELECT COUNT(*)::int as count FROM "ingredient" WHERE status = 'active' AND "deletedAt" IS NULL AND "stock" <= "minStock"`
       const ingReplacements = {}
