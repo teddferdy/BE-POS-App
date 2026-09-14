@@ -97,7 +97,17 @@ const purchasePaymentController = {
         })
       }
 
-      const poWhere = { id: { [Op.in]: poIds } }
+      // F21-07: this previously had no status filter at all, unlike
+      // apDashboard's identical-purpose query (`status: {notIn:
+      // ['cancelled', 'draft']}`) — so a draft (not yet a real order) or
+      // cancelled (voided) PO inflated this supplier's balance. The FE
+      // labels this response's `balance` as "Saldo Utang" (outstanding
+      // debt) and gates a Pay action on it being > 0, so the two endpoints
+      // must agree on what counts as a real, payable order.
+      const poWhere = {
+        id: { [Op.in]: poIds },
+        status: { [Op.notIn]: ['cancelled', 'draft'] }
+      }
       if (store && userRole !== 'super_admin') poWhere.store = store
 
       const purchaseOrders = await db.purchase_order.findAll({
