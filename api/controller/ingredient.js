@@ -44,11 +44,26 @@ const ingredientController = {
       if (supplier) {
         andConditions.push({ supplier: Number(supplier) })
       }
+      // F21-05: previously applied after findAndCountAll's own limit/offset
+      // had already paginated (`ingredients.filter(...)` + `count =
+      // ingredients.length`) — a low-stock ingredient outside the raw page
+      // window was invisible, and the reported total was just "how many of
+      // this one page happened to qualify," not a true count. Pushing the
+      // condition into the WHERE clause makes findAndCountAll's own count
+      // and pagination correct by construction. Column-to-column compare
+      // (stock <= minStock), matching the same unguarded low-stock
+      // definition already used by every other ingredient low-stock query
+      // in the codebase (stockHistory.js, pos.js getDashboardSummary).
+      if (lowStock === 'true') {
+        andConditions.push(
+          db.sequelize.where(db.sequelize.col('stock'), Op.lte, db.sequelize.col('minStock'))
+        )
+      }
       if (andConditions.length > 0) {
         where[Op.and] = andConditions
       }
 
-      let { count, rows: ingredients } = await db.ingredient.findAndCountAll({
+      const { count, rows: ingredients } = await db.ingredient.findAndCountAll({
         where,
         include: [
           {
@@ -73,11 +88,6 @@ const ingredientController = {
       })
 
       await enrichAuditFields(db, ingredients)
-
-      if (lowStock === 'true') {
-        ingredients = ingredients.filter((ing) => ing.stock <= ing.minStock)
-        count = ingredients.length
-      }
 
       const storeFilter = store ? { [Op.or]: [{ store }, { store: null }] } : {}
       const [active, draft, inactive] = await Promise.all([
