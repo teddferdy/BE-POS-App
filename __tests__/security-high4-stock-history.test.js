@@ -23,6 +23,8 @@ let superToken = null
 let hist1 = null
 let hist2 = null
 let histGlobal = null
+let lowStockProduct1 = null
+let lowStockProduct2 = null
 
 beforeAll(async () => {
   store1 = await db.location.create({ name: 'HIGH4_STORE_A', status: 'active' })
@@ -32,6 +34,26 @@ beforeAll(async () => {
     nameProduct: 'HIGH4_SHARED_PRODUCT',
     category: category.id,
     price: 1000
+  })
+
+  // F21-02 fixtures: one low-stock product per store, assigned via
+  // product_store so getLowStockAll's own filtering logic can attribute
+  // each to the correct store.
+  lowStockProduct1 = await db.product.create({
+    nameProduct: 'HIGH4_LOWSTOCK_STORE1',
+    category: category.id,
+    price: 1000,
+    stock: 1,
+    minStock: 5,
+    status: 'active'
+  })
+  lowStockProduct2 = await db.product.create({
+    nameProduct: 'HIGH4_LOWSTOCK_STORE2',
+    category: category.id,
+    price: 1000,
+    stock: 1,
+    minStock: 5,
+    status: 'active'
   })
 
   const suffix = Date.now()
@@ -94,6 +116,9 @@ beforeAll(async () => {
     unit: 'pcs',
     notes: 'Unassigned global stock'
   })
+
+  await db.product_store.create({ product: lowStockProduct1.id, store: store1.id })
+  await db.product_store.create({ product: lowStockProduct2.id, store: store2.id })
 })
 
 afterAll(async () => {
@@ -101,7 +126,14 @@ afterAll(async () => {
     where: { product: product?.id },
     force: true
   })
-  await db.product.destroy({ where: { id: product?.id }, force: true })
+  await db.product_store.destroy({
+    where: { product: [lowStockProduct1?.id, lowStockProduct2?.id] },
+    force: true
+  })
+  await db.product.destroy({
+    where: { id: [product?.id, lowStockProduct1?.id, lowStockProduct2?.id] },
+    force: true
+  })
   await db.category.destroy({ where: { id: category?.id }, force: true })
   await db.user.destroy({ where: { id: [9401, 9402] }, force: true })
   await db.location.destroy({
@@ -180,5 +212,62 @@ describe('HIGH-4 stockHistory tenant scoping', () => {
     } else {
       expect(res.status).toBe(403)
     }
+  })
+})
+
+// F21-02 regression: getLowStockAll read the raw, client-supplied
+// req.query.store instead of the middleware-validated req.storeId.
+// validateStoreAccess always pins req.storeId to the caller's own store for
+// non-super-admin regardless of what was supplied — but the controller's
+// own `if (store) {...}` filter only ever looked at req.query.store, so
+// simply omitting the store param (the FE's own default behavior) fell
+// through to returning every store's low-stock data.
+describe('F21-02 stockHistory getLowStockAll tenant scoping', () => {
+  test('store1 admin omitting the store query param sees only store1\'s low-stock product', async () => {
+    const res = await request(app)
+      .get('/stock-history/low-stock-all')
+      .set('Authorization', `Bearer ${admin1Token}`)
+
+    expect(res.status).toBe(200)
+    const ids = res.body.data.items.map((i) => i.id)
+    expect(ids).toContain(lowStockProduct1.id)
+    expect(ids).not.toContain(lowStockProduct2.id)
+  })
+
+  test('store1 admin explicitly requesting store2 cannot see store2\'s low-stock product', async () => {
+    const res = await request(app)
+      .get('/stock-history/low-stock-all')
+      .query({ store: store2.id })
+      .set('Authorization', `Bearer ${admin1Token}`)
+
+    if (res.status === 200) {
+      const ids = res.body.data.items.map((i) => i.id)
+      expect(ids).not.toContain(lowStockProduct2.id)
+    } else {
+      expect(res.status).toBe(403)
+    }
+  })
+
+  test('super_admin omitting the store query param still sees low-stock products from every store', async () => {
+    const res = await request(app)
+      .get('/stock-history/low-stock-all')
+      .set('Authorization', `Bearer ${superToken}`)
+
+    expect(res.status).toBe(200)
+    const ids = res.body.data.items.map((i) => i.id)
+    expect(ids).toContain(lowStockProduct1.id)
+    expect(ids).toContain(lowStockProduct2.id)
+  })
+
+  test('super_admin explicitly requesting store1 sees only store1\'s low-stock product', async () => {
+    const res = await request(app)
+      .get('/stock-history/low-stock-all')
+      .query({ store: store1.id })
+      .set('Authorization', `Bearer ${superToken}`)
+
+    expect(res.status).toBe(200)
+    const ids = res.body.data.items.map((i) => i.id)
+    expect(ids).toContain(lowStockProduct1.id)
+    expect(ids).not.toContain(lowStockProduct2.id)
   })
 })

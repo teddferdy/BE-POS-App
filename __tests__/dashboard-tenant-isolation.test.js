@@ -12,10 +12,37 @@ let storeA = null
 let storeB = null
 let userA = null
 let adminAToken = null
+let category = null
+let lowStockProductA = null
+let lowStockProductB = null
 
 beforeAll(async () => {
   storeA = await db.location.create({ name: 'DASH_ISO_STORE_A', status: 'active' })
   storeB = await db.location.create({ name: 'DASH_ISO_STORE_B', status: 'active' })
+  category = await db.category.create({ name: 'DASH_ISO_CATEGORY' })
+
+  // F21-01 fixtures: one low-stock product per store, each assigned only to
+  // its own store via product_store (the same store-membership table the
+  // already-correct getLowStockAll reference implementation uses).
+  lowStockProductA = await db.product.create({
+    nameProduct: 'DASH_ISO_LOWSTOCK_A',
+    category: category.id,
+    price: 5000,
+    stock: 1,
+    minStock: 5,
+    status: 'active'
+  })
+  await db.product_store.create({ product: lowStockProductA.id, store: storeA.id })
+
+  lowStockProductB = await db.product.create({
+    nameProduct: 'DASH_ISO_LOWSTOCK_B',
+    category: category.id,
+    price: 5000,
+    stock: 1,
+    minStock: 5,
+    status: 'active'
+  })
+  await db.product_store.create({ product: lowStockProductB.id, store: storeB.id })
 
   await db.member.create({ store: storeA.id, name: 'Member A', phoneNumber: '0800000001' })
   await db.member.create({ store: storeB.id, name: 'Member B', phoneNumber: '0800000002' })
@@ -66,6 +93,15 @@ afterAll(async () => {
   await db.order.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
   await db.member.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
   await db.user.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
+  await db.product_store.destroy({
+    where: { product: [lowStockProductA?.id, lowStockProductB?.id] },
+    force: true
+  })
+  await db.product.destroy({
+    where: { id: [lowStockProductA?.id, lowStockProductB?.id] },
+    force: true
+  })
+  await db.category.destroy({ where: { id: category?.id }, force: true })
   await db.location.destroy({ where: { id: [storeA?.id, storeB?.id] }, force: true })
 })
 
@@ -132,5 +168,22 @@ describe('Dashboard endpoints must not leak cross-tenant data when ?store= is om
     // the leak is back.
     expect(Number(res.body.data.totalEarningToday)).toBe(15000)
     expect(Number(res.body.data.totalSellingToday)).toBe(1)
+  })
+
+  // F21-01: getDashboardSummary's low-stock PRODUCT count query had no
+  // store filter at all (unlike the sibling ingredient count query three
+  // lines below it, which already scoped correctly), while the analogous
+  // low-stock DETAIL list elsewhere in the codebase already scopes products
+  // to their own store via the product_store membership table. Store B's
+  // low-stock product must not inflate Store A's dashboard count.
+  test('GET /pos/dashboard/summary low-stock count only reflects products assigned to the caller\'s own store', async () => {
+    const res = await request(app)
+      .get('/pos/dashboard/summary')
+      .set('Authorization', `Bearer ${adminAToken}`)
+    expect(res.status).toBe(200)
+    // storeA owns exactly one low-stock product (lowStockProductA) and must
+    // never be inflated by storeB's low-stock product — before the fix this
+    // counted every low-stock product in the whole deployment.
+    expect(Number(res.body.data.lowStock)).toBe(1)
   })
 })

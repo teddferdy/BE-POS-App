@@ -8,13 +8,16 @@ const excelJS = require('exceljs')
 const ingredientController = {
   async getAll(req, res) {
     try {
-      const storeParam = req.query.store
-      const store =
-        storeParam && !isNaN(Number(storeParam))
-          ? storeParam
-          : req.user?.roleType !== 'super_admin'
-            ? req.user?.store
-            : undefined
+      // F21-03: this previously trusted the raw req.query.store directly
+      // (for any role) instead of resolveStoreId(req) — the same hardened
+      // helper every other function in this file already uses. Over the
+      // real route chain validateStoreAccess already blocks a mismatched
+      // ?store= for non-super-admin, but the controller itself was not
+      // independently safe against a forged/stale store value; resolveStoreId
+      // always prefers req.storeId (the middleware-verified value) for
+      // non-super-admin, and preserves the existing "explicit store, else
+      // all stores" behavior for super_admin.
+      const store = resolveStoreId(req)
       const {
         search,
         status,
