@@ -2009,13 +2009,22 @@ order: [['updatedAt', 'DESC']],
           { type: db.sequelize.QueryTypes.SELECT }
         ),
         // 19. Low stock ingredients
+        // F21-06: this was the one ingredient low-stock query in the
+        // codebase requiring minStock > 0 — every other implementation
+        // (ingredient.js getAll, stockHistory.js getLowStock/getLowStockAll/
+        // autoGeneratePO, this file's own getDashboardSummary ingredient
+        // count) uses the unguarded `stock <= minStock`. An ingredient with
+        // stock=0, minStock=0 counted everywhere except here, so this
+        // dashboard's low-stock detail list silently disagreed with its own
+        // ingredient list page. Dropped the guard to match every other site
+        // rather than add it elsewhere, since the unguarded definition is
+        // the one demonstrably used almost everywhere already.
         db.sequelize.query(
           `SELECT 'ingredient' as type, i.id, i.name,
              i.store, i.stock, i."minStock", i.unit
            FROM "ingredient" i
            WHERE i.status = 'active'
              AND i."deletedAt" IS NULL
-             AND i."minStock" > 0
              AND i."stock" <= i."minStock"
              ${store ? ' AND i."store" = :store' : ''}
            ORDER BY (i."minStock" - i.stock) DESC

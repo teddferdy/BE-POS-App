@@ -128,8 +128,13 @@ const productionOrderController = {
       }
 
       // Try BOM table first
+      // PROD-ORDER-01: scoped to this order's own store + active status,
+      // matching the same {productId, store, status:'active'} shape
+      // checkout's BOM lookup in order.js uses — a product can have a
+      // different BOM per store, so an unscoped lookup could resolve and
+      // display a different store's (or an inactive) recipe here.
       const bomHeader = await db.bom_header.findOne({
-        where: { productId: order.productItemId },
+        where: { productId: order.productItemId, store: order.store, status: 'active' },
         include: [
           {
             model: db.bom_line,
@@ -363,8 +368,12 @@ const productionOrderController = {
       if (status === 'cancelled' && oldStatus === 'in_progress') {
         const transaction = await db.sequelize.transaction()
         try {
+          // PROD-ORDER-01: added the missing store scope (status:'active'
+          // was already present here) — without it this could resolve a
+          // different store's active BOM and restore the WRONG ingredients/
+          // quantities on cancellation.
           const bomHeader = await db.bom_header.findOne({
-            where: { productId: order.productItemId, status: 'active' },
+            where: { productId: order.productItemId, store: order.store, status: 'active' },
             include: [{ model: db.bom_line, as: 'lines' }],
             transaction
           })
@@ -472,8 +481,16 @@ const productionOrderController = {
       // Get BOM components from BOM table first, fallback to product.composition
       const prodData = order.productData
       let bomComponents = []
+      // PROD-ORDER-01: this is the actual stock-deduction path — the most
+      // severe of the three unscoped BOM lookups in this file. Without
+      // store scoping, a product with an active BOM in another store could
+      // have THAT store's BOM resolved here, and its ingredientId values
+      // deducted directly via findByPk further below (no store re-check at
+      // that point) — genuine cross-store ingredient stock corruption, not
+      // just a display bug. Matches checkout's {productId, store,
+      // status:'active'} shape in order.js.
       const bomHeader = await db.bom_header.findOne({
-        where: { productId: prodData.id },
+        where: { productId: prodData.id, store: order.store, status: 'active' },
         include: [{ model: db.bom_line, as: 'lines' }]
       })
       if (bomHeader?.lines?.length) {
