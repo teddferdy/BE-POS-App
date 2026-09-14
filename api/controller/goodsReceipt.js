@@ -146,7 +146,14 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
   if (item.product) {
     const product = await db.product.findByPk(item.product, { transaction })
     if (product) {
-      const oldStock = Number(product.stock) || 0
+      // Batch 7: this read runs AFTER this same transaction's own atomic
+      // `stock + qtyStock` increment for this item already committed
+      // (read-your-own-writes) — product.stock here already includes this
+      // receipt's own incoming quantity. Subtracting qtyStock back out
+      // recovers the true pre-receipt stock the weighted average needs,
+      // without moving this read earlier (which would drop the implicit
+      // row-lock serialization Batch 6 proved concurrent receipts rely on).
+      const oldStock = (Number(product.stock) || 0) - qtyStock
       const oldCost = Number(product.costPrice) || 0
       const newCost = Math.round(
         (oldStock * oldCost + qtyStock * baseUnitCost) / (oldStock + qtyStock)
@@ -166,7 +173,9 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
       transaction
     })
     if (ingredient) {
-      const oldStock = Number(ingredient.stock) || 0
+      // Same read-your-own-writes correction as the product branch above —
+      // ingredient.stock here already includes this receipt's own qtyStock.
+      const oldStock = (Number(ingredient.stock) || 0) - qtyStock
       const oldCost = Number(ingredient.costPrice) || 0
       const newCost = Math.round(
         (oldStock * oldCost + qtyStock * baseUnitCost) / (oldStock + qtyStock)
