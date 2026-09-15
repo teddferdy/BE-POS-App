@@ -8,6 +8,11 @@ const {
 } = require('../../utils/cloudinaryStorage')
 const batchService = require('../service/batchService')
 const { adjustProductStock } = require('../service/stockMutationService')
+const {
+  enqueueAccountingJob,
+  attemptJob,
+  recordImmediateAttempt
+} = require('../service/accountingOutboxService')
 
 const generateReceiptNo = () => {
   const date = new Date()
@@ -889,31 +894,45 @@ const goodsReceiptController = {
           await po.update({ status: 'ordered' }, { transaction })
         }
 
+        // Durable inside the same transaction as the receipt/stock rows
+        // above — a posting failure below is retried, not silently
+        // discarded (same pattern as purchasePayment.js).
+        let journalJob = null
+        if ((req.body.status || 'completed') === 'completed') {
+          journalJob = await enqueueAccountingJob({
+            jobType: 'purchase_journal',
+            store: effectiveStore,
+            referenceType: 'goods_receipt',
+            referenceId: receipt.id,
+            payload: {
+              store: effectiveStore,
+              receiptId: receipt.id,
+              receiptNumber,
+              poNumber: po.orderNumber,
+              totalAmount: po.totalAmount,
+              discount: po.discount,
+              items: receiptItems.map((i) => ({
+                costPrice: i.costPrice,
+                qtyReceived: i.qtyReceived
+              })),
+              date: new Date(receivedDate || Date.now()).toISOString(),
+              createdBy: req.user?.id
+            },
+            transaction
+          })
+        }
+
         await transaction.commit()
 
         const created = await db.goodsReceipt.findByPk(receipt.id, {
           include: [{ model: db.goodsReceiptItem, as: 'items' }]
         })
 
-        if ((req.body.status || 'completed') === 'completed') {
-          try {
-            const {
-              postPurchaseJournal
-            } = require('../service/accountingService')
-            await postPurchaseJournal({
-              store: effectiveStore,
-              receiptId: receipt.id,
-              receiptNumber,
-              poId: purchaseOrderId,
-              poNumber: po.orderNumber,
-              totalAmount: po.totalAmount,
-              discount: po.discount,
-              items: created.items || [],
-              date: receivedDate || new Date(),
-              createdBy: req.user?.id
-            })
-          } catch (e) {
-            console.error('Purchase journal skipped:', e.message)
+        if (journalJob) {
+          const journalResult = await attemptJob(journalJob)
+          await recordImmediateAttempt(journalJob, journalResult)
+          if (!journalResult.ok) {
+            console.error('Purchase journal deferred to retry queue:', journalResult.error)
           }
         }
 
@@ -1367,6 +1386,7 @@ const goodsReceiptController = {
       }
 
       const transaction = await db.sequelize.transaction()
+      let journalJob = null
       try {
         if (status === 'completed') {
           const items = (receipt.items || []).map((i) => ({
@@ -1389,6 +1409,38 @@ const goodsReceiptController = {
           },
           { transaction }
         )
+
+        // Durable inside the same transaction as the status/stock update
+        // above — a posting failure below is retried, not silently
+        // discarded (same pattern as purchasePayment.js).
+        if (status === 'completed') {
+          const po = await db.purchase_order.findByPk(
+            receipt.purchaseOrderId,
+            { transaction }
+          )
+          journalJob = await enqueueAccountingJob({
+            jobType: 'purchase_journal',
+            store: receipt.store,
+            referenceType: 'goods_receipt',
+            referenceId: receipt.id,
+            payload: {
+              store: receipt.store,
+              receiptId: receipt.id,
+              receiptNumber: receipt.receiptNumber,
+              poNumber: po?.orderNumber,
+              totalAmount: po?.totalAmount,
+              discount: po?.discount,
+              items: (receipt.items || []).map((i) => ({
+                costPrice: i.costPrice,
+                qtyReceived: i.qtyReceived
+              })),
+              date: new Date().toISOString(),
+              createdBy: req.user?.id
+            },
+            transaction
+          })
+        }
+
         await transaction.commit()
       } catch (err) {
         await transaction.rollback()
@@ -1403,26 +1455,11 @@ const goodsReceiptController = {
         'Changed goods_receipt status to ' + status + ': ' + id
       )
 
-      if (status === 'completed') {
-        try {
-          const po = await db.purchase_order.findByPk(receipt.purchaseOrderId)
-          const {
-            postPurchaseJournal
-          } = require('../service/accountingService')
-          await postPurchaseJournal({
-            store: receipt.store,
-            receiptId: receipt.id,
-            receiptNumber: receipt.receiptNumber,
-            poId: receipt.purchaseOrderId,
-            poNumber: po?.orderNumber,
-            totalAmount: po?.totalAmount,
-            discount: po?.discount,
-            items: receipt.items || [],
-            date: new Date(),
-            createdBy: req.user?.id
-          })
-        } catch (e) {
-          console.error('Purchase journal skipped:', e.message)
+      if (journalJob) {
+        const journalResult = await attemptJob(journalJob)
+        await recordImmediateAttempt(journalJob, journalResult)
+        if (!journalResult.ok) {
+          console.error('Purchase journal deferred to retry queue:', journalResult.error)
         }
       }
 
