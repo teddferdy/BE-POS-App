@@ -483,6 +483,8 @@ if (!process.env.VERCEL) {
     startAccountingOutboxScheduler
   } = require('./service/accountingOutboxScheduler')
   startAccountingOutboxScheduler()
+  const { startApReminderScheduler } = require('./service/apReminderScheduler')
+  startApReminderScheduler()
 
   // ponytail: graceful shutdown agar koneksi aktif (HTTP & DB pool) tidak
   // terputus paksa saat deploy/restart di tengah trafik tinggi

@@ -799,6 +799,42 @@ ALTER SEQUENCE public.accounts_receivable_id_seq OWNED BY public.accounts_receiv
 
 
 --
+-- Name: ap_reminder_event; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ap_reminder_event (
+    id integer NOT NULL,
+    store integer NOT NULL,
+    "purchaseOrder" integer NOT NULL,
+    classification character varying(20) NOT NULL,
+    "businessDate" date NOT NULL,
+    "notificationId" integer,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: ap_reminder_event_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ap_reminder_event_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ap_reminder_event_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ap_reminder_event_id_seq OWNED BY public.ap_reminder_event.id;
+
+
+--
 -- Name: ar_payment; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5507,6 +5543,13 @@ ALTER TABLE ONLY public.accounts_receivable ALTER COLUMN id SET DEFAULT nextval(
 
 
 --
+-- Name: ap_reminder_event id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ap_reminder_event ALTER COLUMN id SET DEFAULT nextval('public.ap_reminder_event_id_seq'::regclass);
+
+
+--
 -- Name: ar_payment id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -6288,11 +6331,26 @@ ALTER TABLE ONLY public.accounts_receivable
 
 
 --
+-- Name: ap_reminder_event ap_reminder_event_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ap_reminder_event
+    ADD CONSTRAINT ap_reminder_event_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: ar_payment ar_payment_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.ar_payment
     ADD CONSTRAINT ar_payment_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ap_reminder_event_idempotency_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ap_reminder_event_idempotency_key ON public.ap_reminder_event USING btree (store, "purchaseOrder", classification, "businessDate");
 
 
 --
