@@ -145,6 +145,11 @@ const notificationTypes = {
     title: 'Lembur Ditolak',
     description: (employeeName, date, note) =>
       `Lembur ${employeeName || 'Kamu'} pada ${date || ''} ditolak${note ? `. Catatan: ${note}` : '.'}`
+  },
+  ap_reminder: {
+    title: 'Pengingat Jatuh Tempo Utang',
+    description: (orderNumber, classification, outstanding) =>
+      `PO ${orderNumber || ''} (${classification}) — outstanding Rp ${Number(outstanding || 0).toLocaleString('id-ID')}.`
   }
 }
 
