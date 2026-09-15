@@ -1,0 +1,142 @@
+'use strict'
+
+// Phase 22 Batch 3 — Timezone-Aware Due Date Foundation.
+//
+// Single authoritative source for every "what calendar date is it right
+// now, for this store" and "how many days until this due date" question
+// in the codebase. Business-date classification (AP due dates, H-4
+// reminders, etc.) must go through this module rather than reaching for
+// `new Date()` / `toISOString().slice(0, 10)` directly, both of which are
+// silently UTC- or server-local-time-based and therefore wrong for a
+// store observing a different IANA timezone than the server process.
+//
+// Deliberately dependency-free: Node's built-in Intl.DateTimeFormat
+// already carries the full IANA timezone database (including DST
+// transition rules), so no new package (moment-timezone, luxon, etc.) is
+// introduced. `moment` (no timezone plugin) is already a dependency but
+// cannot correctly answer "what date is it in Asia/Jakarta" — only
+// Intl's `timeZone` option can, and it needs nothing extra.
+
+const DEFAULT_TIMEZONE = 'Asia/Jakarta'
+
+// en-CA formats as YYYY-MM-DD directly, avoiding a separate reassembly
+// step from en-US's MM/DD/YYYY output.
+const localDateFormatterCache = new Map()
+const getFormatter = (timezone) => {
+  let fmt = localDateFormatterCache.get(timezone)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    })
+    localDateFormatterCache.set(timezone, fmt)
+  }
+  return fmt
+}
+
+/**
+ * Validate an IANA timezone identifier (e.g. "Asia/Jakarta").
+ * Rejects aliases/abbreviations ("WIB") and fixed-offset strings
+ * ("UTC+7") — those are not valid IANA identifiers.
+ */
+const isValidTimezone = (timezone) => {
+  if (typeof timezone !== 'string' || !timezone.trim()) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The calendar date (YYYY-MM-DD) at `instant` (a real moment in time),
+ * as observed in `timezone`. This is the store's "local date" — the
+ * authoritative business-date used for due-date/reminder classification.
+ * Falls back to DEFAULT_TIMEZONE for a missing/invalid timezone rather
+ * than throwing, since this is read on hot paths (AP dashboard) where a
+ * misconfigured store must not break the whole response.
+ */
+const getStoreLocalDate = (timezone, instant = new Date()) => {
+  const tz = isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE
+  return getFormatter(tz).format(instant instanceof Date ? instant : new Date(instant))
+}
+
+/**
+ * Signed calendar-day difference between two YYYY-MM-DD date strings:
+ * dateA - dateB. Both inputs are already plain calendar dates (no time/
+ * timezone component), so diffing via Date.UTC on both sides is safe —
+ * it does not reintroduce a timezone bug, it just anchors both values on
+ * the same synthetic UTC midnight so DST/offset differences can't skew
+ * the day count the way naive ms/86400000 arithmetic on real instants
+ * would.
+ */
+const daysBetweenDateStrings = (dateA, dateB) => {
+  const [ay, am, ad] = dateA.split('-').map(Number)
+  const [by, bm, bd] = dateB.split('-').map(Number)
+  const utcA = Date.UTC(ay, am - 1, ad)
+  const utcB = Date.UTC(by, bm - 1, bd)
+  return Math.round((utcA - utcB) / 86400000)
+}
+
+/**
+ * daysUntilDue = dueDate - currentStoreLocalDate, as a signed integer.
+ * Returns null when dueDate is missing (Step 12: a missing due date must
+ * never be classified as overdue).
+ */
+const getDaysUntilDue = (dueDate, timezone, now = new Date()) => {
+  if (!dueDate) return null
+  const today = getStoreLocalDate(timezone, now)
+  return daysBetweenDateStrings(dueDate, today)
+}
+
+/**
+ * Backward-compatible with the pre-existing apDashboard() daysOverdue
+ * metric (Batch 1 finding F22-B1-04): max(0, -daysUntilDue). Existing
+ * consumers that only cared about "how many days past due" keep working
+ * unchanged; daysUntilDue is the new, bidirectional signal.
+ */
+const getDaysOverdue = (daysUntilDue) => {
+  if (daysUntilDue === null || daysUntilDue === undefined) return 0
+  return Math.max(0, -daysUntilDue)
+}
+
+const DUE_DATE_CLASSIFICATIONS = Object.freeze({
+  H4: 'H-4',
+  H3: 'H-3',
+  H2: 'H-2',
+  H1: 'H-1',
+  DUE_TODAY: 'DUE_TODAY',
+  OVERDUE: 'OVERDUE',
+  UPCOMING: 'UPCOMING'
+})
+
+/**
+ * The single authoritative H-4..Overdue classification rule. Must not be
+ * reimplemented anywhere else (controller, FE, future scheduler) — every
+ * consumer should call this function (BE) or receive its already-computed
+ * result over the API (FE).
+ */
+const classifyDueDate = (daysUntilDue) => {
+  if (daysUntilDue === null || daysUntilDue === undefined) return null
+  if (daysUntilDue < 0) return DUE_DATE_CLASSIFICATIONS.OVERDUE
+  if (daysUntilDue === 0) return DUE_DATE_CLASSIFICATIONS.DUE_TODAY
+  if (daysUntilDue === 1) return DUE_DATE_CLASSIFICATIONS.H1
+  if (daysUntilDue === 2) return DUE_DATE_CLASSIFICATIONS.H2
+  if (daysUntilDue === 3) return DUE_DATE_CLASSIFICATIONS.H3
+  if (daysUntilDue === 4) return DUE_DATE_CLASSIFICATIONS.H4
+  return DUE_DATE_CLASSIFICATIONS.UPCOMING
+}
+
+module.exports = {
+  DEFAULT_TIMEZONE,
+  DUE_DATE_CLASSIFICATIONS,
+  isValidTimezone,
+  getStoreLocalDate,
+  daysBetweenDateStrings,
+  getDaysUntilDue,
+  getDaysOverdue,
+  classifyDueDate
+}

@@ -111,6 +111,14 @@ module.exports = (sequelize, DataTypes) => {
       parkedCartTtlMinutes: {
         type: DataTypes.INTEGER,
         allowNull: true
+      },
+      // Phase 22 Batch 3 — IANA timezone identifier (e.g. "Asia/Jakarta"),
+      // authoritative for every business-date calculation scoped to this
+      // store (due dates, H-4 classification, ...). NOT a fixed UTC
+      // offset and NOT "WIB"/"WITA"/"WIT" — see utils/businessDate.js.
+      timezone: {
+        type: DataTypes.STRING(50),
+        defaultValue: 'Asia/Jakarta'
       }
     },
     {
