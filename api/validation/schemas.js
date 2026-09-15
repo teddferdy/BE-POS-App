@@ -689,7 +689,20 @@ exports.createExpenseSchema = z
   })
   .passthrough()
 
-exports.updateExpenseSchema = exports.createExpenseSchema.partial()
+// F22-B9-01: createExpenseSchema.partial() alone still carries the base
+// schema's `.default('pending')` on `status` — Zod's .partial() only makes
+// a field optional, it doesn't strip an existing default. That meant a
+// PUT /expense/edit/:id body with no `status` at all had 'pending'
+// silently injected by validation, so the controller's
+// `status: status || expense.status` saw a truthy value and overwrote an
+// approved (or rejected) expense's status. Overriding `status` here to a
+// plain optional enum (no default) makes an omitted field parse to
+// undefined, so the controller's existing fallback correctly preserves
+// the expense's current status. createExpenseSchema itself is untouched —
+// create still defaults a missing status to 'pending'.
+exports.updateExpenseSchema = exports.createExpenseSchema.partial().extend({
+  status: z.enum(['draft', 'pending', 'approved', 'rejected']).optional()
+})
 
 exports.bulkCreateExpensesSchema = z
   .object({
