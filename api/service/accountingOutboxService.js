@@ -39,6 +39,7 @@ const JOB_HANDLERS = {
   purchase_payment_journal: accountingService.postPurchasePaymentJournal,
   purchase_return_journal: accountingService.postPurchaseReturnJournal,
   expense_journal: accountingService.postExpenseJournal,
+  expense_journal_sync: accountingService.syncExpenseJournalFromState,
   overtime_payroll_journal: accountingService.postOvertimePayrollJournal
 }
 
