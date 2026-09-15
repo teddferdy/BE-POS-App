@@ -573,7 +573,8 @@ exports.createPurchaseOrderSchema = z.object({
   dueDate: z.string().optional().nullable(),
   paymentMethod: z.enum(['cash', 'credit']).optional().default('cash'),
   tenor: strToNum().optional().default(0),
-  dpPercent: strToNum().optional().default(0)
+  dpPercent: strToNum().optional().default(0),
+  taxRate: strToNum().optional().default(0)
 })
 
 exports.updatePurchaseOrderSchema = exports.createPurchaseOrderSchema.partial()

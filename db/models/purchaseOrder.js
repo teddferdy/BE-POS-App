@@ -73,6 +73,16 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 0,
         comment: 'Down payment percentage (0-100)'
       },
+      taxRate: {
+        type: DataTypes.DECIMAL(5, 2),
+        defaultValue: 0,
+        comment: 'Purchase tax rate percentage (0-100), applied to (totalAmount - discount)'
+      },
+      taxAmount: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        comment: 'Calculated purchase tax amount, authoritative (BE-computed, not FE-supplied)'
+      },
       additionalCost: {
         type: DataTypes.INTEGER,
         defaultValue: 0,
