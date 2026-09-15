@@ -525,6 +525,28 @@ const purchaseReturnController = {
         })
       }
 
+      // Batch 14: create() deducts item.qty * poItem.conversionToBase (the
+      // Batch 13 fix) — the reversal here must undo that exact same
+      // base-unit amount, not the raw purchase-unit qty, or the forward
+      // and reverse deltas no longer cancel. Mirrors create()'s own
+      // poItemMap lookup.
+      const rejectPoItems = ret.purchaseOrder
+        ? await db.purchase_order_item.findAll({
+            where: { purchaseOrder: ret.purchaseOrder }
+          })
+        : []
+      const rejectPoItemMap = {}
+      rejectPoItems.forEach((pi) => {
+        const key = pi.ingredient
+          ? `ing-${pi.ingredient}`
+          : pi.product
+            ? `prod-${pi.product}`
+            : pi.ingredientName
+              ? `name-${pi.ingredientName}`
+              : null
+        if (key) rejectPoItemMap[key] = Number(pi.conversionToBase) || 1
+      })
+
       const transaction = await db.sequelize.transaction()
       try {
         // Reverse stock: add back what was deducted on creation. Uses the
@@ -533,7 +555,15 @@ const purchaseReturnController = {
         // wrote it as an absolute value, a lost-update race under any
         // concurrent writer to the same product.
         for (const item of ret.items) {
-          const qty = Math.floor(Number(item.qty)) || 0
+          const itemKey = item.ingredient
+            ? `ing-${item.ingredient}`
+            : item.product
+              ? `prod-${item.product}`
+              : item.ingredientName
+                ? `name-${item.ingredientName}`
+                : null
+          const rejectConversion = (itemKey && rejectPoItemMap[itemKey]) || 1
+          const qty = Math.floor((Number(item.qty) || 0) * rejectConversion)
           if (item.product) {
             await adjustProductStock({
               productId: item.product,
