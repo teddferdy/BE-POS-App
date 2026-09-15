@@ -3,6 +3,11 @@ const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const {
+  getDaysUntilDue,
+  getDaysOverdue,
+  classifyDueDate
+} = require('../../utils/businessDate')
+const {
   enqueueAccountingJob,
   attemptJob,
   recordImmediateAttempt
@@ -400,6 +405,11 @@ const purchasePaymentController = {
             model: db.purchase_payment,
             as: 'payments',
             attributes: ['id', 'amount', 'paymentDate', 'supplier']
+          },
+          {
+            model: db.location,
+            as: 'storeData',
+            attributes: ['id', 'timezone']
           }
         ],
         order: [
@@ -479,6 +489,13 @@ const purchasePaymentController = {
           supplierMap[supId].poCount += 1
 
           if (outstanding > 0) {
+            // Phase 22 Batch 3 — store-timezone-aware classification. The
+            // previous daysOverdue was UTC-instant-based and one-way
+            // (clamped any not-yet-due PO to 0, indistinguishable from
+            // "due today" — Batch 1 finding F22-B1-04). daysUntilDue is
+            // the new bidirectional signal; daysOverdue is kept, now
+            // derived from it, for existing consumers.
+            const daysUntilDue = getDaysUntilDue(po.dueDate, po.storeData?.timezone)
             outstandingPOs.push({
               id: po.id,
               orderNumber: po.orderNumber,
@@ -490,15 +507,9 @@ const purchasePaymentController = {
               orderDate: po.orderDate,
               dueDate: po.dueDate,
               status: po.status,
-              daysOverdue: po.dueDate
-                ? Math.max(
-                    0,
-                    Math.floor(
-                      (new Date() - new Date(po.dueDate)) /
-                        (1000 * 60 * 60 * 24)
-                    )
-                  )
-                : 0
+              daysUntilDue,
+              classification: classifyDueDate(daysUntilDue),
+              daysOverdue: getDaysOverdue(daysUntilDue)
             })
           }
         }

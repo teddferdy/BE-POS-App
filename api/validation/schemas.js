@@ -1,6 +1,14 @@
 const { z } = require('zod')
+const { isValidTimezone } = require('../../utils/businessDate')
 
 // --- Helpers ---
+const ianaTimezone = () =>
+  z
+    .string()
+    .refine((v) => isValidTimezone(v), {
+      message: 'must be a valid IANA timezone identifier (e.g. Asia/Jakarta)'
+    })
+
 const strToNum = () =>
   z
     .any()
@@ -315,6 +323,7 @@ exports.createLocationSchema = z.object({
   phoneNumber: z.string().optional().nullable(),
   category: z.string().optional().nullable(),
   status: statusEnum,
+  timezone: ianaTimezone().optional(),
   socialMedia: jsonField().optional().nullable(),
   dailyTarget: strToNum().optional().default(0),
   image: z.string().optional().nullable()

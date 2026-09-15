@@ -2623,6 +2623,7 @@ CREATE TABLE public.location (
     "cashVarianceThreshold" integer,
     "maxActiveParkedCarts" integer,
     "parkedCartTtlMinutes" integer,
+    timezone character varying(50) DEFAULT 'Asia/Jakarta'::character varying,
     CONSTRAINT location_max_active_parked_carts_positive CHECK (("maxActiveParkedCarts" > 0)),
     CONSTRAINT location_parked_cart_ttl_minutes_positive CHECK (("parkedCartTtlMinutes" > 0))
 );

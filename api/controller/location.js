@@ -302,6 +302,7 @@ exports.addNewLocation = async (req, res) => {
     mainBranch,
     openingHours,
     socialMedia,
+    timezone,
     _createdBy
   } = bodyData
 
@@ -393,6 +394,7 @@ exports.addNewLocation = async (req, res) => {
       mainBranch: mainBranch || false,
       openingHours: openingHours || [],
       socialMedia: socialMedia || [],
+      timezone: timezone || undefined,
       createdBy: req.user?.id || null
     })
 
