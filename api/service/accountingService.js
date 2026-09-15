@@ -900,14 +900,33 @@ async function updateExpenseJournal({
   )
   if (!expenseAcc || !payoutAcc) return null
 
+  // F22-B8: two reconciliations for the SAME expense (e.g. an immediate
+  // post-commit attempt racing a scheduler drain tick) can each run this
+  // function in their own transaction. The lookup above isn't locked, so
+  // without a lock here both can destroy+recreate the line rows in an
+  // interleaved way — proven by a concurrent-workers test to produce
+  // duplicate lines (4 instead of 2). Re-fetching under FOR UPDATE inside
+  // the transaction that actually does the rewrite serializes the two:
+  // the second rewrite blocks until the first commits, then re-reads the
+  // now-current row and cleanly replaces its lines. Same lock idiom
+  // already used elsewhere (batchService.js, stockMutationService.js,
+  // promoUsageService.js, loyaltyService.js) — not a new locking system.
   const rewrite = async (t) => {
+    const locked = await db.journal_entry.findByPk(existing.id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE
+    })
+    // Soft-deleted by a concurrent delete-reconciliation while this one
+    // was waiting for the lock — leave it deleted, don't resurrect it.
+    if (!locked) return existing
+
     await db.journal_entry_line.destroy({
-      where: { journalEntry: existing.id },
+      where: { journalEntry: locked.id },
       transaction: t
     })
     await db.journal_entry_line.create(
       {
-        journalEntry: existing.id,
+        journalEntry: locked.id,
         account: expenseAcc.id,
         debit: amt,
         credit: 0,
@@ -920,7 +939,7 @@ async function updateExpenseJournal({
     )
     await db.journal_entry_line.create(
       {
-        journalEntry: existing.id,
+        journalEntry: locked.id,
         account: payoutAcc.id,
         debit: 0,
         credit: amt,
@@ -929,9 +948,9 @@ async function updateExpenseJournal({
       },
       { transaction: t }
     )
-    await existing.update(
+    await locked.update(
       {
-        date: date ? new Date(date) : existing.date,
+        date: date ? new Date(date) : locked.date,
         description: `Expense ${expenseNumber || ''}`.trim(),
         totalDebit: amt,
         totalCredit: amt,
@@ -939,7 +958,7 @@ async function updateExpenseJournal({
       },
       { transaction: t }
     )
-    return existing
+    return locked
   }
 
   if (transaction) return rewrite(transaction)
@@ -1054,6 +1073,56 @@ async function syncExpenseJournal({
   return deleteExpenseJournal({ store, expenseId, createdBy, transaction })
 }
 
+// Outbox handler for jobType 'expense_journal_sync'. Deliberately trusts
+// nothing from the caller except `expenseId` — always re-reads the LIVE
+// expense row and reconciles the journal to match it. This is what makes
+// replaying an old/stale job safe: an event enqueued before a later
+// mutation, if processed after that later mutation already landed, just
+// re-derives the SAME current truth instead of replaying a stale snapshot,
+// so it can never revert or resurrect a journal (see Batch 7 design,
+// PHASE-22-BATCH-7-EXPENSE-OUTBOX-DESIGN.md, sections 7-8).
+//
+// `paranoid: false` is required here: delete() soft-deletes the expense
+// itself, and a soft-deleted row must still converge to "no journal" —
+// the default paranoid scope would hide it from findByPk and this would
+// silently no-op instead of removing the stale journal.
+async function syncExpenseJournalFromState({ expenseId, transaction }) {
+  if (!expenseId) return null
+  const expense = await db.expense.findByPk(expenseId, {
+    include: [{ model: db.expense_category, as: 'categoryData' }],
+    paranoid: false,
+    transaction
+  })
+  if (!expense) return null
+
+  const createdBy = expense.modifiedBy || expense.createdBy
+
+  if (expense.deletedAt) {
+    return deleteExpenseJournal({
+      store: expense.store,
+      expenseId: expense.id,
+      createdBy,
+      transaction
+    })
+  }
+
+  return syncExpenseJournal({
+    store: expense.store,
+    expenseId: expense.id,
+    expenseNumber: expense.expenseNumber,
+    category:
+      expense.categoryData?.name || expense.description || null,
+    categoryAccountCode: expense.categoryData?.accountCode || null,
+    amount: expense.amount,
+    date: expense.date,
+    paymentMethod: expense.paymentMethod,
+    status: expense.status,
+    isActive: expense.isActive,
+    createdBy,
+    transaction
+  })
+}
+
 module.exports = {
   DEFAULT_ACCOUNTS,
   ensureDefaultAccounts,
@@ -1072,5 +1141,6 @@ module.exports = {
   updateExpenseJournal,
   deleteExpenseJournal,
   syncExpenseJournal,
+  syncExpenseJournalFromState,
   postOvertimePayrollJournal
 }

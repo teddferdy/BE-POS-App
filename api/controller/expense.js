@@ -6,6 +6,11 @@ const {
   generateExpenseNumber,
   addInterval
 } = require('../../utils/expenseUtil')
+const {
+  enqueueAccountingJob,
+  attemptJob,
+  recordImmediateAttempt
+} = require('../service/accountingOutboxService')
 
 const toStoreId = (value) => {
   if (value === undefined || value === null || value === '') return null
@@ -251,26 +256,51 @@ const expenseController = {
       const expenseNumber = generateExpenseNumber()
       const resolvedDate = date || new Date()
       const resolvedFrequency = frequency === 'once' ? null : frequency || null
+      const resolvedStatus = status || 'pending'
 
-      const expense = await db.expense.create({
-        store: store || null,
-        expenseNumber,
-        category: resolvedCategory || null,
-        description,
-        amount: amount ? amount : null,
-        date: resolvedDate,
-        paymentMethod: paymentMethod || 'cash',
-        notes,
-        payee: payee || null,
-        employeeId: employeeId || null,
-        receipt,
-        frequency: resolvedFrequency,
-        recurringEndDate: recurringEndDate || null,
-        nextDueDate: resolvedFrequency
-          ? addInterval(new Date(resolvedDate), resolvedFrequency)
-          : null,
-        status: status || 'pending',
-        createdBy
+      let journalJob = null
+      const expense = await db.sequelize.transaction(async (t) => {
+        const created = await db.expense.create(
+          {
+            store: store || null,
+            expenseNumber,
+            category: resolvedCategory || null,
+            description,
+            amount: amount ? amount : null,
+            date: resolvedDate,
+            paymentMethod: paymentMethod || 'cash',
+            notes,
+            payee: payee || null,
+            employeeId: employeeId || null,
+            receipt,
+            frequency: resolvedFrequency,
+            recurringEndDate: recurringEndDate || null,
+            nextDueDate: resolvedFrequency
+              ? addInterval(new Date(resolvedDate), resolvedFrequency)
+              : null,
+            status: resolvedStatus,
+            createdBy
+          },
+          { transaction: t }
+        )
+
+        // Durable inside the same transaction as the expense row above —
+        // a posting failure below is retried, not silently discarded (same
+        // pattern as goodsReceipt.js / purchaseReturn.js). The worker
+        // re-reads live state, so the enqueue itself carries no accounting
+        // snapshot — only the id it needs to reconcile.
+        if (resolvedStatus === 'approved') {
+          journalJob = await enqueueAccountingJob({
+            jobType: 'expense_journal_sync',
+            store: store || created.store,
+            referenceType: 'expense',
+            referenceId: created.id,
+            payload: { expenseId: created.id },
+            transaction: t
+          })
+        }
+
+        return created
       })
 
       createAudit(
@@ -292,27 +322,11 @@ const expenseController = {
         ]
       })
 
-      if (created.status === 'approved') {
-        try {
-          const { syncExpenseJournal } = require('../service/accountingService')
-          await syncExpenseJournal({
-            store: store || created.store,
-            expenseId: created.id,
-            expenseNumber: created.expenseNumber,
-            category:
-              created.categoryData?.name ||
-              created.category ||
-              created.description ||
-              null,
-            categoryAccountCode: created.categoryData?.accountCode || null,
-            amount: created.amount,
-            date: created.date || new Date(),
-            paymentMethod: created.paymentMethod,
-            status: 'approved',
-            createdBy: req.user?.id
-          })
-        } catch (e) {
-          console.error('Expense journal posting skipped:', e.message)
+      if (journalJob) {
+        const journalResult = await attemptJob(journalJob)
+        await recordImmediateAttempt(journalJob, journalResult)
+        if (!journalResult.ok) {
+          console.error('Expense journal deferred to retry queue:', journalResult.error)
         }
       }
 
@@ -344,6 +358,7 @@ const expenseController = {
 
     let transaction
     let committed = false
+    const journalJobs = []
     try {
       transaction = await db.sequelize.transaction()
 
@@ -358,6 +373,7 @@ const expenseController = {
         const resolvedDate = item.date || new Date()
         const resolvedFrequency =
           item.frequency === 'once' ? null : item.frequency || null
+        const resolvedStatus = item.status || 'pending'
 
         const expense = await db.expense.create(
           {
@@ -377,12 +393,24 @@ const expenseController = {
             nextDueDate: resolvedFrequency
               ? addInterval(new Date(resolvedDate), resolvedFrequency)
               : null,
-            status: item.status || 'pending',
+            status: resolvedStatus,
             createdBy
           },
           { transaction }
         )
         created.push(expense)
+
+        if (resolvedStatus === 'approved') {
+          const job = await enqueueAccountingJob({
+            jobType: 'expense_journal_sync',
+            store: store || expense.store,
+            referenceType: 'expense',
+            referenceId: expense.id,
+            payload: { expenseId: expense.id },
+            transaction
+          })
+          journalJobs.push(job)
+        }
       }
 
       await transaction.commit()
@@ -408,31 +436,11 @@ const expenseController = {
         order: [['id', 'ASC']]
       })
 
-      for (const expense of records) {
-        if (expense.status === 'approved') {
-          try {
-            const {
-              syncExpenseJournal
-            } = require('../service/accountingService')
-            await syncExpenseJournal({
-              store: store || expense.store,
-              expenseId: expense.id,
-              expenseNumber: expense.expenseNumber,
-              category:
-                expense.categoryData?.name ||
-                expense.category ||
-                expense.description ||
-                null,
-              categoryAccountCode: expense.categoryData?.accountCode || null,
-              amount: expense.amount,
-              date: expense.date || new Date(),
-              paymentMethod: expense.paymentMethod,
-              status: 'approved',
-              createdBy: req.user?.id
-            })
-          } catch (e) {
-            console.error('Expense journal posting skipped:', e.message)
-          }
+      for (const job of journalJobs) {
+        const journalResult = await attemptJob(job)
+        await recordImmediateAttempt(job, journalResult)
+        if (!journalResult.ok) {
+          console.error('Expense journal deferred to retry queue:', journalResult.error)
         }
       }
 
@@ -518,59 +526,56 @@ const expenseController = {
         nextDueDate = addInterval(new Date(date), resolvedFrequency)
       }
 
-      await expense.update({
-        category: resolvedCategoryId,
-        description:
-          description !== undefined ? description : expense.description,
-        amount:
-          amount !== undefined
-            ? amount || amount === 0
-              ? amount
-              : null
-            : expense.amount,
-        date: date || expense.date,
-        paymentMethod: paymentMethod || expense.paymentMethod,
-        status: status || expense.status,
-        notes: notes !== undefined ? notes : expense.notes,
-        payee: payee !== undefined ? payee || null : expense.payee,
-        employeeId:
-          employeeId !== undefined ? employeeId || null : expense.employeeId,
-        receipt: receipt !== undefined ? receipt : expense.receipt,
-        frequency: resolvedFrequency,
-        recurringEndDate:
-          recurringEndDate !== undefined
-            ? recurringEndDate || null
-            : expense.recurringEndDate || null,
-        nextDueDate,
-        modifiedBy
+      let journalJob = null
+      await db.sequelize.transaction(async (t) => {
+        await expense.update(
+          {
+            category: resolvedCategoryId,
+            description:
+              description !== undefined ? description : expense.description,
+            amount:
+              amount !== undefined
+                ? amount || amount === 0
+                  ? amount
+                  : null
+                : expense.amount,
+            date: date || expense.date,
+            paymentMethod: paymentMethod || expense.paymentMethod,
+            status: status || expense.status,
+            notes: notes !== undefined ? notes : expense.notes,
+            payee: payee !== undefined ? payee || null : expense.payee,
+            employeeId:
+              employeeId !== undefined ? employeeId || null : expense.employeeId,
+            receipt: receipt !== undefined ? receipt : expense.receipt,
+            frequency: resolvedFrequency,
+            recurringEndDate:
+              recurringEndDate !== undefined
+                ? recurringEndDate || null
+                : expense.recurringEndDate || null,
+            nextDueDate,
+            modifiedBy
+          },
+          { transaction: t }
+        )
+
+        // Durable inside the same transaction as the update above. The
+        // worker re-reads live state — no accounting fields need to be
+        // resolved here (the old direct categoryRow lookup is no longer
+        // needed in the controller at all).
+        journalJob = await enqueueAccountingJob({
+          jobType: 'expense_journal_sync',
+          store: store || expense.store,
+          referenceType: 'expense',
+          referenceId: expense.id,
+          payload: { expenseId: expense.id },
+          transaction: t
+        })
       })
 
-      try {
-        const { syncExpenseJournal } = require('../service/accountingService')
-        const categoryRow = expense.category
-          ? await db.expense_category.findOne({
-              where: { id: expense.category }
-            })
-          : null
-        await syncExpenseJournal({
-          store: store || expense.store,
-          expenseId: expense.id,
-          expenseNumber: expense.expenseNumber,
-          category:
-            categoryRow?.name ||
-            expense.description ||
-            expense.expenseNumber ||
-            null,
-          categoryAccountCode: categoryRow?.accountCode || null,
-          amount: expense.amount,
-          date: expense.date || new Date(),
-          paymentMethod: expense.paymentMethod,
-          status: expense.status,
-          isActive: expense.isActive,
-          createdBy: req.user?.id
-        })
-      } catch (e) {
-        console.error('Expense journal sync skipped:', e.message)
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Expense journal deferred to retry queue:', journalResult.error)
       }
 
       createAudit(req, 'update', 'expense', id, `Updated expense: ${id}`)
@@ -613,29 +618,24 @@ const expenseController = {
         })
       }
 
-      await expense.update({ status: 'approved' })
+      let journalJob = null
+      await db.sequelize.transaction(async (t) => {
+        await expense.update({ status: 'approved' }, { transaction: t })
 
-      try {
-        const { syncExpenseJournal } = require('../service/accountingService')
-        const category = await db.expense_category.findOne({
-          where: { id: expense.category || null }
-        })
-        await syncExpenseJournal({
+        journalJob = await enqueueAccountingJob({
+          jobType: 'expense_journal_sync',
           store: store || expense.store,
-          expenseId: expense.id,
-          expenseNumber: expense.expenseNumber,
-          category:
-            category?.name || expense.category || expense.description || null,
-          categoryAccountCode: category?.accountCode || null,
-          amount: expense.amount,
-          date: expense.date || new Date(),
-          paymentMethod: expense.paymentMethod,
-          status: 'approved',
-          isActive: expense.isActive,
-          createdBy: req.user?.id
+          referenceType: 'expense',
+          referenceId: expense.id,
+          payload: { expenseId: expense.id },
+          transaction: t
         })
-      } catch (e) {
-        console.error('Expense journal posting skipped:', e.message)
+      })
+
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Expense journal deferred to retry queue:', journalResult.error)
       }
 
       createAudit(req, 'approve', 'expense', id, `Approved expense: ${id}`)
@@ -677,17 +677,28 @@ const expenseController = {
         })
       }
 
-      await expense.update({ status: 'rejected' })
+      let journalJob = null
+      await db.sequelize.transaction(async (t) => {
+        await expense.update({ status: 'rejected' }, { transaction: t })
 
-      try {
-        const { deleteExpenseJournal } = require('../service/accountingService')
-        await deleteExpenseJournal({
+        // Reconciliation (not a direct deleteExpenseJournal call): the
+        // worker re-reads live status and routes to the delete branch
+        // itself, through the same expense_journal_sync path every other
+        // mutation uses — one job type, no operation-specific variants.
+        journalJob = await enqueueAccountingJob({
+          jobType: 'expense_journal_sync',
           store: store || expense.store,
-          expenseId: expense.id,
-          createdBy: req.user?.id
+          referenceType: 'expense',
+          referenceId: expense.id,
+          payload: { expenseId: expense.id },
+          transaction: t
         })
-      } catch (e) {
-        console.error('Expense journal removal skipped:', e.message)
+      })
+
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Expense journal deferred to retry queue:', journalResult.error)
       }
 
       createAudit(req, 'reject', 'expense', id, `Rejected expense: ${id}`)
@@ -930,32 +941,30 @@ const expenseController = {
         })
       }
 
-      await expense.update({
-        isActive,
-        modifiedBy: req.user?.id || null
+      let journalJob = null
+      await db.sequelize.transaction(async (t) => {
+        await expense.update(
+          {
+            isActive,
+            modifiedBy: req.user?.id || null
+          },
+          { transaction: t }
+        )
+
+        journalJob = await enqueueAccountingJob({
+          jobType: 'expense_journal_sync',
+          store: store || expense.store,
+          referenceType: 'expense',
+          referenceId: expense.id,
+          payload: { expenseId: expense.id },
+          transaction: t
+        })
       })
 
-      try {
-        const { syncExpenseJournal } = require('../service/accountingService')
-        const category = await db.expense_category.findOne({
-          where: { id: expense.category || null }
-        })
-        await syncExpenseJournal({
-          store: store || expense.store,
-          expenseId: expense.id,
-          expenseNumber: expense.expenseNumber,
-          category:
-            category?.name || expense.category || expense.description || null,
-          categoryAccountCode: category?.accountCode || null,
-          amount: expense.amount,
-          date: expense.date || new Date(),
-          paymentMethod: expense.paymentMethod,
-          status: expense.status,
-          isActive,
-          createdBy: req.user?.id
-        })
-      } catch (e) {
-        console.error('Expense journal sync skipped:', e.message)
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Expense journal deferred to retry queue:', journalResult.error)
       }
 
       createAudit(
@@ -999,17 +1008,27 @@ const expenseController = {
         })
       }
 
-      await expense.destroy()
+      let journalJob = null
+      await db.sequelize.transaction(async (t) => {
+        await expense.destroy({ transaction: t })
 
-      try {
-        const { deleteExpenseJournal } = require('../service/accountingService')
-        await deleteExpenseJournal({
+        // The worker loads with paranoid:false so it can see this
+        // soft-deleted row and correctly route to journal removal — see
+        // syncExpenseJournalFromState's deletedAt check.
+        journalJob = await enqueueAccountingJob({
+          jobType: 'expense_journal_sync',
           store: store || expense.store,
-          expenseId: expense.id,
-          createdBy: req.user?.id
+          referenceType: 'expense',
+          referenceId: expense.id,
+          payload: { expenseId: expense.id },
+          transaction: t
         })
-      } catch (e) {
-        console.error('Expense journal removal skipped:', e.message)
+      })
+
+      const journalResult = await attemptJob(journalJob)
+      await recordImmediateAttempt(journalJob, journalResult)
+      if (!journalResult.ok) {
+        console.error('Expense journal deferred to retry queue:', journalResult.error)
       }
 
       createAudit(req, 'delete', 'expense', id, `Deleted expense: ${id}`)
@@ -1172,6 +1191,7 @@ const expenseController = {
       let created = 0
       let skipped = 0
       let categoryId = null
+      const journalJobs = []
 
       await db.sequelize.transaction(async (transaction) => {
         let category = await db.expense_category.findOne({
@@ -1211,8 +1231,6 @@ const expenseController = {
           transaction
         })
 
-        const { syncExpenseJournal } = require('../service/accountingService')
-
         for (const emp of employees) {
           const dup = await db.expense.findOne({
             where: {
@@ -1246,29 +1264,35 @@ const expenseController = {
             { transaction }
           )
 
-          try {
-            await syncExpenseJournal(
-              {
-                store: resolvedStore,
-                expenseId: expense.id,
-                expenseNumber: expense.expenseNumber,
-                category: category.name,
-                categoryAccountCode: category.accountCode || '6100',
-                amount: expense.amount,
-                date: end,
-                paymentMethod: expense.paymentMethod,
-                status: 'approved',
-                createdBy: req.user?.id
-              },
-              { transaction }
-            )
-          } catch (e) {
-            console.error('Salary journal posting skipped:', e.message)
-          }
+          // Durable inside the same transaction as the salary expense row
+          // above. This also resolves the pre-existing bug where
+          // syncExpenseJournal(payload, { transaction }) silently ignored
+          // its second argument (the function takes one object param) and
+          // therefore never actually ran inside this transaction — the
+          // outbox enqueue below correctly threads `transaction` because
+          // enqueueAccountingJob's signature already takes it as one of
+          // its own named fields.
+          const job = await enqueueAccountingJob({
+            jobType: 'expense_journal_sync',
+            store: resolvedStore,
+            referenceType: 'expense',
+            referenceId: expense.id,
+            payload: { expenseId: expense.id },
+            transaction
+          })
+          journalJobs.push(job)
 
           created += 1
         }
       })
+
+      for (const job of journalJobs) {
+        const journalResult = await attemptJob(job)
+        await recordImmediateAttempt(job, journalResult)
+        if (!journalResult.ok) {
+          console.error('Salary journal deferred to retry queue:', journalResult.error)
+        }
+      }
 
       createAudit(
         req,
