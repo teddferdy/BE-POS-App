@@ -1246,13 +1246,19 @@ const expenseController = {
             continue
           }
 
+          // F22-B9-02: user.monthlySalary is DECIMAL(15,2) — Sequelize/pg
+          // always round-trip DECIMAL as a numeric string with 2 decimal
+          // places (e.g. "5000000.00"), which Postgres rejects when bound
+          // straight into expense.amount (INTEGER). Same normalization
+          // idiom already used for monetary values elsewhere
+          // (batchService.js's cost_per_unit).
           const expense = await db.expense.create(
             {
               store: resolvedStore,
               expenseNumber: generateExpenseNumber(),
               category: category.id,
               description: `Gaji ${emp.fullName}`,
-              amount: emp.monthlySalary,
+              amount: Math.round(Number(emp.monthlySalary) || 0),
               date: end,
               paymentMethod: paymentMethod || 'cash',
               notes: `Otomatis (penggajian ${monthLabel})`,

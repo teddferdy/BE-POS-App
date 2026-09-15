@@ -203,23 +203,18 @@ describe('Expense journal posting — durable outbox parity via state reconcilia
     expect(journals.length).toBe(0)
   })
 
-  // generateSalary's amount comes straight from `user.monthlySalary`, a
-  // DECIMAL(15,2) column — Sequelize/pg always round-trips DECIMAL as a
-  // numeric STRING with 2 decimal places (e.g. "4000000.00"), and that
-  // string is passed unconverted into `expense.amount` (INTEGER), which
-  // Postgres rejects (`invalid input syntax for type integer`) for ANY
-  // employee with a monthlySalary set — i.e. generate-salary's real-world
-  // success path is already broken today, independent of F22-B5-03 and
-  // unrelated to this batch's changes (confirmed: `amount: emp.monthlySalary`
-  // is untouched by this diff). Fixing it would be a second, unrelated
-  // production fix — explicitly out of scope (see the implementation
-  // report's "newly discovered, deferred" findings). What IS provable
-  // without touching that bug: the whole operation — category creation,
-  // expense creation, and the new durable-outbox enqueue — is one
-  // transaction, so this pre-existing failure rolls all three back
-  // together, leaving no orphaned expense or outbox row. That is exactly
-  // the atomicity invariant this call site's fix is responsible for.
-  test('generateSalary is transactionally atomic — category, expense, and the new outbox enqueue all roll back together on failure', async () => {
+  // Phase 22 Batch 9 (F22-B9-02) fixed the pre-existing bug this test used
+  // to document: generateSalary's amount comes from `user.monthlySalary`,
+  // a DECIMAL(15,2) column that Sequelize/pg always round-trips as a
+  // numeric STRING (e.g. "4000000.00"), which used to be passed
+  // unconverted into `expense.amount` (INTEGER) and rejected by Postgres.
+  // Now that it's normalized (see expense.js, generateSalary), this test
+  // proves the originally-intended positive path: category creation,
+  // expense creation, and the new durable-outbox enqueue commit together
+  // as one atomic transaction, and the enqueued job is posted correctly.
+  // Dedicated normalization-correctness cases (whole numbers, cents,
+  // no float artifacts) live in __tests__/expense-correctness.test.js.
+  test('generateSalary is transactionally atomic — category, expense, and the outbox enqueue commit together, and the job posts correctly', async () => {
     const employee = await db.user.create({
       userName: 'salary_emp_outbox',
       email: 'salary_emp_outbox@test.com',
@@ -231,28 +226,43 @@ describe('Expense journal posting — durable outbox parity via state reconcilia
     })
 
     try {
-      const beforeExpenseCount = await db.expense.count({ where: { store: location.id } })
-      const beforeOutboxCount = await db.accounting_outbox.count({ where: { store: location.id } })
-
       const res = await request(app)
         .post('/expense/generate-salary')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ store: location.id, employeeIds: [employee.id], paymentMethod: 'cash' })
-      // Confirms the pre-existing bug is still exactly what was found
-      // (not something this batch changed the shape of).
-      expect(res.status).toBe(500)
+      expect(res.status).toBe(201)
+      expect(res.body.data.created).toBe(1)
 
-      const afterExpenseCount = await db.expense.count({ where: { store: location.id } })
-      const afterOutboxCount = await db.accounting_outbox.count({ where: { store: location.id } })
-      expect(afterExpenseCount).toBe(beforeExpenseCount)
-      expect(afterOutboxCount).toBe(beforeOutboxCount)
-
-      const orphanedSalaryExpense = await db.expense.findOne({
+      const salaryExpense = await db.expense.findOne({
         where: { store: location.id, employeeId: employee.id }
       })
-      expect(orphanedSalaryExpense).toBeNull()
+      expect(salaryExpense).not.toBeNull()
+      expect(salaryExpense.amount).toBe(4000000)
+
+      const outboxRows = await outboxFor(salaryExpense.id)
+      expect(outboxRows.map((r) => r.jobType)).toEqual(['expense_journal_sync'])
+      expect(outboxRows[0].status).toBe('posted')
+
+      const journals = await journalFor(location.id, salaryExpense.id)
+      expect(journals.length).toBe(1)
+      expect(Number(journals[0].totalDebit)).toBe(4000000)
     } finally {
-      await db.expense.destroy({ where: { employeeId: employee.id }, force: true })
+      const salaryExpense = await db.expense.findOne({ where: { employeeId: employee.id } })
+      if (salaryExpense) {
+        const journalIds = (
+          await db.journal_entry.findAll({
+            where: { store: location.id, sourceType: 'expense', referenceId: salaryExpense.id },
+            attributes: ['id'],
+            paranoid: false
+          })
+        ).map((j) => j.id)
+        if (journalIds.length > 0) {
+          await db.journal_entry_line.destroy({ where: { journalEntry: journalIds }, force: true })
+          await db.journal_entry.destroy({ where: { id: journalIds }, force: true })
+        }
+        await db.accounting_outbox.destroy({ where: { referenceType: 'expense', referenceId: salaryExpense.id }, force: true })
+        await db.expense.destroy({ where: { id: salaryExpense.id }, force: true })
+      }
       await db.user.destroy({ where: { id: employee.id }, force: true })
     }
   })
