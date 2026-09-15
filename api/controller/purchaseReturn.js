@@ -5,6 +5,11 @@ const { adjustProductStock } = require('../service/stockMutationService')
 const {
   uploadToCloudinaryWithDedup
 } = require('../../utils/cloudinaryStorage')
+const {
+  enqueueAccountingJob,
+  attemptJob,
+  recordImmediateAttempt
+} = require('../service/accountingOutboxService')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -344,6 +349,7 @@ const purchaseReturnController = {
 
       const t = await db.sequelize.transaction()
       let returnTotal = 0
+      let journalJob = null
       try {
         await ret.update({ status: 'approved', resolution }, { transaction: t })
 
@@ -446,23 +452,34 @@ const purchaseReturnController = {
           }
         }
 
-        await t.commit()
-
+        // Durable inside the same transaction as the return/PO/stock rows
+        // above — a posting failure below is retried, not silently
+        // discarded (same pattern as purchasePayment.js / goodsReceipt.js).
         if (returnTotal > 0) {
-          try {
-            const {
-              postPurchaseReturnJournal
-            } = require('../service/accountingService')
-            await postPurchaseReturnJournal({
+          journalJob = await enqueueAccountingJob({
+            jobType: 'purchase_return_journal',
+            store: ret.store,
+            referenceType: 'purchase_return',
+            referenceId: id,
+            payload: {
               store: ret.store,
               purchaseReturnId: id,
               returnNumber: ret.returnNumber,
               amount: returnTotal,
-              date: new Date(),
+              date: new Date().toISOString(),
               createdBy: req.user?.id
-            })
-          } catch (e) {
-            console.error('Purchase return journal skipped:', e.message)
+            },
+            transaction: t
+          })
+        }
+
+        await t.commit()
+
+        if (journalJob) {
+          const journalResult = await attemptJob(journalJob)
+          await recordImmediateAttempt(journalJob, journalResult)
+          if (!journalResult.ok) {
+            console.error('Purchase return journal deferred to retry queue:', journalResult.error)
           }
         }
 
