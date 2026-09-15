@@ -783,7 +783,8 @@ const purchaseReturnController = {
         if (key) {
           poItemMap[key] = {
             receivedQty: Number(pi.receivedQuantity) || 0,
-            alreadyReturned: 0
+            alreadyReturned: 0,
+            conversionToBase: Number(pi.conversionToBase) || 1
           }
         }
       })
@@ -898,13 +899,30 @@ const purchaseReturnController = {
         await db.purchase_return_item.bulkCreate(retItems, { transaction: t })
 
         for (const item of items) {
+          // Batch 13: item.qty is authored in the PO's purchase unit (it is
+          // validated above against receivedQuantity, itself a purchase-
+          // unit accumulator) — convert to base stock unit before mutating
+          // stock, the same way Goods Receipt converts qtyReceived into
+          // qtyStock. Without this, returning e.g. "1 BOX" (conversionToBase
+          // 12) only removed 1 unit of base stock instead of the 12 that
+          // were actually added when that box was received.
+          const itemKey = item.ingredient
+            ? `ing-${item.ingredient}`
+            : item.productId
+              ? `prod-${item.productId}`
+              : item.ingredientName
+                ? `name-${item.ingredientName}`
+                : null
+          const returnConversion =
+            (itemKey && poItemMap[itemKey]?.conversionToBase) || 1
+
           if (item.productId) {
             const product = await db.product.findByPk(item.productId, {
               transaction: t
             })
             if (product) {
               const oldStock = Number(product.stock) || 0
-              const qty = Math.floor(Number(item.qty)) || 0
+              const qty = Math.floor((Number(item.qty) || 0) * returnConversion)
               const newStock = Math.max(oldStock - qty, 0)
               await product.update(
                 { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
@@ -954,7 +972,7 @@ const purchaseReturnController = {
                 })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
-              const qty = Math.floor(Number(item.qty)) || 0
+              const qty = Math.floor((Number(item.qty) || 0) * returnConversion)
               const newStock = Math.max(oldStock - qty, 0)
               await ingredient.update(
                 { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
