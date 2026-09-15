@@ -3846,7 +3846,9 @@ CREATE TABLE public.purchase_order (
     "dpPercent" numeric(5,2) DEFAULT 0,
     "additionalCost" integer DEFAULT 0,
     "overDeliveryTolerance" integer DEFAULT 10,
-    "additionalCostNotes" character varying(255)
+    "additionalCostNotes" character varying(255),
+    "taxRate" numeric(5,2) DEFAULT 0,
+    "taxAmount" integer DEFAULT 0
 );
 
 

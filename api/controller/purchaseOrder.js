@@ -478,6 +478,7 @@ const purchaseOrderController = {
         paymentMethod,
         tenor,
         dpPercent,
+        taxRate = 0,
         additionalCost = 0,
         additionalCostNotes = null,
         overDeliveryTolerance = 10
@@ -529,13 +530,25 @@ const purchaseOrderController = {
           ? items.reduce((sum, item) => sum + item.quantity * item.price, 0)
           : 0
 
-      const finalAmount = totalAmount - discount + (Number(additionalCost) || 0)
+      // Phase 22 Batch 2 — purchase tax foundation. Mirrors the Sales
+      // formula/rounding convention (order.js's calculateOrderTotals:
+      // tax applies to the post-discount base, Math.round, then summed
+      // into the grand total alongside the existing additionalCost term)
+      // without introducing a new engine — tax rate stays PO-level and
+      // manually entered, same as the existing dpPercent field.
+      const safeTaxRate = Math.max(0, Number(taxRate) || 0)
+      const taxableBase = totalAmount - discount
+      const computedTaxAmount = Math.round(taxableBase * (safeTaxRate / 100))
+      const finalAmount =
+        taxableBase + computedTaxAmount + (Number(additionalCost) || 0)
 
       const purchaseOrder = await db.purchase_order.create({
         store: store || null,
         orderNumber,
         totalAmount,
         discount,
+        taxRate: safeTaxRate,
+        taxAmount: computedTaxAmount,
         finalAmount,
         status: status || 'pending',
         orderDate: orderDate || new Date(),
@@ -616,6 +629,7 @@ const purchaseOrderController = {
         paymentMethod,
         tenor,
         dpPercent,
+        taxRate,
         additionalCost,
         additionalCostNotes,
         overDeliveryTolerance
@@ -749,11 +763,21 @@ const purchaseOrderController = {
         additionalCost !== undefined
           ? Number(additionalCost) || 0
           : Number(purchaseOrder.additionalCost) || 0
-      const finalAmount = totalAmount - finalDiscount + finalAdditionalCost
+      // Phase 22 Batch 2 — same formula/rounding as create(): tax applies
+      // to the post-discount base, before additionalCost is added.
+      const finalTaxRate =
+        taxRate !== undefined
+          ? Math.max(0, Number(taxRate) || 0)
+          : Math.max(0, Number(purchaseOrder.taxRate) || 0)
+      const taxableBase = totalAmount - finalDiscount
+      const finalTaxAmount = Math.round(taxableBase * (finalTaxRate / 100))
+      const finalAmount = taxableBase + finalTaxAmount + finalAdditionalCost
 
       await purchaseOrder.update({
         totalAmount,
         discount: finalDiscount,
+        taxRate: finalTaxRate,
+        taxAmount: finalTaxAmount,
         finalAmount,
         status: status || purchaseOrder.status,
         notes: notes !== undefined ? notes : purchaseOrder.notes,
