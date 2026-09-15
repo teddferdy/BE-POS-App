@@ -376,35 +376,52 @@ const posController = {
         where.toStore = req.storeId
       }
 
-      const transfer = await db.stock_transfer.findOne({
-        where,
-        include: [{ model: db.stock_transfer_item, as: 'items' }]
-      })
+      const existing = await db.stock_transfer.findOne({ where })
 
-      if (!transfer) {
+      if (!existing) {
         return res.status(404).json({
           success: false,
           message: 'Stock transfer not found'
         })
       }
 
-      if (transfer.status !== 'sent') {
-        return res.status(400).json({
-          success: false,
-          message: 'Only sent transfers can be received'
-        })
-      }
+      const { toStore } = existing
 
-      const { toStore } = transfer
-
-      // Locked in a stable (ascending product id) order — see the matching
-      // comment in transfer() above.
-      const sortedTransferItems = [...transfer.items].sort(
-        (a, b) => (a.product || 0) - (b.product || 0)
-      )
+      let transfer = null
 
       await withDeadlockRetry(() =>
         db.sequelize.transaction(async (t) => {
+        // Batch 10: re-read under a row lock so two concurrent receives of
+        // the same transfer can't both pass the status guard — the plain
+        // unlocked read above is only used for the 404/store-scope check.
+        // The second transaction blocks here until the first commits, then
+        // sees the committed 'received' status and safely aborts instead
+        // of double-crediting destination stock.
+        // FOR UPDATE can't be applied across the outer join an eager
+        // `include` would add, so the row lock is taken on stock_transfer
+        // alone; items are immutable once created, so a plain read of
+        // them under the now-serialized header lock is safe.
+        transfer = await db.stock_transfer.findOne({
+          where: { id },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        })
+
+        if (!transfer || transfer.status !== 'sent') {
+          throw new Error('Only sent transfers can be received')
+        }
+
+        transfer.items = await db.stock_transfer_item.findAll({
+          where: { stockTransfer: id },
+          transaction: t
+        })
+
+        // Locked in a stable (ascending product id) order — see the matching
+        // comment in transfer() above.
+        const sortedTransferItems = [...transfer.items].sort(
+          (a, b) => (a.product || 0) - (b.product || 0)
+        )
+
         for (const [index, item] of sortedTransferItems.entries()) {
           const product = await db.product.findByPk(item.product, {
             transaction: t,
@@ -536,33 +553,51 @@ const posController = {
         where.fromStore = req.storeId
       }
 
-      const transfer = await db.stock_transfer.findOne({
-        where,
-        include: [{ model: db.stock_transfer_item, as: 'items' }]
-      })
+      const existing = await db.stock_transfer.findOne({ where })
 
-      if (!transfer) {
+      if (!existing) {
         return res.status(404).json({
           success: false,
           message: 'Stock transfer not found'
         })
       }
 
-      if (transfer.status !== 'sent') {
-        return res.status(400).json({
-          success: false,
-          message: 'Only sent transfers can be cancelled'
-        })
-      }
-
-      // Locked in a stable (ascending product id) order — see the matching
-      // comment in transfer() above.
-      const sortedCancelItems = [...transfer.items].sort(
-        (a, b) => (a.product || 0) - (b.product || 0)
-      )
+      let transfer = null
 
       await withDeadlockRetry(() =>
         db.sequelize.transaction(async (t) => {
+        // Batch 11 (BATCH10-02): re-read under a row lock so two
+        // concurrent cancels of the same transfer can't both pass the
+        // status guard — the plain unlocked read above is only used for
+        // the 404/store-scope check. The second transaction blocks here
+        // until the first commits, then sees the committed 'cancelled'
+        // status and safely aborts instead of double-crediting source
+        // stock. Same pattern as the Batch 10 receiveTransfer() fix: FOR
+        // UPDATE can't be applied across the outer join an eager
+        // `include` would add, so the row lock is taken on stock_transfer
+        // alone; items are immutable once created, so a plain read of
+        // them under the now-serialized header lock is safe.
+        transfer = await db.stock_transfer.findOne({
+          where: { id },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        })
+
+        if (!transfer || transfer.status !== 'sent') {
+          throw new Error('Only sent transfers can be cancelled')
+        }
+
+        transfer.items = await db.stock_transfer_item.findAll({
+          where: { stockTransfer: id },
+          transaction: t
+        })
+
+        // Locked in a stable (ascending product id) order — see the matching
+        // comment in transfer() above.
+        const sortedCancelItems = [...transfer.items].sort(
+          (a, b) => (a.product || 0) - (b.product || 0)
+        )
+
         for (const item of sortedCancelItems) {
           const product = await db.product.findByPk(item.product, {
             transaction: t,
