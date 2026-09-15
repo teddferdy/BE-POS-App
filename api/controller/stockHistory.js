@@ -150,8 +150,17 @@ const stockHistoryController = {
         productStoreMap[ps.product].push(ps.store)
       })
 
+      // Batch 12: scope products to the caller's store via product_store
+      // membership when a store is resolved — the same convention already
+      // used by getLowStockAll and getDashboardSummary's low-stock count
+      // (`EXISTS (... ps.store = :store)`). Without this, every store's
+      // low-stock products were returned regardless of caller.
       const lowStockProducts = products
-        .filter((p) => p.stock <= p.minStock)
+        .filter(
+          (p) =>
+            p.stock <= p.minStock &&
+            (!store || (productStoreMap[p.id] || []).includes(Number(store)))
+        )
         .map((p) => ({
           id: p.id,
           nameProduct: p.nameProduct,
