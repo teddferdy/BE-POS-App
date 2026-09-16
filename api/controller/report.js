@@ -51,10 +51,8 @@ exports.getSalesSummary = async (req, res) => {
       // Weekly in store-local calendar: Monday 00:00 to Sunday 23:59:59.999 in store timezone
       const localTodayStr = require('../../utils/businessDate').getStoreLocalDate(storeTimezone, now)
       const [y, m, d] = localTodayStr.split('-').map(Number)
-      const localToday = new Date(`${localTodayStr}T12:00:00${require('../../utils/businessDate').getTimezoneOffset(storeTimezone)}`)
       const dayOfWeek = new Date(`${localTodayStr}T00:00:00${require('../../utils/businessDate').getTimezoneOffset(storeTimezone)}`).getDay()
       const daysSinceMonday = (dayOfWeek + 6) % 7
-      const mondayStr = new Date(Date.UTC(y, m - 1, d - daysSinceMonday)).toISOString().slice(0,10)
       // For weekly, compute Monday in store timezone via offset arithmetic
       const mondayBounds = getStoreDayBounds(
         new Date(Date.UTC(y, m - 1, d - daysSinceMonday)).toISOString().slice(0,10),
