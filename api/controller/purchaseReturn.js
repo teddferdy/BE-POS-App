@@ -830,6 +830,15 @@ const purchaseReturnController = {
         include: [{ model: db.purchase_return_item, as: 'items' }]
       })
 
+      // F22-B10-03: a PO can legitimately have two separate line items for
+      // the SAME product/ingredient from different suppliers (see
+      // purchaseOrder.js's own duplicate-item guard, which keys on
+      // product+supplier, not product alone). A Purchase Return item has
+      // no supplier of its own to disambiguate which line it's against, so
+      // the only correct, non-invented interpretation of "how much is
+      // available to return" is the TRUE combined receivedQuantity across
+      // every PO item sharing that identity key — aggregated here, not
+      // silently overwritten by whichever line happens to be last.
       const poItemMap = {}
       poItems.forEach((pi) => {
         const key = pi.ingredient
@@ -840,10 +849,14 @@ const purchaseReturnController = {
               ? `name-${pi.ingredientName}`
               : null
         if (key) {
+          const existing = poItemMap[key]
           poItemMap[key] = {
-            receivedQty: Number(pi.receivedQuantity) || 0,
+            receivedQty:
+              (existing?.receivedQty || 0) + (Number(pi.receivedQuantity) || 0),
             alreadyReturned: 0,
-            conversionToBase: Number(pi.conversionToBase) || 1
+            conversionToBase: existing
+              ? existing.conversionToBase
+              : Number(pi.conversionToBase) || 1
           }
         }
       })
