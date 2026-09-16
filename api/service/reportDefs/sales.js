@@ -35,7 +35,7 @@ const getData = async (req) => {
     dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
   }
 
-  const orderWhere = { paymentStatus: 'paid' }
+  const orderWhere = { paymentStatus: 'paid', status: { [Op.notIn]: ['cancelled', 'void'] } }
   if (store) orderWhere.store = store
   if (dateRange[Op.gte]) orderWhere.createdAt = dateRange
 
@@ -43,7 +43,7 @@ const getData = async (req) => {
   const locations = await db.location.findAll({ where: storeWhere, attributes: ['id', 'name', 'city'] })
   const rows = await Promise.all(
     locations.map(async (loc) => {
-      const locWhere = { paymentStatus: 'paid', store: loc.id }
+      const locWhere = { paymentStatus: 'paid', status: { [Op.notIn]: ['cancelled', 'void'] }, store: loc.id }
       if (dateRange[Op.gte]) locWhere.createdAt = dateRange
       const [sales, ordersCount] = await Promise.all([
         db.order.sum('totalPrice', { where: locWhere }),

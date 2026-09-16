@@ -21,7 +21,8 @@ const getData = async (req) => {
   // F6-09: a return can flip paymentStatus to 'refunded' after the sale —
   // the original sale must stay in gross figures; the return's own line
   // items (below) are what reduce it to a net figure, not this filter.
-  let orderConditions = `o."paymentStatus" IN ('paid', 'refunded')`
+  // Cancelled/void orders are never active revenue, regardless of paymentStatus.
+  let orderConditions = `o."paymentStatus" IN ('paid', 'refunded') AND o.status NOT IN ('cancelled', 'void')`
 
   if (store) {
     orderConditions += ` AND o."store" = :store`

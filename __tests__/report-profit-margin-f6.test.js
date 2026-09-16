@@ -225,7 +225,7 @@ describe('F6-03 — approved F4 return reconciliation', () => {
 
   test('Test 7: refunded order keeps its legitimate remaining revenue, not discarded outright', async () => {
     const product = await makeProduct('F6_REFUNDED_ORDER_PRODUCT')
-    const order = await makeOrder({ store: storeA.id, totalPrice: 40000, paymentStatus: 'refunded', status: 'cancelled' })
+    const order = await makeOrder({ store: storeA.id, totalPrice: 40000, paymentStatus: 'refunded', status: 'paid' })
     const item = await makeOrderItem({ order, product, quantity: 4, price: 10000, totalPrice: 40000, hppSnapshot: 4000 })
     await makeApprovedReturn({ order, store: storeA.id, product, orderItem: item, qty: 1, price: 10000 })
 
