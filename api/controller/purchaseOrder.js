@@ -5,6 +5,9 @@ const { createAudit } = require('../../utils/auditLog')
 const batchService = require('../service/batchService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { resolveStoreId } = require('../../utils/tenantScope')
+const {
+  calculatePurchaseOrderFulfillmentStatus
+} = require('../service/purchaseOrderFulfillmentService')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -1030,20 +1033,15 @@ const purchaseOrderController = {
           }
         }
 
-        // Re-fetch items to check if all are fully received
-        const updatedItems = await db.purchase_order_item.findAll({
-          where: { purchaseOrder: id },
+        // F22-B10-02: fulfillment is return-aware — see
+        // purchaseOrderFulfillmentService.js. Same gap this endpoint had
+        // independently of goodsReceipt.js's create()/changeStatus().
+        await calculatePurchaseOrderFulfillmentStatus({
+          purchaseOrderId: id,
           transaction
         })
-        const allReceived = updatedItems.every(
-          (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
-        )
-
         await purchaseOrder.update(
-          {
-            status: allReceived ? 'received' : 'ordered',
-            receivedDate: receivedDate || new Date()
-          },
+          { receivedDate: receivedDate || new Date() },
           { transaction }
         )
 

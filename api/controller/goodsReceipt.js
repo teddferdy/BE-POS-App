@@ -13,6 +13,9 @@ const {
   attemptJob,
   recordImmediateAttempt
 } = require('../service/accountingOutboxService')
+const {
+  calculatePurchaseOrderFulfillmentStatus
+} = require('../service/purchaseOrderFulfillmentService')
 
 const generateReceiptNo = () => {
   const date = new Date()
@@ -876,22 +879,18 @@ const goodsReceiptController = {
           await db.goodsReceiptItem.bulkCreate(receiptItems, { transaction })
         }
 
-        // ponytail: re-fetch so receivedQuantity reflects this receipt
-        const freshPoItems = await db.purchase_order_item.findAll({
-          where: { purchaseOrder: purchaseOrderId },
+        // F22-B10-02: fulfillment is return-aware — approved Purchase
+        // Returns reduce net fulfillment without ever decrementing
+        // receivedQuantity itself. See purchaseOrderFulfillmentService.js.
+        const fulfillmentStatus = await calculatePurchaseOrderFulfillmentStatus({
+          purchaseOrderId,
           transaction
         })
-        const allReceived = freshPoItems.every(
-          (pi) => Number(pi.receivedQuantity) >= Number(pi.quantity)
-        )
-
-        if (allReceived) {
+        if (fulfillmentStatus === 'received') {
           await po.update(
-            { status: 'received', receivedDate: receivedDate || new Date() },
+            { receivedDate: receivedDate || new Date() },
             { transaction }
           )
-        } else {
-          await po.update({ status: 'ordered' }, { transaction })
         }
 
         // Durable inside the same transaction as the receipt/stock rows
@@ -1398,6 +1397,14 @@ const goodsReceiptController = {
             ingredientName: i.ingredientName
           }))
           await applyStock(items, receipt, transaction, req.user?.id)
+
+          // F22-B10-02: this completion path incremented receivedQuantity
+          // via applyStock but never recalculated PO fulfillment status at
+          // all — fixed the same way as the create() completion path.
+          await calculatePurchaseOrderFulfillmentStatus({
+            purchaseOrderId: receipt.purchaseOrderId,
+            transaction
+          })
         }
 
         await receipt.update(
