@@ -714,6 +714,31 @@ const purchaseOrderController = {
         const existingItems = await db.purchase_order_item.findAll({
           where: { purchaseOrder: id }
         })
+
+        // F22-B10-07: this destroys every existing PO item and recreates
+        // them from the request body — brand-new ids, and receivedQuantity
+        // only carries over if the new item's identity key happens to
+        // exactly match an old one. Once real receiving has already
+        // happened (any existing item's receivedQuantity > 0), doing this
+        // orphans goodsReceiptItem.purchaseOrderItem FKs pointing at the
+        // now-soft-deleted old rows, and any edit that changes product/
+        // ingredient/supplier silently drops that item's received history,
+        // letting the same physical goods be received again against a
+        // fresh receivedQuantity:0 row. The only existing guard here
+        // blocked 'received'/'cancelled' — an 'ordered' PO that already
+        // has partial receiving was still treated as freely item-mutable.
+        // Header-only updates (no `items` in the payload) are unaffected.
+        const alreadyReceived = existingItems.some(
+          (ei) => (Number(ei.receivedQuantity) || 0) > 0
+        )
+        if (alreadyReceived) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'Cannot modify purchase order items after goods have already been received against this order. Create a Purchase Return instead.'
+          })
+        }
+
         const receivedMap = {}
         existingItems.forEach((ei) => {
           const base = ei.ingredient
