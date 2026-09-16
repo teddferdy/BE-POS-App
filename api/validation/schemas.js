@@ -1084,16 +1084,41 @@ exports.updateIngredientCategorySchema =
   exports.createIngredientCategorySchema.partial()
 
 // ===================== Member Tier =====================
+// Benefits historically arrived as a newline-joined string from the FE
+// (formData.perks.map(...).join("\n")), while the DB column is JSONB array.
+// An empty benefits list therefore arrived as "" (empty string) and the
+// schema's `z.array(... )` rejected it with "expected array, received
+// string" — the exact user-test failure. Preprocess coerces both "" and
+// any newline-delimited string into the canonical array form so empty,
+// string, and array callers all converge to [] or ["a","b"] without
+// changing the stored contract (JSONB array).
+const normalizeBenefitsInput = (v) => {
+  if (typeof v === 'string') {
+    if (v.trim() === '') return []
+    return v
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  if (Array.isArray(v)) {
+    return v
+      .map((b) => (typeof b === 'string' ? b : (b?.text ?? '')))
+      .map((s) => (typeof s === 'string' ? s.trim() : ''))
+      .filter(Boolean)
+  }
+  return v
+}
+
 exports.createMemberTierSchema = z.object({
   name: z.string().min(1, 'name is required'),
   minPoints: z.union([z.number(), strToNum()]).optional().default(0),
   maxPoints: z.union([z.number(), strToNum()]).nullable().optional(),
   discountPercent: z.union([z.number(), strToNum()]).optional().default(0),
   pointMultiplier: z.union([z.number(), strToNum()]).optional().default(1),
-  benefits: z
-    .array(z.union([z.string(), z.object({ text: z.string() })]))
-    .optional()
-    .default([]),
+  benefits: z.preprocess(
+    normalizeBenefitsInput,
+    z.array(z.union([z.string(), z.object({ text: z.string() })])).optional().default([])
+  ),
   color: z.string().optional().default(''),
   status: statusEnum
 })
