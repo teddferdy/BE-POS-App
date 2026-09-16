@@ -203,6 +203,23 @@ const orderItemSchema = z
     productName: z.string().optional(),
     quantity: strToNum(),
     price: strToNum().optional().default(0),
+    priceOverride: z
+      .any()
+      .optional()
+      .transform((v) => {
+        if (v === undefined || v === null || v === '') return undefined
+        const n = Number(v)
+        return Number.isNaN(n) ? v : n
+      })
+      .refine((v) => v === undefined || (typeof v === 'number' && Number.isFinite(v)), {
+        message: 'priceOverride must be a finite number'
+      })
+      .refine((v) => v === undefined || v >= 0, {
+        message: 'priceOverride must not be negative'
+      })
+      .refine((v) => v === undefined || Number.isInteger(v), {
+        message: 'priceOverride must be an integer'
+      }),
     notes: z.string().optional().default(''),
     modifiers: z.array(z.any()).optional().default([]),
     variant: z.string().optional()

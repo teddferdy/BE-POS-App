@@ -744,6 +744,9 @@ const resolveOrderDiscount = async ({
   }
 }
 
+const isAdminRoleForOrder = (user) =>
+  user && (user.roleType === 'admin' || user.roleType === 'super_admin')
+
 // Re-derives every item's price from the DB (never trusts client-sent
 // amounts), loads + validates any referenced bundles, and checks stock for
 // every line — bundle components and regular items alike, in one pass
@@ -751,9 +754,11 @@ const resolveOrderDiscount = async ({
 // place (basePrice/price/unitPrice/subtotal/_origSubtotal) and returns the
 // bundleMap plus a Map of already-fetched regular-item products so the
 // caller doesn't have to re-fetch them again for order-item creation.
-const loadAndPriceOrderItems = async (items, store) => {
+// Supports explicit admin-only priceOverride (transient, per-order) —
+const loadAndPriceOrderItems = async (items, store, user = null) => {
   items.forEach((item) => {
     item._origSubtotal = item.subtotal
+    item._origPrice = item.price
   })
 
   const bundleMap = {}
@@ -764,7 +769,11 @@ const loadAndPriceOrderItems = async (items, store) => {
     if (!Number.isFinite(qty) || qty <= 0) {
       return { ok: false, message: `Quantity must be greater than 0` }
     }
+    const hasPriceOverride = item.priceOverride !== undefined && item.priceOverride !== null
     if (item.bundleId) {
+      if (hasPriceOverride) {
+        return { ok: false, message: `Price override not supported for bundle items` }
+      }
       const bundle = await db.product_bundle.findByPk(item.bundleId, {
         include: [
           {
@@ -828,7 +837,22 @@ const loadAndPriceOrderItems = async (items, store) => {
     }
     productById.set(prod.id, prod)
 
-    const serverPrice = getServerItemPrice(prod, item)
+    let serverPrice
+    if (hasPriceOverride) {
+      if (!isAdminRoleForOrder(user)) {
+        return { ok: false, statusCode: 403, message: `Price override requires admin privileges` }
+      }
+      const overridePrice = Number(item.priceOverride)
+      if (!Number.isFinite(overridePrice) || overridePrice < 0 || !Number.isInteger(overridePrice)) {
+        return { ok: false, message: `Invalid priceOverride` }
+      }
+      serverPrice = overridePrice
+      item._priceOverridden = true
+      item._originalCatalogPrice = Number(prod.price) || 0
+    } else {
+      serverPrice = getServerItemPrice(prod, item)
+      item._priceOverridden = false
+    }
     item.basePrice = Number(prod.price) || 0
     item.price = serverPrice
     item.unitPrice = serverPrice
@@ -1024,9 +1048,9 @@ exports.createOrder = async (req, res) => {
     })
     const { discountValue, discountType, appliedDiscountId } = discount
 
-    const pricing = await loadAndPriceOrderItems(items, store)
+    const pricing = await loadAndPriceOrderItems(items, store, req.user)
     if (!pricing.ok) {
-      return res.status(400).json({ message: pricing.message })
+      return res.status(pricing.statusCode || 400).json({ message: pricing.message })
     }
     const { bundleMap, productById } = pricing
 
@@ -1239,6 +1263,30 @@ exports.createOrder = async (req, res) => {
       order.id,
       `Created order: ${orderNumber}`
     )
+    // Price override audit — transient, per-order, admin-only override
+    const overriddenItems = items.filter((i) => i._priceOverridden)
+    if (overriddenItems.length) {
+      createAudit(
+        req,
+        'update',
+        'order',
+        order.id,
+        `Price override applied to ${overriddenItems.length} item(s)`,
+        {
+          items: overriddenItems.map((i) => ({
+            product: i.product || i.productId,
+            catalogPrice: i._originalCatalogPrice ?? i.basePrice
+          }))
+        },
+        {
+          items: overriddenItems.map((i) => ({
+            product: i.product || i.productId,
+            overriddenPrice: i.price,
+            quantity: i.quantity
+          }))
+        }
+      )
+    }
 
     emitNewOrder(store, fullOrder)
 
@@ -1335,11 +1383,11 @@ const createOrderItems = async (
         product: item.product || item.productId,
         productName: item.productName || product?.nameProduct,
         quantity: item.quantity,
-        price: item.price || item.basePrice,
+        price: item.price ?? item.basePrice,
         discountType,
         discountValue,
         discountAmount: itemDiscountAmount,
-        totalPrice: item.subtotal || item.totalPrice,
+        totalPrice: item.subtotal ?? item.totalPrice,
         options: item.options || [],
         modifiers: item.modifiers || [],
         notes: item.notes,
@@ -3132,7 +3180,12 @@ exports.createCustomerOrder = async (req, res) => {
 
     // ===== SERVER-SIDE PRICE VALIDATION =====
     // Re-calculate all prices from DB. Never trust FE-sent prices.
+    // Price override is never allowed on the public, unauthenticated
+    // customer ordering path — it is an admin-only POS capability.
     for (const item of items) {
+      if (item.priceOverride !== undefined && item.priceOverride !== null) {
+        return res.status(403).json({ message: 'Price override not allowed for customer orders' })
+      }
       if (item.bundleId && bundleMap[item.bundleId]) {
         const bundle = bundleMap[item.bundleId]
         const serverPrice = Number(bundle.bundlePrice) || 0
