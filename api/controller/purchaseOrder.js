@@ -1125,6 +1125,31 @@ const purchaseOrderController = {
         })
       }
 
+      // F22-B10-08: this soft-deletes every PO item then the PO itself.
+      // goodsReceipt/goodsReceiptItem rows are never touched here (they
+      // survive), but default-scoped queries exclude paranoid soft-deleted
+      // rows — orphaning the existing GR's ability to resolve its own PO/
+      // PO-item lineage (e.g. calculatePurchaseOrderFulfillmentStatus, or
+      // a later Purchase Return's item matching). The only existing guard
+      // blocked 'received' — an 'ordered' PO that already has partial
+      // receiving (or a PO cancelled while 'ordered', which never reverses
+      // receivedQuantity) was still deletable. Same guard pattern as
+      // Batch 16's item-mutation fix: block once any existing item already
+      // has receivedQuantity > 0, regardless of the status label.
+      const existingItems = await db.purchase_order_item.findAll({
+        where: { purchaseOrder: id }
+      })
+      const alreadyReceived = existingItems.some(
+        (ei) => (Number(ei.receivedQuantity) || 0) > 0
+      )
+      if (alreadyReceived) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Cannot delete a purchase order that already has received goods. Use cancel instead.'
+        })
+      }
+
       await db.purchase_order_item.destroy({
         where: { purchaseOrder: id }
       })
