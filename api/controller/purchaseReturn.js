@@ -818,17 +818,37 @@ const purchaseReturnController = {
         })
       }
 
-      // Fetch PO items to validate return qty against receivedQty
-      const poItems = await db.purchase_order_item.findAll({
-        where: { purchaseOrder: poId }
-      })
+      // F22-B10-06: this validation used to run entirely before any
+      // transaction opened — a plain, unlocked read of receivedQuantity
+      // and existing returns, checked, and only THEN (much later) did a
+      // transaction begin for the actual writes. Two concurrent return
+      // requests for the same PO item could both read the same
+      // pre-commit state, both individually pass the returnable-quantity
+      // check, and jointly return more than was actually received. The
+      // transaction now opens here, with a row lock on the PO items being
+      // validated, and stays open through the actual writes below — the
+      // second concurrent request's locked read blocks until the first
+      // commits, then sees the now-current receivedQuantity/returned
+      // total. Same lock idiom already used for the analogous Goods
+      // Receipt over-delivery race (goodsReceipt.js) and elsewhere
+      // (purchaseOrder.js, batchService.js, stockMutationService.js,
+      // promoUsageService.js, loyaltyService.js).
+      const t = await db.sequelize.transaction()
+      try {
+        // Fetch PO items to validate return qty against receivedQty
+        const poItems = await db.purchase_order_item.findAll({
+          where: { purchaseOrder: poId },
+          lock: t.LOCK.UPDATE,
+          transaction: t
+        })
 
-      // Fetch existing return items to compute already-returned qty
-      // Note: rejected returns are excluded because they restore stock
-      const existingReturns = await db.purchase_return.findAll({
-        where: { purchaseOrder: poId, status: { [Op.ne]: 'rejected' } },
-        include: [{ model: db.purchase_return_item, as: 'items' }]
-      })
+        // Fetch existing return items to compute already-returned qty
+        // Note: rejected returns are excluded because they restore stock
+        const existingReturns = await db.purchase_return.findAll({
+          where: { purchaseOrder: poId, status: { [Op.ne]: 'rejected' } },
+          include: [{ model: db.purchase_return_item, as: 'items' }],
+          transaction: t
+        })
 
       // F22-B10-03: a PO can legitimately have two separate line items for
       // the SAME product/ingredient from different suppliers (see
@@ -903,6 +923,7 @@ const purchaseReturnController = {
       }
 
       if (errors.length > 0) {
+        await t.rollback()
         return res.status(400).json({
           success: false,
           message: `Return quantity exceeds available: ${errors.join('; ')}`
@@ -943,9 +964,7 @@ const purchaseReturnController = {
         if (urls.length > 0) documentation = JSON.stringify(urls)
       }
 
-      const t = await db.sequelize.transaction()
-      try {
-        const ret = await db.purchase_return.create(
+      const ret = await db.purchase_return.create(
           {
             purchaseOrder: po.id,
             store,
