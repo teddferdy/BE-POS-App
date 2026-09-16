@@ -662,8 +662,21 @@ const goodsReceiptController = {
         const receiptItems = []
         const additionalCost = Number(po.additionalCost) || 0
         const tolerance = Number(po.overDeliveryTolerance) || 10
+        // F22-B10-05: this read feeds the over-delivery validation below
+        // (`remaining = maxDeliverable - alreadyReceived`). Without a lock,
+        // two concurrent receipts against the same PO item can both read
+        // the same pre-commit receivedQuantity, both individually pass the
+        // check, and jointly exceed the PO item's allowed quantity — the
+        // increment itself is atomic (a SQL literal expression), but the
+        // validation gate it's checked against was stale. Locking these
+        // rows serializes concurrent receipts against the same PO: the
+        // second transaction's read blocks until the first commits, then
+        // sees the now-current receivedQuantity. Same lock idiom already
+        // used elsewhere (purchaseOrder.js, batchService.js,
+        // stockMutationService.js, promoUsageService.js, loyaltyService.js).
         const allPoItems = await db.purchase_order_item.findAll({
           where: { purchaseOrder: purchaseOrderId },
+          lock: transaction.LOCK.UPDATE,
           transaction
         })
         const totalPOValue = allPoItems.reduce(
