@@ -24,6 +24,13 @@ const DEFAULT_ACCOUNTS = [
     description: 'Persediaan barang dagang'
   },
   {
+    code: '1250',
+    name: 'Input Tax (Purchases)',
+    type: 'asset',
+    normalBalance: 'debit',
+    description: 'Pajak masukan atas pembelian'
+  },
+  {
     code: '1300',
     name: 'Fixed Assets',
     type: 'asset',
@@ -508,7 +515,8 @@ async function postOrderCogsJournal({
   })
 }
 
-// Purchase journal at goods receipt: Dr Inventory, Cr AP (net of PO discount).
+// Purchase journal at goods receipt: Dr Inventory (+ Input Tax), Cr AP
+// (net of PO discount, inclusive of pro-rated PO tax).
 async function postPurchaseJournal({
   store,
   receiptId,
@@ -516,6 +524,7 @@ async function postPurchaseJournal({
   poNumber,
   totalAmount,
   discount,
+  taxAmount,
   items,
   date,
   createdBy
@@ -539,26 +548,53 @@ async function postPurchaseJournal({
   const apAcc = await findOrCreateAccount(store, '2000')
   if (!inventoryAcc || !apAcc) return null
 
+  // F22-B2-01: PO-level tax was never posted here — AP was credited only
+  // for the tax-exclusive `net`, while purchasePayment.js debits AP up to
+  // the tax-inclusive po.finalAmount, leaving a permanent residual AP
+  // balance for every taxed PO. Pro-rate PO tax across partial receipts
+  // using the same gross/poTotal ratio already used for discount, and post
+  // it as a separate Input Tax debit (Inventory stays tax-exclusive, so
+  // batch/COGS valuation is unaffected) offset by a matching extra AP
+  // credit.
+  const tax = toNumber(taxAmount)
+  let taxPortion = 0
+  let taxAcc = null
+  if (tax > 0 && poTotal > 0) {
+    taxPortion = Math.round((tax * gross) / poTotal)
+    if (taxPortion > 0) taxAcc = await findOrCreateAccount(store, '1250')
+    if (!taxAcc) taxPortion = 0
+  }
+
+  const lines = [
+    {
+      account: inventoryAcc.id,
+      debit: net,
+      credit: 0,
+      description: `Inventory received ${receiptNumber}`
+    }
+  ]
+  if (taxPortion > 0) {
+    lines.push({
+      account: taxAcc.id,
+      debit: taxPortion,
+      credit: 0,
+      description: `Purchase tax for ${receiptNumber}`
+    })
+  }
+  lines.push({
+    account: apAcc.id,
+    debit: 0,
+    credit: net + taxPortion,
+    description: `Accounts payable for ${receiptNumber}${disc > 0 ? ` (net of PO discount ${disc})` : ''}`
+  })
+
   return createJournalEntry({
     store,
     date,
     description: `Goods receipt ${receiptNumber}${poNumber ? ` (PO: ${poNumber})` : ''}`,
     sourceType: 'purchase',
     referenceId: receiptId,
-    lines: [
-      {
-        account: inventoryAcc.id,
-        debit: net,
-        credit: 0,
-        description: `Inventory received ${receiptNumber}`
-      },
-      {
-        account: apAcc.id,
-        debit: 0,
-        credit: net,
-        description: `Accounts payable for ${receiptNumber}${disc > 0 ? ` (net of PO discount ${disc})` : ''}`
-      }
-    ],
+    lines,
     createdBy
   })
 }
