@@ -923,6 +923,7 @@ const goodsReceiptController = {
               poNumber: po.orderNumber,
               totalAmount: po.totalAmount,
               discount: po.discount,
+              taxAmount: po.taxAmount,
               items: receiptItems.map((i) => ({
                 costPrice: i.costPrice,
                 qtyReceived: i.qtyReceived
@@ -1450,6 +1451,7 @@ const goodsReceiptController = {
               poNumber: po?.orderNumber,
               totalAmount: po?.totalAmount,
               discount: po?.discount,
+              taxAmount: po?.taxAmount,
               items: (receipt.items || []).map((i) => ({
                 costPrice: i.costPrice,
                 qtyReceived: i.qtyReceived
