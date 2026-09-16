@@ -933,7 +933,23 @@ const purchaseOrderController = {
           })
 
           for (const item of sortedItems) {
-            const poItem = poItems[item.id]
+            if (!poItems[item.id]) continue
+
+            // Legacy receive() race: `poItems` (built from
+            // `purchaseOrder.items`, loaded before this transaction even
+            // opened) is a stale, unlocked snapshot — maxReceive/receiveQty
+            // computed from it can let two concurrent receive() calls both
+            // read the same pre-commit receivedQuantity and jointly
+            // over-receive. Re-fetching with a row lock here serializes
+            // concurrent receives against the same PO item: the second
+            // transaction's locked read blocks until the first commits,
+            // then sees the now-current receivedQuantity. Same lock idiom
+            // already used a few lines below for product/ingredient rows.
+            const poItem = await db.purchase_order_item.findOne({
+              where: { id: item.id, purchaseOrder: id },
+              transaction,
+              lock: transaction.LOCK.UPDATE
+            })
             if (!poItem) continue
 
             const maxReceive =
