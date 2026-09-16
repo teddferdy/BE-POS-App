@@ -10,6 +10,9 @@ const {
   attemptJob,
   recordImmediateAttempt
 } = require('../service/accountingOutboxService')
+const {
+  calculatePurchaseOrderFulfillmentStatus
+} = require('../service/purchaseOrderFulfillmentService')
 
 const generateOrderNumber = (prefix) => {
   const date = new Date()
@@ -401,6 +404,15 @@ const purchaseReturnController = {
           // receivedQuantity is intentionally NOT reduced: the returned qty
           // stays consumed so those units cannot be received again on this PO
           // (prevents double benefit / double receiving).
+
+          // F22-B10-02: recompute the ORIGINAL PO's fulfillment status now
+          // that this approved return counts against it. Applies for both
+          // resolutions — a replacement PO (if any) is a separate,
+          // unrelated record; only this original PO's status changes here.
+          await calculatePurchaseOrderFulfillmentStatus({
+            purchaseOrderId: ret.purchaseOrder,
+            transaction: t
+          })
 
           if (resolution === 'replacement') {
             const total = resolvedItems.reduce((s, r) => s + r.price * r.qty, 0)
