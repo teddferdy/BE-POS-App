@@ -130,6 +130,32 @@ const classifyDueDate = (daysUntilDue) => {
   return DUE_DATE_CLASSIFICATIONS.UPCOMING
 }
 
+const TIMEZONE_OFFSETS = {
+  'Asia/Jakarta': '+07:00',
+  'Asia/Pontianak': '+07:00',
+  'Asia/Makassar': '+08:00',
+  'Asia/Makassar ': '+08:00',
+  'Asia/Ujung_Pandang': '+08:00',
+  'Asia/Jayapura': '+09:00'
+}
+
+const getTimezoneOffset = (timezone) => {
+  const tz = isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE
+  return TIMEZONE_OFFSETS[tz] || '+07:00'
+}
+
+const getStoreDayBounds = (dateStr, timezone) => {
+  const offset = getTimezoneOffset(timezone)
+  const start = new Date(`${dateStr}T00:00:00${offset}`)
+  const end = new Date(`${dateStr}T23:59:59.999${offset}`)
+  return { start, end }
+}
+
+const getStoreTodayBounds = (timezone, now = new Date()) => {
+  const localDateStr = getStoreLocalDate(timezone, now)
+  return getStoreDayBounds(localDateStr, timezone)
+}
+
 module.exports = {
   DEFAULT_TIMEZONE,
   DUE_DATE_CLASSIFICATIONS,
@@ -138,5 +164,8 @@ module.exports = {
   daysBetweenDateStrings,
   getDaysUntilDue,
   getDaysOverdue,
-  classifyDueDate
+  classifyDueDate,
+  getTimezoneOffset,
+  getStoreDayBounds,
+  getStoreTodayBounds
 }

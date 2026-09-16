@@ -1,6 +1,7 @@
 'use strict'
 const db = require('../../../db/models')
 const { assertReportStore } = require('./getReportStore')
+const { getStoreDayBounds, DEFAULT_TIMEZONE } = require('../../../utils/businessDate')
 
 const defaultColumns = [
   { key: 'date', label: 'Tanggal', type: 'date', width: 14, align: 'left' },
@@ -32,36 +33,47 @@ const getData = async (req) => {
   const store = assertReportStore(req)
   const { startDate, endDate } = req.query
   const replacements = {}
+  // Store-local business date: resolve timezone from location, fallback to DEFAULT_TIMEZONE.
+  // For global super_admin without store, keep UTC (DEFAULT_TIMEZONE) and document limitation.
+  let storeTimezone = DEFAULT_TIMEZONE
+  if (store) {
+    try {
+      const loc = await db.location.findByPk(store, { attributes: ['timezone'] })
+      if (loc?.timezone) storeTimezone = loc.timezone
+    } catch {}
+  }
+  replacements.storeTimezone = storeTimezone
   // F6-09: a return can flip paymentStatus to 'refunded' after the sale —
   // the original sale must stay in gross figures; the return-side queries
   // below are what reduce it to a net figure, not this filter.
-  let orderConditions = `"paymentStatus" IN ('paid', 'refunded')`
+  // Cancelled/void orders are never active revenue, regardless of paymentStatus.
+  let orderConditions = `"paymentStatus" IN ('paid', 'refunded') AND o.status NOT IN ('cancelled', 'void')`
 
   if (store) {
     orderConditions += ` AND o."store" = :store`
     replacements.store = store
   }
   if (startDate) {
+    const startBounds = getStoreDayBounds(String(startDate).slice(0, 10), storeTimezone)
     orderConditions += ` AND o."createdAt" >= :startDate`
-    replacements.startDate = new Date(startDate)
+    replacements.startDate = startBounds.start
   }
   if (endDate) {
-    const end = new Date(endDate)
-    end.setHours(23, 59, 59, 999)
+    const endBounds = getStoreDayBounds(String(endDate).slice(0, 10), storeTimezone)
     orderConditions += ` AND o."createdAt" <= :endDate`
-    replacements.endDate = end
+    replacements.endDate = endBounds.end
   }
 
   const dailyOrders = await db.sequelize.query(
-    `SELECT DATE(o."createdAt") as tanggal,
+    `SELECT DATE(o."createdAt" AT TIME ZONE :storeTimezone) as tanggal,
             COUNT(*) as "totalTransaksi",
-            COALESCE(SUM(o."totalPrice"), 0) as "totalPenjualan",
+            COALESCE(SUM(o."subTotal"), 0) as "totalPenjualan",
             COALESCE(SUM(o."discountAmount"), 0) as "totalDiscount",
             COALESCE(SUM(o."totalQuantity"), 0) as "totalQty",
             COALESCE(SUM(o."totalCovers"), 0) as "totalCovers"
      FROM "order" o
      WHERE ${orderConditions}
-     GROUP BY DATE(o."createdAt")
+     GROUP BY DATE(o."createdAt" AT TIME ZONE :storeTimezone)
      ORDER BY tanggal DESC`,
     { replacements, type: db.sequelize.QueryTypes.SELECT }
   )
@@ -73,12 +85,12 @@ const getData = async (req) => {
     // accountingService.computeOrderCogs already does for the GL. Summing
     // it alone silently understates COGS for every line with quantity > 1.
     const dailyHpp = await db.sequelize.query(
-      `SELECT DATE(o."createdAt") as tanggal,
+      `SELECT DATE(o."createdAt" AT TIME ZONE :storeTimezone) as tanggal,
               COALESCE(SUM(COALESCE(oi."hppSnapshot", oi."price", 0) * oi."quantity"), 0) as "totalHpp"
        FROM order_item oi
        JOIN "order" o ON o.id = oi."order"
        WHERE ${orderConditions}
-       GROUP BY DATE(o."createdAt")`,
+       GROUP BY DATE(o."createdAt" AT TIME ZONE :storeTimezone)`,
       { replacements, type: db.sequelize.QueryTypes.SELECT }
     )
     const hppMap = {}

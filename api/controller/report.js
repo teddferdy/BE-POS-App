@@ -2,6 +2,7 @@
 const { Op } = require('sequelize')
 const db = require('../../db/models')
 const reportDefs = require('../service/reportDefs')
+const { getStoreTodayBounds, getStoreDayBounds, DEFAULT_TIMEZONE } = require('../../utils/businessDate')
 const Order = db.order
 
 exports.getDailyReport = async (req, res) => {
@@ -30,38 +31,53 @@ exports.getSalesSummary = async (req, res) => {
 
     let dateRange = {}
     const now = new Date()
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    )
+    // Store-local business date: resolve timezone from location, fallback to DEFAULT_TIMEZONE.
+    // For global super_admin without store, keep UTC behavior and document limitation.
+    let storeTimezone = DEFAULT_TIMEZONE
+    if (store) {
+      try {
+        const loc = await db.location.findByPk(store, { attributes: ['timezone'] })
+        if (loc?.timezone) storeTimezone = loc.timezone
+      } catch {}
+    }
+    const todayBounds = getStoreTodayBounds(storeTimezone, now)
+    const todayStart = todayBounds.start
     if (filter === 'today') {
       dateRange = {
-        [Op.gte]: todayStart,
-        [Op.lte]: new Date(todayStart.getTime() + 86400000 - 1)
+        [Op.gte]: todayBounds.start,
+        [Op.lte]: todayBounds.end
       }
     } else if (filter === 'weekly') {
-      const daysSinceMonday = (now.getDay() + 6) % 7
-      const monday = new Date(todayStart)
-      monday.setDate(todayStart.getDate() - daysSinceMonday)
+      // Weekly in store-local calendar: Monday 00:00 to Sunday 23:59:59.999 in store timezone
+      const localTodayStr = require('../../utils/businessDate').getStoreLocalDate(storeTimezone, now)
+      const [y, m, d] = localTodayStr.split('-').map(Number)
+      const localToday = new Date(`${localTodayStr}T12:00:00${require('../../utils/businessDate').getTimezoneOffset(storeTimezone)}`)
+      const dayOfWeek = new Date(`${localTodayStr}T00:00:00${require('../../utils/businessDate').getTimezoneOffset(storeTimezone)}`).getDay()
+      const daysSinceMonday = (dayOfWeek + 6) % 7
+      const mondayStr = new Date(Date.UTC(y, m - 1, d - daysSinceMonday)).toISOString().slice(0,10)
+      // For weekly, compute Monday in store timezone via offset arithmetic
+      const mondayBounds = getStoreDayBounds(
+        new Date(Date.UTC(y, m - 1, d - daysSinceMonday)).toISOString().slice(0,10),
+        storeTimezone
+      )
+      // Approximate weekly as 7 days from mondayBounds.start
       dateRange = {
-        [Op.gte]: monday,
-        [Op.lte]: new Date(monday.getTime() + 7 * 86400000 - 1)
+        [Op.gte]: mondayBounds.start,
+        [Op.lte]: new Date(mondayBounds.start.getTime() + 7 * 86400000 - 1)
       }
     } else if (filter === 'monthly') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-      const monthEnd = new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999
-      )
-      dateRange = { [Op.gte]: monthStart, [Op.lte]: monthEnd }
+      const localDateStr = require('../../utils/businessDate').getStoreLocalDate(storeTimezone, now)
+      const [y, m] = localDateStr.split('-').map(Number)
+      const monthStartStr = `${y}-${String(m).padStart(2,'0')}-01`
+      const monthEndDate = new Date(y, m, 0) // last day of month
+      const monthEndStr = `${y}-${String(m).padStart(2,'0')}-${String(monthEndDate.getDate()).padStart(2,'0')}`
+      const monthStartBounds = getStoreDayBounds(monthStartStr, storeTimezone)
+      const monthEndBounds = getStoreDayBounds(monthEndStr, storeTimezone)
+      dateRange = { [Op.gte]: monthStartBounds.start, [Op.lte]: monthEndBounds.end }
     } else if (startDate && endDate) {
-      dateRange = { [Op.gte]: new Date(startDate), [Op.lte]: new Date(endDate) }
+      const startBounds = getStoreDayBounds(String(startDate).slice(0,10), storeTimezone)
+      const endBounds = getStoreDayBounds(String(endDate).slice(0,10), storeTimezone)
+      dateRange = { [Op.gte]: startBounds.start, [Op.lte]: endBounds.end }
     } else {
       // No recognized filter and no explicit date range — this used to
       // mean "aggregate over the entire order table, unfiltered", a full
@@ -77,7 +93,7 @@ exports.getSalesSummary = async (req, res) => {
       }
     }
 
-    const orderWhere = { paymentStatus: 'paid' }
+    const orderWhere = { paymentStatus: 'paid', status: { [Op.notIn]: ['cancelled', 'void'] } }
     if (store) orderWhere.store = store
     if (dateRange[Op.gte]) orderWhere.createdAt = dateRange
 
@@ -96,8 +112,8 @@ exports.getSalesSummary = async (req, res) => {
     const avgTransaction =
       totalOrdersNum > 0 ? totalSalesNum / totalOrdersNum : 0
 
-    const chartReplacements = { ...(store && { store }) }
-    let chartWhere = `WHERE "paymentStatus" = 'paid'`
+    const chartReplacements = { ...(store && { store }), storeTimezone }
+    let chartWhere = `WHERE "paymentStatus" = 'paid' AND "status" NOT IN ('cancelled','void')`
     if (store) chartWhere += ` AND "store" = :store`
     if (dateRange[Op.gte]) {
       chartWhere += ` AND "createdAt" >= :startDate AND "createdAt" <= :endDate`
@@ -106,14 +122,14 @@ exports.getSalesSummary = async (req, res) => {
     }
 
     let salesChart = await db.sequelize.query(
-      `SELECT DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
+      `SELECT DATE("createdAt" AT TIME ZONE :storeTimezone) as date, SUM("totalPrice") as sales, COUNT(*) as orders
        FROM "order" ${chartWhere}
-       GROUP BY DATE("createdAt") ORDER BY date ASC`,
+       GROUP BY DATE("createdAt" AT TIME ZONE :storeTimezone) ORDER BY date ASC`,
       { replacements: chartReplacements, type: db.sequelize.QueryTypes.SELECT }
     )
 
-    const storeChartReplacements = { ...(store && { store }) }
-    let storeChartWhere = `WHERE "paymentStatus" = 'paid'`
+    const storeChartReplacements = { ...(store && { store }), storeTimezone }
+    let storeChartWhere = `WHERE "paymentStatus" = 'paid' AND "status" NOT IN ('cancelled','void')`
     if (store) storeChartWhere += ` AND "store" = :store`
     if (dateRange[Op.gte]) {
       storeChartWhere += ` AND "createdAt" >= :startDate AND "createdAt" <= :endDate`
@@ -122,9 +138,9 @@ exports.getSalesSummary = async (req, res) => {
     }
 
     const rawStoreChart = await db.sequelize.query(
-      `SELECT "store", DATE("createdAt") as date, SUM("totalPrice") as sales, COUNT(*) as orders
+      `SELECT "store", DATE("createdAt" AT TIME ZONE :storeTimezone) as date, SUM("totalPrice") as sales, COUNT(*) as orders
        FROM "order" ${storeChartWhere}
-       GROUP BY "store", DATE("createdAt") ORDER BY "store", date ASC`,
+       GROUP BY "store", DATE("createdAt" AT TIME ZONE :storeTimezone) ORDER BY "store", date ASC`,
       {
         replacements: storeChartReplacements,
         type: db.sequelize.QueryTypes.SELECT
