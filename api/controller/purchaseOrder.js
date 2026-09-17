@@ -36,13 +36,6 @@ function calculatePoFinancials({ totalAmount, discount = 0, taxRate = 0, additio
   return { safeTaxRate, taxAmount, finalAmount, taxableBase }
 }
 
-function parseFiniteNumber(value, field) {
-  if (value === undefined || value === null || value === '') return undefined
-  const n = Number(value)
-  if (!Number.isFinite(n)) throw new Error(`Invalid ${field}: must be a finite number`)
-  return n
-}
-
 // T-09 Product-store canonical validation: product_store junction table is canonical
 // (see api/controller/product.js:95 syncProductStores / getProductStoreSubQuery).
 // Unassigned products (no product_store rows) are globally valid for any store.
