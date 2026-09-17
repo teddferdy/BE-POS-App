@@ -183,6 +183,32 @@ describe('PR-01 unmatched items', () => {
 })
 
 describe('PR-09 stock history invariant', () => {
+  test('return against base stock without a store row seeds and deducts exactly', async () => {
+    const poRes = await request(app)
+      .post('/purchase-order/create')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ store: store.id, status: 'ordered', items: [{ product: product.id, quantity: 5, price: 5000 }] })
+    expect(poRes.status).toBe(201)
+    const po = poRes.body.data
+    await db.purchase_order_item.update({ receivedQuantity: 5 }, { where: { purchaseOrder: po.id } })
+    await db.product.update({ stock: 20 }, { where: { id: product.id } })
+    await db.product_store_stock.destroy({ where: { product: product.id, store: store.id }, force: true })
+    const res = await createReturn(po.id, [{ productId: product.id, qty: 2, unit: 'pcs' }])
+    expect(res.status).toBe(201)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(18)
+    const storeRow = await db.product_store_stock.findOne({
+      where: { product: product.id, store: store.id }
+    })
+    expect(Number(storeRow.stock)).toBe(18)
+    const rows = await db.stock_history.findAll({
+      where: { referenceType: 'purchase_return', referenceId: res.body.data.id, product: product.id }
+    })
+    expect(rows).toHaveLength(1)
+    expect(Number(rows[0].quantityBefore)).toBe(20)
+    expect(Number(rows[0].quantityChange)).toBe(-2)
+    expect(Number(rows[0].quantityAfter)).toBe(18)
+  })
+
   test('sufficient stock produces exact before/change/after history', async () => {
     const po = await makePOWithReceipt(100)
     const before = Number((await db.product.findByPk(product.id)).stock)

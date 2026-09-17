@@ -1143,14 +1143,31 @@ const purchaseReturnController = {
                 { transaction: t }
               )
 
-              // ponytail: atomic upsert + deduct per-store stock
+              // ponytail: atomic upsert + deduct per-store stock. A missing
+              // row is seeded at the locked product baseline (not 0),
+              // mirroring adjustProductStock: the store holds the goods the
+              // base pool accounts for, and product_store_stock carries a
+              // non-negative CHECK that a seed-at-0 + deduct would violate.
               if (store) {
                 await db.sequelize.query(
                   `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-                   VALUES ($1, $2, 0, NOW(), NOW())
+                   VALUES ($1, $2, $3, NOW(), NOW())
                    ON CONFLICT (product, store) DO NOTHING`,
-                  { bind: [item.productId, store], transaction: t }
+                  { bind: [item.productId, store, oldStock], transaction: t }
                 )
+                const storeRow = await db.product_store_stock.findOne({
+                  where: { product: item.productId, store },
+                  lock: t.LOCK.UPDATE,
+                  transaction: t
+                })
+                const storeStock = Number(storeRow?.stock) || 0
+                if (storeStock < qty) {
+                  await t.rollback()
+                  return res.status(422).json({
+                    success: false,
+                    message: `Insufficient store stock for product #${item.productId}: have ${storeStock}, need ${qty}`
+                  })
+                }
                 await db.product_store_stock.update(
                   {
                     stock: db.sequelize.literal(`stock - ${qty}`)
