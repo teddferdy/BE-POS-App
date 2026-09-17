@@ -17,15 +17,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       totalAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       discount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       finalAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       status: {
@@ -79,12 +79,12 @@ module.exports = (sequelize, DataTypes) => {
         comment: 'Purchase tax rate percentage (0-100), applied to (totalAmount - discount)'
       },
       taxAmount: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0,
         comment: 'Calculated purchase tax amount, authoritative (BE-computed, not FE-supplied)'
       },
       additionalCost: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0,
         comment: 'Landed cost / freight / additional cost allocated to HPP'
       },

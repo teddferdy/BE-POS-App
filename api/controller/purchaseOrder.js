@@ -20,6 +20,57 @@ const generateOrderNumber = (prefix) => {
   return `${prefix}-${year}${month}${day}-${random}`
 }
 
+// T-02/T-03/T-12 Authoritative PO monetary calculation — single source of truth
+// for totalAmount/discount/taxRate→taxAmount/additionalCost→finalAmount.
+// Mirrors Phase 22 Batch 2 formula: taxableBase = total - discount,
+// taxAmount = Math.round(taxableBase * taxRate/100), final = taxableBase+tax+additionalCost.
+// Over-delivery tolerance handling per T-01: Math.ceil, documented at call sites.
+function calculatePoFinancials({ totalAmount, discount = 0, taxRate = 0, additionalCost = 0 }) {
+  const safeTaxRate = Math.min(100, Math.max(0, Number(taxRate) || 0))
+  const safeAdditional = Number(additionalCost) || 0
+  const safeDiscount = Number(discount) || 0
+  const safeTotal = Number(totalAmount) || 0
+  const taxableBase = safeTotal - safeDiscount
+  const taxAmount = Math.round(taxableBase * (safeTaxRate / 100))
+  const finalAmount = taxableBase + taxAmount + safeAdditional
+  return { safeTaxRate, taxAmount, finalAmount, taxableBase }
+}
+
+function parseFiniteNumber(value, field) {
+  if (value === undefined || value === null || value === '') return undefined
+  const n = Number(value)
+  if (!Number.isFinite(n)) throw new Error(`Invalid ${field}: must be a finite number`)
+  return n
+}
+
+// T-09 Product-store canonical validation: product_store junction table is canonical
+// (see api/controller/product.js:95 syncProductStores / getProductStoreSubQuery).
+// Unassigned products (no product_store rows) are globally valid for any store.
+async function validateProductsForStore(products, storeId) {
+  if (!products || products.length === 0) return
+  const ids = [...new Set(products.filter(Boolean).map(Number).filter(Boolean))]
+  if (ids.length === 0) return
+  // All ids must exist (defensive)
+  const found = await db.product.findAll({ where: { id: ids }, attributes: ['id'] })
+  const foundIds = new Set(found.map((r) => r.id))
+  for (const pid of ids) {
+    if (!foundIds.has(pid)) throw new Error(`Product #${pid} not found`)
+  }
+  // If any product has product_store assignments, it must include this store
+  const assignments = await db.product_store.findAll({ where: { product: ids } })
+  const assignedMap = new Map()
+  for (const a of assignments) {
+    if (!assignedMap.has(a.product)) assignedMap.set(a.product, new Set())
+    assignedMap.get(a.product).add(a.store)
+  }
+  for (const pid of ids) {
+    const stores = assignedMap.get(pid)
+    if (stores && stores.size > 0 && !stores.has(Number(storeId))) {
+      throw new Error(`Product #${pid} is not assigned to store ${storeId}`)
+    }
+  }
+}
+
 const purchaseOrderController = {
   async getAll(req, res) {
     try {
@@ -210,7 +261,8 @@ const purchaseOrderController = {
               'quantity',
               'price',
               'unit',
-              'supplier'
+              'supplier',
+              'receivedQuantity'
             ],
             include: [
               {
@@ -526,24 +578,40 @@ const purchaseOrderController = {
         }
       }
 
+      // T-09 product-store validation (canonical product_store junction)
+      if (!isDraft && items && items.length > 0 && store) {
+        const productIds = items.map((i) => i.product).filter(Boolean)
+        try {
+          await validateProductsForStore(productIds, store)
+        } catch (e) {
+          return res.status(400).json({ success: false, message: e.message })
+        }
+      }
+
       const orderNumber = generateOrderNumber('PO')
 
       const totalAmount =
         items?.length > 0
-          ? items.reduce((sum, item) => sum + item.quantity * item.price, 0)
+          ? items.reduce((sum, item) => {
+              const qty = Number(item.quantity) || 0
+              const price = Number(item.price) || 0
+              if (!Number.isFinite(qty) || !Number.isFinite(price))
+                throw new Error('Invalid quantity or price: must be finite numbers')
+              return sum + qty * price
+            }, 0)
           : 0
 
-      // Phase 22 Batch 2 — purchase tax foundation. Mirrors the Sales
-      // formula/rounding convention (order.js's calculateOrderTotals:
-      // tax applies to the post-discount base, Math.round, then summed
-      // into the grand total alongside the existing additionalCost term)
-      // without introducing a new engine — tax rate stays PO-level and
-      // manually entered, same as the existing dpPercent field.
-      const safeTaxRate = Math.max(0, Number(taxRate) || 0)
-      const taxableBase = totalAmount - discount
-      const computedTaxAmount = Math.round(taxableBase * (safeTaxRate / 100))
-      const finalAmount =
-        taxableBase + computedTaxAmount + (Number(additionalCost) || 0)
+      // T-02 authoritative tax 0-100, T-12 reuse via helper
+      const nTaxRate = Number(taxRate)
+      if (Number.isFinite(nTaxRate) && (nTaxRate < 0 || nTaxRate > 100)) {
+        return res.status(400).json({ success: false, message: 'taxRate must be between 0 and 100' })
+      }
+      const { safeTaxRate, taxAmount: computedTaxAmount, finalAmount } = calculatePoFinancials({
+        totalAmount,
+        discount,
+        taxRate,
+        additionalCost
+      })
 
       const purchaseOrder = await db.purchase_order.create({
         store: store || null,
@@ -564,7 +632,8 @@ const purchaseOrderController = {
         dpPercent: dpPercent || 0,
         additionalCost: Number(additionalCost) || 0,
         additionalCostNotes: additionalCostNotes || null,
-        overDeliveryTolerance: Number(overDeliveryTolerance) || 10
+        overDeliveryTolerance:
+          Number.isFinite(Number(overDeliveryTolerance)) ? Number(overDeliveryTolerance) : 10
       })
 
       if (items?.length > 0) {
@@ -624,7 +693,6 @@ const purchaseOrderController = {
       const {
         items,
         discount,
-        status,
         notes,
         orderDate,
         pic,
@@ -635,7 +703,8 @@ const purchaseOrderController = {
         taxRate,
         additionalCost,
         additionalCostNotes,
-        overDeliveryTolerance
+        overDeliveryTolerance,
+        status
       } = bodyRest
       const modifiedBy = req.user?.id || null
       const userRole = req.user?.roleType
@@ -674,6 +743,59 @@ const purchaseOrderController = {
         })
       }
 
+      // T-11 lifecycle: only draft->pending via update is allowed (import activation, T-12)
+      // All other status mutations must use dedicated endpoints
+      if (status !== undefined) {
+        const allowedDraftActivate = purchaseOrder.status === 'draft' && status === 'pending'
+        const forbidden =
+          status === 'received' ||
+          status === 'cancelled' ||
+          (status === 'ordered' && purchaseOrder.status !== 'draft') ||
+          (!allowedDraftActivate && status !== purchaseOrder.status)
+        // Allow draft->pending (and draft->draft no-op), reject others
+        if (!allowedDraftActivate && status !== purchaseOrder.status) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'Status cannot be changed via update. Use send-to-supplier, cancel, or goods-receipt. Only draft -> pending activation is allowed via update.'
+          })
+        }
+        if (forbidden && !allowedDraftActivate) {
+          // covered above but explicit
+        }
+      }
+
+      // T-02/T-03/T-04 financial lock after first receipt (header-only bypass closed)
+      const hasFinancialChange =
+        discount !== undefined ||
+        taxRate !== undefined ||
+        additionalCost !== undefined ||
+        additionalCostNotes !== undefined ||
+        overDeliveryTolerance !== undefined
+      let alreadyReceivedCache = null
+      const getAlreadyReceived = async () => {
+        if (alreadyReceivedCache !== null) return alreadyReceivedCache
+        const eis = await db.purchase_order_item.findAll({ where: { purchaseOrder: id } })
+        alreadyReceivedCache = eis.some((ei) => (Number(ei.receivedQuantity) || 0) > 0)
+        return alreadyReceivedCache
+      }
+      if (hasFinancialChange) {
+        const alreadyReceived = await getAlreadyReceived()
+        if (alreadyReceived) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'Cannot change financial fields (discount, taxRate, additionalCost, additionalCostNotes, overDeliveryTolerance) after goods have been received. Create a Purchase Return instead.'
+          })
+        }
+      }
+      if (taxRate !== undefined) {
+        const n = Number(taxRate)
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+          return res.status(400).json({ success: false, message: 'taxRate must be between 0 and 100' })
+        }
+      }
+
       const effectivePaymentMethod =
         paymentMethod ?? purchaseOrder.paymentMethod
       if (
@@ -705,6 +827,16 @@ const purchaseOrderController = {
             success: false,
             message: `Duplicate item(s) in purchase order: ${[...new Set(dupes)].join(', ')}`
           })
+        }
+        // T-09 product-store validation for update (when store known)
+        const effectiveStoreForItems = finalStore !== undefined ? finalStore : purchaseOrder.store
+        if (effectiveStoreForItems) {
+          const productIds = items.map((i) => i.product).filter(Boolean)
+          try {
+            await validateProductsForStore(productIds, effectiveStoreForItems)
+          } catch (e) {
+            return res.status(400).json({ success: false, message: e.message })
+          }
         }
       }
 
@@ -781,25 +913,33 @@ const purchaseOrderController = {
         await db.purchase_order_item.bulkCreate(orderItems)
 
         totalAmount = items.reduce((sum, item) => {
-          return sum + item.quantity * item.price
+          const qty = Number(item.quantity) || 0
+          const price = Number(item.price) || 0
+          if (!Number.isFinite(qty) || !Number.isFinite(price))
+            throw new Error('Invalid quantity or price: must be finite numbers')
+          return sum + qty * price
         }, 0)
       }
 
-      const finalDiscount =
-        discount !== undefined ? discount : purchaseOrder.discount
+      const finalDiscount = discount !== undefined ? Number(discount) || 0 : Number(purchaseOrder.discount) || 0
       const finalAdditionalCost =
         additionalCost !== undefined
           ? Number(additionalCost) || 0
           : Number(purchaseOrder.additionalCost) || 0
-      // Phase 22 Batch 2 — same formula/rounding as create(): tax applies
-      // to the post-discount base, before additionalCost is added.
-      const finalTaxRate =
-        taxRate !== undefined
-          ? Math.max(0, Number(taxRate) || 0)
-          : Math.max(0, Number(purchaseOrder.taxRate) || 0)
-      const taxableBase = totalAmount - finalDiscount
-      const finalTaxAmount = Math.round(taxableBase * (finalTaxRate / 100))
-      const finalAmount = taxableBase + finalTaxAmount + finalAdditionalCost
+      const finalTaxRateRaw = taxRate !== undefined ? taxRate : purchaseOrder.taxRate
+      // T-02/T-03/T-12 Authoritative calculation via single helper
+      const { safeTaxRate: finalTaxRate, taxAmount: finalTaxAmount, finalAmount } =
+        calculatePoFinancials({
+          totalAmount,
+          discount: finalDiscount,
+          taxRate: finalTaxRateRaw,
+          additionalCost: finalAdditionalCost
+        })
+
+      const nextStatus =
+        status !== undefined && purchaseOrder.status === 'draft' && status === 'pending'
+          ? 'pending'
+          : purchaseOrder.status
 
       await purchaseOrder.update({
         totalAmount,
@@ -807,7 +947,7 @@ const purchaseOrderController = {
         taxRate: finalTaxRate,
         taxAmount: finalTaxAmount,
         finalAmount,
-        status: status || purchaseOrder.status,
+        status: nextStatus,
         notes: notes !== undefined ? notes : purchaseOrder.notes,
         orderDate: orderDate || purchaseOrder.orderDate,
         modifiedBy,
@@ -827,8 +967,8 @@ const purchaseOrderController = {
             : purchaseOrder.additionalCostNotes,
         overDeliveryTolerance:
           overDeliveryTolerance !== undefined
-            ? Number(overDeliveryTolerance) || 10
-            : purchaseOrder.overDeliveryTolerance || 10,
+            ? (Number.isFinite(Number(overDeliveryTolerance)) ? Number(overDeliveryTolerance) : 10)
+            : (Number.isFinite(Number(purchaseOrder.overDeliveryTolerance)) ? Number(purchaseOrder.overDeliveryTolerance) : 10),
         ...(finalStore !== undefined ? { store: finalStore } : {})
       })
 
@@ -952,12 +1092,20 @@ const purchaseOrderController = {
             })
             if (!poItem) continue
 
-            const maxReceive =
-              Number(poItem.quantity) - Number(poItem.receivedQuantity)
-            const receiveQty = Math.min(
-              Number(item.receivedQuantity) || 0,
-              maxReceive
-            )
+            // T-01 per-PO tolerance, documented Math.ceil behavior (keep for this phase)
+            // Tolerance is per-item: maxDeliverable = ordered + ceil(ordered*tolerance/100)
+            const tolerance = Number.isFinite(Number(purchaseOrder.overDeliveryTolerance))
+              ? Number(purchaseOrder.overDeliveryTolerance)
+              : 10
+            const ordered = Number(poItem.quantity) || 0
+            const alreadyReceived = Number(poItem.receivedQuantity) || 0
+            const toleranceQty = Math.ceil((ordered * tolerance) / 100)
+            const maxDeliverable = ordered + toleranceQty
+            const remaining = maxDeliverable - alreadyReceived
+            const requested = Number(item.receivedQuantity)
+            if (!Number.isFinite(requested) || requested <= 0) continue
+            // Clamp to remaining (preserves legacy receive's clamp semantics, now tolerance-aware)
+            const receiveQty = Math.min(requested, Math.max(0, remaining))
 
             await db.purchase_order_item.update(
               {
@@ -1107,6 +1255,9 @@ const purchaseOrderController = {
         data: purchaseOrder
       })
     } catch (error) {
+      if (error.statusCode) {
+        return res.status(error.statusCode).json({ success: false, message: error.message })
+      }
       console.log(error)
       return res.status(500).json({
         success: false,
@@ -1220,6 +1371,18 @@ const purchaseOrderController = {
         })
       }
 
+      // T-07 cancellation policy: reject if any receivedQuantity > 0 (even partial)
+      const alreadyReceivedForCancel = (purchaseOrder.items || []).some(
+        (it) => (Number(it.receivedQuantity) || 0) > 0
+      )
+      if (alreadyReceivedForCancel) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Cannot cancel purchase order that already has received goods. Use Purchase Return instead.'
+        })
+      }
+
       if (purchaseOrder.status === 'received') {
         const grs = await db.goodsReceipt.findAll({
           where: { purchaseOrderId: id, status: 'completed' },
@@ -1230,8 +1393,8 @@ const purchaseOrderController = {
         try {
           for (const gr of grs) {
             for (const grItem of gr.items) {
-              const qty = parseInt(grItem.qtyReceived) || 0
-              if (qty <= 0) continue
+              const qty = Number(grItem.qtyReceived) || 0
+              if (!Number.isFinite(qty) || qty <= 0) continue
 
               // Reverse receivedQuantity on PO item
               if (grItem.purchaseOrderItem) {

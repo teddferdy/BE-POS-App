@@ -47,6 +47,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DECIMAL(12, 2),
         defaultValue: 0
       },
+      idempotencyKey: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
       createdBy: {
         type: DataTypes.INTEGER
       },

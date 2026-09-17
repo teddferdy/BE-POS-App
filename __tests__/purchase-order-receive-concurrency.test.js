@@ -77,6 +77,7 @@ describe('Legacy purchaseOrder.js receive() — over-receive validation race', (
       .send({
         store: store.id,
         status: 'ordered',
+        overDeliveryTolerance: 0,
         items: [{ product: product.id, quantity: 100, price: 5000 }]
       })
     expect(poRes.status).toBe(201)

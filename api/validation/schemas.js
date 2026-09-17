@@ -600,10 +600,49 @@ exports.createPurchaseOrderSchema = z.object({
   paymentMethod: z.enum(['cash', 'credit']).optional().default('cash'),
   tenor: strToNum().optional().default(0),
   dpPercent: strToNum().optional().default(0),
-  taxRate: strToNum().optional().default(0)
+  taxRate: strToNum()
+    .optional()
+    .default(0)
+    .refine((v) => v >= 0 && v <= 100, {
+      message: 'taxRate must be between 0 and 100'
+    })
 })
 
-exports.updatePurchaseOrderSchema = exports.createPurchaseOrderSchema.partial()
+exports.updatePurchaseOrderSchema = z
+  .object({
+    store: strToNum().optional(),
+    items: z.array(poItemSchema).optional(),
+    notes: z.string().optional(),
+    discount: strToNum().optional(),
+    additionalCost: strToNum().optional(),
+    additionalCostNotes: z.string().optional().nullable(),
+    overDeliveryTolerance: strToNum().optional(),
+    pic: strToNum().optional().nullable(),
+    createdBy: z.union([z.number(), strToNum()]).optional().nullable(),
+    orderDate: z.string().optional(),
+    dueDate: z.string().optional().nullable(),
+    paymentMethod: z.enum(['cash', 'credit']).optional(),
+    tenor: strToNum().optional(),
+    dpPercent: strToNum().optional(),
+    taxRate: strToNum()
+      .optional()
+      .refine((v) => v === undefined || (v >= 0 && v <= 100), {
+        message: 'taxRate must be between 0 and 100'
+      }),
+    status: z.enum(['draft', 'pending', 'ordered', 'received', 'cancelled']).optional()
+  })
+  .superRefine((data, ctx) => {
+    if (data.taxRate !== undefined) {
+      const n = Number(data.taxRate)
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['taxRate'],
+          message: 'taxRate must be between 0 and 100'
+        })
+      }
+    }
+  })
 
 // ===================== Goods Request (Permintaan Barang) =====================
 const goodsRequestItemSchema = z.object({
@@ -825,6 +864,7 @@ exports.createGoodsReceiptSchema = z.object({
   items: z.array(grItemSchema).min(1, 'At least one item is required'),
   notes: z.string().optional().default(''),
   receivedDate: z.string().optional(),
+  idempotencyKey: z.string().max(255).optional().nullable(),
   status: z
     .enum(['draft', 'completed', 'cancelled'])
     .optional()
