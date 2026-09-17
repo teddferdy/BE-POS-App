@@ -640,11 +640,18 @@ async function postPurchasePaymentJournal({
 }
 
 // Purchase return reversal: goods go back to supplier → Dr AP, Cr Inventory.
+// Batch 32-B (PR-06): reverses the returned base value plus its proportional
+// PO-tax share (Dr AP total, Cr Inventory base, Cr Input Tax 1250) — mirroring
+// how postPurchaseJournal posts tax separately on the forward path. The
+// optional taxAmount defaults to 0, preserving the exact previous lines when
+// absent. additionalCost treatment is intentionally untouched (separately
+// scoped).
 async function postPurchaseReturnJournal({
   store,
   purchaseReturnId,
   returnNumber,
   amount,
+  taxAmount = 0,
   date,
   createdBy
 }) {
@@ -655,26 +662,44 @@ async function postPurchaseReturnJournal({
   const inventoryAcc = await findOrCreateAccount(store, '1200')
   if (!apAcc || !inventoryAcc) return null
 
+  let taxPortion = 0
+  let taxAcc = null
+  const tax = toNumber(taxAmount)
+  if (tax > 0) {
+    taxAcc = await findOrCreateAccount(store, '1250')
+    if (taxAcc) taxPortion = tax
+  }
+
+  const lines = [
+    {
+      account: apAcc.id,
+      debit: amt + taxPortion,
+      credit: 0,
+      description: `Return credit ${returnNumber}`
+    },
+    {
+      account: inventoryAcc.id,
+      debit: 0,
+      credit: amt,
+      description: `Inventory returned ${returnNumber}`
+    }
+  ]
+  if (taxPortion > 0) {
+    lines.push({
+      account: taxAcc.id,
+      debit: 0,
+      credit: taxPortion,
+      description: `Purchase tax reversed ${returnNumber}`
+    })
+  }
+
   return createJournalEntry({
     store,
     date,
     description: `Purchase return ${returnNumber}`,
     sourceType: 'purchase_return',
     referenceId: purchaseReturnId,
-    lines: [
-      {
-        account: apAcc.id,
-        debit: amt,
-        credit: 0,
-        description: `Return credit ${returnNumber}`
-      },
-      {
-        account: inventoryAcc.id,
-        debit: 0,
-        credit: amt,
-        description: `Inventory returned ${returnNumber}`
-      }
-    ],
+    lines,
     createdBy
   })
 }

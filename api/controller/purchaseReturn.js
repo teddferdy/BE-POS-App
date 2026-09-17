@@ -405,11 +405,30 @@ const purchaseReturnController = {
           // Returned goods are always credited against the PO bill.
           // For replacement, the new PO re-adds the same cost, so the net
           // effect stays neutral while remaining fully traceable.
+          //
+          // Batch 32-B (PR-06): the credit covers the returned base value
+          // plus its proportional share of PO tax. The forward purchase
+          // model posts PO tax separately (Dr Input Tax 1250 / Cr AP, see
+          // postPurchaseJournal F22-B2-01), so a base-only credit would
+          // leave the returned goods' tax standing in both finalAmount
+          // and the ledger. The share mirrors the forward pro-rata basis
+          // (tax × base/totalAmount), capped at the PO's total tax.
+          // Landed/additionalCost treatment is intentionally unchanged
+          // (separately scoped).
+          const poTaxAmount = Number(po?.taxAmount) || 0
+          const poTotalForTax = Number(po?.totalAmount) || 0
+          const returnTax =
+            poTaxAmount > 0 && poTotalForTax > 0 && returnTotal > 0
+              ? Math.min(
+                  Math.round((poTaxAmount * returnTotal) / poTotalForTax),
+                  poTaxAmount
+                )
+              : 0
           if (returnTotal > 0) {
             await db.purchase_order.update(
               {
                 finalAmount: db.sequelize.literal(
-                  `GREATEST("purchase_order"."finalAmount" - ${returnTotal}, 0)`
+                  `GREATEST("purchase_order"."finalAmount" - ${returnTotal + returnTax}, 0)`
                 )
               },
               { where: { id: ret.purchaseOrder }, transaction: t }
@@ -434,6 +453,7 @@ const purchaseReturnController = {
                 purchaseReturnId: id,
                 returnNumber: ret.returnNumber,
                 amount: returnTotal,
+                taxAmount: returnTax,
                 date: new Date().toISOString(),
                 createdBy: req.user?.id
               },
@@ -462,13 +482,26 @@ const purchaseReturnController = {
               resolvedItems.find((r) => r.poItem && r.poItem.supplier)?.poItem
                 ?.supplier || null
 
+            // Batch 32-B (PR-07): the replacement PO re-orders the same
+            // goods under the same standing supplier purchase terms, so it
+            // carries the original tax rate with canonical PO math
+            // (taxableBase = total - discount; tax = round(base × rate);
+            // final = base + tax + additionalCost — same formula as
+            // calculatePoFinancials in purchaseOrder.js). The replacement
+            // itself has no discount or landed cost of its own yet, so
+            // both stay 0 here. Per-deal discount carryover is a product
+            // decision and is intentionally not assumed.
+            const replacementTaxRate = Math.min(100, Math.max(0, Number(po?.taxRate) || 0))
+            const replacementTaxAmount = Math.round(total * (replacementTaxRate / 100))
             const replacementPO = await db.purchase_order.create(
               {
                 store: ret.store || null,
                 orderNumber: generateOrderNumber('RPL'),
                 totalAmount: total,
                 discount: 0,
-                finalAmount: total,
+                taxRate: replacementTaxRate,
+                taxAmount: replacementTaxAmount,
+                finalAmount: total + replacementTaxAmount,
                 status: 'draft',
                 orderDate: new Date(),
                 notes: `Replacement PO for return ${ret.returnNumber}`,
