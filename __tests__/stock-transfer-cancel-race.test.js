@@ -75,7 +75,7 @@ beforeAll(async () => {
   const sourceAfterCreate = await db.product_store_stock.findOne({
     where: { product: product.id, store: storeA.id }
   })
-  expect(sourceAfterCreate.stock).toBe(STARTING_STOCK - TRANSFER_QTY)
+  expect(Number(sourceAfterCreate.stock)).toBe(STARTING_STOCK - TRANSFER_QTY)
 })
 
 afterAll(async () => {
@@ -108,7 +108,7 @@ describe('PUT /pos/transfer/:id/cancel — duplicate/concurrent cancel must not 
     expect(Number(sourceStock?.stock) || 0).toBe(STARTING_STOCK)
 
     const baseProduct = await db.product.findByPk(product.id)
-    expect(baseProduct.stock).toBe(STARTING_STOCK)
+    expect(Number(baseProduct.stock)).toBe(STARTING_STOCK)
 
     const cancelHistory = await db.stock_history.findAll({
       where: { referenceType: 'transfer', referenceId: transferId, store: storeA.id }

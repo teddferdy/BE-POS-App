@@ -74,7 +74,7 @@ describe('POST /order/customer-create — QR paid only via trusted cashier trans
     expect(res.status).toBe(201)
     expect(res.body.data.paymentStatus).toBe('unpaid')
     expect(res.body.data.status).toBe('pending')
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock.stock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(Number(beforeStock.stock))
     expect(await db.transaction.findAll({ where: { order: res.body.data.id } })).toHaveLength(0)
 
     // 2) Authorized cashier marks it paid: payment-ledger row and the stock
@@ -84,7 +84,7 @@ describe('POST /order/customer-create — QR paid only via trusted cashier trans
     expect(paid.status).toBe(200)
 
     const afterStock = await db.product.findByPk(product.id)
-    expect(afterStock.stock).toBe(beforeStock.stock - 2)
+    expect(Number(afterStock.stock)).toBe(beforeStock.stock - 2)
 
     const ledgerRows = await db.transaction.findAll({
       where: { order: res.body.data.id }
@@ -96,7 +96,7 @@ describe('POST /order/customer-create — QR paid only via trusted cashier trans
 
 describe('POST /order/customer-create — QR order unpaid & exactly-once', () => {
   test('orders are recorded unpaid with NO inventory/ledger mutation at creation', async () => {
-    const beforeStock = (await db.product.findByPk(product.id)).stock
+    const beforeStock = Number((await db.product.findByPk(product.id)).stock)
 
     const res = await request(app)
       .post('/order/customer-create')
@@ -112,7 +112,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
 
     // Unpaid orders must not touch inventory during creation — the later
     // mark-paid transition (deductStockForPaidOrder) is what deducts.
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(beforeStock)
     const ledgerRows = await db.transaction.findAll({
       where: { order: res.body.data.id }
     })
@@ -120,7 +120,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
   })
 
   test('retried submit with the same idempotencyKey: returns existing order; paid transition is exactly-once', async () => {
-    const beforeStock = (await db.product.findByPk(product.id)).stock
+    const beforeStock = Number((await db.product.findByPk(product.id)).stock)
     const body = {
       store: location.id,
       tableId: table.id,
@@ -133,7 +133,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
     const r1 = await request(app).post('/order/customer-create').send(body)
     expect(r1.status).toBe(201)
     expect(r1.body.data.paymentStatus).toBe('unpaid')
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(beforeStock)
 
     const r2 = await request(app).post('/order/customer-create').send(body)
     expect(r2.status).toBe(200)
@@ -141,7 +141,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
 
     // Only the one (idempotent) order exists, and the ledger/deduction are
     // still zero — the paid transition has not happened yet.
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(beforeStock)
     expect(await db.transaction.findAll({ where: { order: r1.body.data.id } })).toHaveLength(0)
 
     // Replaying the idempotent create after payment still returns the same
@@ -153,7 +153,7 @@ describe('POST /order/customer-create — QR order unpaid & exactly-once', () =>
     expect(r3.status).toBe(200)
     expect(r3.body.data.id).toBe(r1.body.data.id)
 
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock - 1)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(beforeStock - 1)
     const ledgerRows = await db.transaction.findAll({
       where: { order: r1.body.data.id }
     })

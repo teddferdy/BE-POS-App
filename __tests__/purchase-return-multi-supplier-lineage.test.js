@@ -125,7 +125,7 @@ describe('F22-B10-03 — Purchase Return availability check across multiple PO l
     }
 
     const freshProduct = await db.product.findByPk(product.id)
-    expect(freshProduct.stock).toBe(80) // sanity: both lines' stock landed
+    expect(Number(freshProduct.stock)).toBe(80) // sanity: both lines' stock landed
 
     // True combined received quantity is 50 + 30 = 80. A return of 45 is
     // legitimate against that true total, but exceeds either individual

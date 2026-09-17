@@ -57,20 +57,20 @@ describe('PUT /product/edit-product — manual stock edit', () => {
     expect(res.status).toBe(200)
 
     const afterProduct = await db.product.findByPk(product.id)
-    expect(afterProduct.stock).toBe(35)
+    expect(Number(afterProduct.stock)).toBe(35)
 
     const afterStoreStock = await db.product_store_stock.findOne({
       where: { product: product.id, store: location.id }
     })
-    expect(afterStoreStock.stock).toBe(35)
+    expect(Number(afterStoreStock.stock)).toBe(35)
 
     const history = await db.stock_history.findAll({
       where: { product: product.id, referenceType: 'adjustment' }
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityBefore).toBe(20)
-    expect(history[0].quantityAfter).toBe(35)
-    expect(history[0].quantityChange).toBe(15)
+    expect(Number(history[0].quantityBefore)).toBe(20)
+    expect(Number(history[0].quantityAfter)).toBe(35)
+    expect(Number(history[0].quantityChange)).toBe(15)
   })
 
   test('two concurrent edits of the same product: both apply serially, neither is lost', async () => {
@@ -111,7 +111,7 @@ describe('PUT /product/edit-product — manual stock edit', () => {
     // Whichever write committed last determines the final absolute value —
     // must be one of the two requested values, not something else (e.g.
     // not a torn/partial write, not the original 10).
-    expect([25, 30]).toContain(finalProduct.stock)
+    expect([25, 30]).toContain(Number(finalProduct.stock))
 
     // The per-store shadow must have converged to the SAME final value as
     // product.stock, not diverged — proof the two deltas were computed
@@ -120,7 +120,7 @@ describe('PUT /product/edit-product — manual stock edit', () => {
     const finalStoreStock = await db.product_store_stock.findOne({
       where: { product: product.id, store: location.id }
     })
-    expect(finalStoreStock.stock).toBe(finalProduct.stock)
+    expect(Number(finalStoreStock.stock)).toBe(Number(finalProduct.stock))
 
     // Two edits happened, so two audit entries — and their before/after
     // values must chain (second entry's quantityBefore === first entry's
@@ -130,7 +130,7 @@ describe('PUT /product/edit-product — manual stock edit', () => {
       order: [['id', 'ASC']]
     })
     expect(history.length).toBe(2)
-    expect(history[1].quantityBefore).toBe(history[0].quantityAfter)
-    expect(history[1].quantityAfter).toBe(finalProduct.stock)
+    expect(Number(history[1].quantityBefore)).toBe(Number(history[0].quantityAfter))
+    expect(Number(history[1].quantityAfter)).toBe(Number(finalProduct.stock))
   })
 })

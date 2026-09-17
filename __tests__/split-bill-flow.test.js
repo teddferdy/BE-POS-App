@@ -92,7 +92,7 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
 
     // Not complete yet — stock must still be untouched.
     const midStock = await db.product.findByPk(product.id)
-    expect(midStock.stock).toBe(beforeStock.stock)
+    expect(Number(midStock.stock)).toBe(Number(beforeStock.stock))
 
     const payB = await request(app)
       .put(`/split-bill/pay/${splitB.id}`)
@@ -102,7 +102,7 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     expect(payB.body.data.orderComplete).toBe(true)
 
     const afterStock = await db.product.findByPk(product.id)
-    expect(afterStock.stock).toBe(beforeStock.stock - 5)
+    expect(Number(afterStock.stock)).toBe(beforeStock.stock - 5)
 
     const finalOrder = await db.order.findByPk(order.id)
     expect(finalOrder.status).toBe('paid')
@@ -146,7 +146,7 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
 
     const afterStock = await db.product.findByPk(product.id)
     // Must be deducted exactly once (4), never lost (0) or doubled (8).
-    expect(afterStock.stock).toBe(beforeStock.stock - 4)
+    expect(Number(afterStock.stock)).toBe(beforeStock.stock - 4)
 
     const finalOrder = await db.order.findByPk(order.id)
     expect(finalOrder.paymentStatus).toBe('paid')
@@ -337,7 +337,7 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     const finalStock = await db.product.findByPk(product.id)
 
     expect(finalOrder.status).toBe('cancelled')
-    expect(finalStock.stock).toBe(baseline.stock)
+    expect(Number(finalStock.stock)).toBe(Number(baseline.stock))
 
     if (finalPayRes.body.data.orderComplete) {
       // Pay won the order-completion race: it deducted stock and marked

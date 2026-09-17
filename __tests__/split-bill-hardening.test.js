@@ -354,7 +354,7 @@ describe('Split bill — pay() and cancel() P0 race regression (named)', () => {
     expect(completions.filter(Boolean).length).toBe(1)
 
     const afterStock = await db.product.findByPk(product.id)
-    expect(afterStock.stock).toBe(beforeStock.stock - 4)
+    expect(Number(afterStock.stock)).toBe(beforeStock.stock - 4)
 
     const outboxRows = await db.accounting_outbox.findAll({
       where: { referenceType: 'order', referenceId: order.id }
@@ -401,12 +401,12 @@ describe('Split bill — pay() and cancel() P0 race regression (named)', () => {
     if (payBRes.status === 200 && payBRes.body.data.orderComplete) {
       // pay() won: both splits paid, order legitimately completed, stock deducted once.
       expect(finalOrder.status).toBe('paid')
-      expect(finalStock.stock).toBe(beforeStock.stock - 5)
+      expect(Number(finalStock.stock)).toBe(beforeStock.stock - 5)
     } else {
       // cancel() won: splitB no longer exists, order must NOT be marked
       // complete/paid off of splitA alone, stock must remain untouched.
       expect(finalOrder.status).not.toBe('paid')
-      expect(finalStock.stock).toBe(beforeStock.stock)
+      expect(Number(finalStock.stock)).toBe(Number(beforeStock.stock))
     }
   })
 })

@@ -112,7 +112,7 @@ beforeAll(async () => {
   expect(grRes.status).toBe(201)
 
   const afterReceive = await db.ingredient.findByPk(ingredient.id)
-  expect(afterReceive.stock).toBe(RECEIVE_QTY_BOXES * CONVERSION) // 24 pcs
+  expect(Number(afterReceive.stock)).toBe(RECEIVE_QTY_BOXES * CONVERSION) // 24 pcs
 
   const returnRes = await request(app)
     .post('/purchase-return/create')
@@ -134,7 +134,7 @@ beforeAll(async () => {
 
   const afterReturn = await db.ingredient.findByPk(ingredient.id)
   // Batch 13, already-proven-correct forward deduction: 24 - 12 = 12
-  expect(afterReturn.stock).toBe(12)
+  expect(Number(afterReturn.stock)).toBe(12)
 })
 
 afterAll(async () => {
@@ -163,6 +163,6 @@ describe('PATCH /purchase-return/reject/:id — reversal must undo the converted
 
     const afterReject = await db.ingredient.findByPk(ingredient.id)
     // 12 (post-return) + 12 (correct reversal of the 1-box/12-pcs deduction) = 24
-    expect(afterReject.stock).toBe(RECEIVE_QTY_BOXES * CONVERSION)
+    expect(Number(afterReject.stock)).toBe(RECEIVE_QTY_BOXES * CONVERSION)
   })
 })

@@ -350,7 +350,7 @@ const ingredientController = {
         })
       }
 
-      const quantityBefore = ingredient.stock
+      const quantityBefore = Number(ingredient.stock)
       let quantityChange = quantity
 
       if (type === 'add') {

@@ -208,7 +208,7 @@ describe('PUT /ingredient/adjust-stock/:id — data isolation', () => {
     expect(res.status).toBe(404)
 
     const unchanged = await db.ingredient.findByPk(ingStore2.id)
-    expect(unchanged.stock).toBe(20)
+    expect(Number(unchanged.stock)).toBe(20)
   })
 
   test('admin store 1 can adjust stock of own ingredient', async () => {
@@ -220,7 +220,7 @@ describe('PUT /ingredient/adjust-stock/:id — data isolation', () => {
     expect(res.status).toBe(200)
 
     await ingStore1.reload()
-    expect(ingStore1.stock).toBe(15)
+    expect(Number(ingStore1.stock)).toBe(15)
 
     await ingStore1.update({ stock: 10 })
   })

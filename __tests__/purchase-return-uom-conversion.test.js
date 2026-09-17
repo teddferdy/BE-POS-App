@@ -108,7 +108,7 @@ beforeAll(async () => {
   expect(grRes.status).toBe(201)
 
   const afterReceive = await db.ingredient.findByPk(ingredient.id)
-  expect(afterReceive.stock).toBe(RECEIVE_QTY_BOXES * CONVERSION) // 24 pcs
+  expect(Number(afterReceive.stock)).toBe(RECEIVE_QTY_BOXES * CONVERSION) // 24 pcs
 })
 
 afterAll(async () => {
@@ -130,7 +130,7 @@ afterAll(async () => {
 describe('POST /purchase-return/create — unit conversion on stock reversal', () => {
   test('returning a purchase-unit quantity deducts the correctly converted base-unit quantity from stock', async () => {
     const beforeReturn = await db.ingredient.findByPk(ingredient.id)
-    expect(beforeReturn.stock).toBe(RECEIVE_QTY_BOXES * CONVERSION) // 24
+    expect(Number(beforeReturn.stock)).toBe(RECEIVE_QTY_BOXES * CONVERSION) // 24
 
     const returnRes = await request(app)
       .post('/purchase-return/create')
@@ -153,6 +153,6 @@ describe('POST /purchase-return/create — unit conversion on stock reversal', (
     const afterReturn = await db.ingredient.findByPk(ingredient.id)
     const expectedStock =
       RECEIVE_QTY_BOXES * CONVERSION - RETURN_QTY_BOXES * CONVERSION // 24 - 12 = 12
-    expect(afterReturn.stock).toBe(expectedStock)
+    expect(Number(afterReturn.stock)).toBe(expectedStock)
   })
 })

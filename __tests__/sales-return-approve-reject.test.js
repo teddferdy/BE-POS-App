@@ -112,7 +112,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
     expect(res.status).toBe(200)
 
     const afterStock = await db.product.findByPk(product.id)
-    expect(afterStock.stock).toBe(beforeStock.stock + 4)
+    expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 4)
 
     const refundTxn = await db.transaction.findOne({
       where: { order: order.id, salesReturnId: ret.id }
@@ -147,7 +147,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
     expect(statuses).toEqual([200, 409])
 
     const afterStock = await db.product.findByPk(product.id)
-    expect(afterStock.stock).toBe(beforeStock.stock + 3)
+    expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 3)
 
     const refundTxns = await db.transaction.findAll({
       where: { salesReturnId: ret.id }
@@ -262,8 +262,8 @@ describe('PATCH /sales-return/approve and /reject', () => {
 
     const afterA = await db.product.findByPk(product.id)
     const afterB = await db.product.findByPk(otherProduct.id)
-    expect(afterA.stock).toBe(beforeA.stock + 2)
-    expect(afterB.stock).toBe(beforeB.stock + 1)
+    expect(Number(afterA.stock)).toBe(Number(beforeA.stock) + 2)
+    expect(Number(afterB.stock)).toBe(Number(beforeB.stock) + 1)
 
     // otherProduct now has sales_return_item history referencing it — the
     // FK is RESTRICT (F4), so that history must go first, matching the
@@ -308,7 +308,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
       expect(cancelRes.status).toBe(200)
       expect(approveRes.status).toBe(409)
       expect(finalReturn.status).toBe('pending')
-      expect(afterStock.stock).toBe(beforeStock.stock + 10)
+      expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 10)
       expect(refundTxns.length).toBe(0)
     } else {
       // Approve won: only the return's 3 units are restored; cancel must
@@ -319,7 +319,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
       expect(cancelRes.status).toBe(400)
       expect(finalReturn.status).toBe('approved')
       expect(finalOrder.status).toBe('paid')
-      expect(afterStock.stock).toBe(beforeStock.stock + 3)
+      expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 3)
       expect(refundTxns.length).toBe(1)
     }
   })

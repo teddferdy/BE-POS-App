@@ -78,7 +78,7 @@ describe('F4-03 /order/customer-menu — authoritative per-store effective stock
     const found = products.find((p) => String(p.id) === String(productZ.id))
     expect(found).toBeDefined()
     expect(found.effectiveStock).toBe(0)
-    expect(found.stock).toBe(100)
+    expect(Number(found.stock)).toBe(100)
   })
 
   test('BE-2 — store-specific positive row wins (effectiveStock 20)', async () => {
@@ -86,7 +86,7 @@ describe('F4-03 /order/customer-menu — authoritative per-store effective stock
     const found = products.find((p) => String(p.id) === String(productZ.id))
     expect(found).toBeDefined()
     expect(found.effectiveStock).toBe(20)
-    expect(found.stock).toBe(100)
+    expect(Number(found.stock)).toBe(100)
   })
 
   test('BE-3 — missing store row falls back to base stock (effectiveStock 100)', async () => {

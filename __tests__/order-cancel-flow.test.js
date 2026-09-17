@@ -55,7 +55,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(createRes.status).toBe(201)
 
     const afterCreate = await db.product.findByPk(product.id)
-    expect(afterCreate.stock).toBe(15)
+    expect(Number(afterCreate.stock)).toBe(15)
 
     const cancelRes = await request(app)
       .put('/order/update-status')
@@ -69,7 +69,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(cancelRes.status).toBe(200)
 
     const afterCancel = await db.product.findByPk(product.id)
-    expect(afterCancel.stock).toBe(20)
+    expect(Number(afterCancel.stock)).toBe(20)
 
     const order = await db.order.findByPk(createRes.body.data.id)
     expect(order.status).toBe('cancelled')
@@ -99,7 +99,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     const orderId = createRes.body.data.id
 
     const afterCreate = await db.product.findByPk(product.id)
-    expect(afterCreate.stock).toBe(15)
+    expect(Number(afterCreate.stock)).toBe(15)
 
     const cancelRes = await request(app)
       .put('/order/update-status')
@@ -108,7 +108,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(cancelRes.status).toBe(200)
 
     const afterCancel = await db.product.findByPk(product.id)
-    expect(afterCancel.stock).toBe(20)
+    expect(Number(afterCancel.stock)).toBe(20)
 
     const cancelledOrder = await db.order.findByPk(orderId)
     // A cancelled order that was paid must not still read paymentStatus:
@@ -131,7 +131,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(rePaidRes.status).toBe(409)
 
     const afterRePaid = await db.product.findByPk(product.id)
-    expect(afterRePaid.stock).toBe(20) // untouched by the rejected transition
+    expect(Number(afterRePaid.stock)).toBe(20) // untouched by the rejected transition
 
     const still = await db.order.findByPk(orderId)
     expect(still.status).toBe('cancelled')
@@ -171,7 +171,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(cancelRes.status).toBe(200)
 
     const after = await db.product.findByPk(product.id)
-    expect(after.stock).toBe(before.stock)
+    expect(Number(after.stock)).toBe(Number(before.stock))
 
     const cancelledOrder = await db.order.findByPk(pendingOrder.id)
     expect(cancelledOrder.status).toBe('cancelled')
