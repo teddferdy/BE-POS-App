@@ -2316,7 +2316,7 @@ exports.enqueueOrderAccountingJobs = enqueueOrderAccountingJobs
 exports.attemptOrderAccountingEntries = attemptOrderAccountingEntries
 
 exports.updateOrderStatus = async (req, res) => {
-  const { id, status, changedBy, changedByName, notes } = req.body
+  const { id, status, changedBy, changedByName, notes, reason } = req.body
   const store =
     req.user?.roleType === 'super_admin'
       ? req.storeId || req.body.store || null
@@ -2577,6 +2577,20 @@ exports.updateOrderStatus = async (req, res) => {
       // correctly see stock as no longer deducted.
       const willBeRefunded = isCancelling && oldPaymentStatus === 'paid'
 
+      // Phase 31 Batch 1 (RBAC-1 compensating control): cancelling a paid
+      // order is allowed for kasir by design, but requires a meaningful
+      // reason. Validated here — after the locked read establishes
+      // oldPaymentStatus, before any mutation (throw rolls the txn back).
+      // Repeat cancels are no-ops (isCancelling false) and stay reason-free.
+      const cancelReason = typeof reason === 'string' ? reason.trim() : ''
+      if (willBeRefunded && !cancelReason) {
+        const err = new Error(
+          'Cancelling a paid order requires a reason. Provide a non-empty reason (max 255 characters).'
+        )
+        err.statusCode = 422
+        throw err
+      }
+
       await order.update(
         {
           status,
@@ -2591,11 +2605,12 @@ exports.updateOrderStatus = async (req, res) => {
           action: AUDIT_ACTIONS.VOID,
           entity: 'order',
           entityId: id,
-          description: `Order ${order.orderNumber || id} voided/cancelled (was ${oldStatus})`,
+          description: `Order ${order.orderNumber || id} voided/cancelled (was ${oldStatus})${cancelReason ? `. Reason: ${cancelReason}` : ''}`,
           oldValues: { status: oldStatus, paymentStatus: oldPaymentStatus },
           newValues: {
             status,
-            paymentStatus: willBeRefunded ? 'refunded' : oldPaymentStatus
+            paymentStatus: willBeRefunded ? 'refunded' : oldPaymentStatus,
+            reason: cancelReason || null
           },
           transaction: t
         })

@@ -21,11 +21,12 @@ const createOrderRequest = () =>
       cashierName: 'F03Cashier'
     })
 
-const setStatus = (id, status) =>
+const setStatus = (id, status, reason) =>
   request(app)
     .put('/order/update-status')
     .set('Authorization', `Bearer ${token}`)
-    .send({ id, store: location.id, status, changedByName: 'F03-Test' })
+    // Phase 31 Batch 1: paid cancel requires a reason; pass explicitly.
+    .send({ id, store: location.id, status, changedByName: 'F03-Test', ...(reason ? { reason } : {}) })
 
 describe('F-03 cancelled/refunded order must not be resurrected to paid', () => {
   beforeAll(async () => {
@@ -80,7 +81,7 @@ describe('F-03 cancelled/refunded order must not be resurrected to paid', () => 
     const afterPaid = await db.product.findByPk(product.id)
     expect(Number(afterPaid.stock)).toBe(9)
 
-    const cancelled = await setStatus(orderId, 'cancelled')
+    const cancelled = await setStatus(orderId, 'cancelled', 'F03 test void reason')
     expect(cancelled.status).toBe(200)
 
     order = await db.order.findByPk(orderId)
@@ -96,7 +97,7 @@ describe('F-03 cancelled/refunded order must not be resurrected to paid', () => 
     expect(created.status).toBe(201)
     const orderId = created.body.data.id
 
-    await setStatus(orderId, 'cancelled')
+    await setStatus(orderId, 'cancelled', 'F03 test void reason')
     expect((await db.order.findByPk(orderId)).paymentStatus).toBe('refunded')
 
     // Snapshot every financial/stock signal the resurrection would corrupt.
@@ -132,7 +133,7 @@ describe('F-03 cancelled/refunded order must not be resurrected to paid', () => 
     expect(created.status).toBe(201)
     const orderId = created.body.data.id
 
-    const cancelled = await setStatus(orderId, 'cancelled')
+    const cancelled = await setStatus(orderId, 'cancelled', 'F03 test void reason')
     expect(cancelled.status).toBe(200)
 
     const stockBefore = Number((await db.product.findByPk(product.id)).stock)

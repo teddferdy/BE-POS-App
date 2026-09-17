@@ -514,7 +514,7 @@ describe('F7 — snapshot immutability (mandatory)', () => {
     const line = await db.bom_line.findOne({ where: { bomHeaderId: bom.id, ingredientId: ing.id } })
     await line.update({ qty: 100 })
 
-    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'cancelled' })
+    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
     expect(cancelRes.status).toBe(200)
 
     // Must restore exactly 5 (the original snapshot), never 100.
@@ -546,7 +546,7 @@ describe('F7 — snapshot immutability (mandatory)', () => {
     expect(res.status).toBe(201)
     expect(Number((await db.ingredient.findByPk(ing.id)).stock)).toBe(100 - 12)
 
-    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'cancelled' })
+    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
     expect(cancelRes.status).toBe(200)
     expect(Number((await db.ingredient.findByPk(ing.id)).stock)).toBe(100)
 
@@ -979,7 +979,8 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     const cancel = await updateOrderStatus(tokenA, {
       id: created.body.data.id,
-      status: 'cancelled'
+      status: 'cancelled',
+      reason: 'F7 test void reason'
     })
     expect(cancel.status).toBe(200)
 
@@ -1020,7 +1021,8 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     const cancel = await updateOrderStatus(tokenA, {
       id: created.body.data.id,
-      status: 'cancelled'
+      status: 'cancelled',
+      reason: 'F7 test void reason'
     })
     expect(cancel.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10)
@@ -1052,7 +1054,8 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     const cancel = await updateOrderStatus(tokenA, {
       id: created.body.data.id,
-      status: 'void'
+      status: 'void',
+      reason: 'F7 test void reason'
     })
     expect(cancel.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(50)
@@ -1075,7 +1078,7 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
     expect(paid.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(9)
 
-    const cancel1 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    const cancel1 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
     expect(cancel1.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10)
 
@@ -1126,7 +1129,7 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     // T4: reversal must restore the SALE's immutable deduction (A,D) — not
     // the original order composition (A,B,C), not the current config (A,E).
-    const cancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    const cancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
     expect(cancel.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10)
     expect(Number((await db.product.findByPk(D.id)).stock)).toBe(10)

@@ -310,7 +310,16 @@ exports.updateOrderStatusSchema = z.object({
   ]),
   changedBy: strToNum().optional().nullable(),
   changedByName: z.string().optional().nullable(),
-  notes: z.string().optional().default('')
+  notes: z.string().optional().default(''),
+  // Phase 31 Batch 1: required (non-empty after trim) when cancelling a
+  // paid order — enforced in updateOrderStatus, which alone knows the
+  // locked oldPaymentStatus. Optional here so unrelated transitions keep
+  // their existing shape. Non-strings are rejected by z.string (400).
+  reason: z
+    .string()
+    .max(255, 'reason must be at most 255 characters')
+    .optional()
+    .nullable()
 })
 
 exports.updateOrderItemStatusSchema = z.object({

@@ -290,7 +290,7 @@ describe('Amount invariant', () => {
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ id: order.id, status: 'cancelled', store: store.id })
+      .send({ id: order.id, status: 'cancelled', store: store.id, reason: 'Hardening test void reason' })
     // Existing, preserved mutual-exclusion guard in order.js — untouched
     // by F4, re-verified here as part of the refund-invariant proof.
     expect(cancelRes.status).toBe(400)

@@ -63,7 +63,9 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
       .send({
         id: createRes.body.data.id,
         status: 'cancelled',
-        store: location.id
+        store: location.id,
+        // Phase 31 Batch 1: paid cancel requires a reason.
+        reason: 'Test void reason'
       })
 
     expect(cancelRes.status).toBe(200)
@@ -104,7 +106,8 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ id: orderId, status: 'cancelled', store: location.id })
+      // Phase 31 Batch 1: paid cancel requires a reason.
+      .send({ id: orderId, status: 'cancelled', store: location.id, reason: 'Test void reason' })
     expect(cancelRes.status).toBe(200)
 
     const afterCancel = await db.product.findByPk(product.id)

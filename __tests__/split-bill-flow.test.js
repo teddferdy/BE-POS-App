@@ -323,7 +323,7 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
       request(app)
         .put('/order/update-status')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ id: order.id, status: 'cancelled', store: location.id }),
+        .send({ id: order.id, status: 'cancelled', store: location.id, reason: 'Race test void reason' }),
       request(app)
         .put(`/split-bill/pay/${splitB.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
