@@ -3,6 +3,44 @@ const envFile =
     ? __dirname + '/../.env.production'
     : __dirname + '/../.env'
 require('dotenv').config({ path: envFile })
+
+// Phase 30F-1: default-deny guard BEFORE db/models is required and before
+// any TRUNCATE/DELETE. Resolves safe identity from config (no connection).
+const guard = require('./destructive-guard')
+
+{
+  const nodeEnv = process.env.NODE_ENV
+  let guardHost
+  let guardDatabase
+  try {
+    const allConfigs = require('../config/config.js')
+    const cfg = (nodeEnv && allConfigs[nodeEnv]) || allConfigs.development
+    guardHost = cfg && cfg.host
+    guardDatabase = cfg && cfg.database
+  } catch {
+    guardHost = undefined
+    guardDatabase = undefined
+  }
+  try {
+    guard.assertDestructiveAllowed({
+      operation: 'scripts/reset-data.js transactional truncate',
+      nodeEnv,
+      host: guardHost,
+      database: guardDatabase,
+      allowVar: process.env.ALLOW_DESTRUCTIVE_SYNC,
+      hasForceFlag: guard.parseForceFlag(process.argv)
+    })
+  } catch (err) {
+    console.error(err.message)
+    console.error(
+      'Refusing transactional data reset. ' +
+        'Local dev workflow: NODE_ENV=development node scripts/reset-data.js --force. ' +
+        'Production reset is default-deny.'
+    )
+    process.exit(1)
+  }
+}
+
 const db = require('../db/models')
 
 const TABLES_TO_KEEP = [
