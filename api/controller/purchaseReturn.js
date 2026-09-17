@@ -333,35 +333,50 @@ const purchaseReturnController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const ret = await db.purchase_return.findOne({
-        where,
-        include: [{ model: db.purchase_return_item, as: 'items' }]
-      })
-      if (!ret) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'Purchase return not found' })
-      }
-
-      if (ret.status !== 'pending') {
-        return res.status(400).json({
-          success: false,
-          message: 'Only pending returns can be approved'
-        })
-      }
-
+      // Batch 32-A (PR-02): approval must be atomic. The status used to be
+      // read unlocked and flipped before any financial work, so two
+      // concurrent approvals could both pass the pending check and double
+      // every effect. The transaction now opens first; the return row is
+      // locked (FOR UPDATE) and its status re-checked inside, so exactly
+      // one approval wins and losers see the terminal state.
       const t = await db.sequelize.transaction()
       let returnTotal = 0
       let journalJob = null
       try {
-        await ret.update({ status: 'approved', resolution }, { transaction: t })
+        const ret = await db.purchase_return.findOne({
+          where,
+          lock: t.LOCK.UPDATE,
+          transaction: t
+        })
+        if (!ret) {
+          await t.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'Purchase return not found' })
+        }
+
+        if (ret.status !== 'pending') {
+          await t.rollback()
+          return res.status(400).json({
+            success: false,
+            message: 'Only pending returns can be approved'
+          })
+        }
+
+        const retItems = await db.purchase_return_item.findAll({
+          where: { purchaseReturn: ret.id },
+          lock: t.LOCK.UPDATE,
+          transaction: t
+        })
 
         if (ret.purchaseOrder) {
           const po = await db.purchase_order.findByPk(ret.purchaseOrder, {
+            lock: t.LOCK.UPDATE,
             transaction: t
           })
           const poItems = await db.purchase_order_item.findAll({
             where: { purchaseOrder: ret.purchaseOrder },
+            lock: t.LOCK.UPDATE,
             transaction: t
           })
           const poItemMap = {}
@@ -372,7 +387,7 @@ const purchaseReturnController = {
           })
 
           returnTotal = 0
-          const resolvedItems = ret.items.map((item) => {
+          const resolvedItems = retItems.map((item) => {
             const key = item.ingredient
               ? `ing-${item.ingredient}`
               : item.product
@@ -404,6 +419,33 @@ const purchaseReturnController = {
           // receivedQuantity is intentionally NOT reduced: the returned qty
           // stays consumed so those units cannot be received again on this PO
           // (prevents double benefit / double receiving).
+
+          // Durable inside the same transaction as the return/PO/stock rows
+          // above — a posting failure below is retried, not silently
+          // discarded (same pattern as purchasePayment.js / goodsReceipt.js).
+          if (returnTotal > 0) {
+            journalJob = await enqueueAccountingJob({
+              jobType: 'purchase_return_journal',
+              store: ret.store,
+              referenceType: 'purchase_return',
+              referenceId: id,
+              payload: {
+                store: ret.store,
+                purchaseReturnId: id,
+                returnNumber: ret.returnNumber,
+                amount: returnTotal,
+                date: new Date().toISOString(),
+                createdBy: req.user?.id
+              },
+              transaction: t
+            })
+          }
+
+          // Status flips only after every financial effect above has been
+          // written inside this same transaction — never before, so a
+          // concurrent approval can only ever observe pending (and proceed)
+          // or an already-terminal state (and refuse).
+          await ret.update({ status: 'approved', resolution }, { transaction: t })
 
           // F22-B10-02: recompute the ORIGINAL PO's fulfillment status now
           // that this approved return counts against it. Applies for both
@@ -464,27 +506,6 @@ const purchaseReturnController = {
           }
         }
 
-        // Durable inside the same transaction as the return/PO/stock rows
-        // above — a posting failure below is retried, not silently
-        // discarded (same pattern as purchasePayment.js / goodsReceipt.js).
-        if (returnTotal > 0) {
-          journalJob = await enqueueAccountingJob({
-            jobType: 'purchase_return_journal',
-            store: ret.store,
-            referenceType: 'purchase_return',
-            referenceId: id,
-            payload: {
-              store: ret.store,
-              purchaseReturnId: id,
-              returnNumber: ret.returnNumber,
-              amount: returnTotal,
-              date: new Date().toISOString(),
-              createdBy: req.user?.id
-            },
-            transaction: t
-          })
-        }
-
         await t.commit()
 
         if (journalJob) {
@@ -536,54 +557,73 @@ const purchaseReturnController = {
       const where = { id }
       if (store && userRole !== 'super_admin') where.store = store
 
-      const ret = await db.purchase_return.findOne({
-        where,
-        include: [{ model: db.purchase_return_item, as: 'items' }]
-      })
-
-      if (!ret) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'Purchase return not found' })
-      }
-
-      if (ret.status !== 'pending') {
-        return res.status(400).json({
-          success: false,
-          message: 'Only pending returns can be rejected'
-        })
-      }
-
-      // Batch 14: create() deducts item.qty * poItem.conversionToBase (the
-      // Batch 13 fix) — the reversal here must undo that exact same
-      // base-unit amount, not the raw purchase-unit qty, or the forward
-      // and reverse deltas no longer cancel. Mirrors create()'s own
-      // poItemMap lookup.
-      const rejectPoItems = ret.purchaseOrder
-        ? await db.purchase_order_item.findAll({
-            where: { purchaseOrder: ret.purchaseOrder }
-          })
-        : []
-      const rejectPoItemMap = {}
-      rejectPoItems.forEach((pi) => {
-        const key = pi.ingredient
-          ? `ing-${pi.ingredient}`
-          : pi.product
-            ? `prod-${pi.product}`
-            : pi.ingredientName
-              ? `name-${pi.ingredientName}`
-              : null
-        if (key) rejectPoItemMap[key] = Number(pi.conversionToBase) || 1
-      })
-
+      // Batch 32-A (PR-03): rejection must be atomic like approval. The
+      // return used to be read unlocked and its status checked before any
+      // transaction opened, so two concurrent rejects (or an approve/reject
+      // race) could both pass the pending check and restore stock twice.
+      // The transaction now opens first; the return row is locked
+      // (FOR UPDATE) and re-checked inside, so exactly one terminal
+      // transition wins.
       const transaction = await db.sequelize.transaction()
       try {
-        // Reverse stock: add back what was deducted on creation. Uses the
-        // shared, locked, atomic-delta helper — previously this computed
-        // the new value in JS from an unlocked read (oldStock + qty) and
-        // wrote it as an absolute value, a lost-update race under any
-        // concurrent writer to the same product.
-        for (const item of ret.items) {
+        const ret = await db.purchase_return.findOne({
+          where,
+          lock: transaction.LOCK.UPDATE,
+          transaction
+        })
+
+        if (!ret) {
+          await transaction.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'Purchase return not found' })
+        }
+
+        if (ret.status !== 'pending') {
+          await transaction.rollback()
+          return res.status(400).json({
+            success: false,
+            message: 'Only pending returns can be rejected'
+          })
+        }
+
+        const retItems = await db.purchase_return_item.findAll({
+          where: { purchaseReturn: ret.id },
+          lock: transaction.LOCK.UPDATE,
+          transaction
+        })
+
+        // Batch 14: create() deducts item.qty * poItem.conversionToBase (the
+        // Batch 13 fix) — the reversal here must undo that exact same
+        // base-unit amount, not the raw purchase-unit qty, or the forward
+        // and reverse deltas no longer cancel. Mirrors create()'s own
+        // poItemMap lookup.
+        const rejectPoItems = ret.purchaseOrder
+          ? await db.purchase_order_item.findAll({
+              where: { purchaseOrder: ret.purchaseOrder },
+              lock: transaction.LOCK.UPDATE,
+              transaction
+            })
+          : []
+        const rejectPoItemMap = {}
+        rejectPoItems.forEach((pi) => {
+          const key = pi.ingredient
+            ? `ing-${pi.ingredient}`
+            : pi.product
+              ? `prod-${pi.product}`
+              : pi.ingredientName
+                ? `name-${pi.ingredientName}`
+                : null
+          if (key) rejectPoItemMap[key] = Number(pi.conversionToBase) || 1
+        })
+
+        // Reverse stock: add back what was deducted on creation. Product
+        // restoration uses the shared, locked, atomic-delta helper; the
+        // ingredient path below uses a locked read plus an atomic SQL
+        // increment (never an absolute oldStock + qty write, which loses
+        // concurrent updates). Quantities here are the validated integers
+        // persisted at create time (PR-04), so no truncation occurs.
+        for (const item of retItems) {
           const itemKey = item.ingredient
             ? `ing-${item.ingredient}`
             : item.product
@@ -592,33 +632,44 @@ const purchaseReturnController = {
                 ? `name-${item.ingredientName}`
                 : null
           const rejectConversion = (itemKey && rejectPoItemMap[itemKey]) || 1
-          const qty = Math.floor((Number(item.qty) || 0) * rejectConversion)
+          const qty = (Number(item.qty) || 0) * rejectConversion
           if (item.product) {
             await adjustProductStock({
               productId: item.product,
               store: ret.store || null,
               deltaQty: qty,
               referenceType: 'adjustment',
+              referenceId: ret.id,
               notes: `Purchase return rejected: ${ret.reason}`,
               createdBy: req.user?.id || null,
               transaction
             })
           }
 
+          // Resolve the same stock identity create-time deduction used:
+          // prefer the persisted ingredient FK, falling back to the exact
+          // name+store match (create uses exact match, not fuzzy).
           const ingredient = item.ingredient
-            ? await db.ingredient.findByPk(item.ingredient, { transaction })
+            ? await db.ingredient.findByPk(item.ingredient, {
+                lock: transaction.LOCK.UPDATE,
+                transaction
+              })
             : item.ingredientName
               ? await db.ingredient.findOne({
                   where: {
-                    name: { [Op.iLike]: item.ingredientName.trim() },
+                    name: item.ingredientName,
                     store: ret.store
                   },
+                  lock: transaction.LOCK.UPDATE,
                   transaction
                 })
               : null
           if (ingredient) {
             const oldStock = Number(ingredient.stock) || 0
-            await ingredient.update({ stock: oldStock + qty }, { transaction })
+            await ingredient.update(
+              { stock: db.sequelize.literal(`stock + (${qty})`) },
+              { transaction }
+            )
 
             await db.stock_history.create(
               {
@@ -896,9 +947,19 @@ const purchaseReturnController = {
         })
       })
 
-      // Validate each return item
+      // Validate each return item.
+      // Batch 32-A: every item must (a) carry a well-formed integer
+      // quantity (PR-04: fractional quantities are rejected, never
+      // truncated — purchase returns are integer-only while production
+      // stock columns remain integer), and (b) resolve to a PO line of
+      // this purchase order (PR-01: unmatched items previously bypassed
+      // the guard yet still deducted stock). All checks run before any
+      // write; any failure rolls the transaction back with nothing
+      // committed.
       const errors = []
-      for (const item of items) {
+      const unmatchedErrors = []
+      const qtyErrors = []
+      items.forEach((item, index) => {
         const key = item.ingredient
           ? `ing-${item.ingredient}`
           : item.productId
@@ -906,20 +967,64 @@ const purchaseReturnController = {
             : item.ingredientName
               ? `name-${item.ingredientName}`
               : null
-        if (key && poItemMap[key]) {
-          const info = poItemMap[key]
-          const available = info.receivedQty - info.alreadyReturned
-          if (Number(item.qty) > available) {
-            const name = item.ingredient
-              ? `ingredient #${item.ingredient}`
-              : item.productId
-                ? `product #${item.productId}`
-                : `"${item.ingredientName}"`
-            errors.push(
-              `${name}: max ${available} (received ${info.receivedQty}, already returned ${info.alreadyReturned})`
-            )
-          }
+        const name = item.ingredient
+          ? `ingredient #${item.ingredient}`
+          : item.productId
+            ? `product #${item.productId}`
+            : item.ingredientName
+              ? `"${item.ingredientName}"`
+              : `item #${index + 1}`
+        const qtyNum = Number(item.qty)
+        if (!Number.isFinite(qtyNum)) {
+          qtyErrors.push(`${name}: quantity must be a valid number`)
+          return
         }
+        if (!Number.isInteger(qtyNum)) {
+          qtyErrors.push(
+            `${name}: fractional return quantity is currently unsupported (integer only)`
+          )
+          return
+        }
+        if (qtyNum <= 0) {
+          qtyErrors.push(`${name}: quantity must be greater than zero`)
+          return
+        }
+        if (!key || !poItemMap[key]) {
+          unmatchedErrors.push(
+            `${name}: item is not part of purchase order ${poId}`
+          )
+          return
+        }
+        const info = poItemMap[key]
+        const baseQty = qtyNum * (Number(info.conversionToBase) || 1)
+        if (!Number.isInteger(baseQty)) {
+          qtyErrors.push(
+            `${name}: converted base-unit quantity is fractional and currently unsupported`
+          )
+          return
+        }
+        const available = info.receivedQty - info.alreadyReturned
+        if (qtyNum > available) {
+          errors.push(
+            `${name}: max ${available} (received ${info.receivedQty}, already returned ${info.alreadyReturned})`
+          )
+        }
+      })
+
+      if (unmatchedErrors.length > 0) {
+        await t.rollback()
+        return res.status(400).json({
+          success: false,
+          message: `Return item is not part of the purchase order: ${unmatchedErrors.join('; ')}`
+        })
+      }
+
+      if (qtyErrors.length > 0) {
+        await t.rollback()
+        return res.status(422).json({
+          success: false,
+          message: `Invalid return quantity: ${qtyErrors.join('; ')}`
+        })
       }
 
       if (errors.length > 0) {
@@ -983,7 +1088,10 @@ const purchaseReturnController = {
           product: item.productId || null,
           ingredient: item.ingredient || null,
           ingredientName: item.ingredientName || null,
-          qty: item.qty,
+          // Batch 32-A (PR-04): quantities passed validation above as
+          // mathematically integer — persist the canonical Number form so
+          // values like "2.0000" never reach the INTEGER column as text.
+          qty: Number(item.qty),
           unit: item.unit || 'pcs',
           notes: item.notes || null
         }))
@@ -1008,15 +1116,30 @@ const purchaseReturnController = {
             (itemKey && poItemMap[itemKey]?.conversionToBase) || 1
 
           if (item.productId) {
+            // Batch 32-A (PR-09): locked read + sufficiency gate + exact
+            // delta. The previous GREATEST(stock - qty, 0) clamp silently
+            // shrank the mutation (and the history delta) when stock was
+            // short; sales paths reject on insufficient stock instead, and
+            // returns follow that convention — reject cleanly, mutate
+            // exactly, keep before/change/after consistent.
             const product = await db.product.findByPk(item.productId, {
+              lock: t.LOCK.UPDATE,
               transaction: t
             })
             if (product) {
               const oldStock = Number(product.stock) || 0
-              const qty = Math.floor((Number(item.qty) || 0) * returnConversion)
-              const newStock = Math.max(oldStock - qty, 0)
+              // Validated integer-only above (PR-04), so this is exact.
+              const qty = (Number(item.qty) || 0) * returnConversion
+              if (oldStock < qty) {
+                await t.rollback()
+                return res.status(422).json({
+                  success: false,
+                  message: `Insufficient stock for product #${item.productId}: have ${oldStock}, need ${qty}`
+                })
+              }
+              const newStock = oldStock - qty
               await product.update(
-                { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                { stock: db.sequelize.literal(`stock - ${qty}`) },
                 { transaction: t }
               )
 
@@ -1030,7 +1153,7 @@ const purchaseReturnController = {
                 )
                 await db.product_store_stock.update(
                   {
-                    stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`)
+                    stock: db.sequelize.literal(`stock - ${qty}`)
                   },
                   { where: { product: item.productId, store }, transaction: t }
                 )
@@ -1043,7 +1166,7 @@ const purchaseReturnController = {
                   referenceType: 'purchase_return',
                   referenceId: ret.id,
                   quantityBefore: oldStock,
-                  quantityChange: -(oldStock - newStock),
+                  quantityChange: -qty,
                   quantityAfter: newStock,
                   unit: item.unit || 'pcs',
                   createdBy
@@ -1055,18 +1178,27 @@ const purchaseReturnController = {
           if (item.ingredient || (!item.productId && item.ingredientName)) {
             const ingredient = item.ingredient
               ? await db.ingredient.findByPk(item.ingredient, {
+                  lock: t.LOCK.UPDATE,
                   transaction: t
                 })
               : await db.ingredient.findOne({
                   where: { name: item.ingredientName, store },
+                  lock: t.LOCK.UPDATE,
                   transaction: t
                 })
             if (ingredient) {
               const oldStock = Number(ingredient.stock) || 0
-              const qty = Math.floor((Number(item.qty) || 0) * returnConversion)
-              const newStock = Math.max(oldStock - qty, 0)
+              const qty = (Number(item.qty) || 0) * returnConversion
+              if (oldStock < qty) {
+                await t.rollback()
+                return res.status(422).json({
+                  success: false,
+                  message: `Insufficient stock for ingredient "${ingredient.name}": have ${oldStock}, need ${qty}`
+                })
+              }
+              const newStock = oldStock - qty
               await ingredient.update(
-                { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
+                { stock: db.sequelize.literal(`stock - ${qty}`) },
                 { transaction: t }
               )
               await db.stock_history.create(
@@ -1077,7 +1209,7 @@ const purchaseReturnController = {
                   referenceType: 'purchase_return',
                   referenceId: ret.id,
                   quantityBefore: oldStock,
-                  quantityChange: -(oldStock - newStock),
+                  quantityChange: -qty,
                   quantityAfter: newStock,
                   unit: item.unit || ingredient.unit || 'pcs',
                   createdBy
