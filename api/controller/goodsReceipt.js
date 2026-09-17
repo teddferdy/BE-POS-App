@@ -143,8 +143,9 @@ const resolveIngredientForItem = async ({ item, poItem, store, transaction }) =>
 }
 
 // ponytail: weighted-average HPP update when GR costPrice differs from PO price
+// T-08 preserve DECIMAL qty/cost (no parseInt truncation)
 const applyCostPrice = async ({ item, qty, store, transaction }) => {
-  const costPrice = parseInt(item.costPrice) || 0
+  const costPrice = Number(item.costPrice) || 0
   const conversion = Number(item.conversionToBase) || 1
   const qtyStock = qty * conversion
   // HPP is per PO unit; convert to per base-stock-unit before averaging
@@ -195,8 +196,8 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
 
 const reverseStock = async (items, store, transaction, userId) => {
   for (const grItem of items) {
-    const qty = parseInt(grItem.qtyReceived) || 0
-    if (qty <= 0) continue
+    const qty = Number(grItem.qtyReceived) || 0
+    if (!Number.isFinite(qty) || qty <= 0) continue
 
     const qtyStock =
       Number(grItem.qtyStock) > 0
@@ -267,8 +268,8 @@ const reverseStock = async (items, store, transaction, userId) => {
 
 const applyStock = async (items, receipt, transaction, userId) => {
   for (const item of items) {
-    const qty = parseInt(item.qtyReceived) || 0
-    if (qty <= 0) continue
+    const qty = Number(item.qtyReceived) || 0
+    if (!Number.isFinite(qty) || qty <= 0) continue
 
     const conversion =
       Number(item.conversionToBase) ||
@@ -600,6 +601,22 @@ const goodsReceiptController = {
         })
       }
 
+      const { idempotencyKey } = req.body
+      // T-10 idempotency: same key returns same GR without duplicating stock/journal
+      if (idempotencyKey) {
+        const existing = await db.goodsReceipt.findOne({
+          where: { purchaseOrderId, idempotencyKey },
+          include: [{ model: db.goodsReceiptItem, as: 'items' }]
+        })
+        if (existing) {
+          return res.status(200).json({
+            success: true,
+            message: 'Goods receipt already exists for this idempotency key',
+            data: existing
+          })
+        }
+      }
+
       const poWhere = { id: purchaseOrderId }
       if (store) poWhere.store = store
 
@@ -654,6 +671,7 @@ const goodsReceiptController = {
             suratJalan: suratJalan || null,
             taxInvoiceNo: taxInvoiceNo || null,
             shippingCost: Number(shippingCost) || 0,
+            idempotencyKey: idempotencyKey || null,
             createdBy: req.user?.id || null
           },
           { transaction }
@@ -661,7 +679,9 @@ const goodsReceiptController = {
 
         const receiptItems = []
         const additionalCost = Number(po.additionalCost) || 0
-        const tolerance = Number(po.overDeliveryTolerance) || 10
+        const tolerance = Number.isFinite(Number(po.overDeliveryTolerance))
+          ? Number(po.overDeliveryTolerance)
+          : 10
         // F22-B10-05: this read feeds the over-delivery validation below
         // (`remaining = maxDeliverable - alreadyReceived`). Without a lock,
         // two concurrent receipts against the same PO item can both read
@@ -709,8 +729,8 @@ const goodsReceiptController = {
         const productById = new Map(receiptProducts.map((p) => [p.id, p]))
 
         for (const [index, item] of items.entries()) {
-          const qty = parseInt(item.qtyReceived) || 0
-          if (qty <= 0) continue
+          const qty = Number(item.qtyReceived) || 0
+          if (!Number.isFinite(qty) || qty <= 0) continue
 
           // Over-receive validation
           let poItem = null
@@ -742,7 +762,7 @@ const goodsReceiptController = {
             Number(poItem?.conversionToBase) ||
             1
           const baseCost =
-            parseInt(item.costPrice) || (poItem ? Number(poItem.price) || 0 : 0)
+            Number(item.costPrice) || (poItem ? Number(poItem.price) || 0 : 0)
           const landed =
             additionalCost > 0 && totalPOValue > 0 && poItem
               ? Math.round(
@@ -967,6 +987,19 @@ const goodsReceiptController = {
         throw err
       }
     } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+        const existing = await db.goodsReceipt.findOne({
+          where: { purchaseOrderId, idempotencyKey },
+          include: [{ model: db.goodsReceiptItem, as: 'items' }]
+        })
+        if (existing) {
+          return res.status(200).json({
+            success: true,
+            message: 'Goods receipt already exists for this idempotency key',
+            data: existing
+          })
+        }
+      }
       console.error(error)
       return res
         .status(500)
@@ -1143,9 +1176,12 @@ const goodsReceiptController = {
             where: { id: receipt.purchaseOrderId }
           })
           const additionalCost = Number(po?.additionalCost) || 0
-          const tolerance = Number(po?.overDeliveryTolerance) || 10
+          const tolerance = Number.isFinite(Number(po?.overDeliveryTolerance))
+            ? Number(po?.overDeliveryTolerance)
+            : 10
           const allPoItems = await db.purchase_order_item.findAll({
             where: { purchaseOrder: receipt.purchaseOrderId },
+            lock: transaction.LOCK.UPDATE,
             transaction
           })
           const totalPOValue = allPoItems.reduce(
@@ -1155,8 +1191,8 @@ const goodsReceiptController = {
 
           const newItems = []
           for (const item of items) {
-            const qty = parseInt(item.qtyReceived)
-            if (qty <= 0) continue
+            const qty = Number(item.qtyReceived) || 0
+            if (!Number.isFinite(qty) || qty <= 0) continue
 
             let poItem =
               allPoItems.find((pi) => pi.id === item.purchaseOrderItem) || null
@@ -1192,8 +1228,7 @@ const goodsReceiptController = {
               Number(poItem?.conversionToBase) ||
               1
             const baseCost =
-              parseInt(item.costPrice) ||
-              (poItem ? Number(poItem.price) || 0 : 0)
+              Number(item.costPrice) || (poItem ? Number(poItem.price) || 0 : 0)
             const landed =
               additionalCost > 0 && totalPOValue > 0 && poItem
                 ? Math.round(

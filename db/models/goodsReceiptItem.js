@@ -20,16 +20,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       qtyReceived: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       costPrice: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0,
         comment: 'Actual received unit cost (HPP) - editable for price variance'
       },
       landedCost: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0,
         comment: 'Allocated landed cost per unit from PO additionalCost'
       },

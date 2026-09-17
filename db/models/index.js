@@ -161,6 +161,10 @@ const pendingMigrations = [
     ]
   },
   {
+    table: 'goods_receipt',
+    columns: [{ name: 'idempotencyKey', definition: 'VARCHAR(255)' }]
+  },
+  {
     table: 'goods_receipt_item',
     columns: [
       { name: 'costPrice', definition: 'INTEGER DEFAULT 0' },

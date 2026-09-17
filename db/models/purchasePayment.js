@@ -19,7 +19,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       paymentDate: { type: DataTypes.DATEONLY },
-      amount: { type: DataTypes.INTEGER, defaultValue: 0 },
+      amount: { type: DataTypes.BIGINT, defaultValue: 0 },
       paymentMethod: { type: DataTypes.STRING },
       reference: { type: DataTypes.STRING },
       notes: { type: DataTypes.TEXT },

@@ -36,11 +36,11 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'pcs'
       },
       price: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         allowNull: false
       },
       total: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.BIGINT,
         defaultValue: 0
       },
       receivedQuantity: {
