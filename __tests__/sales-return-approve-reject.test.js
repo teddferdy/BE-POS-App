@@ -288,7 +288,7 @@ describe('PATCH /sales-return/approve and /reject', () => {
       request(app)
         .put('/order/update-status')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ id: order.id, status: 'cancelled', store: location.id }),
+        .send({ id: order.id, status: 'cancelled', store: location.id, reason: 'Race test void reason' }),
       request(app)
         .patch(`/sales-return/approve/${ret.id}`)
         .set('Authorization', `Bearer ${adminToken}`)

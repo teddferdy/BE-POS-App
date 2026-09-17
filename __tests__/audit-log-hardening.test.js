@@ -554,7 +554,7 @@ describe('Order void — additive to the existing generic status-update audit', 
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ id: orderId, status: 'cancelled', store: store.id })
+      .send({ id: orderId, status: 'cancelled', store: store.id, reason: 'Audit test void reason' })
     expect(cancelRes.status).toBe(200)
 
     const genericRow = await db.auditLog.findOne({

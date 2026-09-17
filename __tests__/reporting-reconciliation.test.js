@@ -134,7 +134,7 @@ describe('Reconciliation: sales revenue vs accounting journal', () => {
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${token}`)
-      .send({ id: order.id, status: 'cancelled' })
+      .send({ id: order.id, status: 'cancelled', reason: 'Reporting test void reason' })
     expect(cancelRes.status).toBe(200)
 
     const updated = await db.order.findByPk(order.id)
