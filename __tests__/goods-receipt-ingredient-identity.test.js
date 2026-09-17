@@ -138,7 +138,7 @@ describe('Goods Receipt ingredient identity — TEST A rename safety', () => {
     expect(grRes.status).toBe(201)
 
     const updated = await db.ingredient.findByPk(ingredient.id)
-    expect(updated.stock).toBe(10)
+    expect(Number(updated.stock)).toBe(10)
   })
 })
 
@@ -174,8 +174,8 @@ describe('Goods Receipt ingredient identity — TEST B duplicate-name safety', (
 
     const firstAfter = await db.ingredient.findByPk(first.id)
     const secondAfter = await db.ingredient.findByPk(second.id)
-    expect(secondAfter.stock).toBe(10)
-    expect(firstAfter.stock).toBe(0)
+    expect(Number(secondAfter.stock)).toBe(10)
+    expect(Number(firstAfter.stock)).toBe(0)
   })
 })
 
@@ -250,13 +250,13 @@ describe('Goods Receipt ingredient identity — TEST D existing valid flow regre
     expect(grRes.status).toBe(201)
 
     const updated = await db.ingredient.findByPk(ingredient.id)
-    expect(updated.stock).toBe(10)
+    expect(Number(updated.stock)).toBe(10)
 
     const history = await db.stock_history.findAll({
       where: { ingredient: ingredient.id, referenceType: 'purchase' }
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityChange).toBe(10)
+    expect(Number(history[0].quantityChange)).toBe(10)
   })
 })
 
@@ -292,7 +292,7 @@ describe('Goods Receipt ingredient identity — store isolation', () => {
 
     const aAfter = await db.ingredient.findByPk(ingredientA.id)
     const bAfter = await db.ingredient.findByPk(ingredientB.id)
-    expect(aAfter.stock).toBe(0)
-    expect(bAfter.stock).toBe(0)
+    expect(Number(aAfter.stock)).toBe(0)
+    expect(Number(bAfter.stock)).toBe(0)
   })
 })

@@ -125,6 +125,6 @@ describe('F22-B10-06 — Purchase Return returnable-quantity validation race', (
 
     const freshProduct = await db.product.findByPk(product.id)
     // stock: +100 (GR) - totalReturned (whichever one succeeded)
-    expect(freshProduct.stock).toBe(100 - totalReturned)
+    expect(Number(freshProduct.stock)).toBe(100 - totalReturned)
   })
 })

@@ -173,7 +173,7 @@ describe('Goods Receipt weighted-average cost — product path', () => {
     const product = await makeProduct(100, 5000)
     const updated = await receiveProduct(product, 50, 8000)
 
-    expect(updated.stock).toBe(150)
+    expect(Number(updated.stock)).toBe(150)
     expect(updated.costPrice).toBe(6000) // (100*5000 + 50*8000) / 150
   })
 
@@ -182,7 +182,7 @@ describe('Goods Receipt weighted-average cost — product path', () => {
     await receiveProduct(product, 50, 8000)
     const updated = await receiveProduct(product, 50, 7000)
 
-    expect(updated.stock).toBe(200)
+    expect(Number(updated.stock)).toBe(200)
     expect(updated.costPrice).toBe(6250) // (150*6000 + 50*7000) / 200
   })
 })
@@ -192,7 +192,7 @@ describe('Goods Receipt weighted-average cost — ingredient path', () => {
     const ingredient = await makeIngredient(100, 5000)
     const updated = await receiveIngredient(ingredient, 50, 8000)
 
-    expect(updated.stock).toBe(150)
+    expect(Number(updated.stock)).toBe(150)
     expect(updated.costPrice).toBe(6000)
   })
 
@@ -201,7 +201,7 @@ describe('Goods Receipt weighted-average cost — ingredient path', () => {
     await receiveIngredient(ingredient, 50, 8000)
     const updated = await receiveIngredient(ingredient, 50, 7000)
 
-    expect(updated.stock).toBe(200)
+    expect(Number(updated.stock)).toBe(200)
     expect(updated.costPrice).toBe(6250)
   })
 })
@@ -211,7 +211,7 @@ describe('Goods Receipt weighted-average cost — edge cases', () => {
     const product = await makeProduct(0, 0)
     const updated = await receiveProduct(product, 40, 9000)
 
-    expect(updated.stock).toBe(40)
+    expect(Number(updated.stock)).toBe(40)
     expect(updated.costPrice).toBe(9000)
   })
 
@@ -219,7 +219,7 @@ describe('Goods Receipt weighted-average cost — edge cases', () => {
     const ingredient = await makeIngredient(0, 0)
     const updated = await receiveIngredient(ingredient, 40, 9000)
 
-    expect(updated.stock).toBe(40)
+    expect(Number(updated.stock)).toBe(40)
     expect(updated.costPrice).toBe(9000)
   })
 
@@ -227,7 +227,7 @@ describe('Goods Receipt weighted-average cost — edge cases', () => {
     const product = await makeProduct(100, 0)
     const updated = await receiveProduct(product, 50, 8000)
 
-    expect(updated.stock).toBe(150)
+    expect(Number(updated.stock)).toBe(150)
     // (100*0 + 50*8000) / 150 = 2666.67 -> rounds to 2667
     expect(updated.costPrice).toBe(2667)
   })

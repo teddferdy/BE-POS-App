@@ -96,7 +96,7 @@ describe('Purchase return reject — restores stock via the shared, locked, atom
     expect(returnRes.status).toBe(201)
 
     const afterReturnCreate = await db.product.findByPk(product.id)
-    expect(afterReturnCreate.stock).toBe(beforeReturn.stock - 6)
+    expect(Number(afterReturnCreate.stock)).toBe(Number(beforeReturn.stock) - 6)
 
     const rejectRes = await request(app)
       .patch(`/purchase-return/reject/${returnRes.body.data.id}`)
@@ -105,16 +105,16 @@ describe('Purchase return reject — restores stock via the shared, locked, atom
     expect(rejectRes.status).toBe(200)
 
     const afterReject = await db.product.findByPk(product.id)
-    expect(afterReject.stock).toBe(beforeReturn.stock)
+    expect(Number(afterReject.stock)).toBe(Number(beforeReturn.stock))
 
     const history = await db.stock_history.findAll({
       where: { product: product.id, referenceType: 'adjustment' },
       order: [['id', 'ASC']]
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityBefore).toBe(afterReturnCreate.stock)
-    expect(history[0].quantityChange).toBe(6)
-    expect(history[0].quantityAfter).toBe(beforeReturn.stock)
+    expect(Number(history[0].quantityBefore)).toBe(Number(afterReturnCreate.stock))
+    expect(Number(history[0].quantityChange)).toBe(6)
+    expect(Number(history[0].quantityAfter)).toBe(Number(beforeReturn.stock))
   })
 
   test('reject racing a concurrent sale on the same product: neither effect is lost', async () => {
@@ -153,7 +153,7 @@ describe('Purchase return reject — restores stock via the shared, locked, atom
     // Reject restores +4, sale deducts -3 — net effect from the
     // post-return-creation baseline must be +1, regardless of which
     // committed first. Neither operation's effect may be silently lost.
-    expect(afterBoth.stock).toBe(afterReturnCreate.stock + 4 - 3)
-    expect(afterBoth.stock).toBe(beforeReturn.stock - 3)
+    expect(Number(afterBoth.stock)).toBe(Number(afterReturnCreate.stock) + 4 - 3)
+    expect(Number(afterBoth.stock)).toBe(Number(beforeReturn.stock) - 3)
   })
 })

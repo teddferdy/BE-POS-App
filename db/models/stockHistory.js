@@ -41,15 +41,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       quantityBefore: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       quantityChange: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         allowNull: false
       },
       quantityAfter: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         allowNull: false
       },
       unit: {
