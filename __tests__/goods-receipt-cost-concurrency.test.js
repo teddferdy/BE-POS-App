@@ -200,8 +200,8 @@ describe('F21-08 — Goods Receipt weighted-average cost concurrency', () => {
     // Both valid sequential orderings must at least agree with each other
     // on final stock (always true — atomic literal) — sanity check before
     // the real concurrency comparison.
-    expect(seqABResult.stock).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
-    expect(seqBAResult.stock).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
+    expect(Number(seqABResult.stock)).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
+    expect(Number(seqBAResult.stock)).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
 
     // The actual concurrency scenario: both receipts fired at once against
     // a product starting from the identical state.
@@ -220,7 +220,7 @@ describe('F21-08 — Goods Receipt weighted-average cost concurrency', () => {
 
     // Stock is always correct — the atomic literal increment guarantees
     // this regardless of the cost race.
-    expect(concurrentResult.stock).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
+    expect(Number(concurrentResult.stock)).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
 
     // The cost race: a properly serialized implementation must land on
     // EXACTLY one of the two valid sequential outcomes, never a third,
@@ -248,8 +248,8 @@ describe('F21-08 — Goods Receipt weighted-average cost concurrency', () => {
     expect((await fireGRForIngredient(seqBAIngredient, poA2, itemA2, GR_A)).status).toBe(201)
     const seqBAResult = await db.ingredient.findByPk(seqBAIngredient.id)
 
-    expect(seqABResult.stock).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
-    expect(seqBAResult.stock).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
+    expect(Number(seqABResult.stock)).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
+    expect(Number(seqBAResult.stock)).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
 
     const concurrentIngredient = await makeIngredient()
     const { po: poAc, poItemId: itemAc } = await makePOForIngredient(concurrentIngredient, GR_A)
@@ -264,7 +264,7 @@ describe('F21-08 — Goods Receipt weighted-average cost concurrency', () => {
 
     const concurrentResult = await db.ingredient.findByPk(concurrentIngredient.id)
 
-    expect(concurrentResult.stock).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
+    expect(Number(concurrentResult.stock)).toBe(STARTING_STOCK + GR_A.qty + GR_B.qty)
     expect([seqABResult.costPrice, seqBAResult.costPrice]).toContain(
       concurrentResult.costPrice
     )

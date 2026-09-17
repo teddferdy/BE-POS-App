@@ -23,7 +23,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER
       },
       stock: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       minStock: {

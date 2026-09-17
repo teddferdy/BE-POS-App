@@ -66,7 +66,7 @@ describe('POST /stock-opname/create + PATCH /stock-opname/status/:id — reconci
     expect(res.body.data.status).toBe('draft')
 
     const fresh = await db.product.findByPk(product.id)
-    expect(fresh.stock).toBe(20)
+    expect(Number(fresh.stock)).toBe(20)
   })
 
   test('completing the opname sets stock to the counted physical quantity', async () => {
@@ -96,14 +96,14 @@ describe('POST /stock-opname/create + PATCH /stock-opname/status/:id — reconci
     expect(completeRes.status).toBe(200)
 
     const fresh = await db.product.findByPk(product.id)
-    expect(fresh.stock).toBe(15)
+    expect(Number(fresh.stock)).toBe(15)
 
     const history = await db.stock_history.findAll({
       where: { product: product.id, referenceType: 'opname' }
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityChange).toBe(-5)
-    expect(history[0].quantityAfter).toBe(15)
+    expect(Number(history[0].quantityChange)).toBe(-5)
+    expect(Number(history[0].quantityAfter)).toBe(15)
 
     const opname = await db.stockOpname.findByPk(createRes.body.data.id)
     expect(opname.status).toBe('completed')
@@ -163,7 +163,7 @@ describe('POST /stock-opname/create + PATCH /stock-opname/status/:id — reconci
           {
             product: product.id,
             namaBarang: product.nameProduct,
-            stokAkhirJumlah: before.stock,
+            stokAkhirJumlah: Number(before.stock),
             stokFisikJumlah: before.stock - 3,
             selisihJumlah: -3
           }
@@ -194,6 +194,6 @@ describe('POST /stock-opname/create + PATCH /stock-opname/status/:id — reconci
     // Combined effect: -3 (opname) and -2 (sale) from the pre-race
     // baseline, regardless of ordering. NOT before.stock - 3 (sale lost)
     // and NOT before.stock - 2 (opname lost).
-    expect(after.stock).toBe(before.stock - 5)
+    expect(Number(after.stock)).toBe(before.stock - 5)
   })
 })

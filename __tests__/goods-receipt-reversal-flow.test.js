@@ -77,7 +77,7 @@ describe('Goods receipt edit — reverseStock uses the shared, locked, atomic-de
     expect(grRes.status).toBe(201)
 
     const afterCreate = await db.product.findByPk(product.id)
-    expect(afterCreate.stock).toBe(beforeStock.stock + 10)
+    expect(Number(afterCreate.stock)).toBe(Number(beforeStock.stock) + 10)
 
     // Edit down to 6 — reverseStock(-10) then applyStock(+6) net effect
     // must be +6 total from the original baseline, not +16 (additive bug)
@@ -98,7 +98,7 @@ describe('Goods receipt edit — reverseStock uses the shared, locked, atomic-de
     expect(updateRes.status).toBe(200)
 
     const afterUpdate = await db.product.findByPk(product.id)
-    expect(afterUpdate.stock).toBe(beforeStock.stock + 6)
+    expect(Number(afterUpdate.stock)).toBe(Number(beforeStock.stock) + 6)
 
     // The reversal's audit entry must reflect the LOCKED value it actually
     // reversed from, not a stale pre-transaction read.
@@ -107,8 +107,8 @@ describe('Goods receipt edit — reverseStock uses the shared, locked, atomic-de
       order: [['id', 'ASC']]
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityBefore).toBe(beforeStock.stock + 10)
-    expect(history[0].quantityChange).toBe(-10)
-    expect(history[0].quantityAfter).toBe(beforeStock.stock)
+    expect(Number(history[0].quantityBefore)).toBe(Number(beforeStock.stock) + 10)
+    expect(Number(history[0].quantityChange)).toBe(-10)
+    expect(Number(history[0].quantityAfter)).toBe(Number(beforeStock.stock))
   })
 })

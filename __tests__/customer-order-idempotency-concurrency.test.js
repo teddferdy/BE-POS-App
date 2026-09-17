@@ -135,13 +135,13 @@ describe('SEC-004 — concurrent customer-create idempotency (POST /order/custom
     expect(
       await db.transaction.findAll({ where: { order: winningOrder.id } })
     ).toHaveLength(0)
-    expect((await db.product.findByPk(product.id)).stock).toBe(50)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(50)
 
     // Optional exact-once paid-transition assertion: marking the single winning
     // order paid must deduct stock and write the ledger exactly once.
     const paid = await markOrderPaid(adminToken, { id: winningOrder.id, status: 'paid' })
     expect(paid.status).toBe(200)
-    expect((await db.product.findByPk(product.id)).stock).toBe(49) // 50 - 1
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(49) // 50 - 1
     expect(
       await db.transaction.findAll({ where: { order: winningOrder.id } })
     ).toHaveLength(1)

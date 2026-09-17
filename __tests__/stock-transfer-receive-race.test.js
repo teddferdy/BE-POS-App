@@ -108,7 +108,7 @@ describe('PUT /pos/transfer/:id/receive — duplicate/concurrent receive must no
     // Source deducted 10 from 50 at creation; a correct single receive
     // does not touch product.stock's total further (receive only credits
     // the destination's product_store_stock/base stock by +qty once).
-    expect(baseProduct.stock).toBe(40 + TRANSFER_QTY)
+    expect(Number(baseProduct.stock)).toBe(40 + TRANSFER_QTY)
 
     const receivedHistory = await db.stock_history.findAll({
       where: { referenceType: 'transfer', referenceId: transferId, store: storeB.id }

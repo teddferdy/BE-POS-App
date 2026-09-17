@@ -112,6 +112,6 @@ describe('Legacy purchaseOrder.js receive() — over-receive validation race', (
     // Stock must match the same correctly-clamped total, not the
     // over-received sum — no duplicate/phantom stock increase.
     const freshProduct = await db.product.findByPk(product.id)
-    expect(freshProduct.stock).toBe(100)
+    expect(Number(freshProduct.stock)).toBe(100)
   })
 })

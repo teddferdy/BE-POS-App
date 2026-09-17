@@ -66,7 +66,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     expect(statuses).toEqual([201, 400])
 
     const finalProduct = await db.product.findByPk(product.id)
-    expect(finalProduct.stock).toBe(0) // never negative, never left at 1 (double-success) either
+    expect(Number(finalProduct.stock)).toBe(0) // never negative, never left at 1 (double-success) either
 
     const paidOrders = await db.order.count({
       where: { store: location.id, status: 'paid' }
@@ -136,7 +136,7 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
     await Promise.all([markPaid(), markPaid()])
 
     const finalProduct = await db.product.findByPk(product.id)
-    expect(finalProduct.stock).toBe(7) // 10 - 3, deducted once, not 4 (10 - 3 - 3)
+    expect(Number(finalProduct.stock)).toBe(7) // 10 - 3, deducted once, not 4 (10 - 3 - 3)
 
     const payments = await db.transaction.count({ where: { order: order.id } })
     expect(payments).toBe(1)
@@ -214,7 +214,7 @@ describe('Concurrent PO receiving — lost update on product.stock (purchaseOrde
     // Started at 0; both receipts (+5 and +3) must both land — 8, not 5 or 3
     // (which is what the pre-fix plain-JS `product.stock + receiveQty` race
     // would silently produce).
-    expect(finalProduct.stock).toBe(8)
+    expect(Number(finalProduct.stock)).toBe(8)
   })
 })
 
@@ -287,7 +287,7 @@ describe('Concurrent duplicate submit — idempotency key (order.js createOrder)
 
     // Stock must only have been deducted once, not twice.
     const finalProduct = await db.product.findByPk(product.id)
-    expect(finalProduct.stock).toBe(48) // 50 - 2, not 46 (50 - 2 - 2)
+    expect(Number(finalProduct.stock)).toBe(48) // 50 - 2, not 46 (50 - 2 - 2)
   })
 
   test('a retried submit after the first request completes also replays the same order', async () => {

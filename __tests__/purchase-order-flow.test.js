@@ -83,7 +83,7 @@ describe('POST /purchase-order/create + PUT /purchase-order/receive/:id — core
     expect(receiveRes.status).toBe(200)
 
     const afterStock = await db.product.findByPk(product.id)
-    expect(afterStock.stock).toBe(beforeStock.stock + 7)
+    expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 7)
 
     const order = await db.purchase_order.findByPk(createRes.body.data.id)
     expect(order.status).toBe('received')
@@ -95,7 +95,7 @@ describe('POST /purchase-order/create + PUT /purchase-order/receive/:id — core
       where: { product: product.id, referenceType: 'purchase' }
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityChange).toBe(7)
+    expect(Number(history[0].quantityChange)).toBe(7)
   })
 
   test('partial receipt leaves the order in "ordered" status, not "received"', async () => {

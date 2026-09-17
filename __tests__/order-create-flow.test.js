@@ -118,7 +118,7 @@ describe('POST /order/create — core sale flow', () => {
     expect(res.body.data.status).toBe('paid')
     expect(res.body.data.paymentStatus).toBe('paid')
     expect(res.body.data.items.length).toBe(1)
-    expect(res.body.data.items[0].quantity).toBe(3)
+    expect(Number(res.body.data.items[0].quantity)).toBe(3)
     // Server re-derives price from the DB — never trusts a client-sent amount.
     expect(Number(res.body.data.items[0].price)).toBe(15000)
     // No taxConfig/service-charge rows exist for this freshly created store,
@@ -128,7 +128,7 @@ describe('POST /order/create — core sale flow', () => {
     expect(Number(res.body.data.totalPrice)).toBe(49950)
 
     const freshProduct = await db.product.findByPk(productA.id)
-    expect(freshProduct.stock).toBe(17)
+    expect(Number(freshProduct.stock)).toBe(17)
 
     const payments = await db.transaction.findAll({
       where: { order: res.body.data.id }
@@ -180,7 +180,7 @@ describe('POST /order/create — core sale flow', () => {
     expect(res.status).toBe(400)
 
     const after = await db.product.findByPk(productA.id)
-    expect(after.stock).toBe(before.stock)
+    expect(Number(after.stock)).toBe(Number(before.stock))
   })
 
   test('applies a nominal discountId to the order total', async () => {
@@ -203,7 +203,7 @@ describe('POST /order/create — core sale flow', () => {
 
   test('bundle order deducts the bundle component product stock, not the bundle itself', async () => {
     const beforeB = await db.product.findByPk(productB.id)
-    expect(beforeB.stock).toBe(10)
+    expect(Number(beforeB.stock)).toBe(10)
 
     const res = await request(app)
       .post('/order/create')
@@ -230,7 +230,7 @@ describe('POST /order/create — core sale flow', () => {
 
     // Bundle item = productB x2 per bundle unit, order quantity 2 => 4 units deducted.
     const afterB = await db.product.findByPk(productB.id)
-    expect(afterB.stock).toBe(6)
+    expect(Number(afterB.stock)).toBe(6)
   })
 })
 

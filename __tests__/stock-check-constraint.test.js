@@ -32,7 +32,7 @@ describe('DB-level CHECK constraints on stock — the last line of defense indep
     ).rejects.toThrow()
 
     const unchanged = await db.product.findByPk(product.id)
-    expect(unchanged.stock).toBe(5)
+    expect(Number(unchanged.stock)).toBe(5)
   })
 
   test('product.stock still allows NULL (unset) — the constraint only rejects negative values', async () => {
@@ -59,6 +59,6 @@ describe('DB-level CHECK constraints on stock — the last line of defense indep
     ).rejects.toThrow()
 
     const unchanged = await db.product_store_stock.findByPk(row.id)
-    expect(unchanged.stock).toBe(3)
+    expect(Number(unchanged.stock)).toBe(3)
   })
 })

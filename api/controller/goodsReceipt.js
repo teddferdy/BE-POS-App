@@ -16,6 +16,7 @@ const {
 const {
   calculatePurchaseOrderFulfillmentStatus
 } = require('../service/purchaseOrderFulfillmentService')
+const { assertQuantityForUnit } = require('../../utils/unit')
 
 const generateReceiptNo = () => {
   const date = new Date()
@@ -729,8 +730,8 @@ const goodsReceiptController = {
         const productById = new Map(receiptProducts.map((p) => [p.id, p]))
 
         for (const [index, item] of items.entries()) {
-          const qty = Number(item.qtyReceived) || 0
-          if (!Number.isFinite(qty) || qty <= 0) continue
+          const qtyRaw = Number(item.qtyReceived) || 0
+          if (!Number.isFinite(qtyRaw) || qtyRaw <= 0) continue
 
           // Over-receive validation
           let poItem = null
@@ -741,6 +742,16 @@ const goodsReceiptController = {
           } else if (item.ingredientName && purchaseOrderId) {
             poItem = poItemByIngredientName.get(item.ingredientName) || null
           }
+
+          // Unit-aware fractional validation (T-30) after poItem known
+          const unitForQty = item.unit || poItem?.unit || poItem?.ingredientData?.unit || 'pcs'
+          try {
+            assertQuantityForUnit(qtyRaw, unitForQty)
+          } catch (e) {
+            await transaction.rollback()
+            return res.status(400).json({ success: false, message: e.message })
+          }
+          const qty = qtyRaw
 
           if (poItem) {
             const ordered = Number(poItem.quantity)

@@ -284,7 +284,7 @@ describe('SEC-001/SEC-006 — quantity trust boundary on customer-create', () =>
     const res = await post(quantity)
 
     expect(res.status).toBe(400)
-    expect((await db.product.findByPk(product.id)).stock).toBe(before.stock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(Number(before.stock))
     const orderCountAfter = await db.order.count({ where: { store: store1.id } })
     expect(orderCountAfter).toBe(orderCountBefore)
   })
@@ -302,7 +302,7 @@ describe('SEC-001/SEC-006 — quantity trust boundary on customer-create', () =>
     expect(res.body.data.paymentStatus).toBe('unpaid')
     expect(res.body.data.status).toBe('pending')
     createdOrderIds.push(res.body.data.id)
-    expect((await db.product.findByPk(product.id)).stock).toBe(before.stock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(Number(before.stock))
     expect(await db.transaction.findAll({ where: { order: res.body.data.id } })).toHaveLength(0)
 
     // 2) Cashier marks it paid through the authorized order-status
@@ -314,7 +314,7 @@ describe('SEC-001/SEC-006 — quantity trust boundary on customer-create', () =>
     })
 
     expect(paid.status).toBe(200)
-    expect((await db.product.findByPk(product.id)).stock).toBe(before.stock - 1)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(before.stock - 1)
     const ledgerRows = await db.transaction.findAll({
       where: { order: res.body.data.id }
     })
@@ -332,7 +332,7 @@ describe('SEC-001/SEC-006 — quantity trust boundary on customer-create', () =>
         items: [{ productId: product.id, productName: product.nameProduct, quantity: 0 }]
       })
     expect(res.status).toBe(400)
-    expect((await db.product.findByPk(product.id)).stock).toBe(before.stock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(Number(before.stock))
   })
 })
 
@@ -458,7 +458,7 @@ describe('SEC-003 — customer-menu response carries only customer-safe fields',
     expect(found.nameProduct).toBe('SEC_PRODUCT')
     expect(Number(found.price)).toBe(12000)
     expect(found.isAvailable).toBe(true)
-    expect(found.stock).toBe((await db.product.findByPk(product.id)).stock)
+    expect(Number(found.stock)).toBe(Number((await db.product.findByPk(product.id)).stock))
     expect(Array.isArray(found.options)).toBe(true)
     expect(Array.isArray(found.composition)).toBe(true)
   })
@@ -466,7 +466,7 @@ describe('SEC-003 — customer-menu response carries only customer-safe fields',
 
 describe('SEC-004 — customer-create rejects cross-store product/bundle/customerId (SEC-CROSS-PRODUCT / SEC-CROSS-BUNDLE / SEC-CROSS-MEMBER)', () => {
   test('SEC-CROSS-PRODUCT — store 1 paid order referencing a store 2 product: 400, no order, no stock mutation', async () => {
-    const beforeStock = (await db.product.findByPk(store2Product.id)).stock
+    const beforeStock = Number((await db.product.findByPk(store2Product.id)).stock)
     const ordersBefore = await db.order.count({ where: { store: store1.id } })
 
     const res = await request(app)
@@ -482,12 +482,12 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       })
 
     expect(res.status).toBe(400)
-    expect((await db.product.findByPk(store2Product.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(store2Product.id)).stock)).toBe(beforeStock)
     expect(await db.order.count({ where: { store: store1.id } })).toBe(ordersBefore)
   })
 
   test('SEC-CROSS-PRODUCT — store 1 unpaid order referencing a store 2 product is rejected too', async () => {
-    const beforeStock = (await db.product.findByPk(store2ProductUnpaid.id)).stock
+    const beforeStock = Number((await db.product.findByPk(store2ProductUnpaid.id)).stock)
     const ordersBefore = await db.order.count({ where: { store: store1.id } })
 
     const res = await request(app)
@@ -506,12 +506,12 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       })
 
     expect(res.status).toBe(400)
-    expect((await db.product.findByPk(store2ProductUnpaid.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(store2ProductUnpaid.id)).stock)).toBe(beforeStock)
     expect(await db.order.count({ where: { store: store1.id } })).toBe(ordersBefore)
   })
 
   test('SEC-CROSS-BUNDLE — store 1 order referencing a store 2 bundle: 400, no order, no stock mutation', async () => {
-    const beforeStock = (await db.product.findByPk(store2BundleProduct.id)).stock
+    const beforeStock = Number((await db.product.findByPk(store2BundleProduct.id)).stock)
     const ordersBefore = await db.order.count({ where: { store: store1.id } })
 
     const res = await request(app)
@@ -526,12 +526,12 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       })
 
     expect(res.status).toBe(400)
-    expect((await db.product.findByPk(store2BundleProduct.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(store2BundleProduct.id)).stock)).toBe(beforeStock)
     expect(await db.order.count({ where: { store: store1.id } })).toBe(ordersBefore)
   })
 
   test('SEC-CROSS-BUNDLE — store 1 bundle whose component is a store 2 product: 400 — components cannot bypass', async () => {
-    const beforeStock = (await db.product.findByPk(store2BundleProduct.id)).stock
+    const beforeStock = Number((await db.product.findByPk(store2BundleProduct.id)).stock)
     const ordersBefore = await db.order.count({ where: { store: store1.id } })
 
     const res = await request(app)
@@ -550,7 +550,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
       })
 
     expect(res.status).toBe(400)
-    expect((await db.product.findByPk(store2BundleProduct.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(store2BundleProduct.id)).stock)).toBe(beforeStock)
     expect(await db.order.count({ where: { store: store1.id } })).toBe(ordersBefore)
   })
 
@@ -595,7 +595,7 @@ describe('SEC-004 — customer-create rejects cross-store product/bundle/custome
 
 describe('SEC-PAYMENT-SPOOF — public customer-create cannot self-authorize a paid state (AUD-1)', () => {
   test('an unauthenticated QR request cannot produce a paid order, a ledger, or a stock deduction', async () => {
-    const beforeStock = (await db.product.findByPk(product.id)).stock
+    const beforeStock = Number((await db.product.findByPk(product.id)).stock)
 
     const res = await request(app)
       .post('/order/customer-create')
@@ -612,7 +612,7 @@ describe('SEC-PAYMENT-SPOOF — public customer-create cannot self-authorize a p
     expect(res.body.data.status).toBe('pending')
     createdOrderIds.push(res.body.data.id)
 
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(beforeStock)
     const ledgerRows = await db.transaction.findAll({
       where: { order: res.body.data.id }
     })
@@ -627,7 +627,7 @@ describe('SEC-PAYMENT-SPOOF — public customer-create cannot self-authorize a p
     ['bare paymentStatus paid', { paymentStatus: 'paid' }],
     ['bare status paid', { status: 'paid', isPaid: true }]
   ])('%s can never flip the order to paid', async (_label, extra) => {
-    const beforeStock = (await db.product.findByPk(product.id)).stock
+    const beforeStock = Number((await db.product.findByPk(product.id)).stock)
 
     const res = await request(app)
       .post('/order/customer-create')
@@ -644,7 +644,7 @@ describe('SEC-PAYMENT-SPOOF — public customer-create cannot self-authorize a p
     expect(res.body.data.status).toBe('pending')
     createdOrderIds.push(res.body.data.id)
 
-    expect((await db.product.findByPk(product.id)).stock).toBe(beforeStock)
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(beforeStock)
     const ledgerRows = await db.transaction.findAll({
       where: { order: res.body.data.id }
     })

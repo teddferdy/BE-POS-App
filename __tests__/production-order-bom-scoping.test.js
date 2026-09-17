@@ -150,8 +150,8 @@ describe('PROD-ORDER-01 — Production Order BOM store scoping', () => {
 
     const ingA = await db.ingredient.findByPk(ingredientA.id)
     const ingB = await db.ingredient.findByPk(ingredientB.id)
-    expect(ingA.stock).toBe(998) // 1000 - (2 * 1)
-    expect(ingB.stock).toBe(1000) // untouched — must never see Store B's BOM
+    expect(Number(ingA.stock)).toBe(998) // 1000 - (2 * 1)
+    expect(Number(ingB.stock)).toBe(1000) // untouched — must never see Store B's BOM
   })
 })
 
@@ -247,7 +247,7 @@ describe('PROD-ORDER-01 — active vs inactive BOM selection', () => {
 
     const active = await db.ingredient.findByPk(ingredientActive.id)
     const inactive = await db.ingredient.findByPk(ingredientInactive.id)
-    expect(active.stock).toBe(997) // 1000 - (3 * 1) — the active BOM's line
-    expect(inactive.stock).toBe(1000) // untouched — inactive BOM must never be used
+    expect(Number(active.stock)).toBe(997) // 1000 - (3 * 1) — the active BOM's line
+    expect(Number(inactive.stock)).toBe(1000) // untouched — inactive BOM must never be used
   })
 })

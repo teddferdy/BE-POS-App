@@ -113,13 +113,13 @@ describe('POST /pos/adjust — stock adjustment', () => {
     expect(res.status).toBe(200)
 
     const fresh = await db.product.findByPk(productAdjust.id)
-    expect(fresh.stock).toBe(15)
+    expect(Number(fresh.stock)).toBe(15)
 
     const history = await db.stock_history.findAll({
       where: { product: productAdjust.id, referenceType: 'adjustment' }
     })
     expect(history.length).toBe(1)
-    expect(history[0].quantityChange).toBe(5)
+    expect(Number(history[0].quantityChange)).toBe(5)
   })
 
   test('rejects an adjustment that would take stock negative', async () => {
@@ -131,7 +131,7 @@ describe('POST /pos/adjust — stock adjustment', () => {
     expect(res.status).toBe(400)
 
     const fresh = await db.product.findByPk(productAdjust.id)
-    expect(fresh.stock).toBe(15)
+    expect(Number(fresh.stock)).toBe(15)
   })
 })
 
@@ -152,10 +152,10 @@ describe('POST /pos/transfer — inter-store stock transfer', () => {
     const sourceStock = await db.product_store_stock.findOne({
       where: { product: productTransfer.id, store: storeA.id }
     })
-    expect(sourceStock.stock).toBe(9)
+    expect(Number(sourceStock.stock)).toBe(9)
 
     const baseProduct = await db.product.findByPk(productTransfer.id)
-    expect(baseProduct.stock).toBe(9)
+    expect(Number(baseProduct.stock)).toBe(9)
   })
 
   test('rejects a transfer with the same source and destination store', async () => {
@@ -203,7 +203,7 @@ describe('POST /pos/transfer — inter-store stock transfer', () => {
     const after = await db.product_store_stock.findOne({
       where: { product: productTransfer.id, store: storeA.id }
     })
-    expect(after.stock).toBe(before.stock - 2)
+    expect(Number(after.stock)).toBe(Number(before.stock) - 2)
   })
 
   test('several transfers created in the same instant get distinct transferNumbers, not a unique-constraint 500', async () => {
