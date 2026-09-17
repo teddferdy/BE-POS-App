@@ -325,7 +325,11 @@ exports.updateOrderStatusSchema = z.object({
 exports.updateOrderItemStatusSchema = z.object({
   id: strToNum(),
   itemId: strToNum(),
-  itemStatus: z.string().min(1)
+  // Phase 31 Batch 2 (B-3): constrain to the order_item status enum at the
+  // request boundary so invalid values return the normal 400 validation
+  // shape instead of reaching PostgreSQL and surfacing as a 500 enum error.
+  // Matches db/models/order_item.js and enum_order_item_status in prod.
+  itemStatus: z.enum(['pending', 'preparing', 'ready', 'served'])
 })
 
 // ===================== Location =====================
