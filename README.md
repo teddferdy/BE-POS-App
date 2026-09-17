@@ -86,9 +86,26 @@ GEMINI_API_KEY=your_gemini_key
 
 ### Database Setup
 
+> **DANGER — `npm run sync` is NOT a migration runner.** It is a destructive
+> schema recreation (`sequelize.sync({ force: true })`: drops and recreates
+> schema objects). Production execution is **default-deny**: without both
+> `ALLOW_DESTRUCTIVE_SYNC=I_UNDERSTAND_THIS_WIPES_PROD` and `--force` the
+> command refuses before connecting. Destructive production sync is prohibited.
+> Production migration-ledger reconciliation is a separate upcoming phase and
+> is not covered by any command below.
+
 ```bash
-npm run sync              # Run all migrations
-npm run sync:inventory    # Inventory-specific migrations
+# DESTRUCTIVE local-only schema recreation (drops local schema, NOT migrations):
+npm run sync -- --force            # requires NODE_ENV=development/test, explicit --force
+
+npm run sync:inventory    # UNAVAILABLE — referenced script is not present in this repo; do not use
+
+# Sequelize migration workflow (incremental, ledger-tracked):
+npm run migrate                    # npx sequelize-cli db:migrate (never run against production in this phase)
+
+# Test/dev database setup (deterministic, isolated test DB):
+# Jest globalSetup (scripts/setup-test-db.js) clones the dev schema and
+# truncates the isolated test database automatically; no manual sync needed.
 ```
 
 ### Development

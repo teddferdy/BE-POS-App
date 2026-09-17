@@ -66,6 +66,9 @@ jobs:
       - name: Run lint
         run: npx eslint api/ utils/ --max-warnings 0
 
+      - name: Static destructive-sync guard
+        run: npm run guard:force-sync
+
 # Deploy is NOT performed by GitHub Actions: this backend is shipped via the
 # Vercel Git integration on merge to master. CI here only validates the
 # changes (tests against a real Postgres + lint); see the release runbook in

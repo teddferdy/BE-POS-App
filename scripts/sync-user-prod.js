@@ -1,4 +1,26 @@
 require('dotenv').config({ path: __dirname + '/../.env' })
+
+// Phase 30F-1: default-deny guard BEFORE any Sequelize instantiation or
+// authentication. This script TRUNCATEs the production user table by design.
+const guard = require('./destructive-guard')
+
+try {
+  guard.assertDestructiveAllowed({
+    operation: 'scripts/sync-user-prod.js DEV-to-PROD user copy',
+    nodeEnv: process.env.NODE_ENV,
+    host: process.env.POSTGRES_HOST,
+    database: process.env.POSTGRES_DATABASE,
+    allowVar: process.env.ALLOW_DESTRUCTIVE_SYNC,
+    hasForceFlag: guard.parseForceFlag(process.argv)
+  })
+} catch (err) {
+  console.error(err.message)
+  console.error(
+    'Refusing DEV-to-PROD user copy. Production copy is default-deny.'
+  )
+  process.exit(1)
+}
+
 const { Sequelize } = require('sequelize')
 
 const devConfig = {
