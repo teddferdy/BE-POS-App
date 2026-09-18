@@ -158,6 +158,31 @@ const isOrderReplayRelevantUniqueError = (error) =>
     error?.parent?.constraint || error?.original?.constraint
   )
 
+// F-IDEM-1: a same-key retry must carry the same intent. Compare the
+// canonical item set of an incoming payload against the persisted
+// order_item rows — bundle-vs-product identity + quantity only, since
+// prices are server-derived and cosmetic fields (names, notes) are
+// irrelevant to what was sold. Used by both createOrder and
+// createCustomerOrder fast-path and race-catch replays; a mismatch answers
+// 409 like the sales-return / split-bill / parked-cart flows instead of
+// silently replaying a different order. No schema change required.
+const IDEMPOTENCY_MISMATCH_MESSAGE =
+  'idempotencyKey already used with a different payload'
+const canonicalOrderItemKey = (item) => {
+  const qty = Number(item.quantity)
+  if (item.bundleId !== null && item.bundleId !== undefined) {
+    return `b:${item.bundleId}:${qty}`
+  }
+  return `p:${item.product || item.productId}:${qty}`
+}
+const orderItemsMatchPayload = (storedItems, incomingItems) => {
+  if (!Array.isArray(storedItems) || !Array.isArray(incomingItems)) return false
+  if (storedItems.length !== incomingItems.length) return false
+  const a = storedItems.map(canonicalOrderItemKey).sort()
+  const b = incomingItems.map(canonicalOrderItemKey).sort()
+  return a.every((key, i) => key === b[i])
+}
+
 // Single source of truth for the "store row wins, else base stock" rule used
 // by BOTH order validation (getEffectiveStock) and the public customer menu
 // (batched lookup in getCustomerMenu) so the two paths can never drift.
@@ -792,7 +817,14 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
       if (
         !bundle.isAvailable ||
         bundle.status !== 'active' ||
-        !isBundleWithinValidityPeriod(bundle)
+        !isBundleWithinValidityPeriod(bundle) ||
+        // Store ownership (same contract as the customer path): a bundle
+        // assigned to a different store is unavailable here. Unassigned
+        // bundles stay orderable on the authenticated POS path (legacy
+        // global bundles) — only an explicit foreign assignment rejects.
+        (bundle.store !== null &&
+          bundle.store !== undefined &&
+          !isBundleOrderableAtStore(bundle, store))
       ) {
         return { ok: false, message: `Bundle "${bundle.name}" is not available` }
       }
@@ -813,6 +845,15 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
             message: `Product in bundle "${bundle.name}" not found`
           }
         }
+        // Store ownership for bundle components (same contract as the
+        // customer path): a component assigned to a different store makes
+        // the whole bundle unavailable here.
+        if (!(await isProductOrderableAtStore(prod.id, store))) {
+          return {
+            ok: false,
+            message: `Bundle not available: ${item.bundleName || item.bundleId}`
+          }
+        }
         const needed = bi.quantity * bundleQty
         const avail = await getEffectiveStock(prod, store)
         if (avail !== null && avail < needed) {
@@ -830,6 +871,16 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
     // same row being fetched three separate times across the request.
     const prod = await Product.findByPk(item.product || item.productId)
     if (!prod) {
+      return {
+        ok: false,
+        message: `Product not found: ${item.productName || item.product || item.productId}`
+      }
+    }
+    // Store ownership (same contract as the customer path): a product
+    // assigned to a different store is treated exactly like an unknown
+    // product — foreign and nonexistent products stay indistinguishable.
+    // Products with no store assignment remain globally orderable.
+    if (!(await isProductOrderableAtStore(prod.id, store))) {
       return {
         ok: false,
         message: `Product not found: ${item.productName || item.product || item.productId}`
@@ -1025,6 +1076,9 @@ exports.createOrder = async (req, res) => {
       const existing = await Order.findOne({ where: { store, idempotencyKey } })
       if (existing) {
         const fullOrder = await fetchFullOrder(existing.id)
+        if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+          return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+        }
         return res.status(200).json({
           message: 'Order already exists for this idempotency key',
           data: fullOrder
@@ -1306,6 +1360,9 @@ exports.createOrder = async (req, res) => {
       const existing = await Order.findOne({ where: { store, idempotencyKey } })
       if (existing) {
         const fullOrder = await fetchFullOrder(existing.id)
+        if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+          return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+        }
         return res.status(200).json({
           message: 'Order already exists for this idempotency key',
           data: fullOrder
@@ -3106,6 +3163,9 @@ exports.createCustomerOrder = async (req, res) => {
       const existingOrder = await Order.findOne({ where: { store, idempotencyKey } })
       if (existingOrder) {
         const fullOrder = await fetchFullOrder(existingOrder.id)
+        if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+          return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+        }
         return res.status(200).json({
           message: 'Order already exists for this idempotency key',
           data: fullOrder
@@ -3619,6 +3679,9 @@ exports.createCustomerOrder = async (req, res) => {
       const existingOrder = await Order.findOne({ where: { store, idempotencyKey } })
       if (existingOrder) {
         const fullOrder = await fetchFullOrder(existingOrder.id)
+        if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+          return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+        }
         return res.status(200).json({
           message: 'Order already exists for this idempotency key',
           data: fullOrder
