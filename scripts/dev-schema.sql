@@ -3460,7 +3460,8 @@ CREATE TABLE public.product_review (
     "modifiedBy" integer,
     "createdAt" timestamp with time zone NOT NULL,
     "updatedAt" timestamp with time zone NOT NULL,
-    "deletedAt" timestamp with time zone
+    "deletedAt" timestamp with time zone,
+    "deviceId" character varying(64)
 );
 
 
@@ -8269,6 +8270,13 @@ CREATE INDEX waiter_request_store ON public.waiter_request USING gin (store) WHE
 --
 
 CREATE UNIQUE INDEX uq_member_global_name ON public.member USING btree (name) WHERE (store IS NULL);
+
+
+--
+-- Name: uq_product_review_device; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_product_review_device ON public.product_review USING btree ("productId", "deviceId") WHERE ("deviceId" IS NOT NULL);
 
 
 --
