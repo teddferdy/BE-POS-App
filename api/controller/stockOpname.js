@@ -15,6 +15,20 @@ const generateOpnameNumber = () => {
   return `SO-${year}${month}${day}-${timestamp}`
 }
 
+// F-STOCK-2: re-read an ingredient row under a row lock inside the
+// completion transaction. Completion writes an absolute counted value —
+// without holding the lock across read+write, a concurrent mutation
+// (sale, receipt, another opname) landing in between is silently
+// overwritten (lost update). Same discipline as setProductStock, which
+// already protects the product lines.
+const lockIngredientRow = async (ingredient, transaction) => {
+  if (!ingredient) return null
+  return db.ingredient.findByPk(ingredient.id, {
+    lock: transaction.LOCK.UPDATE,
+    transaction
+  })
+}
+
 const STOCK_OPNAME_EXCEL_HEADERS = [
   { header: 'No.', key: 'no', width: 6 },
   { header: 'Kode Barang', key: 'kodeBarang', width: 15 },
@@ -434,6 +448,15 @@ const stockOpnameController = {
             item.stokFisikJumlah !== null &&
             item.stokFisikJumlah !== undefined
           ) {
+            // F-STOCK-2: locked re-read — oldStock below is current as of
+            // this transaction's lock, so the absolute set cannot clobber
+            // a concurrent mutation.
+            ingredient = await lockIngredientRow(ingredient, t)
+            if (!ingredient) {
+              throw new Error(
+                `Stock opname references ingredient #${item.ingredientName || item.namaBarang}, which no longer exists`
+              )
+            }
             const oldStock = Number(ingredient.stock) || 0
             const newStock = Number(item.stokFisikJumlah) || 0
             const diff = newStock - oldStock
@@ -751,6 +774,29 @@ const stockOpnameController = {
       if (status === 'completed') {
         const t = await db.sequelize.transaction()
         try {
+          // F-STOCK-2: lock the header and re-check the draft guard inside
+          // the transaction — the outer read is stale, so two concurrent
+          // completions could otherwise both apply the counted values.
+          // Locked without includes (FOR UPDATE cannot span the LEFT
+          // OUTER JOINs); items are re-fetched under the lock.
+          const lockedHeader = await db.stockOpname.findByPk(id, {
+            lock: t.LOCK.UPDATE,
+            transaction: t
+          })
+          if (!lockedHeader) {
+            await t.rollback()
+            return res.status(404).json({
+              success: false,
+              message: 'Stock opname not found'
+            })
+          }
+          if (lockedHeader.status !== 'draft') {
+            await t.rollback()
+            return res.status(400).json({
+              success: false,
+              message: `Cannot change status from "${lockedHeader.status}". Only draft can be changed.`
+            })
+          }
           const updated = await db.stockOpname.findByPk(id, {
             include: [{ model: db.stockOpnameItem, as: 'items' }],
             transaction: t
@@ -828,6 +874,13 @@ const stockOpnameController = {
               item.stokFisikJumlah !== null &&
               item.stokFisikJumlah !== undefined
             ) {
+              // F-STOCK-2: locked re-read — see the create-path block.
+              ingredient = await lockIngredientRow(ingredient, t)
+              if (!ingredient) {
+                throw new Error(
+                  `Stock opname references ingredient #${item.ingredientName || item.namaBarang}, which no longer exists`
+                )
+              }
               const oldStock = Number(ingredient.stock) || 0
               const newStock = Number(item.stokFisikJumlah) || 0
               const diff = newStock - oldStock
