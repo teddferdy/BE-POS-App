@@ -395,13 +395,19 @@ exports.login = async (req, res) => {
       }
     }
 
+    // D8: never disclose the credential verifier. Strip the bcrypt hash
+    // from the user object before embedding it in either login response
+    // below (same boundary already applied to register/get-all-user).
+    const safeUser = findUser.toJSON()
+    delete safeUser.password
+
     // Jika userType bukan admin/user
     if (!['admin', 'user'].includes(findUser.userType)) {
       return res.status(200).json({
         message: 'Success Login',
         token: getToken,
         user: {
-          ...findUser.toJSON(),
+          ...safeUser,
           roleType: findUser.roleType || 'user',
           roleName: roleData?.name || 'Staff/Karyawan',
           accessMenu: parseAccessMenu(accessMenu)
@@ -419,7 +425,7 @@ exports.login = async (req, res) => {
       message: 'Success Login',
       token: getToken,
       user: {
-        ...findUser.toJSON(),
+        ...safeUser,
         roleType: findUser.roleType || 'user',
         roleName: roleData?.name || 'Staff/Karyawan',
         accessMenu: parseAccessMenu(accessMenu),
