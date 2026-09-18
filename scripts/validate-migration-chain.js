@@ -226,6 +226,30 @@ function invariants() {
             WHERE contype='c' AND conrelid::regclass::text IN ('product','product_store_stock')
             AND conname IN ('product_stock_non_negative','product_store_stock_stock_non_negative')`,
       check: (rows) => (rows.length === 2 ? null : `expected 2 CHECKs, got ${JSON.stringify(rows)}`)
+    },
+    {
+      label: 'product_review deviceId column + partial unique index',
+      sql: `SELECT
+              (SELECT data_type FROM information_schema.columns
+               WHERE table_schema='public' AND table_name='product_review' AND column_name='deviceId') AS coltype,
+              (SELECT count(*)::int FROM pg_indexes WHERE indexname='uq_product_review_device') AS idxcount,
+              (SELECT indexdef FROM pg_indexes WHERE indexname='uq_product_review_device') AS idx`,
+      check: (rows) => {
+        const { coltype, idxcount, idx } = rows[0] || {}
+        if (!coltype) return 'deviceId column missing on product_review'
+        if (coltype !== 'character varying') return `deviceId wrong type: ${coltype}`
+        if (Number(idxcount) !== 1) {
+          return `uq_product_review_device expected exactly once, found ${idxcount}`
+        }
+        if (!idx || !idx.includes('"productId"') || !idx.includes('"deviceId"')) {
+          return `partial unique index wrong columns: ${idx}`
+        }
+        const norm = idx.replace(/\s+/g, ' ').replace(/[()"]/g, '')
+        if (!/WHERE/i.test(idx) || !/deviceId IS NOT NULL/i.test(norm)) {
+          return `partial unique index predicate wrong or missing: ${idx}`
+        }
+        return null
+      }
     }
   ]
 }
@@ -306,7 +330,8 @@ async function main() {
 
     // 6. Schema invariants.
     let failed = 0
-    for (const inv of invariants()) {
+    const allInvariants = invariants()
+    for (const inv of allInvariants) {
       const rows = await query(pg, dbName, inv.sql)
       const problem = inv.check(rows)
       if (problem) {
@@ -321,7 +346,7 @@ async function main() {
     // 7. Target-identity sanity: still the ephemeral DB, never anything else.
     const ident = await query(pg, dbName, 'SELECT current_database() AS db')
     if (ident[0].db !== dbName) fail(`target identity drift: connected to ${ident[0].db}`)
-    log(`PASS: chain validated on ${dbName} (${files.length} files, ${migrated} executed, 7 invariants green)`)
+    log(`PASS: chain validated on ${dbName} (${files.length} files, ${migrated} executed, ${allInvariants.length} invariants green)`)
   } finally {
     try {
       dropDb()
