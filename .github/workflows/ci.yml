@@ -69,6 +69,54 @@ jobs:
       - name: Static destructive-sync guard
         run: npm run guard:force-sync
 
+  validate-migrations:
+    name: Migration Chain Validation
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cashier_app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Phase 33 Batch 2 (F-02): proves the migration chain executes from
+      # the documented snapshot baseline on a disposable database that the
+      # validator itself creates and drops. Uses the single Node version
+      # deliberately — migration execution is SQL-driven and
+      # Node-version-independent; the app test matrix above already covers
+      # both runtimes.
+      - name: Validate migration chain
+        run: node scripts/validate-migration-chain.js
+        env:
+          VALIDATION_DB: cashier_app_migration_validation
+          DB_DEV_HOST: localhost
+          DB_DEV_PORT: 5432
+          DB_DEV_USERNAME: postgres
+          DB_DEV_PASSWORD: postgres
+
 # Deploy is NOT performed by GitHub Actions: this backend is shipped via the
 # Vercel Git integration on merge to master. CI here only validates the
 # changes (tests against a real Postgres + lint); see the release runbook in
