@@ -14,7 +14,7 @@
     "migrate": "npx sequelize-cli db:migrate",
     "migrate:create": "npx sequelize-cli migration:generate",
     "guard:force-sync": "node scripts/check-no-force-sync.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --forceExit --detectOpenHandles",
+    "test": "node scripts/run-tests-sharded.js",
     "test:isolation": "node --experimental-vm-modules node_modules/.bin/jest __tests__/ingredient-isolation.test.js --forceExit --detectOpenHandles"
   },
   "author": "",
@@ -59,6 +59,13 @@
   "jest": {
     "testEnvironment": "node",
     "globalSetup": "<rootDir>/scripts/setup-test-db.js",
-    "testTimeout": 30000
+    "testTimeout": 30000,
+    "roots": [
+      "<rootDir>/__tests__"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/.claude/"
+    ]
   }
 }

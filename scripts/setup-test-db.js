@@ -205,7 +205,14 @@ module.exports = async () => {
     ['shift_swap', 'expires_at', 'TIMESTAMP'],
     ['user', 'overtimeRate', 'DECIMAL(15,2) DEFAULT 0'],
     ['user', 'overtimeFactor', 'DECIMAL(10,2) DEFAULT 1.5'],
-    ['product_review', 'deviceId', 'VARCHAR(64)']
+    ['product_review', 'deviceId', 'VARCHAR(64)'],
+    // goods_receipt.idempotencyKey is migration-owned (20261001000003) but the
+    // committed dev-schema.sql snapshot predates that migration for this table,
+    // so a fresh CI clone is missing it. Following the C13 precedent
+    // (uq_member_store_name/global above), provision it idempotently here and
+    // include it in the catalog contract so the post-R-5 test DB stays
+    // self-sufficient without the retired runtime auto-patch.
+    ['goods_receipt', 'idempotencyKey', 'VARCHAR(255)']
   ]
 
   const R4_INDEXES = [
