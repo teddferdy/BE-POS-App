@@ -33,6 +33,12 @@ module.exports = {
     host: process.env.DB_DEV_HOST,
     port: process.env.DB_DEV_PORT,
     dialect: 'postgres',
+    // Sequelize defaults to console.log-ing every query. Across 149 DB-heavy
+    // integration test files that's tens of thousands of multi-line log
+    // entries retained in memory by Jest's per-file console buffering,
+    // which was the actual cause of "JavaScript heap out of memory" crashes
+    // during `npm test` — not an application-level leak.
+    logging: false,
     pool: {
       max: 20,
       min: 0,
