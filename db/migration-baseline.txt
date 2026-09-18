@@ -1,0 +1,253 @@
+# Migration baseline manifest for chain validation.
+#
+# PROVENANCE BOUNDARY (read this before editing):
+#
+# The repository is intentionally snapshot-first: scripts/dev-schema.sql is
+# the documented schema baseline, and db/migrations/ holds incremental
+# changes on top of it. The full chain CANNOT bootstrap an empty database
+# (core tables such as "user", "product", "order", "location" and "category"
+# have no createTable migration) and it CANNOT run unmodified against a
+# snapshot-loaded database either (early unguarded migrations assume their
+# own historical states — e.g. 20260601000001 fails on snapshot state).
+#
+# This file therefore lists exactly the migrations whose effects the
+# baseline snapshot already embodies. The chain validator
+# (scripts/validate-migration-chain.js) stamps THESE names into
+# SequelizeMeta on a snapshot-loaded ephemeral database and then executes
+# every remaining migration file for real through `sequelize-cli db:migrate`.
+#
+# RULES:
+# - A migration belongs here only once its effects are present in
+#   scripts/dev-schema.sql (verify by catalog inspection, not by date).
+# - When dev-schema.sql is refreshed to absorb pending migrations, add
+#   those migration names here in the same change (reviewed together).
+# - NEVER add a migration here to silence a failing validation run without
+#   proving its effects exist in the snapshot.
+# - NEVER remove a name except to fix a proven manifest error.
+#
+# Current state (Phase 33): all files except the four 2026-10 remediation
+# migrations, whose objects the snapshot does not yet contain:
+#   20261001000001-purchase-monetary-bigint.js
+#   20261001000002-goods-receipt-item-qty-decimal.js
+#   20261001000003-goods-receipt-idempotency.js
+#   20261002000001-fractional-stock-decimal.js
+20260520042150-add-city-to-location.js
+20260520042352-add-city-to-location.js
+20260520043752-add-location-fields.js
+20260520063446-add-opening-hours-to-location.js
+20260520063854-add-manager-email-category-to-location.js
+20260521110313-add-name-to-location.js
+20260521162319-add-location-fields.js
+20260523000001-add-employee-fields-to-user.js
+20260523000002-add-gender-to-user.js
+20260526000001-add-contract-fields-to-user.js
+20260527000001-add-salary-and-documents-to-user.js
+20260527000002-add-department-to-position.js
+20260527000003-create-department-table.js
+20260527000004-add-departmentId-to-position.js
+20260528000001-ensure-user-columns.js
+20260528000002-alter-stock-opname.js
+20260530000001-allow-null-store-position.js
+20260530000002-allow-null-store-all-tables.js
+20260530000003-allow-null-store-fix-v2.js
+20260530000004-add-description-to-category.js
+20260531000001-drop-sub-category.js
+20260531000002-add-product-fields.js
+20260601000001-change-product-store-to-jsonb.js
+20260601000002-add-supplier-tax-pricetiers-to-product.js
+20260601000003-create-tax-config.js
+20260601105439-create-stock-transfer.js
+20260601105748-create-purchase-return.js
+20260601105950-create-sales-return.js
+20260601105951-create-member-point-history.js
+20260601105953-create-product-batch.js
+20260601105954-create-product-store-price.js
+20260602000000-create-notification.js
+20260603000000-create-currency.js
+20260603000001-create-audit-log.js
+20260603000002-add-currency-to-product.js
+20260603000003-add-currency-to-order.js
+20260603000004-add-social-media-to-location.js
+20260603000005-create-invoice-setting.js
+20260604000000-change-status-to-string.js
+20260605000001-add-contact-person-to-supplier.js
+20260607000001-add-fields-to-order.js
+20260607000002-add-fields-to-order-item.js
+20260607000003-create-station-dapur.js
+20260607000004-add-fields-to-product.js
+20260607000005-create-daily-report.js
+20260608000000-add-kasir-role-type.js
+20260608000001-sync-dev-with-prod.js
+20260608000002-add-deletedat-to-new-tables.js
+20260609000000-change-user-accessmenu-to-jsonb.js
+20260609000001-add-createdby-to-product-store-price.js
+20260609000002-add-composition-to-product.js
+20260610000000-remove-invoice-footer-logo-social.js
+20260610000001-add-show-member-info.js
+20260610000002-add-logo-to-invoice-setting.js
+20260610000003-add-show-logo-to-invoice-setting.js
+20260611000001-create-bom-tables.js
+20260611000001-create-production-order.js
+20260611000002-create-goods-receipt.js
+20260612000001-add-code-and-conditions-to-discount.js
+20260613000001-create-reservation.js
+20260613000002-add-pic-to-purchase-order.js
+20260613000003-insert-default-roles.js
+20260614000001-add-base-unit-to-ingredient-product.js
+20260614000002-add-ingredient-to-purchase-order-item.js
+20260614091703-fix-purchase-return-item-product-nullable.js
+20260614092736-add-purchase-return-to-stock-history-enum.js
+20260614093441-fix-expense-category-status-type.js
+20260615000001-create-ingredient-category.js
+20260615000002-add-ingredient-to-purchase-return-item.js
+20260616000001-add-due-date-and-payment.js
+20260616000001-fix-tax-config-status-type.js
+20260616000002-add-ingredient-to-goods-receipt-item.js
+20260616000002-fix-tax-config-audit-fields-type.js
+20260616000003-add-created-by-to-notification.js
+20260617000001-add-production-to-stock-history-enum.js
+20260618000001-add-isSystem-to-type-payment.js
+20260618000002-create-accounts-receivable.js
+20260618000003-add-redeemPoints-to-product.js
+20260618000004-create-super-admin-users.js
+20260619000001-change-category-store-to-jsonb.js
+20260620000001-add-departmentId-to-user.js
+20260620000002-add-audit-fields-to-user.js
+20260620000003-change-member-tier-status-to-string.js
+20260620000004-add-unique-constraints-to-member.js
+20260620000005-create-dev-user.js
+20260621000001-add-status-to-bom-header.js
+20260622112636-make-updatedat-nullable.js
+20260623000001-add-status-to-user.js
+20260623000001-change-ingredient-category-store-to-json.js
+20260623000002-add-status-to-station-dapur.js
+20260623000003-add-status-to-product-batch.js
+20260624000001-add-discount-id-and-promo-code-to-order.js
+20260625000001-remove-store-from-ingredient-category.js
+20260626000001-add-transfer-status-values.js
+20260627000001-add-transfer-to-stock-history-enum.js
+20260627000002-create-product-store-stock.js
+20260628000001-make-cashierId-nullable-in-order.js
+20260703000001-update-admin-role-access-menu.js
+20260704000001-add-daily-target-to-location.js
+20260705000001-add-reversal-types-to-stock-history-enum.js
+20260705000002-add-social-media-to-invoice-setting.js
+20260708000001-change-supplier-store-to-jsonb.js
+20260712000001-expense-allow-null-category-amount.js
+20260712000002-po-allow-null-supplier-pic.js
+20260713000001-add-ingredient-fk-to-stock-history.js
+20260714000001-add-address-member-visibility-to-invoice-setting.js
+20260716000001-create-driver.js
+20260716000002-create-delivery-order.js
+20260716000003-create-delivery-status-history.js
+20260716000004-create-queue.js
+20260716000005-create-supplier-score.js
+20260716000006-create-promo-campaign.js
+20260716000007-create-promo-rule.js
+20260716000008-create-promo-reward.js
+20260716000009-create-promo-usage.js
+20260717000001-create-product-bundle.js
+20260717000002-add-bundleId-to-order-item.js
+20260717000003-add-promoCampaignId-to-order.js
+20260718000001-create-product-store.js
+20260718000002-create-category-store.js
+20260718000003-create-supplier-product.js
+20260718000004-add-supplier-to-po-item.js
+20260719000001-add-promoCampaignId-to-order.js
+20260719000002-rename-supplier-product-to-name.js
+20260721000001-enhance-supplier-product.js
+20260723000001-add-leadTimeUnit-notes-to-supplier-product.js
+20260725000001-add-isSystem-to-role.js
+20260727000001-add-payment-fields-to-purchase-order.js
+20260727000002-fix-model-db-mismatches.js
+20260729000001-change-minOrderQty-to-string.js
+20260731000001-add-sales-return-fields.js
+20260731000002-fix-sales-return-fields.js
+20260731000003-create-reporting-tables.js
+20260731000004-create-product-batch-tables.js
+20260731000005-create-supplier-performance.js
+20260731000006-create-inventory-valuation.js
+20260731000007-create-dead-stock-alert.js
+20260731000008-create-stock-forecast.js
+20260731000009-add-ingredient-name-to-purchase-return-item.js
+20260801000001-add-reconcile-writeoff-to-stock-history-enum.js
+20260801000001-add-resolution-to-purchase-return.js
+20260801000002-add-days-until-stockout-to-stock-forecast.js
+20260802000001-add-shift-fields.js
+20260802000002-add-footer-to-invoice-setting.js
+20260804000001-create-waiter-request.js
+20260804000002-add-splitCount-to-order.js
+20260807000001-add-customerNumber-to-order.js
+20260808000001-create-db-backup.js
+20260809000001-add-session-to-order.js
+20260809000001-create-accounting.js
+20260809000002-add-reset-token-to-user.js
+20260809000003-add-refund-method-to-sales-return.js
+20260810000001-create-goods-request.js
+20260810000002-add-goods-request-menu-access.js
+20260812010000-create-region-table.js
+20260812020000-add-latitude-longitude-to-region.js
+20260813000001-add-frequency-to-expense.js
+20260813000002-add-expense-accounting-fields.js
+20260813000003-add-employee-to-expense.js
+20260813000004-add-payment-to-expense.js
+20260814000001-add-dates-to-goods-request.js
+20260814000001-add-isactive-to-expense.js
+20260815000001-add-small-scale-form-fields.js
+20260817000001-create-supplier-category.js
+20260817000002-add-enhanced-fields-to-supplier.js
+20260817000003-create-supplier-contact.js
+20260817000004-create-supplier-bank-account.js
+20260818000001-purchase-order-item-quantity-decimal.js
+20260821000001-add-pic-and-documentation-to-goods-receipt.js
+20260822000001-add-gr-operational-fields.js
+20260822000002-add-performance-indexes.js
+20260823000001-alter-supplier-product-price-to-bigint.js
+20260823000002-add-hot-path-indexes.js
+20260826000001-add-additional-cost-notes-to-purchase-order.js
+20260826000001-create-shift-template-table.js
+20260826000002-add-documentation-to-purchase-return.js
+20260827000001-change-shift-store-to-jsonb.js
+20260827000002-revert-shift-store-to-integer.js
+20260827000003-create-shift-swap-table.js
+20260827000004-add-my-shift-access-menu.js
+20260829000001-create-product-review-table.js
+20260830000001-add-images-to-product.js
+20260830000001-add-paper-size-to-invoice-setting.js
+20260830000002-add-font-customization-to-invoice-setting.js
+20260901000001-create-report-config.js
+20260902000001-create-business-trip.js
+20260902000002-add-business-trip-menu-access.js
+20260903000001-best-selling-unique-product-store.js
+20260903000002-add-order-item-product-index.js
+20260903000003-create-scheduler-lock.js
+20260903000004-order-idempotency-and-daily-counter.js
+20260904000001-create-business-trip-employees.js
+20260904000002-create-business-trip-budget-items.js
+20260904000003-add-order-public-token.js
+20260904000004-add-refunded-to-order-payment-status-enum.js
+20260904000005-add-fk-split-bill-order.js
+20260904000006-purchase-payment-idempotency.js
+20260904000007-check-stock-non-negative.js
+20260904000008-create-accounting-outbox.js
+20260905000001-add-indexes-to-audit-log.js
+20260905000002-create-cash-movement.js
+20260905000003-add-cash-register-variance-fields.js
+20260905000004-cash-register-one-open-partial-index.js
+20260905000005-add-cash-thresholds-to-location.js
+20260905000006-add-cash-register-id-to-order.js
+20260905000007-add-cash-received-change-given-to-transaction.js
+20260906000001-create-parked-cart.js
+20260906000002-add-parked-cart-config-to-location.js
+20260906000003-sales-return-financial-integrity.js
+20260906000004-split-bill-hardening.js
+20260907000001-add-inventory-mode-to-product.js
+20260907000002-add-review-dedupe-device-id.js
+20260909000001-phase3-accounting-integrity.js
+20260913000001-member-name-store-scoped-uniqueness.js
+20260917000001-add-redeemed-points-to-order.js
+20260920000001-migrate-monetary-columns-to-bigint.js
+20260920000002-migrate-order-item-monetary-to-bigint.js
+20260921000001-add-tax-fields-to-purchase-order.js
+20260922000001-add-timezone-to-location.js
+20260923000001-create-ap-reminder-event.js
