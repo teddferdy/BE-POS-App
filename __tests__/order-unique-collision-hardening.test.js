@@ -127,6 +127,17 @@ describe('F-04 — unique-collision catch is scoped to order-header constraints'
       source: 'qr',
       idempotencyKey: key
     })
+    // A real same-key winner always carries the retried items — seed the
+    // matching row so the replay-vs-mismatch discriminator (F-IDEM-1) sees
+    // the same intent the replay below sends. Asserted behavior (200 +
+    // winner id) is unchanged.
+    await db.order_item.create({
+      order: seeded.id,
+      product: product.id,
+      productName: product.nameProduct,
+      quantity: 1,
+      price: product.price
+    })
 
     const findOneSpy = jest
       .spyOn(db.order, 'findOne')
@@ -164,6 +175,15 @@ describe('F-04 — unique-collision catch is scoped to order-header constraints'
       paymentStatus: 'unpaid',
       source: 'qr',
       idempotencyKey: key
+    })
+    // Same realistic same-intent fixture as above for the F-IDEM-1
+    // replay-vs-mismatch discriminator; asserted behavior unchanged.
+    await db.order_item.create({
+      order: seeded.id,
+      product: product.id,
+      productName: product.nameProduct,
+      quantity: 1,
+      price: product.price
     })
 
     const findOneSpy = jest
