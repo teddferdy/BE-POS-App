@@ -274,9 +274,26 @@ const posController = {
           const product = transferProductById.get(item.productId)
           if (!product) continue
 
-          // Check stock before atomic deduct
+          // F-STOCK-3: seed first, then lock-read the source row and gate
+          // on the locked value. The gate read previously ran unlocked
+          // after the product lock — sufficient against writers that also
+          // take the product row lock (orders, returns, other transfers),
+          // but holding this row's lock across gate→decrement additionally
+          // serializes against any present-or-future locker of the same
+          // source row, matching the convention used by the sibling stock
+          // paths. Seeding before the read preserves behavior for stores
+          // with no row yet (seeded 0 still fails the gate below).
+          // ponytail: atomic upsert + deduct
+          await db.sequelize.query(
+            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
+             VALUES ($1, $2, 0, NOW(), NOW())
+             ON CONFLICT (product, store) DO NOTHING`,
+            { bind: [item.productId, fromStore], transaction: t }
+          )
+          // Check stock before atomic deduct, on the locked row.
           const pssRow = await db.product_store_stock.findOne({
             where: { product: item.productId, store: fromStore },
+            lock: t.LOCK.UPDATE,
             transaction: t
           })
           const availPss = Number(pssRow?.stock) || 0
@@ -286,13 +303,6 @@ const posController = {
             )
           }
 
-          // ponytail: atomic upsert + deduct
-          await db.sequelize.query(
-            `INSERT INTO product_store_stock (product, store, stock, "createdAt", "updatedAt")
-             VALUES ($1, $2, 0, NOW(), NOW())
-             ON CONFLICT (product, store) DO NOTHING`,
-            { bind: [item.productId, fromStore], transaction: t }
-          )
           await db.product_store_stock.update(
             {
               stock: db.sequelize.literal(

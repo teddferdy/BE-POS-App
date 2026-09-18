@@ -196,15 +196,42 @@ const applyCostPrice = async ({ item, qty, store, transaction }) => {
 }
 
 const reverseStock = async (items, store, transaction, userId) => {
+  // F-STOCK-1: lock every distinct ingredient row once, sorted by id,
+  // BEFORE any mutation below. The ingredient reversal writes an absolute
+  // value computed from the read stock — without holding the row lock
+  // across read+write, a concurrent writer (sale, another receipt) landing
+  // in between is silently overwritten (lost update). Sorted order matches
+  // the global lock-order convention (adjustIngredientStockBatch, etc.).
+  const resolved = []
   for (const grItem of items) {
     const qty = Number(grItem.qtyReceived) || 0
     if (!Number.isFinite(qty) || qty <= 0) continue
-
     const qtyStock =
       Number(grItem.qtyStock) > 0
         ? Number(grItem.qtyStock)
         : qty * (Number(grItem.conversionToBase) || 1)
+    const ingredient = await resolveIngredientForItem({
+      item: grItem,
+      poItem: null,
+      store: store || null,
+      transaction
+    })
+    resolved.push({ grItem, qty, qtyStock, ingredientId: ingredient?.id || null })
+  }
+  const ingredientIds = [
+    ...new Set(resolved.map((r) => r.ingredientId).filter(Boolean))
+  ].sort((a, b) => a - b)
+  const lockedIngredients = ingredientIds.length
+    ? await db.ingredient.findAll({
+        where: { id: ingredientIds },
+        order: [['id', 'ASC']],
+        lock: transaction.LOCK.UPDATE,
+        transaction
+      })
+    : []
+  const lockedById = new Map(lockedIngredients.map((ing) => [ing.id, ing]))
 
+  for (const { grItem, qty, qtyStock, ingredientId } of resolved) {
     if (grItem.purchaseOrderItem) {
       await db.purchase_order_item.update(
         {
@@ -235,13 +262,11 @@ const reverseStock = async (items, store, transaction, userId) => {
     }
 
     {
-      const ingredient = await resolveIngredientForItem({
-        item: grItem,
-        poItem: null,
-        store: store || null,
-        transaction
-      })
+      const ingredient = ingredientId ? lockedById.get(ingredientId) : null
       if (ingredient) {
+        // Locked read above: qtyBefore is current as of this transaction's
+        // lock, so the absolute write below cannot clobber a concurrent
+        // mutation (same clamp semantics as before, now race-safe).
         const qtyBefore = Number(ingredient.stock) || 0
         await ingredient.update(
           { stock: Math.max(qtyBefore - qtyStock, 0) },
@@ -1145,16 +1170,132 @@ const goodsReceiptController = {
         }
       }
 
-      const oldItems = receipt.items || []
-
       const transaction = await db.sequelize.transaction()
       try {
+        // F-STOCK-1: re-lock the header inside the transaction and re-check
+        // the draft guard here — the outer read above is stale by the time
+        // this transaction runs, so two concurrent lifecycle operations
+        // could otherwise both reverse/apply the same receipt. The header
+        // is locked WITHOUT includes (Postgres forbids FOR UPDATE across
+        // the LEFT OUTER JOINs an include would generate); items are
+        // re-fetched right after, while the header lock is held, so they
+        // are current too.
+        const locked = await db.goodsReceipt.findByPk(id, {
+          lock: transaction.LOCK.UPDATE,
+          transaction
+        })
+        if (!locked) {
+          await transaction.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'Goods receipt not found' })
+        }
+        if (locked.status !== 'draft') {
+          await transaction.rollback()
+          return res.status(400).json({
+            success: false,
+            message: 'Only draft receipt can be updated'
+          })
+        }
+        const lockedOldItems = await db.goodsReceiptItem.findAll({
+          where: { goodsReceipt: id },
+          include: [
+            {
+              model: db.purchase_order_item,
+              as: 'poItemData',
+              include: [
+                {
+                  model: db.ingredient,
+                  as: 'ingredientData',
+                  attributes: ['id', 'name']
+                }
+              ]
+            }
+          ],
+          transaction
+        })
+
+        // F-STOCK-1: an update that carries no replacement items is a
+        // metadata-only edit — reversing the old stock without re-applying
+        // would silently strip the receipt's stock effect.
+        const replacingItems = Array.isArray(items)
+        const nextStatus = status || locked.status
+        if (!replacingItems) {
+          await locked.update(
+            {
+              notes: notes !== undefined ? notes : locked.notes,
+              receivedDate: receivedDate || locked.receivedDate,
+              pic: pic !== undefined ? pic : locked.pic,
+              documentation:
+                documentation !== undefined ? documentation : locked.documentation,
+              suratJalan:
+                suratJalan !== undefined ? suratJalan : locked.suratJalan,
+              taxInvoiceNo:
+                taxInvoiceNo !== undefined ? taxInvoiceNo : locked.taxInvoiceNo,
+              shippingCost:
+                shippingCost !== undefined
+                  ? Number(shippingCost) || 0
+                  : Number(locked.shippingCost) || 0,
+              modifiedBy: req.user?.id || null
+            },
+            { transaction }
+          )
+          await transaction.commit()
+          const untouched = await db.goodsReceipt.findByPk(locked.id, {
+            include: [{ model: db.goodsReceiptItem, as: 'items' }]
+          })
+          return res.status(200).json({
+            success: true,
+            message: 'Success update goods receipt',
+            data: untouched
+          })
+        }
+
         await reverseStock(
-          oldItems,
-          store || receipt.store,
+          lockedOldItems,
+          store || locked.store,
           transaction,
           req.user?.id
         )
+
+        // F-STOCK-1: an update that transitions the draft to cancelled
+        // unwinds the receipt like a delete (reverse only) instead of
+        // re-applying a stock effect a cancelled receipt must not keep.
+        if (nextStatus === 'cancelled') {
+          await db.goodsReceiptItem.destroy({
+            where: { goodsReceipt: id },
+            transaction
+          })
+          await locked.update(
+            {
+              notes: notes !== undefined ? notes : locked.notes,
+              receivedDate: receivedDate || locked.receivedDate,
+              status: 'cancelled',
+              pic: pic !== undefined ? pic : locked.pic,
+              documentation:
+                documentation !== undefined ? documentation : locked.documentation,
+              suratJalan:
+                suratJalan !== undefined ? suratJalan : locked.suratJalan,
+              taxInvoiceNo:
+                taxInvoiceNo !== undefined ? taxInvoiceNo : locked.taxInvoiceNo,
+              shippingCost:
+                shippingCost !== undefined
+                  ? Number(shippingCost) || 0
+                  : Number(locked.shippingCost) || 0,
+              modifiedBy: req.user?.id || null
+            },
+            { transaction }
+          )
+          await transaction.commit()
+          const cancelled = await db.goodsReceipt.findByPk(locked.id, {
+            include: [{ model: db.goodsReceiptItem, as: 'items' }]
+          })
+          return res.status(200).json({
+            success: true,
+            message: 'Success update goods receipt',
+            data: cancelled
+          })
+        }
 
         await receipt.update(
           {
@@ -1354,10 +1495,47 @@ const goodsReceiptController = {
 
       const transaction = await db.sequelize.transaction()
       try {
-        const oldItems = receipt.items || []
+        // F-STOCK-1: same in-transaction header lock + draft re-check as
+        // update — a concurrent lifecycle operation must not reverse the
+        // same receipt twice. Header locked without includes (FOR UPDATE
+        // cannot span the LEFT OUTER JOINs); items re-fetched under lock.
+        const locked = await db.goodsReceipt.findByPk(id, {
+          lock: transaction.LOCK.UPDATE,
+          transaction
+        })
+        if (!locked) {
+          await transaction.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'Goods receipt not found' })
+        }
+        if (locked.status !== 'draft') {
+          await transaction.rollback()
+          return res.status(400).json({
+            success: false,
+            message: 'Only draft receipt can be deleted'
+          })
+        }
+        const lockedOldItems = await db.goodsReceiptItem.findAll({
+          where: { goodsReceipt: id },
+          include: [
+            {
+              model: db.purchase_order_item,
+              as: 'poItemData',
+              include: [
+                {
+                  model: db.ingredient,
+                  as: 'ingredientData',
+                  attributes: ['id', 'name']
+                }
+              ]
+            }
+          ],
+          transaction
+        })
         await reverseStock(
-          oldItems,
-          store || receipt.store,
+          lockedOldItems,
+          store || locked.store,
           transaction,
           req.user?.id
         )
@@ -1447,32 +1625,76 @@ const goodsReceiptController = {
       const transaction = await db.sequelize.transaction()
       let journalJob = null
       try {
-        if (status === 'completed') {
-          const items = (receipt.items || []).map((i) => ({
-            ...i.toJSON(),
-            purchaseOrderItem: i.purchaseOrderItem,
-            product: i.product,
-            qtyReceived: i.qtyReceived,
-            unit: i.unit,
-            ingredientName: i.ingredientName
-          }))
-          await applyStock(items, receipt, transaction, req.user?.id)
+        // F-STOCK-1: lock the header and re-check the draft guard inside
+        // the transaction — the outer read is stale, so concurrent
+        // completions/cancellations could otherwise both apply effects.
+        // Locked without includes (FOR UPDATE cannot span LEFT OUTER
+        // JOINs); items re-fetched under the lock for the reversal below.
+        const locked = await db.goodsReceipt.findByPk(id, {
+          lock: transaction.LOCK.UPDATE,
+          transaction
+        })
+        if (!locked) {
+          await transaction.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'Goods receipt not found' })
+        }
+        if (locked.status !== 'draft') {
+          await transaction.rollback()
+          return res.status(400).json({
+            success: false,
+            message: `Cannot change status from "${locked.status}"`
+          })
+        }
+        const lockedItems = await db.goodsReceiptItem.findAll({
+          where: { goodsReceipt: id },
+          include: [
+            {
+              model: db.purchase_order_item,
+              as: 'poItemData',
+              include: [
+                {
+                  model: db.ingredient,
+                  as: 'ingredientData',
+                  attributes: ['id', 'name']
+                }
+              ]
+            }
+          ],
+          transaction
+        })
 
-          // F22-B10-02: this completion path incremented receivedQuantity
-          // via applyStock but never recalculated PO fulfillment status at
-          // all — fixed the same way as the create() completion path.
+        if (status === 'completed') {
+          // F-STOCK-1: create() already applied this receipt's stock effect
+          // (for drafts too — pinned by goods-receipt-reversal-flow), so
+          // completing must NOT apply it a second time. Completion only
+          // flips the status, recalculates PO fulfillment, and enqueues
+          // the purchase journal.
           await calculatePurchaseOrderFulfillmentStatus({
-            purchaseOrderId: receipt.purchaseOrderId,
+            purchaseOrderId: locked.purchaseOrderId,
             transaction
           })
         }
 
-        await receipt.update(
+        if (status === 'cancelled') {
+          // F-STOCK-1: cancelling unwinds the create-time stock effect
+          // (and the receivedQuantity increments) so a cancelled receipt
+          // leaves no phantom stock behind.
+          await reverseStock(
+            lockedItems,
+            store || locked.store,
+            transaction,
+            req.user?.id
+          )
+        }
+
+        await locked.update(
           {
             status,
             modifiedBy: req.user?.id || null,
             receivedDate:
-              status === 'completed' ? new Date() : receipt.receivedDate
+              status === 'completed' ? new Date() : locked.receivedDate
           },
           { transaction }
         )
@@ -1534,7 +1756,9 @@ const goodsReceiptController = {
       return res.status(200).json({
         success: true,
         message: `Status changed to "${status}"`,
-        data: receipt
+        data: await db.goodsReceipt.findByPk(id, {
+          include: [{ model: db.goodsReceiptItem, as: 'items' }]
+        })
       })
     } catch (error) {
       console.error(error)
