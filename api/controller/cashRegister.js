@@ -4,6 +4,7 @@ const { enrichAuditFields } = require('../../utils/auditFields')
 const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { scalarStoreScope } = require('../../utils/tenantScope')
+const { assertIntegerRupiah } = require('../../utils/moneyGuard')
 
 const DEFAULT_CASH_OUT_APPROVAL_THRESHOLD = 500000
 const DEFAULT_CASH_VARIANCE_THRESHOLD = 25000
@@ -630,6 +631,9 @@ const cashRegisterController = {
           message: 'amount must be positive'
         })
       }
+      // F-MON-1: cash_movement.amount is INT4 — reject fractional or
+      // out-of-range values here instead of silent DB rounding/overflow.
+      assertIntegerRupiah(amount, 'amount')
       if (reasonCode === 'other' && !notes?.trim()) {
         return res.status(422).json({
           success: false,

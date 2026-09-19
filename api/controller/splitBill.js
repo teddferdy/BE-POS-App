@@ -8,6 +8,7 @@ const {
 } = require('./order')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
+const { assertIntegerRupiah } = require('../../utils/moneyGuard')
 
 // split_bill has no store column of its own — ownership is entirely
 // inherited through order.store (a plain INTEGER, same shape scalarStoreScope
@@ -72,6 +73,13 @@ const splitBillController = {
           success: false,
           message: 'Order and items are required'
         })
+      }
+
+      // F-MON-1: split amounts persist to an INT4 column — reject
+      // fractional/non-finite/over-range values here (fail-fast, pre-tx)
+      // instead of a raw DB out-of-range 500 or silent rounding.
+      for (const item of items) {
+        assertIntegerRupiah(item?.amount, 'split amount')
       }
 
       let splits

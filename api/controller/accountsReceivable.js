@@ -1,6 +1,7 @@
 const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
+const { assertIntegerRupiah } = require('../../utils/moneyGuard')
 
 const accountsReceivableController = {
   async list(req, res) {
@@ -229,6 +230,15 @@ const accountsReceivableController = {
           .json({ success: false, message: 'Amount is required' })
       }
 
+      // F-MON-1: ar_payment.amount is INT4 — reject fractional/non-finite
+      // or out-of-range values here instead of silent DB rounding/overflow.
+      // Direct 422 return (this handler's catch is a plain 500).
+      try {
+        assertIntegerRupiah(amount, 'amount')
+      } catch (e) {
+        return res.status(422).json({ success: false, message: e.message })
+      }
+
       const amountNum = Number(amount)
 
       // F-01: the whole read-check-write runs inside ONE transaction with the
@@ -436,7 +446,24 @@ const accountsReceivableController = {
       if (dueDate) updates.dueDate = dueDate
       if (creditTerm) updates.creditTerm = creditTerm
       if (notes !== undefined) updates.notes = notes
-      if (status) updates.status = status
+      if (status !== undefined && status !== null) {
+        // F-PAY-2: AR status is server-derived from balances
+        // (UNPAID/PARTIAL/PAID in recordPayment). A client-provided status
+        // that contradicts the balances — e.g. marking an unpaid AR PAID,
+        // or reopening a paid AR — must be rejected, never copied verbatim.
+        const expectedStatus =
+          Number(ar.outstandingAmount) <= 0
+            ? 'PAID'
+            : Number(ar.paidAmount) > 0
+              ? 'PARTIAL'
+              : 'UNPAID'
+        if (status !== expectedStatus) {
+          return res.status(422).json({
+            success: false,
+            message: `AR status is derived from balances (expected ${expectedStatus}) and cannot be set directly`
+          })
+        }
+      }
       updates.modifiedBy = req.user?.id || null
 
       await ar.update(updates)
@@ -466,20 +493,50 @@ const accountsReceivableController = {
       if (req.storeId && req.user?.roleType !== 'super_admin') {
         where.store = req.storeId
       }
-      const ar = await db.accounts_receivable.findOne({ where })
-      if (!ar) {
-        return res.status(404).json({ success: false, message: 'AR not found' })
-      }
 
-      await db.ar_payment.destroy({ where: { arId: id } })
-      await ar.destroy()
+      const t = await db.sequelize.transaction()
+      let deletedInvoiceNo = null
+      try {
+        const ar = await db.accounts_receivable.findOne({
+          where,
+          lock: t.LOCK.UPDATE,
+          transaction: t
+        })
+        if (!ar) {
+          await t.rollback()
+          return res.status(404).json({ success: false, message: 'AR not found' })
+        }
+
+        // F-PAY-2: deleting a financially effective AR would orphan its
+        // payment history (paid amounts lose their record). Only a
+        // pristine UNPAID AR with no payments can be deleted.
+        const paymentCount = await db.ar_payment.count({
+          where: { arId: ar.id },
+          transaction: t
+        })
+        if (paymentCount > 0 || Number(ar.paidAmount) > 0 || ar.status !== 'UNPAID') {
+          await t.rollback()
+          return res.status(400).json({
+            success: false,
+            message: 'AR with recorded payments cannot be deleted'
+          })
+        }
+
+        await db.ar_payment.destroy({ where: { arId: id }, transaction: t })
+        deletedInvoiceNo = ar.invoiceNo
+        await ar.destroy({ transaction: t })
+        await t.commit()
+      } catch (err) {
+        await t.rollback()
+        throw err
+      }
 
       await createAudit(
         req,
         'delete',
         'accounts_receivable',
         id,
-        `Deleted AR: ${ar.invoiceNo}`
+        `Deleted AR: ${deletedInvoiceNo}`
       )
 
       return res.status(200).json({ success: true, message: 'AR deleted' })
