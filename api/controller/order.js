@@ -1130,10 +1130,19 @@ exports.createOrder = async (req, res) => {
       serviceChargeRate
     })
 
+    // F-PAY-1: a paid order must always carry its payment-ledger row.
+    // paymentMethod is optional in the schema and recordOrderPayment skips
+    // a falsy method — without normalization a missing method produced a
+    // "paid" order with zero transaction rows. The established product
+    // contract treats an absent method as cash exact tender (status notes,
+    // paid-transition and split-bill `|| 'cash'` fallbacks), so normalize
+    // once here and route through normal cash validation + persistence.
+    const effectivePaymentMethod = paymentMethod || 'cash'
+
     // Fails fast, before any DB write is attempted, if the cash tender
     // is physically impossible or malformed.
     const { cashReceived, changeGiven } = validateCashTender({
-      paymentMethod,
+      paymentMethod: effectivePaymentMethod,
       cashAmount,
       changeAmount,
       amountDue: totals.totalPrice
@@ -1149,7 +1158,7 @@ exports.createOrder = async (req, res) => {
       customerName,
       customerPhone,
       notes,
-      paymentMethod,
+      paymentMethod: effectivePaymentMethod,
       source: source || 'pos',
       status: 'paid',
       paymentStatus: 'paid',
@@ -1233,7 +1242,7 @@ exports.createOrder = async (req, res) => {
 
       await recordOrderPayment(
         createdOrder,
-        paymentMethod,
+        effectivePaymentMethod,
         totals.totalPrice,
         req.user?.id,
         t,
@@ -1243,7 +1252,7 @@ exports.createOrder = async (req, res) => {
       await createInitialOrderStatus(
         createdOrder,
         cashierName,
-        paymentMethod,
+        effectivePaymentMethod,
         req.user?.id,
         t
       )
@@ -1813,6 +1822,15 @@ function validateCashTender({ paymentMethod, cashAmount, changeAmount, amountDue
 
   if (!Number.isFinite(cashReceived) || !Number.isFinite(changeGiven)) {
     const e = new Error('cashAmount/changeAmount must be numeric')
+    e.statusCode = 422
+    throw e
+  }
+  // F-MON-1: rupiah is integer — a fractional tender that happens to be
+  // arithmetically exact (e.g. due+0.5 tendered, 0.5 change) would pass
+  // the equality check below and then corrupt the BIGINT ledger write.
+  // Reject before persistence/math; never floor/truncate.
+  if (!Number.isInteger(cashReceived) || !Number.isInteger(changeGiven)) {
+    const e = new Error('cashAmount/changeAmount must be integer rupiah amounts')
     e.statusCode = 422
     throw e
   }

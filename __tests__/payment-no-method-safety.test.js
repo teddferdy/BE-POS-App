@@ -1,0 +1,114 @@
+process.env.NODE_ENV = 'test'
+process.env.VERCEL = 'true'
+
+const request = require('supertest')
+const jwt = require('jsonwebtoken')
+const app = require('../api/index')
+const db = require('../db/models')
+
+const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
+
+// F-PAY-1 regression: a successfully paid order must always carry its
+// payment-ledger row. paymentMethod is optional in the schema and the
+// established product contract treats an absent method as cash exact
+// tender (status notes, paid-transition fallbacks) — so a missing method
+// must persist a cash transaction row, never zero rows.
+
+const unique = (prefix) =>
+  `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
+
+let store = null
+let category = null
+let product = null
+let token = null
+
+beforeAll(async () => {
+  store = await db.location.create({ name: `PAYNOM_STORE_${Date.now()}`, status: 'active' })
+  category = await db.category.create({ name: `PAYNOM_CAT_${Date.now()}` })
+  product = await db.product.create({
+    nameProduct: `PAYNOM_PRODUCT_${Date.now()}`,
+    category: category.id,
+    price: 25000,
+    stock: 100
+  })
+  await db.product_store_stock.create({
+    product: product.id,
+    store: store.id,
+    stock: 100
+  })
+  token = jwt.sign(
+    { id: 7501, userName: 'cashier_paynom', roleType: 'kasir', store: store.id },
+    JWT_SECRET
+  )
+})
+
+afterAll(async () => {
+  await db.order_item.destroy({ where: {}, force: true })
+  await db.transaction.destroy({ where: {}, force: true })
+  await db.order_status.destroy({ where: {}, force: true })
+  await db.order.destroy({ where: { store: store?.id }, force: true })
+  await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
+  await db.stock_history.destroy({ where: { product: product?.id }, force: true })
+  await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
+  await db.product.destroy({ where: { id: product?.id }, force: true })
+  await db.category.destroy({ where: { id: category?.id }, force: true })
+  await db.location.destroy({ where: { id: store?.id }, force: true })
+})
+
+async function createOrder(body) {
+  return request(app)
+    .post('/order/create')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      store: store.id,
+      items: [{ product: product.id, quantity: 1, productName: 'nomethod' }],
+      cashierName: 'NoMethod Cashier',
+      ...body
+    })
+}
+
+describe('F-PAY-1 no-payment-method paid order', () => {
+  test('omitted paymentMethod persists a cash ledger row (never zero rows)', async () => {
+    const key = unique('paynom')
+    const res = await createOrder({ idempotencyKey: key })
+    expect(res.status).toBe(201)
+    expect(res.body?.data?.paymentStatus).toBe('paid')
+
+    const rows = await db.transaction.findAll({
+      where: { order: res.body.data.id }
+    })
+    expect(rows.length).toBe(1)
+    expect(rows[0].typePayment).toBe('cash')
+    expect(Number(rows[0].amount)).toBe(Number(res.body.data.totalPrice))
+    expect(Number(rows[0].cashReceived)).toBe(Number(res.body.data.totalPrice))
+    expect(Number(rows[0].changeGiven)).toBe(0)
+
+    const stored = await db.order.findByPk(res.body.data.id)
+    expect(stored.paymentMethod).toBe('cash')
+  })
+
+  test('explicit cash with exact tender still writes the identical ledger row', async () => {
+    const key = unique('paycash')
+    const res = await createOrder({
+      idempotencyKey: key,
+      paymentMethod: 'cash'
+    })
+    expect(res.status).toBe(201)
+    const rows = await db.transaction.findAll({
+      where: { order: res.body.data.id }
+    })
+    expect(rows.length).toBe(1)
+    expect(rows[0].typePayment).toBe('cash')
+  })
+
+  test('explicit non-cash method still writes its ledger row', async () => {
+    const key = unique('payqris')
+    const res = await createOrder({ idempotencyKey: key, paymentMethod: 'qris' })
+    expect(res.status).toBe(201)
+    const rows = await db.transaction.findAll({
+      where: { order: res.body.data.id }
+    })
+    expect(rows.length).toBe(1)
+    expect(rows[0].typePayment).toBe('qris')
+  })
+})

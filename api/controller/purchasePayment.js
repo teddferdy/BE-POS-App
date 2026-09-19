@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { scalarStoreScope } = require('../../utils/tenantScope')
+const { assertIntegerRupiah } = require('../../utils/moneyGuard')
 const {
   getDaysUntilDue,
   getDaysOverdue,
@@ -174,6 +175,11 @@ const purchasePaymentController = {
           message: 'Purchase order, supplier, and amount are required'
         })
       }
+
+      // F-MON-1: reject fractional/non-finite amounts before persistence —
+      // parseInt below would otherwise silently truncate (75000.9 → 75000).
+      // No INT4 cap here: purchase_payment.amount is BIGINT.
+      assertIntegerRupiah(amount, 'amount', { max: Number.MAX_SAFE_INTEGER })
 
       // A retried/duplicate submit with the same key returns the payment
       // already created instead of creating (or double-counting toward
@@ -349,16 +355,53 @@ const purchasePaymentController = {
       // Same IDOR fix as getById: scope the fetch by store before allowing
       // a destroy, so a non-super-admin can never delete another store's
       // payment record even if they know/guess its id.
-      const payment = await db.purchase_payment.findOne({
-        where: scalarStoreScope(req, { id })
-      })
-      if (!payment) {
-        return res
-          .status(404)
-          .json({ success: false, message: 'Payment not found' })
-      }
+      const t = await db.sequelize.transaction()
+      try {
+        const payment = await db.purchase_payment.findOne({
+          where: scalarStoreScope(req, { id }),
+          lock: t.LOCK.UPDATE,
+          transaction: t
+        })
+        if (!payment) {
+          await t.rollback()
+          return res
+            .status(404)
+            .json({ success: false, message: 'Payment not found' })
+        }
 
-      await payment.destroy()
+        // F-PAY-2: deleting a payment with posted (or postable) accounting
+        // effects would orphan a posted GL entry (Dr AP / Cr Cash) with no
+        // reversal — posted effects are reversed, never deleted. Only a
+        // payment with no journal entry and no outbox job can be deleted.
+        const journalCount = await db.journal_entry.count({
+          where: {
+            sourceType: 'purchase_payment',
+            referenceId: payment.id
+          },
+          transaction: t
+        })
+        const jobCount = await db.accounting_outbox.count({
+          where: {
+            referenceType: 'purchase_payment',
+            referenceId: payment.id
+          },
+          transaction: t
+        })
+        if (journalCount > 0 || jobCount > 0) {
+          await t.rollback()
+          return res.status(400).json({
+            success: false,
+            message:
+              'Payment with posted accounting effects cannot be deleted; reverse it instead'
+          })
+        }
+
+        await payment.destroy({ transaction: t })
+        await t.commit()
+      } catch (err) {
+        await t.rollback()
+        throw err
+      }
 
       await createAudit(
         req,
