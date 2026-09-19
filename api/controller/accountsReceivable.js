@@ -346,6 +346,15 @@ const accountsReceivableController = {
             where: { arId: Number(id), reference }
           })
           if (existing) {
+            // F-IDEM-1: the reference doubles as the deduplication
+            // identity — same reference must mean the same money
+            // movement. A different amount is a conflict, not a replay.
+            if (Number(existing.amount) !== Number(amount)) {
+              return res.status(409).json({
+                success: false,
+                message: 'reference already used with a different payload'
+              })
+            }
             return res.status(200).json({
               success: true,
               message: 'Payment already recorded',

@@ -24,7 +24,37 @@ const generateReceiptNo = () => {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   const timestamp = Date.now()
-  return `GR-${year}${month}${day}-${timestamp}`
+  // Random suffix: a bare millisecond timestamp has no collision
+  // resistance under concurrent creates (two receipts in the same
+  // millisecond hit a unique-constraint 500 instead of the idempotency
+  // replay). Same pattern as order.orderNumber / transferNumber.
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase()
+  return `GR-${year}${month}${day}-${timestamp}-${random}`
+}
+
+// F-IDEM-1: a same-key retry must carry the same intent. Canonical
+// identity per line is item identity (product, else ingredient id/name)
+// plus received quantity — purchaseOrderItem linkage is server-resolved,
+// prices are server-derived, and batch/notes are secondary metadata, so
+// none of them participate (mirrors the order idempotency contract).
+const GR_IDEMPOTENCY_MISMATCH_MESSAGE =
+  'idempotencyKey already used with a different payload'
+const canonicalGrItemKey = (item) => {
+  const qty = Number(item.qtyReceived)
+  if (item.product) return `p:${item.product}:${qty}`
+  const ing =
+    item.ingredient ??
+    item.ingredientName ??
+    item.poItemData?.ingredient ??
+    item.poItemData?.ingredientName
+  return `ing:${ing}:${qty}`
+}
+const grItemsMatchPayload = (storedItems, incomingItems) => {
+  if (!Array.isArray(storedItems) || !Array.isArray(incomingItems)) return false
+  if (storedItems.length !== incomingItems.length) return false
+  const a = storedItems.map(canonicalGrItemKey).sort()
+  const b = incomingItems.map(canonicalGrItemKey).sort()
+  return a.every((key, i) => key === b[i])
 }
 
 // ponytail: multiple documentation photos -> Cloudinary, persisted as JSON array of URLs
@@ -635,6 +665,12 @@ const goodsReceiptController = {
           include: [{ model: db.goodsReceiptItem, as: 'items' }]
         })
         if (existing) {
+          if (!grItemsMatchPayload(existing.items, items)) {
+            return res.status(409).json({
+              success: false,
+              message: GR_IDEMPOTENCY_MISMATCH_MESSAGE
+            })
+          }
           return res.status(200).json({
             success: true,
             message: 'Goods receipt already exists for this idempotency key',
@@ -1023,12 +1059,23 @@ const goodsReceiptController = {
         throw err
       }
     } catch (error) {
-      if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+      // Destructured locals (idempotencyKey, items) live inside the try
+      // above — re-read them from the request body here.
+      const catchKey = req.body?.idempotencyKey
+      const catchItems = req.body?.items
+      const catchPoId = req.body?.purchaseOrderId
+      if (error.name === 'SequelizeUniqueConstraintError' && catchKey) {
         const existing = await db.goodsReceipt.findOne({
-          where: { purchaseOrderId, idempotencyKey },
+          where: { purchaseOrderId: catchPoId, idempotencyKey: catchKey },
           include: [{ model: db.goodsReceiptItem, as: 'items' }]
         })
         if (existing) {
+          if (!grItemsMatchPayload(existing.items, catchItems)) {
+            return res.status(409).json({
+              success: false,
+              message: GR_IDEMPOTENCY_MISMATCH_MESSAGE
+            })
+          }
           return res.status(200).json({
             success: true,
             message: 'Goods receipt already exists for this idempotency key',

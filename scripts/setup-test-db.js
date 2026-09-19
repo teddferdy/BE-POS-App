@@ -216,7 +216,15 @@ module.exports = async () => {
   ]
 
   const R4_INDEXES = [
-    `CREATE UNIQUE INDEX IF NOT EXISTS uq_product_review_device ON "product_review" ("productId", "deviceId") WHERE "deviceId" IS NOT NULL`
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_product_review_device ON "product_review" ("productId", "deviceId") WHERE "deviceId" IS NOT NULL`,
+    // goods_receipt.idempotencyKey's partial unique index (migration
+    // 20261001000003) is likewise absent from the committed dev-schema.sql
+    // snapshot. The idempotency fast-path alone cannot serialise two
+    // concurrent same-key creates — without this backstop both requests
+    // insert (double stock/journal), which the F-IDEM-1 concurrency tests
+    // assert can never happen. Provision it here exactly as the migration
+    // does so CI converges with migrated dev databases.
+    `CREATE UNIQUE INDEX IF NOT EXISTS goods_receipt_po_idempotency_unique ON "goods_receipt" ("purchaseOrderId", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`
   ]
 
   for (const ddl of R4_TABLE_DDL) {
@@ -292,6 +300,12 @@ module.exports = async () => {
     `SELECT count(*) FROM pg_indexes WHERE indexname = 'uq_product_review_device'`
   ]).trim()
   if (idxCount !== '1') missingIndexes.push('uq_product_review_device')
+  const grIdxCount = run('psql', [
+    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+    '-t', '-A', '-c',
+    `SELECT count(*) FROM pg_indexes WHERE indexname = 'goods_receipt_po_idempotency_unique'`
+  ]).trim()
+  if (grIdxCount !== '1') missingIndexes.push('goods_receipt_po_idempotency_unique')
   const problems = [...missingTables.map((t) => `table ${t}`), ...missingColumns.map((c) => `column ${c}`), ...missingIndexes.map((i) => `index ${i}`)]
   if (problems.length > 0) {
     throw new Error(

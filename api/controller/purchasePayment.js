@@ -189,6 +189,14 @@ const purchasePaymentController = {
           where: { purchaseOrder, idempotencyKey }
         })
         if (existing) {
+          // F-IDEM-1: same key must mean the same money movement — a
+          // different amount is a conflict, not a replay.
+          if (Number(existing.amount) !== Number(amount)) {
+            return res.status(409).json({
+              success: false,
+              message: 'idempotencyKey already used with a different payload'
+            })
+          }
           return res.status(200).json({
             success: true,
             message: 'Payment already recorded for this idempotency key',
@@ -325,11 +333,18 @@ const purchasePaymentController = {
       // succeed; return the winner's payment to the loser instead of a
       // confusing 500.
       const { idempotencyKey, purchaseOrder } = req.body
+      const catchAmount = req.body?.amount
       if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
         const existing = await db.purchase_payment.findOne({
           where: { purchaseOrder, idempotencyKey }
         })
         if (existing) {
+          if (Number(existing.amount) !== Number(catchAmount)) {
+            return res.status(409).json({
+              success: false,
+              message: 'idempotencyKey already used with a different payload'
+            })
+          }
           return res.status(200).json({
             success: true,
             message: 'Payment already recorded for this idempotency key',
