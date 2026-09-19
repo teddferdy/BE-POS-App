@@ -29,27 +29,27 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       stokAwalJumlah: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       barangMasukJumlah: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       barangKeluarJumlah: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       stokAkhirJumlah: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       stokFisikJumlah: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       selisihJumlah: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       product: {
@@ -59,17 +59,17 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       systemStock: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         allowNull: false,
         defaultValue: 0
       },
       actualStock: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         allowNull: false,
         defaultValue: 0
       },
       adjustment: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       unit: {

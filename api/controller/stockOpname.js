@@ -5,6 +5,31 @@ const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { setProductStock } = require('../service/stockMutationService')
 const { scalarStoreScope, resolveStoreId } = require('../../utils/tenantScope')
+const { assertDecimalQuantity } = require('../../utils/decimalQuantityGuard')
+
+// Phase 34: the six primary stock-opname quantity fields, all DECIMAL(10,4).
+// A field left null/undefined is an intentionally-uncounted value (e.g. a
+// draft row's stokFisikJumlah/selisihJumlah before the physical count is
+// taken) and is exempt from this check, not coerced into an error or a
+// misleading 0 — only a value that IS present must be a valid decimal.
+const OPNAME_QUANTITY_FIELDS = [
+  'stokAwalJumlah',
+  'barangMasukJumlah',
+  'barangKeluarJumlah',
+  'stokAkhirJumlah',
+  'stokFisikJumlah',
+  'selisihJumlah'
+]
+
+function validateOpnameItemQuantities(items) {
+  for (const item of items) {
+    for (const field of OPNAME_QUANTITY_FIELDS) {
+      const value = item?.[field]
+      if (value === null || value === undefined) continue
+      assertDecimalQuantity(value, field)
+    }
+  }
+}
 
 const generateOpnameNumber = () => {
   const date = new Date()
@@ -117,8 +142,11 @@ const stockOpnameController = {
       const data = opnames.map((opname) => {
         const items = opname.items || []
         const totalItems = items.length
+        // Phase 34: selisihJumlah is DECIMAL(10,4), returned as a string by
+        // Sequelize/pg for DB-loaded rows — `sum + item.x` would silently
+        // string-concatenate without this explicit Number() coercion.
         const totalSelisih = items.reduce(
-          (sum, item) => sum + (item.selisihJumlah || 0),
+          (sum, item) => sum + (Number(item.selisihJumlah) || 0),
           0
         )
         const highVarianceItems = items.filter(
@@ -211,8 +239,10 @@ const stockOpnameController = {
 
       const items = opname.items || []
       const totalItems = items.length
+      // Phase 34: same string-coercion fix as getAll (DB-loaded DECIMAL
+      // selisihJumlah is a string; Number() prevents string concatenation).
       const totalSelisih = items.reduce(
-        (sum, item) => sum + (item.selisihJumlah || 0),
+        (sum, item) => sum + (Number(item.selisihJumlah) || 0),
         0
       )
       const highVarianceItems = items.filter(
@@ -291,6 +321,15 @@ const stockOpnameController = {
         return res.status(400).json({
           success: false,
           message: 'Items are required'
+        })
+      }
+
+      try {
+        validateOpnameItemQuantities(items)
+      } catch (err) {
+        return res.status(err.statusCode || 422).json({
+          success: false,
+          message: err.message
         })
       }
 
@@ -593,6 +632,15 @@ const stockOpnameController = {
       }
 
       if (items) {
+        try {
+          validateOpnameItemQuantities(items)
+        } catch (err) {
+          return res.status(err.statusCode || 422).json({
+            success: false,
+            message: err.message
+          })
+        }
+
         await db.sequelize.transaction(async (t) => {
           await db.stockOpnameItem.destroy({
             where: { stockOpname: id },
@@ -643,7 +691,11 @@ const stockOpnameController = {
       })
 
       const totalAdjustment = allItems.reduce((sum, item) => {
-        return sum + item.selisihJumlah
+        // Phase 34: selisihJumlah is DECIMAL(10,4); Sequelize/pg returns it
+        // as a string when re-fetched from the DB (allItems, unlike the
+        // JSON-body items in create()/uploadExcel), so `sum + item.x`
+        // would silently string-concatenate instead of add.
+        return sum + (Number(item.selisihJumlah) || 0)
       }, 0)
 
       await opname.update({
@@ -1076,12 +1128,14 @@ const stockOpnameController = {
           formula: `F${row}+G${row}-H${row}`
         }
         worksheet.getCell(`I${row}`).protection = { locked: true }
-        worksheet.getCell(`I${row}`).numFmt = '#,##0'
+        // Phase 34: quantities are DECIMAL(10,4) — '#,##0' visually rounded
+        // a fractional result to a whole number in the template.
+        worksheet.getCell(`I${row}`).numFmt = '#,##0.####'
         worksheet.getCell(`I${row}`).fill = formulaStyle.fill
 
         worksheet.getCell(`K${row}`).value = { formula: `J${row}-I${row}` }
         worksheet.getCell(`K${row}`).protection = { locked: true }
-        worksheet.getCell(`K${row}`).numFmt = '#,##0'
+        worksheet.getCell(`K${row}`).numFmt = '#,##0.####'
         worksheet.getCell(`K${row}`).fill = formulaStyle.fill
 
         if (locationList) {
@@ -1433,12 +1487,21 @@ const stockOpnameController = {
           worksheet.getCell(`C${rowIndex}`).value = item.namaBarang || ''
           worksheet.getCell(`D${rowIndex}`).value = item.satuan || ''
           worksheet.getCell(`E${rowIndex}`).value = item.lokasi || ''
-          worksheet.getCell(`F${rowIndex}`).value = item.stokAwalJumlah ?? 0
-          worksheet.getCell(`G${rowIndex}`).value = item.barangMasukJumlah ?? 0
-          worksheet.getCell(`H${rowIndex}`).value = item.barangKeluarJumlah ?? 0
-          worksheet.getCell(`I${rowIndex}`).value = item.stokAkhirJumlah ?? 0
-          worksheet.getCell(`J${rowIndex}`).value = item.stokFisikJumlah ?? 0
-          worksheet.getCell(`K${rowIndex}`).value = item.selisihJumlah ?? 0
+          // Phase 34: these quantities are DECIMAL(10,4), returned as
+          // strings by Sequelize/pg — Number() ensures ExcelJS stores a
+          // real numeric cell value, not a text string.
+          worksheet.getCell(`F${rowIndex}`).value =
+            item.stokAwalJumlah != null ? Number(item.stokAwalJumlah) : 0
+          worksheet.getCell(`G${rowIndex}`).value =
+            item.barangMasukJumlah != null ? Number(item.barangMasukJumlah) : 0
+          worksheet.getCell(`H${rowIndex}`).value =
+            item.barangKeluarJumlah != null ? Number(item.barangKeluarJumlah) : 0
+          worksheet.getCell(`I${rowIndex}`).value =
+            item.stokAkhirJumlah != null ? Number(item.stokAkhirJumlah) : 0
+          worksheet.getCell(`J${rowIndex}`).value =
+            item.stokFisikJumlah != null ? Number(item.stokFisikJumlah) : 0
+          worksheet.getCell(`K${rowIndex}`).value =
+            item.selisihJumlah != null ? Number(item.selisihJumlah) : 0
           worksheet.getCell(`L${rowIndex}`).value = item.keterangan || ''
           rowIndex++
         }

@@ -37,6 +37,12 @@ const db = require('../../db/models')
  * @param {number|null} [params.createdBy]
  * @param {import('sequelize').Transaction} params.transaction - required
  * @param {boolean} [params.floorAtZero=true] - clamp the result at 0 instead of allowing negative
+ * @param {boolean} [params.allowFractional=false] - preserve a fractional deltaQty
+ *   instead of truncating it. Defaults to false (unchanged, existing behavior)
+ *   for every direct caller; only setProductStock's stock-opname path opts in,
+ *   since that is the one flow verified (Phase 34) to require fractional
+ *   physical counts for fractional-unit products. Goods receipt and purchase
+ *   return, the other two direct callers, are intentionally left untouched.
  * @returns {Promise<{product: object, quantityBefore: number, quantityAfter: number}|null>} null if delta is 0 or product not found
  */
 async function adjustProductStock({
@@ -48,12 +54,13 @@ async function adjustProductStock({
   notes = null,
   createdBy = null,
   transaction,
-  floorAtZero = true
+  floorAtZero = true,
+  allowFractional = false
 }) {
   if (!transaction) {
     throw new Error('adjustProductStock requires an explicit transaction')
   }
-  const qty = Math.trunc(Number(deltaQty)) || 0
+  const qty = allowFractional ? Number(deltaQty) || 0 : Math.trunc(Number(deltaQty)) || 0
   if (qty === 0) return null
 
   const product = await db.product.findByPk(productId, {
@@ -147,7 +154,11 @@ async function setProductStock({
   if (!product) return null
 
   const quantityBefore = Number(product.stock) || 0
-  const target = Math.trunc(Number(newQty)) || 0
+  // Phase 34: no Math.trunc — a stock-opname physical count for a
+  // fractional-unit product (kg, gram, liter, ...) is a real decimal, and
+  // product.stock is DECIMAL(10,4); matches the ingredient-side sibling
+  // branch in stockOpname.js, which never truncated this value.
+  const target = Number(newQty) || 0
   const delta = target - quantityBefore
   if (delta === 0) return { product, quantityBefore, quantityAfter: quantityBefore }
 
@@ -160,7 +171,8 @@ async function setProductStock({
     notes,
     createdBy,
     transaction,
-    floorAtZero: true
+    floorAtZero: true,
+    allowFractional: true
   })
 }
 

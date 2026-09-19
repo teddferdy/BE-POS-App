@@ -107,9 +107,69 @@ describe('adjustProductStock', () => {
     const after = await db.product.findByPk(product.id)
     expect(Number(after.stock)).toBe(8)
   })
+
+  // Phase 34: adjustProductStock's other direct callers (goods receipt,
+  // purchase return) are intentionally untouched by the stock-opname
+  // decimal remediation — the new allowFractional flag defaults to false,
+  // so a fractional deltaQty is still truncated exactly as before unless a
+  // caller explicitly opts in (only setProductStock does).
+  test('still truncates a fractional deltaQty by default (unrelated callers unaffected)', async () => {
+    const product = await db.product.create({
+      nameProduct: 'SM_TRUNC_DEFAULT', category: category.id, price: 1000, stock: 10
+    })
+
+    await db.sequelize.transaction((t) =>
+      adjustProductStock({
+        productId: product.id,
+        deltaQty: 2.9,
+        referenceType: 'purchase',
+        transaction: t
+      })
+    )
+
+    const after = await db.product.findByPk(product.id)
+    expect(Number(after.stock)).toBe(12)
+  })
+
+  test('preserves a fractional deltaQty when allowFractional is explicitly set', async () => {
+    const product = await db.product.create({
+      nameProduct: 'SM_TRUNC_OPTIN', category: category.id, price: 1000, stock: 10
+    })
+
+    await db.sequelize.transaction((t) =>
+      adjustProductStock({
+        productId: product.id,
+        deltaQty: 2.9,
+        referenceType: 'adjustment',
+        transaction: t,
+        allowFractional: true
+      })
+    )
+
+    const after = await db.product.findByPk(product.id)
+    expect(Number(after.stock)).toBe(12.9)
+  })
 })
 
 describe('setProductStock', () => {
+  test('Phase 34: preserves a fractional newQty exactly (the stock-opname path no longer truncates)', async () => {
+    const product = await db.product.create({
+      nameProduct: 'SM_SET_DECIMAL', category: category.id, price: 1000, stock: 20
+    })
+
+    await db.sequelize.transaction((t) =>
+      setProductStock({
+        productId: product.id,
+        newQty: 12.5,
+        referenceType: 'adjustment',
+        transaction: t
+      })
+    )
+
+    const after = await db.product.findByPk(product.id)
+    expect(Number(after.stock)).toBe(12.5)
+  })
+
   test('computes the delta against the current value and writes an accurate audit row', async () => {
     const product = await db.product.create({
       nameProduct: 'SM_SET', category: category.id, price: 1000, stock: 20
