@@ -215,6 +215,31 @@ module.exports = async () => {
     ['goods_receipt', 'idempotencyKey', 'VARCHAR(255)']
   ]
 
+  // Phase 34: stock_opname_item's quantity columns are migration-owned
+  // (20261004000001) but the committed dev-schema.sql snapshot predates
+  // that migration, so a fresh CI clone still has them as INTEGER — which
+  // silently rounds/rejects a fractional physical count before it can
+  // reach product.stock/ingredient.stock (already DECIMAL(10,4)).
+  // Following the goods_receipt.idempotencyKey precedent above, provision
+  // the column TYPE change idempotently here so CI converges with a
+  // migrated dev database without depending on the retired runtime patch.
+  const R4_TYPE_CHANGES = [
+    ['stock_opname_item', 'stokAwalJumlah', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'barangMasukJumlah', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'barangKeluarJumlah', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'stokAkhirJumlah', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'stokFisikJumlah', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'selisihJumlah', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'systemStock', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'actualStock', 'DECIMAL(10,4)'],
+    ['stock_opname_item', 'adjustment', 'DECIMAL(10,4)'],
+    // stock_opname.totalAdjustment (header table) sums every item's
+    // selisihJumlah on every create — discovered via TDD to crash with a
+    // raw Postgres error the moment a fractional (e.g. negative) selisih
+    // is summed into it while it remains INTEGER.
+    ['stock_opname', 'totalAdjustment', 'DECIMAL(10,4)']
+  ]
+
   const R4_INDEXES = [
     `CREATE UNIQUE INDEX IF NOT EXISTS uq_product_review_device ON "product_review" ("productId", "deviceId") WHERE "deviceId" IS NOT NULL`,
     // goods_receipt.idempotencyKey's partial unique index (migration
@@ -235,6 +260,13 @@ module.exports = async () => {
   for (const [table, column, definition] of R4_COLUMNS) {
     try {
       psqlTest(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "${column}" ${definition}`)
+    } catch {}
+  }
+  for (const [table, column, definition] of R4_TYPE_CHANGES) {
+    try {
+      psqlTest(
+        `ALTER TABLE "${table}" ALTER COLUMN "${column}" TYPE ${definition} USING "${column}"::${definition}`
+      )
     } catch {}
   }
   for (const ddl of R4_INDEXES) {
@@ -306,7 +338,16 @@ module.exports = async () => {
     `SELECT count(*) FROM pg_indexes WHERE indexname = 'goods_receipt_po_idempotency_unique'`
   ]).trim()
   if (grIdxCount !== '1') missingIndexes.push('goods_receipt_po_idempotency_unique')
-  const problems = [...missingTables.map((t) => `table ${t}`), ...missingColumns.map((c) => `column ${c}`), ...missingIndexes.map((i) => `index ${i}`)]
+  const wrongTypes = []
+  for (const [table, column] of R4_TYPE_CHANGES.map(([t, c]) => [t, c])) {
+    const out = run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-t', '-A', '-c',
+      `SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' AND column_name = '${column}'`
+    ]).trim()
+    if (out !== 'numeric') wrongTypes.push(`${table}.${column} (${out || 'missing'})`)
+  }
+  const problems = [...missingTables.map((t) => `table ${t}`), ...missingColumns.map((c) => `column ${c}`), ...missingIndexes.map((i) => `index ${i}`), ...wrongTypes.map((w) => `type ${w}`)]
   if (problems.length > 0) {
     throw new Error(
       `[setup-test-db] R-4 schema contract FAILED — test DB ${TEST_DB} is missing required schema and must not run tests: ${problems.join(', ')}. ` +

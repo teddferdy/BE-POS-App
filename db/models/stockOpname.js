@@ -27,7 +27,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING
       },
       totalAdjustment: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 4),
         defaultValue: 0
       },
       status: {
