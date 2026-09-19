@@ -649,6 +649,17 @@ const cashRegisterController = {
           where: { cashRegisterId, idempotencyKey }
         })
         if (existing) {
+          // F-IDEM-1: identity is direction + magnitude — a different
+          // type or amount under the same key is a conflict, not a replay.
+          if (
+            existing.type !== type ||
+            Number(existing.amount) !== Number(amount)
+          ) {
+            return res.status(409).json({
+              success: false,
+              message: 'idempotencyKey already used with a different payload'
+            })
+          }
           return res.status(200).json({
             success: true,
             message: 'Movement already recorded',
@@ -722,11 +733,26 @@ const cashRegisterController = {
           })
         )
       } catch (error) {
-        if (error.name === 'SequelizeUniqueConstraintError' && idempotencyKey) {
+        // Destructured locals live inside the try above — re-read them
+        // from the request here.
+        const catchKey = req.body?.idempotencyKey
+        const catchRegisterId = req.params?.id
+        const catchType = req.body?.type
+        const catchAmount = req.body?.amount
+        if (error.name === 'SequelizeUniqueConstraintError' && catchKey) {
           const existing = await db.cashMovement.findOne({
-            where: { cashRegisterId, idempotencyKey }
+            where: { cashRegisterId: catchRegisterId, idempotencyKey: catchKey }
           })
           if (existing) {
+            if (
+              existing.type !== catchType ||
+              Number(existing.amount) !== Number(catchAmount)
+            ) {
+              return res.status(409).json({
+                success: false,
+                message: 'idempotencyKey already used with a different payload'
+              })
+            }
             return res.status(200).json({
               success: true,
               message: 'Movement already recorded',
