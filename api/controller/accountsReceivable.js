@@ -183,6 +183,17 @@ const accountsReceivableController = {
       const invoiceNo = `INV-${order.orderNumber || order.id}-${Date.now()}`
       const today = new Date()
 
+      // N1: totalAmount is INTEGER money — reject fractional/non-finite
+      // values here instead of silently truncating via parseInt below
+      // (same canonical guard as recordPayment in this controller; this
+      // handler's catch is a plain 500 so return 422 directly).
+      let totalAmountNum
+      try {
+        totalAmountNum = assertIntegerRupiah(totalAmount, 'totalAmount')
+      } catch (e) {
+        return res.status(422).json({ success: false, message: e.message })
+      }
+
       const ar = await db.accounts_receivable.create({
         store: store || null,
         orderId,
@@ -192,9 +203,9 @@ const accountsReceivableController = {
         invoiceDate: today.toISOString().split('T')[0],
         dueDate: dueDate || null,
         creditTerm: creditTerm || null,
-        totalAmount: parseInt(totalAmount),
+        totalAmount: totalAmountNum,
         paidAmount: 0,
-        outstandingAmount: parseInt(totalAmount),
+        outstandingAmount: totalAmountNum,
         status: 'UNPAID',
         notes: notes || null,
         createdBy: req.user?.id || null
