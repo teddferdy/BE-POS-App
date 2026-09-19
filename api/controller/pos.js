@@ -1140,6 +1140,17 @@ const posController = {
               e.statusCode = 422
               throw e
             }
+            // Return quantities are integer selling units (sales_return_item
+            // .qty is INTEGER, mirroring order_item.quantity). A fractional
+            // qty would die at persistence or be silently truncated at
+            // approval — reject it here with a clear contract error.
+            if (!Number.isInteger(qty)) {
+              const e = new Error(
+                `Quantity must be an integer for product ${reqItem.productId}`
+              )
+              e.statusCode = 422
+              throw e
+            }
 
             // order_item rows are immutable once created, so the
             // outer, unlocked `order.items` (loaded before the

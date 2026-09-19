@@ -18,7 +18,10 @@ const {
   attemptJob,
   recordImmediateAttempt
 } = require('../service/accountingOutboxService')
-const { adjustIngredientStockBatch } = require('../service/stockMutationService')
+const {
+  adjustIngredientStockBatch,
+  resolveBomIngredientRequirements
+} = require('../service/stockMutationService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 
 // FND-001 (security): escape every untrusted string that is interpolated into
@@ -1465,101 +1468,6 @@ const createOrderItems = async (
   }
 }
 
-// F7 — resolves BOM ingredient requirements for a flat list of
-// (productId, quantity) consumption entries, for products whose
-// inventoryMode requires it ('stocked' products are skipped entirely,
-// even if a BOM happens to exist for them). BOM/ingredient STRUCTURE
-// reads here are unlocked (mirrors bundleMap's own pre-existing
-// convention of reading definitional data before any lock is taken) —
-// only ingredient STOCK itself is trusted under a lock, later, inside
-// adjustIngredientStockBatch. Every fail-closed condition throws a 409
-// with `statusCode` set; callers run this before any stock mutation so a
-// rejection here rolls back the whole enclosing transaction.
-const resolveBomIngredientRequirements = async (flatItems, store, productById, t) => {
-  const requirements = []
-  for (const { productId, quantity } of flatItems) {
-    const product = productById.get(productId)
-    if (!product) continue
-    const mode = product.inventoryMode || 'stocked'
-    if (mode === 'stocked') continue
-    const orderQty = Math.floor(Number(quantity)) || 0
-    if (orderQty <= 0) continue
-
-    const bomHeader = await db.bom_header.findOne({
-      where: { productId, store, status: 'active' },
-      include: [{ model: db.bom_line, as: 'lines' }],
-      transaction: t
-    })
-    if (!bomHeader || !bomHeader.lines || bomHeader.lines.length === 0) {
-      const e = new Error(
-        `Produk "${product.nameProduct}" menggunakan mode inventaris "${mode}" tetapi tidak memiliki BOM aktif`
-      )
-      e.statusCode = 409
-      throw e
-    }
-
-    const ingredientIds = [...new Set(bomHeader.lines.map((l) => l.ingredientId))]
-    const ingredients = await db.ingredient.findAll({
-      where: { id: ingredientIds },
-      transaction: t
-    })
-    const ingredientById = new Map(ingredients.map((i) => [i.id, i]))
-
-    // Duplicate BOM lines for the same ingredient are summed BEFORE
-    // multiplying by orderQty, never deduplicated-away.
-    const perIngredientQty = new Map()
-    for (const line of bomHeader.lines) {
-      const lineQty = Number(line.qty)
-      if (!(lineQty > 0)) {
-        const e = new Error(
-          `BOM produk "${product.nameProduct}" memiliki kuantitas bahan baku tidak valid`
-        )
-        e.statusCode = 409
-        throw e
-      }
-      const ing = ingredientById.get(line.ingredientId)
-      if (!ing) {
-        const e = new Error(
-          `BOM produk "${product.nameProduct}" mereferensikan bahan baku yang tidak ditemukan`
-        )
-        e.statusCode = 409
-        throw e
-      }
-      // Defense in depth against a malformed/cross-store BOM link —
-      // never trust that bom.js's authoring-time validation caught this.
-      if (!ing.store || ing.store !== store) {
-        const e = new Error(
-          `BOM produk "${product.nameProduct}" mereferensikan bahan baku "${ing.name}" dari toko lain`
-        )
-        e.statusCode = 409
-        throw e
-      }
-      // BASE-UNIT-ONLY contract — case-sensitive, no conversion.
-      if (line.unit !== ing.baseUnit) {
-        const e = new Error(
-          `Satuan BOM tidak cocok untuk bahan baku "${ing.name}": BOM menggunakan "${line.unit}", satuan dasar bahan baku adalah "${ing.baseUnit}"`
-        )
-        e.statusCode = 409
-        throw e
-      }
-      perIngredientQty.set(
-        line.ingredientId,
-        (perIngredientQty.get(line.ingredientId) || 0) + lineQty
-      )
-    }
-
-    for (const [ingredientId, qtyPerUnit] of perIngredientQty) {
-      const ing = ingredientById.get(ingredientId)
-      requirements.push({
-        productId,
-        ingredientId,
-        ingredientName: ing.name,
-        qty: qtyPerUnit * orderQty
-      })
-    }
-  }
-  return requirements
-}
 
 // Reduce stock & create stock history — wrapped in a transaction for
 // atomicity. Locks every distinct product touched by the order (bundle
