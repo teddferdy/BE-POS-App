@@ -1340,6 +1340,7 @@ exports.updateInvoiceSettingSchema = z.object({
 exports.createPosTransferSchema = z.object({
   fromStore: strToNum(),
   toStore: strToNum(),
+  idempotencyKey: z.string().max(255).optional().nullable(),
   items: z
     .array(
       z.object({

@@ -19,7 +19,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       qty: {
         allowNull: false,
-        type: DataTypes.INTEGER
+        type: DataTypes.DECIMAL(10, 4)
       },
       unit: {
         type: DataTypes.STRING,

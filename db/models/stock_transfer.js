@@ -47,6 +47,11 @@ module.exports = (sequelize, DataTypes) => {
       transferredBy: {
         type: DataTypes.STRING
       },
+      idempotencyKey: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Phase 39 Batch 1: client-supplied idempotency key for transfer-send (partial unique index on fromStore+key)'
+      },
       createdBy: {
         type: DataTypes.INTEGER
       }
