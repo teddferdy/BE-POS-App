@@ -1693,7 +1693,30 @@ const returnItemSchema = z.object({
   orderItemId: strToNum().optional(),
   qty: strToNum().refine((q) => q > 0, 'Qty must be greater than 0'),
   unit: z.string().optional().default('pcs'),
-  conversionToBase: z.coerce.number().optional().default(1),
+  // F-RET-1: conversion is informational only — the approval reverses the
+  // immutable historical sale mutation and never multiplies by this value
+  // (the sale path has no conversion concept). Still validated so a client
+  // cannot persist garbage: positive, finite, at most 4 decimal places
+  // (the DECIMAL(10,4) stock contract). Boolean-returning refines only —
+  // a thrown error here would escape as a 500 instead of a 422.
+  conversionToBase: z.coerce
+    .number()
+    .refine((v) => Number.isFinite(v), {
+      message: 'conversionToBase must be a finite number'
+    })
+    .refine((v) => v > 0, {
+      message: 'conversionToBase must be greater than 0'
+    })
+    .refine(
+      (v) => {
+        if (!Number.isFinite(v)) return true
+        const scaled = v * 10000
+        return Math.abs(scaled - Math.round(scaled)) <= 1e-6
+      },
+      { message: 'conversionToBase supports at most 4 decimal places' }
+    )
+    .optional()
+    .default(1),
   notes: z.string().optional().default('')
 })
 
