@@ -212,7 +212,13 @@ module.exports = async () => {
     // (uq_member_store_name/global above), provision it idempotently here and
     // include it in the catalog contract so the post-R-5 test DB stays
     // self-sufficient without the retired runtime auto-patch.
-    ['goods_receipt', 'idempotencyKey', 'VARCHAR(255)']
+    ['goods_receipt', 'idempotencyKey', 'VARCHAR(255)'],
+    // Phase 39 Batch 1: stock_transfer.idempotencyKey is migration-owned
+    // (20261006000001) but the committed dev-schema.sql snapshot predates
+    // that migration, so a fresh CI clone is missing it. Same precedent as
+    // goods_receipt.idempotencyKey above: provision idempotently here and
+    // enroll in the catalog contract below.
+    ['stock_transfer', 'idempotencyKey', 'VARCHAR(255)']
   ]
 
   // Phase 34: stock_opname_item's quantity columns are migration-owned
@@ -237,7 +243,13 @@ module.exports = async () => {
     // selisihJumlah on every create — discovered via TDD to crash with a
     // raw Postgres error the moment a fractional (e.g. negative) selisih
     // is summed into it while it remains INTEGER.
-    ['stock_opname', 'totalAdjustment', 'DECIMAL(10,4)']
+    ['stock_opname', 'totalAdjustment', 'DECIMAL(10,4)'],
+    // Phase 39 Batch 1: stock_transfer_item.qty is migration-owned
+    // (20261006000001, INTEGER -> DECIMAL(10,4)) but the committed
+    // dev-schema.sql snapshot still has it as INTEGER — which would
+    // silently round fractional transfer quantities before they reach
+    // DECIMAL stock. Same precedent as the opname columns above.
+    ['stock_transfer_item', 'qty', 'DECIMAL(10,4)']
   ]
 
   const R4_INDEXES = [
@@ -249,7 +261,13 @@ module.exports = async () => {
     // insert (double stock/journal), which the F-IDEM-1 concurrency tests
     // assert can never happen. Provision it here exactly as the migration
     // does so CI converges with migrated dev databases.
-    `CREATE UNIQUE INDEX IF NOT EXISTS goods_receipt_po_idempotency_unique ON "goods_receipt" ("purchaseOrderId", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`
+    `CREATE UNIQUE INDEX IF NOT EXISTS goods_receipt_po_idempotency_unique ON "goods_receipt" ("purchaseOrderId", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`,
+    // Phase 39 Batch 1: transfer-send idempotency backstop
+    // (migration 20261006000001). The fast-path alone cannot serialise two
+    // concurrent same-key sends — without this index both insert (duplicate
+    // transfer + double deduction). Provisioned here exactly as the
+    // migration does so CI converges with migrated dev databases.
+    `CREATE UNIQUE INDEX IF NOT EXISTS stock_transfer_fromstore_idempotency_unique ON "stock_transfer" ("fromStore", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`
   ]
 
   for (const ddl of R4_TABLE_DDL) {
@@ -338,6 +356,12 @@ module.exports = async () => {
     `SELECT count(*) FROM pg_indexes WHERE indexname = 'goods_receipt_po_idempotency_unique'`
   ]).trim()
   if (grIdxCount !== '1') missingIndexes.push('goods_receipt_po_idempotency_unique')
+  const trIdxCount = run('psql', [
+    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+    '-t', '-A', '-c',
+    `SELECT count(*) FROM pg_indexes WHERE indexname = 'stock_transfer_fromstore_idempotency_unique'`
+  ]).trim()
+  if (trIdxCount !== '1') missingIndexes.push('stock_transfer_fromstore_idempotency_unique')
   const wrongTypes = []
   for (const [table, column] of R4_TYPE_CHANGES.map(([t, c]) => [t, c])) {
     const out = run('psql', [

@@ -2,6 +2,7 @@ const db = require('../../db/models')
 const { Op } = require('sequelize')
 const batchService = require('../service/batchService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
+const { assertDecimalQuantity } = require('../../utils/decimalQuantityGuard')
 const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
 const {
@@ -112,6 +113,40 @@ function salesReturnPayloadMatches(existing, existingItems, incoming) {
   )
 }
 
+// Phase 39 Batch 1 — transfer-send idempotency helpers, mirroring the
+// goods-receipt convention (canonicalGrItemKey / grItemsMatchPayload):
+// same key + identical semantic payload replays, same key + different
+// payload is a 409. Scope (fromStore) lives in the lookup WHERE, exactly
+// like GR scopes by purchaseOrderId.
+const TRANSFER_IDEMPOTENCY_MISMATCH_MESSAGE =
+  'Idempotency key was already used with a different transfer payload'
+
+const canonicalTransferItemKey = (item) => {
+  const productId = item.productId ?? item.product
+  const qty = Number(item.qty ?? item.quantity)
+  const unit = item.unit || 'pcs'
+  return `${productId}:${Number.isFinite(qty) ? String(qty) : ''}:${unit}`
+}
+
+const transferItemsMatchPayload = (storedItems, incomingItems) => {
+  if (!Array.isArray(storedItems) || !Array.isArray(incomingItems)) return false
+  if (storedItems.length !== incomingItems.length) return false
+  const a = storedItems.map(canonicalTransferItemKey).sort()
+  const b = incomingItems.map(canonicalTransferItemKey).sort()
+  return a.every((key, i) => key === b[i])
+}
+
+const transferPayloadMatches = (storedTransfer, toStore, items) =>
+  Number(storedTransfer.toStore) === Number(toStore) &&
+  transferItemsMatchPayload(storedTransfer.items, items)
+
+const findTransferByIdempotencyKey = (fromStore, idempotencyKey, transaction) =>
+  db.stock_transfer.findOne({
+    where: { fromStore, idempotencyKey },
+    include: [{ model: db.stock_transfer_item, as: 'items' }],
+    ...(transaction ? { transaction } : {})
+  })
+
 const posController = {
   // Barcode lookup untuk POS scan
   async lookupBarcode(req, res) {
@@ -166,6 +201,12 @@ const posController = {
   },
 
   // Stock transfer antar toko — 3-phase: sent → received / cancelled
+  // Phase 39 Batch 1 — transfer-send idempotency contract, following the
+  // established goods-receipt convention (canonical item keys + fast-path
+  // replay + unique-violation race catch): the key is scoped to fromStore
+  // (the ownership boundary pinned by the 403 check below), so a key can
+  // never replay another store's transfer. Qty is normalized through
+  // Number() so 1.5 and 1.50 fingerprint identically.
   async transfer(req, res) {
     try {
       const {
@@ -175,7 +216,8 @@ const posController = {
         notes,
         transferredBy,
         reason,
-        expectedArrival
+        expectedArrival,
+        idempotencyKey
       } = req.body
 
       if (!fromStore || !toStore || !items || items.length === 0) {
@@ -201,31 +243,66 @@ const posController = {
         }
       }
 
-      const result = await withDeadlockRetry(() =>
-        db.sequelize.transaction(async (t) => {
-        const transfer = await db.stock_transfer.create(
-          {
-            // transferNumber has a bare (non-store-scoped) global unique
-            // constraint. A millisecond timestamp ALONE has zero
-            // collision resistance under real concurrency — two transfer
-            // requests landing in the same millisecond (plausible with
-            // multiple staff/branches submitting at once) previously hit
-            // a hard unique-constraint 500, not a deadlock (so the
-            // withDeadlockRetry wrapper around this transaction wouldn't
-            // catch or retry it). The random suffix matches the pattern
-            // already proven safe for order.orderNumber.
-            transferNumber: `TRF-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-            fromStore,
-            toStore,
-            notes,
-            reason: reason || null,
-            expectedArrival: expectedArrival || null,
-            status: 'sent',
-            transferredBy,
-            createdBy: req.user?.id || null
-          },
-          { transaction: t }
-        )
+      // Phase 39 Batch 1: quantities follow the DECIMAL(10,4) stock contract
+      // (assertDecimalQuantity, 422) — never silently truncated. Positivity
+      // is already enforced by createPosTransferSchema (strToNum >= 0).
+      for (const [index, item] of items.entries()) {
+        assertDecimalQuantity(Number(item.qty), `items[${index}].qty`)
+      }
+
+      // Phase 39 Batch 1: idempotency fast-path (goods-receipt convention).
+      // Scoped to fromStore — the ownership boundary pinned above — so a key
+      // can never replay another store's transfer.
+      const transferKey =
+        idempotencyKey === '' || idempotencyKey == null ? null : String(idempotencyKey)
+      if (transferKey) {
+        const existing = await findTransferByIdempotencyKey(fromStore, transferKey)
+        if (existing) {
+          if (!transferPayloadMatches(existing, toStore, items)) {
+            return res.status(409).json({
+              success: false,
+              message: TRANSFER_IDEMPOTENCY_MISMATCH_MESSAGE
+            })
+          }
+          return res.status(200).json({
+            success: true,
+            message: 'Stock transfer already exists for this idempotency key',
+            data: existing
+          })
+        }
+      }
+
+      let result = null
+      try {
+        result = await withDeadlockRetry(() =>
+          db.sequelize.transaction(async (t) => {
+          const transfer = await db.stock_transfer.create(
+            {
+              // transferNumber has a bare (non-store-scoped) global unique
+              // constraint. A millisecond timestamp ALONE has zero
+              // collision resistance under real concurrency — two transfer
+              // requests landing in the same millisecond (plausible with
+              // multiple staff/branches submitting at once) previously hit
+              // a hard unique-constraint 500, not a deadlock (so the
+              // withDeadlockRetry wrapper around this transaction wouldn't
+              // catch or retry it). The random suffix matches the pattern
+              // already proven safe for order.orderNumber.
+              transferNumber: `TRF-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+              fromStore,
+              toStore,
+              notes,
+              reason: reason || null,
+              expectedArrival: expectedArrival || null,
+              status: 'sent',
+              transferredBy,
+              createdBy: req.user?.id || null,
+              // Phase 39 Batch 1: persisted atomically with the transfer +
+              // deduction inside this transaction; NULL when the client
+              // sends no key (backward compatible).
+              idempotencyKey: transferKey
+            },
+            { transaction: t }
+          )
 
         // Lock every distinct product BEFORE inserting stock_transfer_item
         // rows that FK-reference them, in one batched query sorted by id.
@@ -303,10 +380,14 @@ const posController = {
             )
           }
 
+          // Phase 39 Batch 1: exact DECIMAL deduction — item.qty was
+          // validated by assertDecimalQuantity above, so interpolating the
+          // finite number is safe and preserves fractions (no Math.floor).
+          const deductQty = Number(item.qty)
           await db.product_store_stock.update(
             {
               stock: db.sequelize.literal(
-                `GREATEST(stock - ${Math.floor(Number(item.qty)) || 0}, 0)`
+                `GREATEST(stock - ${deductQty}, 0)`
               )
             },
             {
@@ -326,7 +407,8 @@ const posController = {
           const oldPssStock = availPss
           const newPssStock = availPss - Number(item.qty)
 
-          const qty = Math.floor(Number(item.qty)) || 0
+          // Phase 39 Batch 1: exact DECIMAL deduction (see above).
+          const qty = Number(item.qty)
           await product.update(
             { stock: db.sequelize.literal(`GREATEST(stock - ${qty}, 0)`) },
             { transaction: t }
@@ -359,8 +441,32 @@ const posController = {
         })
 
         return transfer
-        })
-      )
+          })
+        )
+      } catch (error) {
+        // Phase 39 Batch 1: concurrent same-key race backstop
+        // (goods-receipt convention). The partial unique index on
+        // (fromStore, idempotencyKey) serializes the two racers: the loser
+        // rolls back here and replays the winner instead of duplicating
+        // the transfer + deduction.
+        if (error.name === 'SequelizeUniqueConstraintError' && transferKey) {
+          const existing = await findTransferByIdempotencyKey(fromStore, transferKey)
+          if (existing) {
+            if (!transferPayloadMatches(existing, toStore, items)) {
+              return res.status(409).json({
+                success: false,
+                message: TRANSFER_IDEMPOTENCY_MISMATCH_MESSAGE
+              })
+            }
+            return res.status(200).json({
+              success: true,
+              message: 'Stock transfer already exists for this idempotency key',
+              data: existing
+            })
+          }
+        }
+        throw error
+      }
 
       return res.status(201).json({
         success: true,
@@ -369,7 +475,9 @@ const posController = {
       })
     } catch (error) {
       console.error('Error =>', error)
-      return res.status(400).json({
+      // Phase 39 Batch 1: honor guard status codes (e.g. 422 from
+      // assertDecimalQuantity); plain errors keep the legacy 400.
+      return res.status(error.statusCode || 400).json({
         success: false,
         message: error.message || 'Internal server error'
       })
@@ -446,10 +554,13 @@ const posController = {
              ON CONFLICT (product, store) DO NOTHING`,
             { bind: [item.product, toStore], transaction: t }
           )
+          // Phase 39 Batch 1: credit the exact stored transfer qty
+          // (DECIMAL since the Batch 1 migration) — no Math.floor.
+          const receiveQty = Number(item.qty)
           await db.product_store_stock.update(
             {
               stock: db.sequelize.literal(
-                `stock + ${Math.floor(Number(item.qty)) || 0}`
+                `stock + ${receiveQty}`
               )
             },
             { where: { product: item.product, store: toStore }, transaction: t }
@@ -458,7 +569,7 @@ const posController = {
           const oldPssStock = 0
           const newPssStock = Number(item.qty)
 
-          const qty = Math.floor(Number(item.qty)) || 0
+          const qty = Number(item.qty)
           await product.update(
             { stock: db.sequelize.literal(`stock + ${qty}`) },
             { transaction: t }
@@ -622,10 +733,13 @@ const posController = {
              ON CONFLICT (product, store) DO NOTHING`,
             { bind: [item.product, transfer.fromStore], transaction: t }
           )
+          // Phase 39 Batch 1: reverse the exact stored transfer qty
+          // (DECIMAL since the Batch 1 migration) — no Math.floor.
+          const cancelQty = Number(item.qty)
           await db.product_store_stock.update(
             {
               stock: db.sequelize.literal(
-                `stock + ${Math.floor(Number(item.qty)) || 0}`
+                `stock + ${cancelQty}`
               )
             },
             {
@@ -637,7 +751,7 @@ const posController = {
           const oldPssStock = 0
           const newPssStock = Number(item.qty)
 
-          const qty = Math.floor(Number(item.qty)) || 0
+          const qty = Number(item.qty)
           await product.update(
             { stock: db.sequelize.literal(`stock + ${qty}`) },
             { transaction: t }
