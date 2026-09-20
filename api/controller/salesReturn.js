@@ -260,51 +260,332 @@ const salesReturnController = {
           originalOrderItems.map((oi) => [oi.id, oi])
         )
 
-        // Expand return lines the same way deductStockForOrder expands sale
-        // lines: bundle order lines fan out to their components, regular
-        // lines stay as-is. Per-line base quantity is qty × conversionToBase
-        // (no floor — qty is integer per the create guard, conversion may
-        // be fractional, stock columns are DECIMAL). Bundle components are
-        // already base-unit quantities, exactly like the sale deducts them.
-        const fgRestoreLines = []
-        const bomFlatItems = []
-        for (const item of ret.items) {
-          const lineQty = Number(item.qty) || 0
-          if (!(lineQty > 0)) continue
-          const conv = Number(item.conversionToBase) || 1
-          const originalLine = item.orderItem
-            ? originalOrderItemById.get(item.orderItem)
-            : null
-          const bundleId = originalLine?.bundleId || null
-          if (bundleId) {
-            const bundle = await db.product_bundle.findByPk(bundleId, {
+        // F-RET-1: reversal is driven by the immutable stock_history
+        // 'sale' snapshot written when the order was paid — the exact
+        // precedent reverseOrderStock (order.js) establishes for
+        // cancellations. The sale path (deductStockForOrder) has ZERO
+        // conversionToBase references: a regular line deducts exactly its
+        // integer quantity, a bundle line deducts sale-time
+        // bi.quantity x bundleQty per component, and every deduction lands
+        // in stock_history. Re-deriving the mutation from the CURRENT
+        // bundle/BOM/mode configuration (or from client-supplied
+        // conversionToBase, which the sale never honored) restores the
+        // wrong quantity the moment any of those change after the sale —
+        // or immediately, for any conv != 1. conversionToBase on the
+        // return item is therefore informational only and plays no role
+        // in the stock math below.
+        //
+        // Per-product evidence (all derived inside this transaction from
+        // locked historical rows, never from mutable configuration):
+        // - histFG: base units of each product the sale deducted (FG rows
+        //   only). A product with no FG 'sale' rows was make_to_order at
+        //   sale time (FG untouched) — even if its mode has since flipped.
+        // - remainder: histFG minus the exact contribution of non-bundle
+        //   order lines (a stocked product's direct line deducts exactly
+        //   its quantity). The remainder is bundle-attributable and yields
+        //   the SALE-TIME per-unit composition u_{bundle,component}.
+        // - orderedUnits: ordered base units per product (direct qty plus
+        //   bundle units via sale-time u), the denominator for the
+        //   proportional ingredient leg. histIng x returned/ordered is
+        //   exact by construction (histIng = perUnit x ordered).
+        // - Partial returns restore their own increment only; the
+        //   per-orderItem cumulative guard at create time keeps the sum of
+        //   all approvals <= the original deduction — no drift, no double
+        //   reverse.
+        const saleHistory = await db.stock_history.findAll({
+          where: { referenceType: 'sale', referenceId: ret.order },
+          transaction
+        })
+        // Pre-history orders (zero 'sale' rows — the sale wrote them
+        // atomically or not at all, so partial history cannot occur) fall
+        // back to the legacy current-configuration expansion below. Every
+        // order written by the current sale path carries its snapshot.
+        const useLegacyHistory = saleHistory.length === 0
+
+        const histFG = new Map()
+        const histIng = new Map()
+        if (!useLegacyHistory) {
+          for (const row of saleHistory) {
+            const change = Number(row.quantityChange) || 0
+            if (row.ingredient != null) {
+              if (!(change < 0)) continue
+              const key = `${row.product}:${row.ingredient}`
+              const existing = histIng.get(key)
+              if (existing) {
+                existing.consumed += -change
+              } else {
+                histIng.set(key, {
+                  productId: row.product,
+                  ingredientId: row.ingredient,
+                  ingredientName: row.ingredientName,
+                  consumed: -change
+                })
+              }
+              continue
+            }
+            const productId = Number(row.product)
+            if (!productId || !(change < 0)) continue
+            histFG.set(productId, (histFG.get(productId) || 0) - change)
+          }
+        }
+
+        const directOrderedQty = new Map()
+        const bundleOrderedUnits = new Map()
+        for (const oi of originalOrderItems) {
+          const qty = Number(oi.quantity) || 0
+          if (!(qty > 0)) continue
+          if (oi.bundleId) {
+            bundleOrderedUnits.set(
+              oi.bundleId,
+              (bundleOrderedUnits.get(oi.bundleId) || 0) + qty
+            )
+          } else if (oi.product) {
+            directOrderedQty.set(
+              oi.product,
+              (directOrderedQty.get(oi.product) || 0) + qty
+            )
+          }
+        }
+
+        // Sale-time per-unit bundle composition: history-derived entries
+        // (bundlePerUnitHist, from the FG remainder) and current-config
+        // fills (bundlePerUnitFill, ONLY for components that left no FG
+        // trace because make_to_order members never deduct FG). The two
+        // maps are disjoint by construction — the fill never overrides a
+        // history entry. FG restoration uses Hist only; the ingredient
+        // denominator/numerator use Hist + Fill.
+        //
+        // Current bundle rows are read ONLY for that fill. The
+        // single-bundle exact path needs no config read at all when every
+        // member is stocked, so post-sale recipe edits cannot skew it.
+        const bundlePerUnitHist = new Map()
+        const bundlePerUnitFill = new Map()
+        const setBundlePerUnitHist = (bundleId, productId, perUnit) => {
+          if (!(perUnit > 0)) return
+          let perUnitMap = bundlePerUnitHist.get(bundleId)
+          if (!perUnitMap) {
+            perUnitMap = new Map()
+            bundlePerUnitHist.set(bundleId, perUnitMap)
+          }
+          if (!perUnitMap.has(productId)) perUnitMap.set(productId, perUnit)
+        }
+        const setBundlePerUnitFill = (bundleId, productId, perUnit) => {
+          if (!(perUnit > 0)) return
+          if (bundlePerUnitHist.get(bundleId)?.has(productId)) return
+          let perUnitMap = bundlePerUnitFill.get(bundleId)
+          if (!perUnitMap) {
+            perUnitMap = new Map()
+            bundlePerUnitFill.set(bundleId, perUnitMap)
+          }
+          if (!perUnitMap.has(productId)) perUnitMap.set(productId, perUnit)
+        }
+        const bundlePerUnitAll = (bundleId) => {
+          const merged = new Map(bundlePerUnitHist.get(bundleId) || [])
+          for (const [productId, perUnit] of bundlePerUnitFill.get(bundleId) || []) {
+            if (!merged.has(productId)) merged.set(productId, perUnit)
+          }
+          return merged
+        }
+        if (!useLegacyHistory && bundleOrderedUnits.size > 0) {
+          const remainder = new Map()
+          for (const [productId, total] of histFG) {
+            const rem = total - (directOrderedQty.get(productId) || 0)
+            if (rem > 0) remainder.set(productId, rem)
+          }
+          const bundleIds = [...bundleOrderedUnits.keys()]
+          if (bundleIds.length === 1) {
+            const onlyId = bundleIds[0]
+            const orderedUnits = bundleOrderedUnits.get(onlyId) || 0
+            if (orderedUnits > 0) {
+              for (const [productId, rem] of remainder) {
+                setBundlePerUnitHist(onlyId, productId, rem / orderedUnits)
+              }
+            }
+          } else {
+            const totalBundleUnits = bundleIds.reduce(
+              (sum, id) => sum + (bundleOrderedUnits.get(id) || 0),
+              0
+            )
+            for (const [productId, rem] of remainder) {
+              // Multi-bundle fallback: split the remainder across the
+              // bundles by ordered units. Same-bundle-type lines share one
+              // composition, so a unit-weighted split is exact whenever the
+              // sharing bundles do not contain this product in differing
+              // sale-time ratios; differing ratios across bundle types
+              // sharing one component is the documented residual risk.
+              for (const bId of bundleIds) {
+                const orderedUnits = bundleOrderedUnits.get(bId) || 0
+                if (!(orderedUnits > 0) || !(totalBundleUnits > 0)) continue
+                setBundlePerUnitHist(
+                  bId,
+                  productId,
+                  rem * (orderedUnits / totalBundleUnits) / orderedUnits
+                )
+              }
+            }
+          }
+          // Fill components that left no FG trace (make_to_order members)
+          // from the current configuration — same as the pre-fix behavior
+          // for exactly this corner, never an override of history-derived
+          // entries (setBundlePerUnitFill skips products already resolved
+          // from the remainder).
+          for (const bId of bundleIds) {
+            const bundle = await db.product_bundle.findByPk(bId, {
               include: [{ model: db.product_bundle_item, as: 'items' }],
               transaction
             })
-            if (!bundle) {
-              throw approvalError(404, `Bundle ${bundleId} not found`)
-            }
-            for (const bi of bundle.items || []) {
+            for (const bi of bundle?.items || []) {
               if (!bi.product) continue
-              fgRestoreLines.push({
-                productId: bi.product,
-                baseQty: Number(bi.quantity) * lineQty,
-                unit: null
-              })
-              bomFlatItems.push({
-                productId: bi.product,
-                quantity: Number(bi.quantity) * lineQty
-              })
+              setBundlePerUnitFill(bId, bi.product, Number(bi.quantity) || 0)
             }
-            continue
           }
-          if (!item.product) continue
-          fgRestoreLines.push({
-            productId: item.product,
-            baseQty: lineQty * conv,
-            unit: item.unit || null
-          })
-          bomFlatItems.push({ productId: item.product, quantity: lineQty })
+        }
+
+        // Canonical DECIMAL(10,4) quantization at the computation boundary
+        // — no raw JS float ever reaches the SQL literals or the history
+        // rows below. All sale-side quantities are integers, so
+        // history-proportional shares are exact; this only hardens the
+        // boundary against binary floating-point residue.
+        const q4 = (v) => Math.round((Number(v) || 0) * 10000) / 10000
+
+        const fgRestoreLines = []
+        // Returned base units per product for THIS approval — the
+        // ingredient-ratio numerator. Tracked independently of FG
+        // restoration: a make_to_order line restores zero FG yet still
+        // returns base units whose ingredient consumption must reverse.
+        const returnedUnits = new Map()
+        const addReturnedUnits = (productId, units) => {
+          const q = q4(units)
+          if (!(q > 0)) return
+          returnedUnits.set(productId, q4((returnedUnits.get(productId) || 0) + q))
+        }
+        const pushFgRestore = (productId, units, unit) => {
+          const q = q4(units)
+          if (!(q > 0)) return
+          fgRestoreLines.push({ productId, baseQty: q, unit: unit || null })
+        }
+
+        if (useLegacyHistory) {
+          // Legacy pre-history orders: no snapshot exists, so the current
+          // configuration is the only source. Quantities stay in sale
+          // (base) units — conversionToBase never multiplies.
+          for (const item of ret.items) {
+            const lineQty = Number(item.qty) || 0
+            if (!(lineQty > 0)) continue
+            const originalLine = item.orderItem
+              ? originalOrderItemById.get(item.orderItem)
+              : null
+            const bundleId = originalLine?.bundleId || null
+            if (bundleId) {
+              const bundle = await db.product_bundle.findByPk(bundleId, {
+                include: [{ model: db.product_bundle_item, as: 'items' }],
+                transaction
+              })
+              if (!bundle) {
+                throw approvalError(404, `Bundle ${bundleId} not found`)
+              }
+              for (const bi of bundle.items || []) {
+                if (!bi.product) continue
+                pushFgRestore(bi.product, Number(bi.quantity) * lineQty, null)
+              }
+              continue
+            }
+            if (!item.product) continue
+            pushFgRestore(item.product, lineQty, item.unit || null)
+          }
+        } else {
+          for (const item of ret.items) {
+            const lineQty = Number(item.qty) || 0
+            if (!(lineQty > 0)) continue
+            const originalLine = item.orderItem
+              ? originalOrderItemById.get(item.orderItem)
+              : null
+            const bundleId = originalLine?.bundleId || null
+            if (bundleId) {
+              // FG restoration uses history-derived composition ONLY:
+              // make_to_order members (Fill map) deducted no FG at sale
+              // time, so they reverse nothing here. Returned units still
+              // accrue for every member (Hist + Fill) — the ingredient leg
+              // needs them regardless of FG mode.
+              for (const [productId, perUnit] of bundlePerUnitAll(bundleId)) {
+                addReturnedUnits(productId, lineQty * perUnit)
+              }
+              for (const [productId, perUnit] of bundlePerUnitHist.get(bundleId) || []) {
+                pushFgRestore(productId, lineQty * perUnit, null)
+              }
+              continue
+            }
+            if (!item.product) continue
+            addReturnedUnits(item.product, lineQty)
+            // Stocked-at-sale evidence: the sale deducted FG stock for this
+            // product. No FG 'sale' rows means it was make_to_order when
+            // sold (FG untouched) — restoring any would inflate stock,
+            // even if the mode has since flipped to stocked.
+            if ((histFG.get(item.product) || 0) <= 0) continue
+            pushFgRestore(item.product, lineQty, item.unit || null)
+          }
+        }
+
+        // Ordered base units per product — the ingredient-ratio denominator.
+        // Direct lines contribute their quantity; bundle lines contribute
+        // sale-time per-unit x ordered units (history-derived, plus the
+        // make_to_order-member fill documented above).
+        const orderedUnits = new Map(directOrderedQty)
+        for (const bId of bundleOrderedUnits.keys()) {
+          const ordered = bundleOrderedUnits.get(bId) || 0
+          for (const [productId, perUnit] of bundlePerUnitAll(bId)) {
+            orderedUnits.set(
+              productId,
+              (orderedUnits.get(productId) || 0) + perUnit * ordered
+            )
+          }
+        }
+        // Legacy orders have no snapshot: fall back to the pre-fix
+        // current-configuration expansion shape for the ingredient leg.
+        const legacyBomFlatItems = []
+        if (useLegacyHistory) {
+          for (const item of ret.items) {
+            const lineQty = Number(item.qty) || 0
+            if (!(lineQty > 0)) continue
+            const originalLine = item.orderItem
+              ? originalOrderItemById.get(item.orderItem)
+              : null
+            const bundleId = originalLine?.bundleId || null
+            if (bundleId) {
+              const bundle = await db.product_bundle.findByPk(bundleId, {
+                include: [{ model: db.product_bundle_item, as: 'items' }],
+                transaction
+              })
+              for (const bi of bundle?.items || []) {
+                if (!bi.product) continue
+                legacyBomFlatItems.push({
+                  productId: bi.product,
+                  quantity: Number(bi.quantity) * lineQty
+                })
+              }
+              continue
+            }
+            if (!item.product) continue
+            legacyBomFlatItems.push({ productId: item.product, quantity: lineQty })
+          }
+        }
+        const bomRestoreItems = []
+        if (!useLegacyHistory) {
+          for (const entry of histIng.values()) {
+            const ordered = orderedUnits.get(entry.productId) || 0
+            const returned = returnedUnits.get(entry.productId) || 0
+            if (!(ordered > 0) || !(returned > 0)) continue
+            // Exact by construction: consumed = perUnit x ordered, so
+            // consumed x returned / ordered = perUnit x returned.
+            const qty = q4((entry.consumed * returned) / ordered)
+            if (!(qty > 0)) continue
+            bomRestoreItems.push({
+              productId: entry.productId,
+              ingredientId: entry.ingredientId,
+              ingredientName: entry.ingredientName,
+              qty
+            })
+          }
         }
 
         // Every distinct product locked once, sorted by id, before any
@@ -335,9 +616,12 @@ const salesReturnController = {
         // 1. Restore Stock
         for (const line of fgRestoreLines) {
           const product = restoreProductById.get(line.productId)
-          // make_to_order finished goods were never deducted at sale time
-          // (ingredients were) — restoring FG here would inflate stock.
-          if ((product.inventoryMode || 'stocked') === 'make_to_order') continue
+          // F-RET-1: no inventoryMode gate here — make_to_order-at-sale
+          // products never reach this loop (their sale wrote no FG
+          // 'sale' rows, so pushFgRestore was never called for them).
+          // Gating on the CURRENT mode would skip a legitimate restore
+          // after a stocked -> make_to_order flip, or conjure phantom
+          // stock after a make_to_order -> stocked flip. History decides.
           if (!(line.baseQty > 0)) continue
 
           const oldStock = Number(product.stock) || 0
@@ -386,20 +670,32 @@ const salesReturnController = {
           )
         }
 
-        // 1b. Restore BOM ingredient stock — same helpers, same expansion
-        // shape, and same fail-closed contract as the sale path: products
-        // in 'stocked' mode resolve to no requirements, anything else
-        // without an active BOM throws 409 instead of restoring wrongly.
-        // Positive quantities restore (the sale path negates them).
-        const bomRequirements = await resolveBomIngredientRequirements(
-          bomFlatItems,
-          ret.store,
-          restoreProductById,
-          transaction
-        )
-        if (bomRequirements.length) {
+        // 1b. Restore BOM ingredient stock — F-RET-1: reverses the exact
+        // immutable ingredient consumption recorded in the order's 'sale'
+        // history rows (bomRestoreItems, scaled history-proportionally for
+        // partial returns), never re-resolving the CURRENT BOM. A recipe,
+        // mode, or bundle edit between the sale and this approval therefore
+        // cannot change what is restored. Positive quantities restore (the
+        // sale path negates them). Legacy pre-history orders keep the
+        // pre-fix current-BOM resolution shape.
+        const bomRestoreSource = useLegacyHistory
+          ? legacyBomFlatItems
+          : null
+        const legacyBomRequirements = bomRestoreSource
+          ? await resolveBomIngredientRequirements(
+              bomRestoreSource,
+              ret.store,
+              restoreProductById,
+              transaction
+            )
+          : []
+        const bomBatchItems =
+          bomRestoreSource != null
+            ? legacyBomRequirements
+            : bomRestoreItems
+        if (bomBatchItems.length) {
           await adjustIngredientStockBatch({
-            items: bomRequirements,
+            items: bomBatchItems,
             store: ret.store,
             referenceType: 'sale_return',
             referenceId: ret.id,

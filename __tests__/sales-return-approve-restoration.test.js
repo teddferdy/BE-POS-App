@@ -171,12 +171,16 @@ describe('F-RET-1 sales-return approval restoration', () => {
     expect(await fgStock(mtoProduct.id)).toBe(50)
   })
 
-  test('Test C — UOM conversion: return qty × conversionToBase restored in base units', async () => {
+  test('Test C — UOM conversion parity: client conversionToBase never changes the restored quantity', async () => {
     const baseline = await fgStock(fgProduct.id)
     const order = await sellProduct(fgProduct.id, 4)
     expect(await fgStock(fgProduct.id)).toBe(baseline - 4)
 
-    // Return 2 selling units at conversion 1.5 → 3.0 base units restored.
+    // F-RET-1 (Phase 39 Batch 2): the sale path has no conversion concept
+    // — it deducted exactly 4 base units for qty 4. The return of 2
+    // selling units therefore restores exactly 2, even though the client
+    // sent conversionToBase 1.5 (which would previously restore 3.0 and
+    // over-restore on full returns). conversionToBase is informational.
     const { approveRes } = await returnAndApprove(order.id, [
       {
         productId: fgProduct.id,
@@ -186,7 +190,7 @@ describe('F-RET-1 sales-return approval restoration', () => {
       }
     ])
     expect(approveRes.status).toBe(200)
-    expect(await fgStock(fgProduct.id)).toBe(baseline - 1)
+    expect(await fgStock(fgProduct.id)).toBe(baseline - 2)
   })
 
   test('Test E — no over-restoration: partial return restores only its share, remainder completes exactly', async () => {
