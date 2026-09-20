@@ -264,6 +264,269 @@ async function buildReportData({
   }
 }
 
+// Batch B: explainable register reconciliation for
+// /cash-register/history/detail. The detail page used to render a frozen
+// close-time snapshot (paid-only, opener-attributed) next to a live
+// store+date order list of ALL statuses with no stated inclusion rules,
+// so "Total Penjualan Rp0 next to 15 transactions" could never be
+// reconciled. This helper reuses the EXACT close-time membership semantics
+// (store + createdBy=opener + [openedAt,endAt] window + paymentStatus) and
+// additionally partitions every other plausibly-relevant record into
+// explicit exclusion buckets with reason codes. Additive, read-only, no
+// schema change; monetary SUMs use the same Number() handling as the rest
+// of this controller (exact for values under Number.MAX_SAFE_INTEGER).
+async function buildRegisterReconciliation({ registerId, store, user, openedAt, endAt, transaction }) {
+  const queryOpts = {
+    type: db.sequelize.QueryTypes.SELECT,
+    ...(transaction ? { transaction } : {})
+  }
+  const eligibleWhere = `"store" = :store AND "createdBy" = :user
+    AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+    AND "paymentStatus" = 'paid'
+    AND "status" NOT IN ('cancelled', 'void')`
+  const base = { store, user, openedAt, endAt }
+
+  const pack = (rows) => {
+    const list = rows || []
+    return {
+      count: list.length,
+      // DB integers aggregate exactly; Number() matches the canonical money
+      // handling used throughout this controller.
+      total: list.reduce((s, r) => s + Number(r.totalPrice || 0), 0),
+      orderIds: list.map((r) => r.id)
+    }
+  }
+  const bucket = (code, reason, rows) => ({ code, reason, ...pack(rows) })
+
+  const [eligibleRows, methodRows] = await Promise.all([
+    db.sequelize.query(
+      `SELECT id, "totalPrice" FROM "order" WHERE ${eligibleWhere} ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    // Method split over the same eligible population, sourced from recorded
+    // payment rows (a transaction row exists exactly when money moved —
+    // same convention as the payments breakdown in buildReportData).
+    db.sequelize.query(
+      `SELECT t."typePayment" as type,
+              COALESCE(SUM(t."amount"), 0) as amount,
+              COUNT(DISTINCT o.id)::int as orders
+         FROM "transaction" t
+         JOIN "order" o ON o.id = t."order"
+        WHERE o."store" = :store AND o."createdBy" = :user
+          AND o."createdAt" >= :openedAt AND o."createdAt" <= :endAt
+          AND o."paymentStatus" = 'paid'
+          AND o."status" NOT IN ('cancelled', 'void')
+        GROUP BY t."typePayment" ORDER BY amount DESC`,
+      { replacements: base, ...queryOpts }
+    )
+  ])
+
+  const excludedQueries = {
+    UNPAID: [
+      'UNPAID',
+      'Order is not paid yet (paymentStatus is unpaid/partial), so it is not a recognized sale.'
+    ],
+    CANCELLED_VOID: [
+      'CANCELLED_VOID',
+      'Order was cancelled or voided, so it is excluded from sales.'
+    ],
+    REFUNDED: [
+      'REFUNDED',
+      'Order was refunded; its cash effect nets inside the cash ledger, not gross sales.'
+    ],
+    OTHER_CREATOR: [
+      'OTHER_CREATOR',
+      'Paid order recorded by another cashier/system account, outside this register opener attribution.'
+    ],
+    OUTSIDE_WINDOW: [
+      'OUTSIDE_WINDOW',
+      'Paid order created outside this register open window.'
+    ]
+  }
+  const [unpaidRows, cancelledRows, refundedRows, otherCreatorRows, outsideRows] = await Promise.all([
+    db.sequelize.query(
+      `SELECT id, "totalPrice" FROM "order"
+        WHERE "store" = :store AND "createdBy" = :user
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+          AND "paymentStatus" IN ('unpaid', 'partial')
+          AND "status" NOT IN ('cancelled', 'void') ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, "totalPrice" FROM "order"
+        WHERE "store" = :store AND "createdBy" = :user
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+          AND "status" IN ('cancelled', 'void') ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, "totalPrice" FROM "order"
+        WHERE "store" = :store AND "createdBy" = :user
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+          AND "paymentStatus" = 'refunded'
+          AND "status" NOT IN ('cancelled', 'void') ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, "totalPrice" FROM "order"
+        WHERE "store" = :store
+          AND ("createdBy" IS DISTINCT FROM :user)
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+          AND "paymentStatus" IN ('paid', 'refunded')
+          AND "status" NOT IN ('cancelled', 'void') ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, "totalPrice" FROM "order"
+        WHERE "store" = :store AND "createdBy" = :user
+          AND ("createdAt" < :openedAt OR "createdAt" > :endAt)
+          AND "paymentStatus" IN ('paid', 'refunded')
+          AND "status" NOT IN ('cancelled', 'void') ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    )
+  ])
+
+  // Cash expenses use the same contract as computeCashLedgerSummary
+  // (store + cash method + approved + system-createdAt window, no
+  // createdBy filter). Anything else is an explicit exclusion.
+  const [cashExpRows, nonCashRows, notApprovedRows, expOutsideRows, cashExpRecords] = await Promise.all([
+    db.sequelize.query(
+      `SELECT id, amount FROM expense
+        WHERE "store" = :store AND "paymentMethod" = 'cash' AND "status" = 'approved'
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, amount FROM expense
+        WHERE "store" = :store AND "paymentMethod" <> 'cash' AND "status" = 'approved'
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, amount FROM expense
+        WHERE "store" = :store AND "status" IN ('pending', 'rejected', 'draft')
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.sequelize.query(
+      `SELECT id, amount FROM expense
+        WHERE "store" = :store AND "status" = 'approved'
+          AND ("createdAt" < :openedAt OR "createdAt" > :endAt) ORDER BY id`,
+      { replacements: base, ...queryOpts }
+    ),
+    db.expense.findAll({
+      where: {
+        store,
+        paymentMethod: 'cash',
+        status: 'approved',
+        createdAt: { [Op.gte]: openedAt, [Op.lte]: endAt }
+      },
+      include: [{ model: db.expense_category, as: 'categoryData', attributes: ['id', 'name'] }],
+      order: [['id', 'ASC']],
+      ...(transaction ? { transaction } : {})
+    })
+  ])
+  const sumAmounts = (rows) => (rows || []).reduce((s, r) => s + Number(r.amount || 0), 0)
+
+  const [moveInRows, moveOutRows, movePendingRows] = await Promise.all([
+    db.sequelize.query(
+      `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*)::int as count FROM cash_movement
+        WHERE "cashRegisterId" = :registerId AND type = 'cash_in' AND status = 'active'`,
+      { replacements: { registerId }, ...queryOpts }
+    ).then((r) => r[0]),
+    db.sequelize.query(
+      `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*)::int as count FROM cash_movement
+        WHERE "cashRegisterId" = :registerId AND type = 'cash_out' AND status = 'active'`,
+      { replacements: { registerId }, ...queryOpts }
+    ).then((r) => r[0]),
+    db.sequelize.query(
+      `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*)::int as count FROM cash_movement
+        WHERE "cashRegisterId" = :registerId AND status = 'pending_approval'`,
+      { replacements: { registerId }, ...queryOpts }
+    ).then((r) => r[0])
+  ])
+
+  const excluded = []
+  const pushBucket = (code, rows) => {
+    const [bucketCode, reason] = excludedQueries[code]
+    if (rows && rows.length > 0) excluded.push(bucket(bucketCode, reason, rows))
+  }
+  pushBucket('UNPAID', unpaidRows)
+  pushBucket('CANCELLED_VOID', cancelledRows)
+  pushBucket('REFUNDED', refundedRows)
+  pushBucket('OTHER_CREATOR', otherCreatorRows)
+  pushBucket('OUTSIDE_WINDOW', outsideRows)
+
+  const expExcluded = []
+  const pushExpBucket = (code, reason, rows) => {
+    if (rows && rows.length > 0) {
+      expExcluded.push({
+        code,
+        reason,
+        count: rows.length,
+        total: sumAmounts(rows),
+        expenseIds: rows.map((r) => r.id)
+      })
+    }
+  }
+  pushExpBucket(
+    'NON_CASH_METHOD',
+    'Approved expense paid by a non-cash method, so it is not part of the cash-register cash expenses.',
+    nonCashRows
+  )
+  pushExpBucket(
+    'NOT_APPROVED',
+    'Expense is not approved, so it is excluded until approval.',
+    notApprovedRows
+  )
+  pushExpBucket(
+    'OUTSIDE_WINDOW',
+    'Approved expense created outside this register open window.',
+    expOutsideRows
+  )
+
+  return {
+    window: { openedAt, endAt },
+    sales: {
+      eligible: {
+        ...pack(eligibleRows),
+        byPaymentMethod: (methodRows || []).map((r) => ({
+          type: r.type,
+          orders: Number(r.orders || 0),
+          amount: Number(r.amount || 0)
+        }))
+      },
+      excluded
+    },
+    expenses: {
+      includedCash: {
+        count: (cashExpRows || []).length,
+        total: sumAmounts(cashExpRows),
+        expenseIds: (cashExpRows || []).map((r) => r.id)
+      },
+      records: (cashExpRecords || []).map((e) => {
+        const plain = e.get({ plain: true })
+        return {
+          id: plain.id,
+          amount: Number(plain.amount || 0),
+          category: plain.categoryData?.name || null,
+          date: plain.date,
+          createdAt: plain.createdAt,
+          description: plain.description || null,
+          notes: plain.notes || null,
+          createdBy: plain.createdBy
+        }
+      }),
+      excluded: expExcluded
+    },
+    movements: {
+      cashIn: { count: Number(moveInRows.count || 0), total: Number(moveInRows.total || 0) },
+      cashOut: { count: Number(moveOutRows.count || 0), total: Number(moveOutRows.total || 0) },
+      pending: { count: Number(movePendingRows.count || 0), total: Number(movePendingRows.total || 0) }
+    }
+  }
+}
+
 const cashRegisterController = {
   async open(req, res) {
     try {
@@ -1312,6 +1575,17 @@ const cashRegisterController = {
         endAt: register.closedAt || new Date(),
         storeData: register.storeData,
         userData: register.userData
+      })
+
+      // Batch B: additive reconciliation so /cash-register/history/detail can
+      // explain exactly which transactions feed the summary and which are
+      // excluded (and why). Existing response fields are untouched.
+      data.reconciliation = await buildRegisterReconciliation({
+        registerId: register.id,
+        store: register.store,
+        user: register.user,
+        openedAt: register.openedAt,
+        endAt: register.closedAt || new Date()
       })
 
       return res.status(200).json({
