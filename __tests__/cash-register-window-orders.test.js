@@ -36,6 +36,7 @@ let registerOtherWindow = null
 let openRegister = null
 
 const orderIds = {}
+let otherStoreOrder = null
 
 async function mkOrder(name, overrides) {
   const row = await db.order.create({
@@ -134,7 +135,7 @@ beforeAll(async () => {
     orderNumber: `CRW-OPEN-FUTURE-${SUFFIX}`
   })
   // H: another store, timestamp inside the window → EXCLUDED.
-  await db.order.create({
+  otherStoreOrder = await db.order.create({
     orderNumber: `CRW-OTHERSTORE-${SUFFIX}`,
     store: storeOther.id,
     createdBy: opener.id,
@@ -189,9 +190,6 @@ describe('Phase 39 Batch 4 — register-window order querying', () => {
     const res = await getOrders({ store: store.id, cashRegisterId: register.id, limit: 100 })
     const ids = res.body.data.map((o) => o.id)
     expect(ids).not.toContain(orderIds.OTHER_REGISTER)
-    const otherStoreOrder = await db.order.findOne({
-      where: { orderNumber: `CRW-OTHERSTORE-${SUFFIX}` }
-    })
     expect(ids).not.toContain(otherStoreOrder.id)
   })
 
