@@ -1974,7 +1974,7 @@ const attemptOrderAccountingEntries = async ({ orderJournalJob, cogsJournalJob }
 }
 
 exports.getOrdersByStore = async (req, res) => {
-  const { store, status, date, table, startDate, endDate, page, limit } =
+  const { store, status, date, table, startDate, endDate, page, limit, cashRegisterId } =
     req.query
 
   try {
@@ -1992,17 +1992,53 @@ exports.getOrdersByStore = async (req, res) => {
     if (status) where.status = status
     if (req.query.source) where.source = req.query.source
     if (req.query.paymentStatus) where.paymentStatus = req.query.paymentStatus
-    if (date) {
-      where.createdAt = {
-        [require('sequelize').Op.gte]: new Date(date + ' 00:00:00'),
-        [require('sequelize').Op.lte]: new Date(date + ' 23:59:59')
+    if (cashRegisterId) {
+      // Phase 39 Batch 4: register-window querying for
+      // /cash-register/history/detail. The register lifecycle timestamps
+      // (openedAt..closedAt) are the source of truth — NOT the opening
+      // calendar date. Exact timestamp bounds on order.createdAt (the
+      // authoritative system-generated timestamp, same convention as the
+      // cash-register report/reconciliation queries), applied in SQL so no
+      // historical order is loaded into memory for JS-side filtering.
+      // An open register has no closedAt yet: the window runs to now,
+      // mirroring getZReport's `closedAt || new Date()`.
+      // The register owns its store scope (same-store requirement as
+      // getZReport: non-super-admin callers get 403 on a foreign
+      // register); calendar-date params are superseded when this filter
+      // is present. Pagination, ordering, and response shape are unchanged.
+      const register = await db.cashRegister.findByPk(cashRegisterId)
+      if (!register) {
+        return res.status(404).json({
+          message: 'Cash register not found'
+        })
       }
-    }
+      if (
+        req.user?.roleType !== 'super_admin' &&
+        reqStore &&
+        Number(register.store) !== Number(reqStore)
+      ) {
+        return res.status(403).json({
+          message: 'Anda hanya dapat mengakses data di toko Anda'
+        })
+      }
+      where.store = register.store
+      where.createdAt = {
+        [Op.gte]: register.openedAt,
+        [Op.lte]: register.closedAt || new Date()
+      }
+    } else {
+      if (date) {
+        where.createdAt = {
+          [require('sequelize').Op.gte]: new Date(date + ' 00:00:00'),
+          [require('sequelize').Op.lte]: new Date(date + ' 23:59:59')
+        }
+      }
     if (startDate && endDate) {
       where.createdAt = {
         [require('sequelize').Op.gte]: new Date(startDate + ' 00:00:00'),
         [require('sequelize').Op.lte]: new Date(endDate + ' 23:59:59')
       }
+    }
     }
     if (table) {
       where.tableId = table
