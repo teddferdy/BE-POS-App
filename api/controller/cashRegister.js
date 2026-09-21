@@ -232,7 +232,14 @@ async function buildReportData({
           name: storeData.name,
           address: storeData.address,
           city: storeData.city,
-          phone: storeData.phoneNumber || storeData.phone || null
+          phone: storeData.phoneNumber || storeData.phone || null,
+          // Phase 39 Batch 6-prereq: expose the store's authoritative IANA
+          // timezone (utils/businessDate.js's DEFAULT_TIMEZONE convention)
+          // so FE can render register timestamps in store-local time
+          // instead of the viewer's browser timezone. Plumbing only — no
+          // register-window comparison here ever depended on this; instant
+          // comparisons (createdAt >= openedAt) are timezone-agnostic.
+          timezone: storeData.timezone || null
         }
       : null,
     cashier: userData
@@ -594,7 +601,7 @@ const cashRegisterController = {
       }
 
       const location = await db.location.findByPk(store, {
-        attributes: ['id', 'name', 'address', 'city']
+        attributes: ['id', 'name', 'address', 'city', 'timezone']
       })
 
       return res.status(201).json({
@@ -1231,7 +1238,7 @@ const cashRegisterController = {
           {
             model: db.location,
             as: 'storeData',
-            attributes: ['id', 'name', 'address', 'city']
+            attributes: ['id', 'name', 'address', 'city', 'timezone']
           }
         ]
       })
@@ -1339,7 +1346,7 @@ const cashRegisterController = {
           {
             model: db.location,
             as: 'storeData',
-            attributes: ['id', 'name', 'address', 'city']
+            attributes: ['id', 'name', 'address', 'city', 'timezone']
           }
         ],
         order: [['openedAt', 'DESC']],
@@ -1537,7 +1544,7 @@ const cashRegisterController = {
           {
             model: db.location,
             as: 'storeData',
-            attributes: ['id', 'name', 'address', 'city', 'phoneNumber']
+            attributes: ['id', 'name', 'address', 'city', 'phoneNumber', 'timezone']
           }
         ]
       })
@@ -1590,7 +1597,7 @@ const cashRegisterController = {
           {
             model: db.location,
             as: 'storeData',
-            attributes: ['id', 'name', 'address', 'city', 'phoneNumber']
+            attributes: ['id', 'name', 'address', 'city', 'phoneNumber', 'timezone']
           }
         ]
       })
