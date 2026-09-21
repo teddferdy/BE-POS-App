@@ -1238,7 +1238,10 @@ const cashRegisterController = {
           {
             model: db.location,
             as: 'storeData',
-            attributes: ['id', 'name', 'address', 'city', 'timezone']
+            // Phase 39 Batch 6F: openingHours added so the FE close screen
+            // can show an informational overtime notice — display only,
+            // nothing here reads or enforces it server-side.
+            attributes: ['id', 'name', 'address', 'city', 'timezone', 'openingHours']
           }
         ]
       })
