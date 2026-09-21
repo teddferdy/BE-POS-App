@@ -1974,7 +1974,7 @@ const attemptOrderAccountingEntries = async ({ orderJournalJob, cogsJournalJob }
 }
 
 exports.getOrdersByStore = async (req, res) => {
-  const { store, status, date, table, startDate, endDate, page, limit, cashRegisterId } =
+  const { store, status, date, table, startDate, endDate, page, limit, cashRegisterId, window } =
     req.query
 
   try {
@@ -2022,9 +2022,32 @@ exports.getOrdersByStore = async (req, res) => {
         })
       }
       where.store = register.store
-      where.createdAt = {
-        [Op.gte]: register.openedAt,
-        [Op.lte]: register.closedAt || new Date()
+      const endAt = register.closedAt || new Date()
+      if (window === 'outside') {
+        // Phase 39 Batch 4 follow-up: the "outside register period"
+        // history on /cash-register/history/detail. Population mirrors the
+        // reconciliation OUTSIDE_WINDOW bucket exactly (same store +
+        // opener attribution + paid/refunded + not cancelled/void, only the
+        // time predicate inverted) so the listed rows match the bucket's
+        // count/total 1:1. Explicit status/paymentStatus query params still
+        // narrow further when provided; otherwise the bucket membership is
+        // the default. Same SQL-side filtering, pagination, and shape.
+        where.createdBy = register.user
+        // Sequelize cannot express OR across two comparisons on one column
+        // with a plain object — use an explicit OR group.
+        where.createdAt = {
+          [Op.or]: [
+            { [Op.lt]: register.openedAt },
+            { [Op.gt]: endAt }
+          ]
+        }
+        if (!status) where.status = { [Op.notIn]: ['cancelled', 'void'] }
+        if (!req.query.paymentStatus) where.paymentStatus = { [Op.in]: ['paid', 'refunded'] }
+      } else {
+        where.createdAt = {
+          [Op.gte]: register.openedAt,
+          [Op.lte]: endAt
+        }
       }
     } else {
       if (date) {
@@ -2060,6 +2083,14 @@ exports.getOrdersByStore = async (req, res) => {
           as: 'table'
         }
       ],
+      // Phase 39 Batch 5: `items` is a hasMany, so without `distinct: true`
+      // Sequelize's generated COUNT joins order_item and counts one row per
+      // item instead of per order, inflating pagination.total whenever an
+      // order has more than one item (rows themselves are unaffected —
+      // Sequelize already hydrates one Order instance per distinct id).
+      // Same pattern as goodsReceipt.js, product.js, purchaseOrder.js,
+      // pos.js, purchaseReturn.js.
+      distinct: true,
       order: [['createdAt', 'DESC']],
       limit: limitNum,
       offset
