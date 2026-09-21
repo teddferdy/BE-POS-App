@@ -37,6 +37,11 @@ let openRegister = null
 
 const orderIds = {}
 let otherStoreOrder = null
+// Phase 39 Batch 5 (W13/W14): order ids that get order_item rows attached,
+// tracked separately so afterAll can clean those up explicitly — the rest
+// of this suite's orders never get items, so the blanket order.destroy
+// below never had order_item rows to worry about.
+const multiItemOrderIds = []
 
 async function mkOrder(name, overrides) {
   const row = await db.order.create({
@@ -149,6 +154,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.order_item.destroy({ where: { order: multiItemOrderIds }, force: true }).catch(() => {})
   await db.order.destroy({ where: { store: [store?.id, storeOther?.id].filter(Boolean) }, force: true }).catch(() => {})
   await db.cashRegister.destroy({ where: { id: [register?.id, registerOtherWindow?.id, openRegister?.id].filter(Boolean) }, force: true }).catch(() => {})
   await db.user.destroy({ where: { store: [store?.id, storeOther?.id].filter(Boolean) }, force: true }).catch(() => {})
@@ -232,5 +238,124 @@ describe('Phase 39 Batch 4 — register-window order querying', () => {
     const created = res.body.data.map((o) => new Date(o.createdAt).getTime())
     const sorted = [...created].sort((a, b) => b - a)
     expect(created).toEqual(sorted)
+  })
+
+  test('W10 — window=outside lists exactly the OUTSIDE_WINDOW bucket population', async () => {
+    const res = await getOrders({ store: store.id, cashRegisterId: register.id, window: 'outside', limit: 100 })
+    expect(res.status).toBe(200)
+    const ids = res.body.data.map((o) => o.id)
+    // Same-day-outside orders that the old calendar-date table could never
+    // explain are listed here…
+    expect(ids).toContain(orderIds.SAME_DAY_BEFORE_OPEN)
+    expect(ids).toContain(orderIds.SAME_DAY_AFTER_CLOSE)
+    expect(ids).toContain(orderIds.OTHER_REGISTER)
+    // …while in-window and other-store orders are not.
+    for (const name of ['EDGE_OPEN', 'MID_15', 'MID_20', 'EDGE_CLOSE']) {
+      expect(ids).not.toContain(orderIds[name])
+    }
+    const otherStoreOrder = await db.order.findOne({
+      where: { orderNumber: `CRW-OTHERSTORE-${SUFFIX}` }
+    })
+    expect(ids).not.toContain(otherStoreOrder.id)
+    // 1:1 parity with the z-report reconciliation bucket (same membership
+    // semantics, only the time predicate inverted).
+    const z = await request(app)
+      .get(`/cash-register/z-report/${register.id}`)
+      .query({ store: store.id })
+      .set('Authorization', `Bearer ${adminToken}`)
+    expect(z.status).toBe(200)
+    const bucket = (z.body.data.reconciliation.sales.excluded || []).find(
+      (b) => b.code === 'OUTSIDE_WINDOW'
+    )
+    expect(bucket).toBeDefined()
+    expect(new Set(ids)).toEqual(new Set(bucket.orderIds))
+    expect(res.body.pagination.total).toBe(bucket.count)
+  })
+
+  test('W11 — window=outside on an unknown register is 404', async () => {
+    const res = await getOrders({ store: store.id, cashRegisterId: 999999999, window: 'outside' })
+    expect(res.status).toBe(404)
+  })
+
+  test('W12 — history rows carry the outside-window population', async () => {
+    const res = await request(app)
+      .get('/cash-register/history')
+      .query({ store: store.id, limit: 50 })
+      .set('Authorization', `Bearer ${adminToken}`)
+    expect(res.status).toBe(200)
+    const row = res.body.data.find((r) => r.id === register.id)
+    expect(row).toBeDefined()
+    expect(row.outsideWindow).toBeDefined()
+    // Parity with the reconciliation bucket for the same register.
+    const z = await request(app)
+      .get(`/cash-register/z-report/${register.id}`)
+      .query({ store: store.id })
+      .set('Authorization', `Bearer ${adminToken}`)
+    const bucket = (z.body.data.reconciliation.sales.excluded || []).find(
+      (b) => b.code === 'OUTSIDE_WINDOW'
+    )
+    expect(row.outsideWindow.count).toBe(bucket.count)
+    expect(row.outsideWindow.total).toBe(bucket.total)
+  })
+
+  // Phase 39 Batch 5: getOrdersByStore's findAndCountAll includes `items`
+  // (order.hasMany(order_item)). Without `distinct: true`, Sequelize's
+  // generated COUNT joins order_item and counts one row per item instead
+  // of per order — rows stay correctly deduplicated, but pagination.total
+  // gets inflated for any order with 2+ items. This is exactly what
+  // produced the reported 31 (reconciliation, joinless SQL) vs 44
+  // (this endpoint, joined COUNT) mismatch. W1-W12 never caught it because
+  // mkOrder() never attaches order_item rows.
+  test('W13 — window=outside counts a multi-item order once, not once per item', async () => {
+    const order = await mkOrder('MULTI_ITEM_OUTSIDE', {
+      // Before OPENED_AT (2026-09-14 14:48:27) → outside window.
+      createdAt: new Date('2026-09-13T10:00:00+07:00')
+    })
+    multiItemOrderIds.push(order.id)
+    await db.order_item.bulkCreate([
+      { order: order.id, product: 1, quantity: 1, price: 5000, totalPrice: 5000 },
+      { order: order.id, product: 2, quantity: 1, price: 5000, totalPrice: 5000 }
+    ])
+
+    const res = await getOrders({ store: store.id, cashRegisterId: register.id, window: 'outside', limit: 100 })
+    expect(res.status).toBe(200)
+    // Returned exactly once, not once per OrderItem.
+    const matches = res.body.data.filter((o) => o.id === order.id)
+    expect(matches).toHaveLength(1)
+    // pagination.total counts distinct orders, matching the fetched page.
+    expect(res.body.pagination.total).toBe(res.body.data.length)
+
+    // 1:1 parity with the joinless reconciliation bucket — this is the
+    // assertion that fails without `distinct: true` (total would be
+    // bucket.count + 1 extra from the second item).
+    const z = await request(app)
+      .get(`/cash-register/z-report/${register.id}`)
+      .query({ store: store.id })
+      .set('Authorization', `Bearer ${adminToken}`)
+    const bucket = (z.body.data.reconciliation.sales.excluded || []).find(
+      (b) => b.code === 'OUTSIDE_WINDOW'
+    )
+    expect(bucket).toBeDefined()
+    expect(bucket.orderIds).toContain(order.id)
+    expect(res.body.pagination.total).toBe(bucket.count)
+  })
+
+  test('W14 — in-window query counts a multi-item order once, not once per item', async () => {
+    const order = await mkOrder('MULTI_ITEM_IN_WINDOW', {
+      // Mid-window → included.
+      createdAt: new Date('2026-09-16T10:00:00+07:00')
+    })
+    multiItemOrderIds.push(order.id)
+    await db.order_item.bulkCreate([
+      { order: order.id, product: 1, quantity: 1, price: 7500, totalPrice: 7500 },
+      { order: order.id, product: 2, quantity: 1, price: 7500, totalPrice: 7500 }
+    ])
+
+    const res = await getOrders({ store: store.id, cashRegisterId: register.id, limit: 100 })
+    expect(res.status).toBe(200)
+    const matches = res.body.data.filter((o) => o.id === order.id)
+    expect(matches).toHaveLength(1)
+    // pagination.total is not multiplied by the item count.
+    expect(res.body.pagination.total).toBe(res.body.data.length)
   })
 })
