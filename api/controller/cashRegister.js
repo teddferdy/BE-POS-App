@@ -1412,6 +1412,48 @@ const cashRegisterController = {
         return data
       })
 
+      // Phase 39 Batch 4 follow-up: per-register outside-window sales
+      // population for the /cash-register/history list ("Di luar periode:
+      // Nx · RpY") so users can see why a register's closing balance only
+      // reflects its own window. Same OUTSIDE_WINDOW membership as the
+      // reconciliation bucket (store + opener + paid/refunded + not
+      // cancelled/void, outside [openedAt, closedAt||now]); one aggregate
+      // query per listed register, bounded by the page limit. Read-only,
+      // additive — no stored financial meaning is changed.
+      const outsideMap = {}
+      await Promise.all(
+        rows.map(async (row) => {
+          const d = typeof row.get === 'function' ? row.get({ plain: true }) : row
+          const [outside] = await db.sequelize.query(
+            `SELECT COUNT(*)::int as count, COALESCE(SUM("totalPrice"), 0) as total
+               FROM "order"
+              WHERE "store" = :store AND "createdBy" = :user
+                AND ("createdAt" < :openedAt OR "createdAt" > :endAt)
+                AND "paymentStatus" IN ('paid', 'refunded')
+                AND "status" NOT IN ('cancelled', 'void')`,
+            {
+              replacements: {
+                store: d.store,
+                user: d.user,
+                openedAt: d.openedAt,
+                endAt: d.closedAt || new Date()
+              },
+              type: db.sequelize.QueryTypes.SELECT
+            }
+          )
+          outsideMap[d.id] = {
+            count: Number(outside.count || 0),
+            total: Number(outside.total || 0)
+          }
+        })
+      )
+      for (const row of enriched) {
+        const plain = typeof row.get === 'function' ? row.get({ plain: true }) : row
+        const value = outsideMap[plain.id] || { count: 0, total: 0 }
+        if (typeof row.setDataValue === 'function') row.setDataValue('outsideWindow', value)
+        else row.outsideWindow = value
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Success get register history',
