@@ -322,6 +322,74 @@ const reverseStock = async (items, store, transaction, userId) => {
   }
 }
 
+// B1: retire the product batches a Goods Receipt created when its stock
+// effect is reversed, so FIFO and expiry write-off can never consume phantom
+// quantities. Association is deterministic, never heuristic:
+// - create() codes every product line batch as `item.batchNumber` when the
+//   client supplies one, else `${receiptNumber}-${index + 1}`. The
+//   receiptNumber prefix therefore identifies this receipt's auto-coded
+//   batches; an explicit lot code must additionally match the reversed
+//   item's expected batch quantity (mirroring addBatchStock's floor) and is
+//   consumed oldest-first, one row per reversed item — a foreign batch can
+//   only collide on an identical (product, store, code, received qty)
+//   tuple, the documented residual.
+// - Only `active` rows are eligible; already-consumed/expired/reversed rows
+//   are never touched, and a second reversal of the same receipt is a
+//   no-op (the lifecycle draft guards reject it first).
+// - `qty`/`received_quantity` are left intact as the audit trail (same as
+//   FIFO-consumed batches); `batch_stock.quantity` is zeroed and status
+//   leaves `active`, which is exactly what FIFO, expiry, and valuation
+//   filter on.
+const voidReceiptBatches = async ({ receiptNumber, items, store, transaction }) => {
+  const expectations = []
+  for (const grItem of items || []) {
+    if (!grItem.product) continue
+    const qty = Number(grItem.qtyReceived) || 0
+    if (!Number.isFinite(qty) || qty <= 0) continue
+    const qtyStock =
+      Number(grItem.qtyStock) > 0
+        ? Number(grItem.qtyStock)
+        : qty * (Number(grItem.conversionToBase) || 1)
+    // Mirrors addBatchStock: fractional lines create no batch row.
+    const expected = Math.floor(qtyStock) || 0
+    if (expected <= 0) continue
+    expectations.push({
+      product: grItem.product,
+      batchNumber: grItem.batchNumber || null,
+      expected
+    })
+  }
+  if (expectations.length === 0) return
+
+  const productIds = [...new Set(expectations.map((e) => e.product))].sort((a, b) => a - b)
+  const lockedBatches = await db.product_batch.findAll({
+    where: { product: { [Op.in]: productIds }, store: store || null, status: 'active' },
+    order: [['id', 'ASC']],
+    lock: transaction.LOCK.UPDATE,
+    transaction
+  })
+
+  const prefix = `${receiptNumber}-`
+  const consumed = new Set()
+  for (const exp of expectations) {
+    const row = lockedBatches.find(
+      (b) =>
+        !consumed.has(b.id) &&
+        Number(b.product) === Number(exp.product) &&
+        (b.batchCode === exp.batchNumber ||
+          (typeof b.batchCode === 'string' && b.batchCode.startsWith(prefix))) &&
+        Number(b.received_quantity) === exp.expected
+    )
+    if (!row) continue
+    consumed.add(row.id)
+    await db.product_batch_stock.update(
+      { quantity: 0 },
+      { where: { batch: row.id }, transaction }
+    )
+    await row.update({ status: 'reversed' }, { transaction })
+  }
+}
+
 const applyStock = async (items, receipt, transaction, userId) => {
   for (const item of items) {
     const qty = Number(item.qtyReceived) || 0
@@ -1218,6 +1286,14 @@ const goodsReceiptController = {
       }
 
       const transaction = await db.sequelize.transaction()
+      // J1: set when this update transitions the receipt draft -> completed
+      // (the only status transition update() performs that carries a
+      // financial side effect). Enqueued inside the same transaction as the
+      // state change below and attempted post-commit — the exact pattern
+      // changeStatus() uses, so both completion paths post exactly one
+      // purchase_journal. Completed receipts never reach the enqueue: the
+      // re-locked draft guard above rejects them first.
+      let journalJob = null
       try {
         // F-STOCK-1: re-lock the header inside the transaction and re-check
         // the draft guard here — the outer read above is stale by the time
@@ -1305,6 +1381,18 @@ const goodsReceiptController = {
           req.user?.id
         )
 
+        // B1: the reversed stock effect included per-line batches created
+        // at create time — retire them so FIFO/expiry cannot consume
+        // phantom quantities. Deterministic association only (receipt
+        // prefix / exact lot code + received qty); foreign batches are
+        // never touched.
+        await voidReceiptBatches({
+          receiptNumber: locked.receiptNumber,
+          items: lockedOldItems,
+          store: store || locked.store,
+          transaction
+        })
+
         // F-STOCK-1: an update that transitions the draft to cancelled
         // unwinds the receipt like a delete (reverse only) instead of
         // re-applying a stock effect a cancelled receipt must not keep.
@@ -1389,6 +1477,11 @@ const goodsReceiptController = {
           )
 
           const newItems = []
+          // B1: batch inputs for the re-applied lines, parallel to newItems
+          // (same loop, same order) — the replacement receipt effect gets
+          // fresh batches exactly like create() issues, since the old ones
+          // were retired above.
+          const newBatchInputs = []
           for (const item of items) {
             const qty = Number(item.qtyReceived) || 0
             if (!Number.isFinite(qty) || qty <= 0) continue
@@ -1457,11 +1550,75 @@ const goodsReceiptController = {
               conversionToBase: conversion,
               qtyStock: qty * conversion
             })
+            if (item.product) {
+              newBatchInputs.push({
+                product: item.product,
+                qtyStock: qty * conversion,
+                baseUnitCost: conversion > 0 ? costPrice / conversion : 0,
+                batchNumber: item.batchNumber || null,
+                expiryDate: item.expiryDate || null
+              })
+            }
           }
 
           if (newItems.length > 0) {
             await db.goodsReceiptItem.bulkCreate(newItems, { transaction })
             await applyStock(newItems, receipt, transaction, req.user?.id)
+            // B1: fresh batches for the re-applied stock effect — same
+            // shape as create() (per-line batch, receiptNumber-indexed
+            // auto code), so FIFO/expiry track the current backing, not
+            // the retired one.
+            for (const [index, batchInput] of newBatchInputs.entries()) {
+              await batchService.addBatchStock({
+                productId: batchInput.product,
+                store: store || locked.store,
+                qty: batchInput.qtyStock,
+                costPerUnit: batchInput.baseUnitCost,
+                batchCode:
+                  batchInput.batchNumber ||
+                  `${locked.receiptNumber}-${index + 1}`,
+                expiryDate: batchInput.expiryDate || null,
+                supplier: po?.supplier || null,
+                receivedDate: receivedDate || new Date(),
+                transaction
+              })
+            }
+          }
+
+          // J1: a draft completed through update() must post the same
+          // purchase_journal as the equivalent changeStatus() transition.
+          // Payload mirrors changeStatus() exactly (PO header + final
+          // receipt items); the draft guard above guarantees this runs at
+          // most once per receipt, and the transaction rollback below
+          // guarantees a failed update enqueues nothing.
+          if (locked.status === 'draft' && nextStatus === 'completed') {
+            const journalPO = await db.purchase_order.findByPk(
+              receipt.purchaseOrderId,
+              { transaction }
+            )
+            const journalStore = store || locked.store
+            journalJob = await enqueueAccountingJob({
+              jobType: 'purchase_journal',
+              store: journalStore,
+              referenceType: 'goods_receipt',
+              referenceId: locked.id,
+              payload: {
+                store: journalStore,
+                receiptId: locked.id,
+                receiptNumber: locked.receiptNumber,
+                poNumber: journalPO?.orderNumber,
+                totalAmount: journalPO?.totalAmount,
+                discount: journalPO?.discount,
+                taxAmount: journalPO?.taxAmount,
+                items: newItems.map((i) => ({
+                  costPrice: i.costPrice,
+                  qtyReceived: i.qtyReceived
+                })),
+                date: new Date(receivedDate || Date.now()).toISOString(),
+                createdBy: req.user?.id
+              },
+              transaction
+            })
           }
         }
 
@@ -1474,6 +1631,14 @@ const goodsReceiptController = {
       const updated = await db.goodsReceipt.findByPk(receipt.id, {
         include: [{ model: db.goodsReceiptItem, as: 'items' }]
       })
+
+      if (journalJob) {
+        const journalResult = await attemptJob(journalJob)
+        await recordImmediateAttempt(journalJob, journalResult)
+        if (!journalResult.ok) {
+          console.error('Purchase journal deferred to retry queue:', journalResult.error)
+        }
+      }
 
       await createAudit(
         req,
@@ -1586,6 +1751,14 @@ const goodsReceiptController = {
           transaction,
           req.user?.id
         )
+
+        // B1: retire this receipt's batches with its stock effect.
+        await voidReceiptBatches({
+          receiptNumber: locked.receiptNumber,
+          items: lockedOldItems,
+          store: store || locked.store,
+          transaction
+        })
 
         await db.goodsReceiptItem.destroy({
           where: { goodsReceipt: id },
@@ -1734,6 +1907,13 @@ const goodsReceiptController = {
             transaction,
             req.user?.id
           )
+          // B1: retire this receipt's batches with its stock effect.
+          await voidReceiptBatches({
+            receiptNumber: locked.receiptNumber,
+            items: lockedItems,
+            store: store || locked.store,
+            transaction
+          })
         }
 
         await locked.update(
