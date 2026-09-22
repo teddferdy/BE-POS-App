@@ -216,7 +216,7 @@ exports.getTodayAttendance = async (req, res) => {
       absenAt: { [Op.gte]: start, [Op.lt]: end }
     }
 
-    const effectiveStore = getStore(req)
+    const effectiveStore = req.storeId
     if (effectiveStore) where.store = Number(effectiveStore)
 
     const records = await Attendance.findAll({

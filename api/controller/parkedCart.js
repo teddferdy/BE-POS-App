@@ -8,19 +8,9 @@ const DEFAULT_MAX_ACTIVE_PARKED_CARTS = 20
 const DEFAULT_PARKED_CART_TTL_MINUTES = 120
 const MAX_PARKED_CART_TTL_MINUTES = 1440
 
-// Same helper shape as cashRegister.js's getStore — req.storeId (set by
-// validateStoreAccess) is checked first, so a spoofed body.store from a
-// non-super-admin never reaches here (the middleware already rejected it
-// with 403 before this controller runs).
-const getStore = (req) =>
-  req.storeId ||
-  req.query.store ||
-  req.body.storeId ||
-  req.body.store ||
-  req.cookies?.store ||
-  req.cookies?.activeStore ||
-  req.user?.store
-
+// NOTE: the former cookie-fallback getStore helper was removed — store scope
+// comes from middleware-resolved req.storeId only, so a stale activeStore
+// cookie can never silently scope or relocate parked carts.
 function resolveCap(location) {
   const raw = location?.maxActiveParkedCarts
   return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_MAX_ACTIVE_PARKED_CARTS
@@ -88,7 +78,9 @@ function payloadMatches(existing, incoming) {
 const parkedCartController = {
   async create(req, res) {
     try {
-      const store = getStore(req)
+      // Explicit selection only: a stale activeStore cookie must not
+      // silently park the cart in the wrong store (used to bypass the 400).
+      const store = req.storeId
       const {
         tableId,
         customerId,
@@ -258,7 +250,8 @@ const parkedCartController = {
 
   async list(req, res) {
     try {
-      const store = getStore(req)
+      // Same cookie rule as create(): global super_admin stays unscoped.
+      const store = req.storeId
       const isSuperAdmin = req.user?.roleType === 'super_admin'
 
       if (!store && !isSuperAdmin) {
