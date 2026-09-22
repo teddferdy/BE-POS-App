@@ -606,7 +606,11 @@ async function buildRegisterReconciliation({ registerId, store, user, openedAt, 
 const cashRegisterController = {
   async open(req, res) {
     try {
-      const store = getStore(req)
+      // Explicit selection only: req.storeId is middleware-resolved
+      // (query/body store for super_admin, own store for tenants). A stale
+      // activeStore cookie must not silently pick the store here — it used
+      // to bypass the 400 below and open the register in the wrong store.
+      const store = req.storeId
       const { openingBalance = 0, shift, confirmTableReset } = req.body
       const userId = req.user?.id || null
 
@@ -702,7 +706,8 @@ const cashRegisterController = {
 
   async getTableResetPreview(req, res) {
     try {
-      const store = getStore(req)
+      // Same cookie rule as open(): explicit selection only.
+      const store = req.storeId
       if (!store) {
         return res.status(400).json({
           success: false,
@@ -727,7 +732,9 @@ const cashRegisterController = {
   async close(req, res) {
     try {
       const { id } = req.params
-      const store = getStore(req)
+      // Same cookie rule as open(): the close target is scoped by the
+      // explicit selection, never by a stale cookie.
+      const store = req.storeId
       const { closingBalance, notes } = req.body
 
       if (!store) {
@@ -1323,7 +1330,8 @@ const cashRegisterController = {
 
   async getCurrent(req, res) {
     try {
-      const store = getStore(req)
+      // Same cookie rule as open(): explicit selection only.
+      const store = req.storeId
       const userId = req.user?.id || null
 
       if (!store) {
@@ -1414,7 +1422,12 @@ const cashRegisterController = {
 
   async getHistory(req, res) {
     try {
-      const store = getStore(req)
+      // Semua Toko (global super_admin, no explicit store) must stay unscoped.
+      // req.storeId is the middleware-resolved explicit selection (query/body
+      // store for super_admin, own store for tenants). Ambient cookies such as
+      // a stale activeStore left by another page must not silently scope this
+      // list — it used to hide other stores here via getStore's fallback.
+      const store = req.storeId
       const { startDate, endDate, page = 1, limit = 50, search } = req.query
       const isSuperAdmin = req.user?.roleType === 'super_admin'
 
@@ -1592,7 +1605,8 @@ const cashRegisterController = {
 
   async getOpenRegisters(req, res) {
     try {
-      const store = getStore(req)
+      // Same cookie rule as getHistory(): global super_admin stays unscoped.
+      const store = req.storeId
       const where = { status: 'open' }
       if (store) {
         where.store = store
@@ -1632,7 +1646,8 @@ const cashRegisterController = {
 
   async getXReport(req, res) {
     try {
-      const store = getStore(req)
+      // Same cookie rule as open(): explicit selection only.
+      const store = req.storeId
       const userId = req.user?.id || null
 
       if (!store) {
