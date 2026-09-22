@@ -18,6 +18,75 @@ const getStore = (req) =>
   req.cookies.activeStore ||
   req.user?.store
 
+// Phase 39 Batch 6C: the only table population eligible for reset-on-open
+// cleanup is OCCUPIED with no order in an active status — same active-
+// status list already used by table.js's own active-order checks
+// (deleteTable, getTableWithActiveOrders). RESERVED, MAINTENANCE,
+// AVAILABLE, and OCCUPIED-with-an-active-order are never touched.
+//
+// Recomputed fresh here, never trusted from a client-supplied id list or
+// count, so a table that gains an active order between the FE's preview
+// call and the cashier's confirmation is never reset out from under a
+// live order (the preview and the actual cleanup both call this same
+// function independently, each at its own point in time).
+const TABLE_RESET_ACTIVE_ORDER_STATUSES = ['pending', 'confirmed', 'preparing', 'ready', 'served']
+
+async function getEligibleTableResetIds(store) {
+  const occupiedTables = await db.table.findAll({
+    where: { store, status: 'occupied' },
+    attributes: ['id']
+  })
+  if (occupiedTables.length === 0) return []
+
+  const occupiedIds = occupiedTables.map((t) => t.id)
+  const activeOrders = await db.order.findAll({
+    where: {
+      store,
+      tableId: { [Op.in]: occupiedIds },
+      status: TABLE_RESET_ACTIVE_ORDER_STATUSES
+    },
+    attributes: ['tableId'],
+    raw: true
+  })
+  const activeTableIds = new Set(activeOrders.map((o) => o.tableId))
+  return occupiedIds.filter((id) => !activeTableIds.has(id))
+}
+
+// Best-effort cleanup — never throws. Re-checks `status: 'occupied'` in the
+// UPDATE's WHERE clause as a narrow race guard against the table having
+// changed status between the SELECT above and this write. Failure of any
+// individual table update is counted, never allowed to abort the loop or
+// propagate — the caller (open()) must be able to report a deterministic
+// attempted/succeeded/failed outcome no matter what goes wrong here.
+async function performTableResetCleanup(store) {
+  let succeeded = 0
+  let failed = 0
+  try {
+    const eligibleIds = await getEligibleTableResetIds(store)
+    for (const id of eligibleIds) {
+      try {
+        const [count] = await db.table.update(
+          { status: 'available' },
+          { where: { id, store, status: 'occupied' } }
+        )
+        if (count > 0) succeeded += 1
+        else failed += 1
+      } catch (updateError) {
+        console.log(updateError)
+        failed += 1
+      }
+    }
+    return { succeeded, failed, warning: failed > 0 ? `${failed} table(s) could not be reset to available` : undefined }
+  } catch (error) {
+    console.log(error)
+    return {
+      succeeded,
+      failed,
+      warning: 'Table cleanup failed unexpectedly; register remains open'
+    }
+  }
+}
+
 // Centralized so close(), getCurrent(), and the X/Z reports (buildReportData)
 // can never silently diverge on what "expected cash" means — the exact bug
 // this feature fixes (two different formulas coexisted before F2). All
@@ -538,7 +607,7 @@ const cashRegisterController = {
   async open(req, res) {
     try {
       const store = getStore(req)
-      const { openingBalance = 0, shift } = req.body
+      const { openingBalance = 0, shift, confirmTableReset } = req.body
       const userId = req.user?.id || null
 
       if (!store) {
@@ -604,16 +673,53 @@ const cashRegisterController = {
         attributes: ['id', 'name', 'address', 'city', 'timezone']
       })
 
+      // Phase 39 Batch 6C: cleanup runs AFTER the register-creation
+      // transaction has already committed, and is never allowed to affect
+      // this response's success — the register is open regardless of
+      // whether cleanup was requested, ran cleanly, partially failed, or
+      // threw. `attempted` reflects whether confirmTableReset was set at
+      // all, independent of whether any table was actually eligible.
+      let tableCleanupResult = { attempted: false, succeeded: 0, failed: 0 }
+      if (confirmTableReset) {
+        const { succeeded, failed, warning } = await performTableResetCleanup(store)
+        tableCleanupResult = { attempted: true, succeeded, failed, ...(warning ? { warning } : {}) }
+      }
+
       return res.status(201).json({
         success: true,
         message: 'Cash register opened',
-        data: { ...cashRegister.toJSON(), storeData: location }
+        data: { ...cashRegister.toJSON(), storeData: location },
+        tableCleanupResult
       })
     } catch (error) {
       console.log(error)
       return res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || 'Internal server error'
+      })
+    }
+  },
+
+  async getTableResetPreview(req, res) {
+    try {
+      const store = getStore(req)
+      if (!store) {
+        return res.status(400).json({
+          success: false,
+          message: 'Store not selected'
+        })
+      }
+      const eligibleIds = await getEligibleTableResetIds(store)
+      return res.status(200).json({
+        success: true,
+        message: 'Success',
+        data: { eligibleCount: eligibleIds.length }
+      })
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
       })
     }
   },

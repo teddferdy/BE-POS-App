@@ -37,6 +37,12 @@ router.get(
   cashRegisterController.getCurrent
 )
 router.get(
+  '/table-reset-preview',
+  authorization,
+  validateStoreAccess,
+  cashRegisterController.getTableResetPreview
+)
+router.get(
   '/open-registers',
   authorization,
   validateStoreAccess,

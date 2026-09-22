@@ -984,7 +984,10 @@ exports.createCashRegisterSchema = z.object({
   storeId: strToNum().optional().nullable(),
   openingBalance: strToNum().optional().default(0),
   shift: strToNum().optional().nullable(),
-  notes: z.string().optional().default('')
+  notes: z.string().optional().default(''),
+  // Phase 39 Batch 6C: explicit cashier confirmation to also reset stale
+  // OCCUPIED-with-no-active-order tables to AVAILABLE as part of opening.
+  confirmTableReset: z.boolean().optional().default(false)
 })
 
 exports.updateCashRegisterSchema = z.object({
