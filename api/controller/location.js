@@ -37,6 +37,19 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 
+// Phase 39 Batch 6D — per-day is24Hours flag on openingHours. Defaults a
+// missing/non-boolean is24Hours to false; never inferred from open===close,
+// since a store could legitimately be open exactly midnight-to-midnight
+// without being a 24-hour operation (e.g. a data-entry placeholder).
+const normalizeOpeningHours = (hours) => {
+  if (!Array.isArray(hours)) return hours
+  return hours.map((entry) =>
+    entry && typeof entry === 'object'
+      ? { ...entry, is24Hours: typeof entry.is24Hours === 'boolean' ? entry.is24Hours : false }
+      : entry
+  )
+}
+
 exports.getAllLocationPublic = async (req, res) => {
   try {
     const { status } = req.query
@@ -194,14 +207,14 @@ exports.getAllLocationInTable = async (req, res) => {
       dailyTarget: loc.dailyTarget,
       latitude: loc.latitude,
       longitude: loc.longitude,
-      openingHours: loc.openingHours || [
-        { day: 'Monday', open: null, close: null },
-        { day: 'Tuesday', open: null, close: null },
-        { day: 'Wednesday', open: null, close: null },
-        { day: 'Thursday', open: null, close: null },
-        { day: 'Friday', open: null, close: null },
-        { day: 'Saturday', open: null, close: null },
-        { day: 'Sunday', open: null, close: null }
+      openingHours: normalizeOpeningHours(loc.openingHours) || [
+        { day: 'Monday', open: null, close: null, is24Hours: false },
+        { day: 'Tuesday', open: null, close: null, is24Hours: false },
+        { day: 'Wednesday', open: null, close: null, is24Hours: false },
+        { day: 'Thursday', open: null, close: null, is24Hours: false },
+        { day: 'Friday', open: null, close: null, is24Hours: false },
+        { day: 'Saturday', open: null, close: null, is24Hours: false },
+        { day: 'Sunday', open: null, close: null, is24Hours: false }
       ],
       socialMedia: loc.socialMedia || [],
       createdAt: loc.createdAt,
@@ -392,7 +405,7 @@ exports.addNewLocation = async (req, res) => {
       latitude: finalLatitude,
       longitude: finalLongitude,
       mainBranch: mainBranch || false,
-      openingHours: openingHours || [],
+      openingHours: normalizeOpeningHours(openingHours) || [],
       socialMedia: socialMedia || [],
       timezone: timezone || undefined,
       createdBy: req.user?.id || null
@@ -528,6 +541,12 @@ exports.editLocationById = async (req, res) => {
     if (coordinates) {
       if (coordinates.lat) updatedData.latitude = coordinates.lat
       if (coordinates.lng) updatedData.longitude = coordinates.lng
+    }
+
+    // Only touch openingHours when the caller actually sent it — omitting
+    // it from an edit payload must leave the stored schedule untouched.
+    if (rest.openingHours !== undefined) {
+      updatedData.openingHours = normalizeOpeningHours(rest.openingHours)
     }
 
     const [, updatedRows] = await Location.update(updatedData, {
@@ -812,14 +831,14 @@ exports.getLocationById = async (req, res) => {
       createdByUser: location.dataValues?.createdByUser || null,
       modifiedBy: location.modifiedBy,
       modifiedByUser: location.dataValues?.modifiedByUser || null,
-      openingHours: location.openingHours || [
-        { day: 'Monday', open: null, close: null },
-        { day: 'Tuesday', open: null, close: null },
-        { day: 'Wednesday', open: null, close: null },
-        { day: 'Thursday', open: null, close: null },
-        { day: 'Friday', open: null, close: null },
-        { day: 'Saturday', open: null, close: null },
-        { day: 'Sunday', open: null, close: null }
+      openingHours: normalizeOpeningHours(location.openingHours) || [
+        { day: 'Monday', open: null, close: null, is24Hours: false },
+        { day: 'Tuesday', open: null, close: null, is24Hours: false },
+        { day: 'Wednesday', open: null, close: null, is24Hours: false },
+        { day: 'Thursday', open: null, close: null, is24Hours: false },
+        { day: 'Friday', open: null, close: null, is24Hours: false },
+        { day: 'Saturday', open: null, close: null, is24Hours: false },
+        { day: 'Sunday', open: null, close: null, is24Hours: false }
       ],
       socialMedia: location.socialMedia || []
     }
