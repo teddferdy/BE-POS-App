@@ -18,13 +18,18 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
+const jwt = require('jsonwebtoken')
 const app = require('../api/index')
 const db = require('../db/models')
+
+const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
 let store = null
 let category = null
 let product = null
 let table = null
+let releaseTable = null
+let adminToken = null
 
 const createBooking = (tableId, key) =>
   request(app).post('/order/customer-create').send({
@@ -51,6 +56,15 @@ beforeAll(async () => {
     stock: product.stock
   })
   table = await db.table.create({ store: store.id, name: 'F05_TABLE', status: 'available' })
+  releaseTable = await db.table.create({
+    store: store.id,
+    name: 'F05_TABLE_RELEASE',
+    status: 'available'
+  })
+  adminToken = jwt.sign(
+    { id: 9406, userName: 'f05_admin', roleType: 'admin', store: store.id },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {
@@ -64,23 +78,25 @@ afterAll(async () => {
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })
-  await db.table.destroy({ where: { id: table?.id }, force: true })
+  await db.table.destroy({ where: { id: [table?.id, releaseTable?.id] }, force: true })
   await db.location.destroy({ where: { id: store?.id }, force: true })
 })
 
 describe('F-05 — createCustomerOrder authoritative in-transaction table check', () => {
-  test('books an available table (201); the locked recheck rejects an occupied table (400)', async () => {
+  test('a successful QR booking transitions the table available -> occupied; the locked recheck then rejects a further booking (400)', async () => {
     const first = await createBooking(table.id, `f05-ok-${Date.now()}`)
     expect(first.status).toBe(201)
     expect(first.body.data.paymentStatus).toBe('unpaid')
 
-    // Booking alone does NOT change the table status today (operator-managed
-    // occupancy) — the row-lock only serializes against concurrent mutations.
+    // Phase 39 — a successful QR/BISA-MAKAN order now occupies the table
+    // atomically, in the same transaction and under the same row lock as
+    // the authoritative check above (not a separate write, not a race).
     const afterFirst = await db.table.findByPk(table.id)
-    expect(afterFirst.status).toBe('available')
+    expect(afterFirst.status).toBe('occupied')
 
-    await db.table.update({ status: 'occupied' }, { where: { id: table.id } })
-
+    // The locked recheck rejects a second booking against the now-occupied
+    // table — this is the authoritative in-transaction check, not a new
+    // pre-check-only behavior.
     const blocked = await createBooking(table.id, `f05-blocked-${Date.now()}`)
     expect(blocked.status).toBe(400)
     expect(blocked.body.message).toBe('Table is already occupied')
@@ -89,5 +105,37 @@ describe('F-05 — createCustomerOrder authoritative in-transaction table check'
 
     const again = await createBooking(table.id, `f05-again-${Date.now()}`)
     expect(again.status).toBe(201)
+
+    const afterAgain = await db.table.findByPk(table.id)
+    expect(afterAgain.status).toBe('occupied')
+
+    await db.table.update({ status: 'available' }, { where: { id: table.id } })
+  })
+
+  // Item 8 — end-to-end occupancy lifecycle proof, narrowly scoped to table
+  // status: available -> QR order created -> occupied -> QR order voided ->
+  // available. Does not touch or assert refund behavior.
+  test('a cancelled unpaid QR order releases its table back to available', async () => {
+    const booking = await createBooking(releaseTable.id, `f05-release-${Date.now()}`)
+    expect(booking.status).toBe(201)
+    expect(booking.body.data.paymentStatus).toBe('unpaid')
+
+    const occupied = await db.table.findByPk(releaseTable.id)
+    expect(occupied.status).toBe('occupied')
+
+    // Unpaid cancels do not require a reason (only a paid cancel does) and
+    // must not introduce any refund ledger entry.
+    const cancelled = await request(app)
+      .put('/order/update-status')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: booking.body.data.id, status: 'cancelled', store: store.id })
+    expect(cancelled.status).toBe(200)
+
+    const released = await db.table.findByPk(releaseTable.id)
+    expect(released.status).toBe('available')
+
+    expect(
+      await db.transaction.findAll({ where: { order: booking.body.data.id } })
+    ).toHaveLength(0)
   })
 })

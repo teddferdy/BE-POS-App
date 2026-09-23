@@ -3501,6 +3501,25 @@ exports.createCustomerOrder = async (req, res) => {
         throw err
       }
       if (['occupied', 'reserved', 'maintenance'].includes(lockedTable.status)) {
+        // Phase 39 — since a successful QR order now occupies its table (see
+        // below), a genuinely concurrent RETRY with the SAME idempotencyKey
+        // targeting the SAME table can lose this exact row lock race to its
+        // own winning request: it wakes up to find the table it is about to
+        // be rejected for is occupied by the order it is itself retrying.
+        // That is not a conflict — replay the winner's order instead of
+        // rejecting, matching the existing (store, idempotencyKey) replay
+        // semantics used elsewhere in this function.
+        if (idempotencyKey) {
+          const existingOrder = await Order.findOne({
+            where: { store, idempotencyKey },
+            transaction: t
+          })
+          if (existingOrder) {
+            const replayErr = new Error('Order already exists for this idempotency key')
+            replayErr.idempotencyReplayOrderId = existingOrder.id
+            throw replayErr
+          }
+        }
         const err = new Error(
           lockedTable.status === 'occupied'
             ? 'Table is already occupied'
@@ -3509,6 +3528,14 @@ exports.createCustomerOrder = async (req, res) => {
         err.statusCode = 400
         throw err
       }
+
+      // Phase 39 — QR/BISA-MAKAN table occupancy: a QR order that clears the
+      // authoritative locked check above is the moment the table actually
+      // becomes occupied. Update the same locked row, in the same
+      // transaction, so this commits or rolls back atomically with the
+      // order itself — a concurrent request on this table serializes on the
+      // row lock above and re-reads this status once it commits.
+      await lockedTable.update({ status: 'occupied' }, { transaction: t })
 
       qrOrderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await db.order.create(qrOrderData, { transaction: t })
@@ -3663,6 +3690,20 @@ exports.createCustomerOrder = async (req, res) => {
       data: fullOrder
     })
   } catch (error) {
+    // Phase 39 — the table-occupancy row-lock race: this request's own
+    // idempotencyKey retry lost the lock to its own winning request (see the
+    // in-transaction check above), so replay that order the same way the
+    // unique-constraint race below does.
+    if (error.idempotencyReplayOrderId) {
+      const fullOrder = await fetchFullOrder(error.idempotencyReplayOrderId)
+      if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+        return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+      }
+      return res.status(200).json({
+        message: 'Order already exists for this idempotency key',
+        data: fullOrder
+      })
+    }
     // Two requests with the same idempotencyKey can both pass the earlier
     // findOne check and both attempt to create — the unique index on
     // (store, idempotencyKey) lets exactly one succeed; return the

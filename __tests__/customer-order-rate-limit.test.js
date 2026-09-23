@@ -47,8 +47,19 @@ const randomKey = (prefix = 'fnd002') =>
   `${prefix}-${crypto.randomBytes(8).toString('hex')}`
 
 // Real HTTP round-trip through the mounted route middleware + limiter.
-const customerCreate = (overrides = {}) => {
+//
+// Phase 39 — a successful QR order now occupies its table, but this suite
+// exercises the RATE LIMITER, not table occupancy: many of these tests fire
+// several creates in a row against the same shared per-store table on
+// purpose (to fill a bucket), and none of them ever pay/cancel their order.
+// Resetting the target table to available immediately before every send
+// keeps each call independent of the last one's occupancy side effect,
+// without touching production behavior.
+const customerCreate = async (overrides = {}) => {
   const { store: storeId, ip, noKey = false, key } = overrides
+  if (tables[storeId]) {
+    await db.table.update({ status: 'available' }, { where: { id: tables[storeId].id } })
+  }
   const payload = {
     store: storeId,
     tableId: tables[storeId]?.id,

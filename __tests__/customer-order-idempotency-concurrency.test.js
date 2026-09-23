@@ -127,6 +127,12 @@ describe('SEC-004 — concurrent customer-create idempotency (POST /order/custom
     expect(winningOrder).not.toBeNull()
     expect(await countOrderItems(winningOrder.id)).toBe(1)
 
+    // Phase 39 — the table must be occupied exactly once by the winning
+    // request, not left available (the loser's retry must not have been
+    // erroneously rejected as "table already occupied" instead of replayed,
+    // and must not have run a second, redundant occupancy transition).
+    expect((await db.table.findByPk(table.id)).status).toBe('occupied')
+
     // QR orders are created UNPAID with no stock/ledger side effects at
     // creation time (AUD-1) — the request body carries a customerName, no
     // paymentMethod, so paymentStatus must be unpaid and no payment ledger row
@@ -145,6 +151,10 @@ describe('SEC-004 — concurrent customer-create idempotency (POST /order/custom
     expect(
       await db.transaction.findAll({ where: { order: winningOrder.id } })
     ).toHaveLength(1)
+
+    // The existing paid-release path (untouched by Phase 39) still releases
+    // the QR-occupied table back to available.
+    expect((await db.table.findByPk(table.id)).status).toBe('available')
   })
 })
 
