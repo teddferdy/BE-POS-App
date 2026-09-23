@@ -42,6 +42,17 @@ beforeAll(async () => {
   table = await db.table.create({ store: location.id, name: 'CUST_ORD_TABLE' })
 })
 
+// Phase 39 — a successful QR order now occupies its table. This file's tests
+// share one `table` across the whole suite and were written when order
+// creation never touched table status; some of them (intentionally) leave
+// their order unpaid/pending, which would otherwise leak an 'occupied' table
+// into the next test. Resetting before each test keeps every test's
+// pre-existing, independent intent (each starts from an available table),
+// without touching production behavior.
+beforeEach(async () => {
+  await db.table.update({ status: 'available' }, { where: { id: table.id } })
+})
+
 afterAll(async () => {
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })

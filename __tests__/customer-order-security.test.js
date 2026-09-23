@@ -195,6 +195,19 @@ beforeAll(async () => {
   })
 })
 
+// Phase 39 — a successful QR order now occupies its table. table1/table2 are
+// reused across many independent tests in this file as plain "any valid
+// table" placeholders (none of them assert on table occupancy itself), and
+// several tests intentionally leave their order unpaid/pending. Resetting
+// before each test keeps every test's original, independent intent (each
+// starts from an available table) without touching production behavior.
+beforeEach(async () => {
+  await db.table.update(
+    { status: 'available' },
+    { where: { id: [table1?.id, table2?.id, table2Store2?.id, tableQty?.id].filter(Boolean) } }
+  )
+})
+
 afterAll(async () => {
   // Sweep every order belonging to the two test stores — including any
   // orders tests intentionally failed before creating (RED-phase

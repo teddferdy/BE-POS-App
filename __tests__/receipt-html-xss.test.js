@@ -48,6 +48,11 @@ const ESCAPE_PAYLOADS = [
 ]
 
 const createOrder = async (fields) => {
+  // Phase 39 — a successful QR order occupies its table until paid/cancelled/
+  // void releases it. This suite creates a separate order per escaping
+  // payload on the shared fixture table, so each booking starts from a freed
+  // table.
+  await db.table.update({ status: 'available' }, { where: { id: table.id } })
   const res = await request(app).post('/order/customer-create').send({
     store: store.id,
     tableId: table.id,
