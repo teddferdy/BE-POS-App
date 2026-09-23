@@ -78,6 +78,10 @@ describe('C-12 public customer price/billing integrity', () => {
   })
 
   test('server recomputes subtotal; attacker cannot set a near-zero total', async () => {
+    // Phase 39 — a successful QR order occupies its table until paid/cancelled/
+    // void releases it; the previous test already booked this table, so start
+    // from a freed table for this independent order.
+    await db.table.update({ status: 'available' }, { where: { id: table.id } })
     const res = await request(app)
       .post('/order/customer-create')
       .send(orderBody())

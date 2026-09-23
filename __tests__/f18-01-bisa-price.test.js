@@ -46,8 +46,12 @@ afterAll(async () => {
   await db.location.destroy({ where: { id: location.id }, force: true })
 })
 
-const createCustomerOrder = (price) =>
-  request(app)
+// Phase 39 — a successful QR order occupies its table until paid/cancelled/
+// void releases it. Each assertion here needs a fresh, independent order on
+// the shared fixture table, so every booking starts from a freed table.
+const createCustomerOrder = async (price) => {
+  await db.table.update({ status: 'available' }, { where: { id: table.id } })
+  return request(app)
     .post('/order/customer-create')
     .send({
       store: location.id,
@@ -56,6 +60,7 @@ const createCustomerOrder = (price) =>
       items: [{ productId: product.id, productName: 'F1801_PRODUCT', quantity: 1, price }],
       session: `test-${Date.now()}-${Math.random()}`
     })
+}
 
 describe('F18-01 BISA server price authority', () => {
   test('client price 1 is ignored, server price 100000 used', async () => {

@@ -63,10 +63,16 @@ const makeBom = async (store, productId, lines, overrides = {}) => {
 const createOrder = (token, body) =>
   request(app).post('/order/create').set('Authorization', `Bearer ${token}`).send(body)
 
-const customerCreate = (body) =>
-  request(app)
+// Phase 39 — a successful QR order occupies its table until paid/cancelled/
+// void releases it. These fixtures create many independent QR orders on one
+// shared tableA across different tests, so each booking starts from a freed
+// table (same convention as the F-05 table-lock suite).
+const customerCreate = async (body) => {
+  await db.table.update({ status: 'available' }, { where: { id: tableA?.id } })
+  return request(app)
     .post('/order/customer-create')
     .send({ tableId: tableA?.id, ...body })
+}
 
 const updateOrderStatus = (token, body) =>
   request(app).put('/order/update-status').set('Authorization', `Bearer ${token}`).send(body)
