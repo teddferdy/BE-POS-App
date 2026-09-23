@@ -2,7 +2,6 @@ const db = require('../../db/models')
 const Order = db.order
 const { Op, Sequelize } = require('sequelize')
 const moment = require('moment')
-const sequelize = require('../../config/database')
 
 exports.chartDataByYear = async (req, res) => {
   const { query } = req
@@ -21,7 +20,7 @@ exports.chartDataByYear = async (req, res) => {
       storeCondition = 'AND o."store" = :store'
       replacements.store = store
     }
-    const [result] = await sequelize.query(
+    const [result] = await db.sequelize.query(
       `
         SELECT TO_CHAR(months.month, 'YYYY-MM') AS month, 
           coalesce(sum(o."totalPrice"), 0) as "totalAmount",
