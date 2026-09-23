@@ -6,6 +6,10 @@ const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { assertIntegerRupiah } = require('../../utils/moneyGuard')
 
+// Same channel rule as order.js: a QR order is one created by
+// createCustomerOrder (source 'qr', no createdBy); every other order is POS.
+const isQrChannelOrder = (order) => order?.source === 'qr' && order?.createdBy == null
+
 const DEFAULT_CASH_OUT_APPROVAL_THRESHOLD = 500000
 const DEFAULT_CASH_VARIANCE_THRESHOLD = 25000
 
@@ -49,7 +53,27 @@ async function getEligibleTableResetIds(store) {
     raw: true
   })
   const activeTableIds = new Set(activeOrders.map((o) => o.tableId))
-  return occupiedIds.filter((id) => !activeTableIds.has(id))
+  const candidateIds = occupiedIds.filter((id) => !activeTableIds.has(id))
+  if (candidateIds.length === 0) return []
+
+  // Phase 39 — a POS dine-in visit holds its table until staff release it
+  // (Set Available), even though its order is already paid. An occupied
+  // table whose most recent order is a POS order is therefore a live visit,
+  // not stale, whatever that order's status.
+  const candidateOrders = await db.order.findAll({
+    where: { store, tableId: { [Op.in]: candidateIds } },
+    attributes: ['id', 'tableId', 'source', 'createdBy'],
+    raw: true
+  })
+  const latestByTable = new Map()
+  for (const o of candidateOrders) {
+    const current = latestByTable.get(o.tableId)
+    if (!current || o.id > current.id) latestByTable.set(o.tableId, o)
+  }
+  return candidateIds.filter((id) => {
+    const latest = latestByTable.get(id)
+    return !latest || isQrChannelOrder(latest)
+  })
 }
 
 // Best-effort cleanup — never throws. Re-checks `status: 'occupied'` in the

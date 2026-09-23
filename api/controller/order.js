@@ -23,6 +23,11 @@ const {
   resolveBomIngredientRequirements
 } = require('../service/stockMutationService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
+// An order created by createCustomerOrder (QR/BISA-MAKAN): it always writes
+// source 'qr' and never sets createdBy, while createOrder (POS) always
+// records the authenticated creator — and accepts a client-supplied source,
+// including 'qr' — so source alone cannot identify the channel.
+const isQrChannelOrder = (order) => order?.source === 'qr' && order?.createdBy == null
 
 // FND-001 (security): escape every untrusted string that is interpolated into
 // the raw-HTML receipt template at the output boundary. The receipt endpoint
@@ -1093,6 +1098,22 @@ exports.createOrder = async (req, res) => {
 
     const tableCheck = await checkTableAvailable(tableId, store)
     if (!tableCheck.ok) {
+      // A dine-in order occupies its table on success, so a same-key retry
+      // whose winner committed after the fast path above (but before this
+      // fresh table read) sees "occupied" here — replay it, not a 400.
+      if (idempotencyKey) {
+        const existing = await Order.findOne({ where: { store, idempotencyKey } })
+        if (existing) {
+          const fullOrder = await fetchFullOrder(existing.id)
+          if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+            return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+          }
+          return res.status(200).json({
+            message: 'Order already exists for this idempotency key',
+            data: fullOrder
+          })
+        }
+      }
       return res.status(400).json({ message: tableCheck.message })
     }
 
@@ -1208,6 +1229,47 @@ exports.createOrder = async (req, res) => {
     // nothing, so re-running this whole callback from scratch is safe.
     const order = await withDeadlockRetry(() =>
       db.sequelize.transaction(async (t) => {
+      // Phase 39 — POS dine-in table claim. Authoritative (the pre-check
+      // above is a fast path only): lock the table row first, re-check it,
+      // and occupy it in this same transaction so the claim commits or
+      // rolls back with the order. Released only by the Table Management
+      // "Set Available" action — never by this order's own status changes.
+      if (tableId) {
+        const lockedTable = await Table.findOne({
+          where: { id: tableId, store },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        })
+        if (!lockedTable) {
+          const err = new Error('Table not found')
+          err.statusCode = 400
+          throw err
+        }
+        if (lockedTable.status !== 'available') {
+          // A concurrent same-key retry can lose this lock to its own
+          // winner — replay that order instead of rejecting it.
+          if (idempotencyKey) {
+            const existingOrder = await Order.findOne({
+              where: { store, idempotencyKey },
+              transaction: t
+            })
+            if (existingOrder) {
+              const replayErr = new Error('Order already exists for this idempotency key')
+              replayErr.idempotencyReplayOrderId = existingOrder.id
+              throw replayErr
+            }
+          }
+          const err = new Error(
+            lockedTable.status === 'occupied'
+              ? 'Table is already occupied'
+              : 'Table is not available'
+          )
+          err.statusCode = 400
+          throw err
+        }
+        await lockedTable.update({ status: 'occupied' }, { transaction: t })
+      }
+
       // Deliberately a plain, unlocked read — the F2 blueprint's accepted
       // design trade-off. This is inside the checkout transaction (moved
       // here from before it opened) specifically to shrink the window in
@@ -1363,6 +1425,18 @@ exports.createOrder = async (req, res) => {
       data: fullOrder
     })
   } catch (error) {
+    // Same-key retry that lost the table row lock to its own winner (see
+    // the dine-in table claim above) — replay, same as the paths below.
+    if (error.idempotencyReplayOrderId) {
+      const fullOrder = await fetchFullOrder(error.idempotencyReplayOrderId)
+      if (!orderItemsMatchPayload(fullOrder?.items, items)) {
+        return res.status(409).json({ message: IDEMPOTENCY_MISMATCH_MESSAGE })
+      }
+      return res.status(200).json({
+        message: 'Order already exists for this idempotency key',
+        data: fullOrder
+      })
+    }
     // Two requests with the same idempotencyKey can both pass the earlier
     // findOne check and both attempt to create — the unique index on
     // (store, idempotencyKey) lets exactly one succeed; the loser lands
@@ -2745,7 +2819,14 @@ exports.updateOrderStatus = async (req, res) => {
         }
       }
 
-      if (order.tableId && ['paid', 'cancelled', 'void'].includes(status)) {
+      // QR orders only: a POS dine-in visit holds its table until staff
+      // explicitly release it (Set Available) — its order's payment,
+      // cancellation or void is not the diners leaving.
+      if (
+        order.tableId &&
+        isQrChannelOrder(order) &&
+        ['paid', 'cancelled', 'void'].includes(status)
+      ) {
         await Table.update(
           { status: 'available' },
           { where: { id: order.tableId }, transaction: t }
