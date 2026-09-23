@@ -51,14 +51,17 @@ async function mkTable(storeId, name, status) {
   return table
 }
 
-async function mkOrder(storeId, tableId, status) {
+// channel 'pos' mirrors createOrder (authenticated creator recorded);
+// channel 'qr' mirrors createCustomerOrder (source 'qr', no createdBy).
+async function mkOrder(storeId, tableId, status, channel = 'pos') {
   const order = await db.order.create({
     orderNumber: `TR-${storeId}-${tableId}-${status}-${SUFFIX}-${Math.random().toString(36).slice(2, 7)}`,
     store: storeId,
     tableId,
     status,
     paymentStatus: status === 'paid' ? 'paid' : 'unpaid',
-    source: 'pos',
+    source: channel,
+    createdBy: channel === 'qr' ? null : opener.id,
     totalPrice: 0
   })
   createdOrderIds.push(order.id)
@@ -90,10 +93,12 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
     const tOccupiedActive = await mkTable(store.id, 'occ_active', 'occupied')
     const tOccupiedNoOrder = await mkTable(store.id, 'occ_no_order', 'occupied')
     const tOccupiedPaidOrder = await mkTable(store.id, 'occ_paid', 'occupied')
+    const tOccupiedPaidQrOrder = await mkTable(store.id, 'occ_paid_qr', 'occupied')
     const tReserved = await mkTable(store.id, 'reserved', 'reserved')
     const tMaintenance = await mkTable(store.id, 'maintenance', 'maintenance')
     await mkOrder(store.id, tOccupiedActive.id, 'pending')
     await mkOrder(store.id, tOccupiedPaidOrder.id, 'paid')
+    await mkOrder(store.id, tOccupiedPaidQrOrder.id, 'paid', 'qr')
     void tAvailable
     void tReserved
     void tMaintenance
@@ -105,8 +110,10 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
       .set('Authorization', `Bearer ${tokenFor(store.id)}`)
 
     expect(res.status).toBe(200)
-    // Eligible: occ_no_order (no order at all) + occ_paid (order exists but
-    // its status is not in the active list) = 2.
+    // Eligible: occ_no_order (no order at all) + occ_paid_qr (a QR order
+    // that is no longer active — stale) = 2. occ_paid is NOT eligible: its
+    // latest order is a POS order, and a POS dine-in visit holds its table
+    // until staff release it, even though that order is already paid.
     expect(res.body.data.eligibleCount).toBe(2)
   })
 
@@ -303,5 +310,53 @@ describe('Phase 39 Batch 6C — POST /cash-register/open with confirmTableReset'
     // The guard rejected the second request before cleanup could ever run.
     const eligibleAfter = await db.table.findByPk(eligible.id)
     expect(eligibleAfter.status).toBe('occupied')
+  })
+})
+
+describe('Phase 39 — POS table occupancy vs Batch 6C reset', () => {
+  test('confirmed open keeps POS-held tables (paid POS order) occupied, still resets QR-stale and order-less tables', async () => {
+    const store = await mkStore('OPEN_POS_HELD')
+    const posHeld = await mkTable(store.id, 'pos_held', 'occupied')
+    const qrStale = await mkTable(store.id, 'qr_stale', 'occupied')
+    const noOrder = await mkTable(store.id, 'no_order', 'occupied')
+    await mkOrder(store.id, posHeld.id, 'paid', 'pos')
+    await mkOrder(store.id, qrStale.id, 'paid', 'qr')
+
+    const preview = await request(app)
+      .get('/cash-register/table-reset-preview')
+      .query({ store: store.id })
+      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+    expect(preview.status).toBe(200)
+    expect(preview.body.data.eligibleCount).toBe(2)
+
+    const res = await request(app)
+      .post('/cash-register/open')
+      .send({ store: store.id, openingBalance: 100000, confirmTableReset: true })
+      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+    expect(res.status).toBe(201)
+    createdRegisterIds.push(res.body.data.id)
+    expect(res.body.tableCleanupResult).toEqual({ attempted: true, succeeded: 2, failed: 0 })
+
+    expect((await db.table.findByPk(posHeld.id)).status).toBe('occupied')
+    expect((await db.table.findByPk(qrStale.id)).status).toBe('available')
+    expect((await db.table.findByPk(noOrder.id)).status).toBe('available')
+  })
+
+  test("the table's most recent order decides: an older QR order does not make a POS-held table stale, and vice versa", async () => {
+    const store = await mkStore('PREVIEW_LATEST_ORDER')
+    const posLatest = await mkTable(store.id, 'pos_latest', 'occupied')
+    const qrLatest = await mkTable(store.id, 'qr_latest', 'occupied')
+    await mkOrder(store.id, posLatest.id, 'paid', 'qr')
+    await mkOrder(store.id, posLatest.id, 'paid', 'pos')
+    await mkOrder(store.id, qrLatest.id, 'paid', 'pos')
+    await mkOrder(store.id, qrLatest.id, 'cancelled', 'qr')
+
+    const preview = await request(app)
+      .get('/cash-register/table-reset-preview')
+      .query({ store: store.id })
+      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+    expect(preview.status).toBe(200)
+    // Only qr_latest: its most recent order is a stale QR order.
+    expect(preview.body.data.eligibleCount).toBe(1)
   })
 })
