@@ -54,6 +54,45 @@ module.exports = (sequelize, DataTypes) => {
       userAgent: {
         type: DataTypes.TEXT,
         allowNull: true
+      },
+      // AUD-1 (DR-20 foundation). All nullable/defaulted: historical rows
+      // stay valid; unknowable context stays NULL rather than fabricated.
+      // NOTE: no tenant FK yet — the tenant entity itself is NOT IMPLEMENTED
+      // (DR-01). tenantId is a forward-compatible context slot.
+      actorType: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: 'USER'
+      },
+      tenantId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null
+      },
+      result: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: 'SUCCESS'
+      },
+      requestId: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+        defaultValue: null
+      },
+      reason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
+      },
+      source: {
+        type: DataTypes.STRING(30),
+        allowNull: true,
+        defaultValue: null
+      },
+      metadata: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: null
       }
     },
     {
