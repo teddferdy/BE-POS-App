@@ -218,7 +218,22 @@ module.exports = async () => {
     // that migration, so a fresh CI clone is missing it. Same precedent as
     // goods_receipt.idempotencyKey above: provision idempotently here and
     // enroll in the catalog contract below.
-    ['stock_transfer', 'idempotencyKey', 'VARCHAR(255)']
+    ['stock_transfer', 'idempotencyKey', 'VARCHAR(255)'],
+    // AUD-1 (DR-20 audit foundation, migration 20261007000001): the committed
+    // dev-schema.sql auditLog snapshot predates that migration, so a fresh CI
+    // clone is missing the foundation columns just as it was missing
+    // goods_receipt.idempotencyKey above. Same precedent: provision them
+    // idempotently here and enroll in the catalog contract below so the
+    // post-R-5 test DB stays self-sufficient without relying on the retired
+    // runtime auto-patch. Column/types mirror the migration exactly and are
+    // no-ops on any DB that already ran it.
+    ['auditLog', 'actorType', "VARCHAR(20) NOT NULL DEFAULT 'USER'"],
+    ['auditLog', 'tenantId', 'INTEGER'],
+    ['auditLog', 'result', "VARCHAR(20) NOT NULL DEFAULT 'SUCCESS'"],
+    ['auditLog', 'requestId', 'VARCHAR(64)'],
+    ['auditLog', 'reason', 'TEXT'],
+    ['auditLog', 'source', 'VARCHAR(30)'],
+    ['auditLog', 'metadata', 'JSONB']
   ]
 
   // Phase 34: stock_opname_item's quantity columns are migration-owned
@@ -267,7 +282,15 @@ module.exports = async () => {
     // concurrent same-key sends — without this index both insert (duplicate
     // transfer + double deduction). Provisioned here exactly as the
     // migration does so CI converges with migrated dev databases.
-    `CREATE UNIQUE INDEX IF NOT EXISTS stock_transfer_fromstore_idempotency_unique ON "stock_transfer" ("fromStore", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`
+    `CREATE UNIQUE INDEX IF NOT EXISTS stock_transfer_fromstore_idempotency_unique ON "stock_transfer" ("fromStore", "idempotencyKey") WHERE "idempotencyKey" IS NOT NULL`,
+    // AUD-1 (DR-20 audit foundation, migration 20261007000001): the
+    // auditlog_tenant_createdat partial/composite index backing the
+    // tenant-scoped audit-list reads. Same retired-runtime-patch precedent as
+    // the two idempotency indexes above — the committed dev-schema.sql
+    // snapshot predates this migration, so provision idempotently so the
+    // post-R-5 test DB converges with a migrated dev database. Column
+    // provisioning for this index's fields lives in R4_COLUMNS above.
+    `CREATE INDEX IF NOT EXISTS auditlog_tenant_createdat ON "auditLog" ("tenantId", "createdAt")`
   ]
 
   for (const ddl of R4_TABLE_DDL) {
@@ -362,6 +385,12 @@ module.exports = async () => {
     `SELECT count(*) FROM pg_indexes WHERE indexname = 'stock_transfer_fromstore_idempotency_unique'`
   ]).trim()
   if (trIdxCount !== '1') missingIndexes.push('stock_transfer_fromstore_idempotency_unique')
+  const audIdxCount = run('psql', [
+    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+    '-t', '-A', '-c',
+    `SELECT count(*) FROM pg_indexes WHERE indexname = 'auditlog_tenant_createdat'`
+  ]).trim()
+  if (audIdxCount !== '1') missingIndexes.push('auditlog_tenant_createdat')
   const wrongTypes = []
   for (const [table, column] of R4_TYPE_CHANGES.map(([t, c]) => [t, c])) {
     const out = run('psql', [

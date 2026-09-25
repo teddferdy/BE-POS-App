@@ -1,4 +1,5 @@
 const db = require('../db/models')
+const crypto = require('crypto')
 
 const AUDIT_ACTIONS = Object.freeze({
   CREATE: 'create',
@@ -24,6 +25,10 @@ const SENSITIVE_KEYS = new Set([
   'accesstoken',
   'refreshtoken',
   'secret',
+  'apisecret',
+  'clientsecret',
+  'apikey',
+  'privatekey',
   'otp'
 ])
 
@@ -144,3 +149,157 @@ const redactAndAudit = (
 }
 
 module.exports = { auditLog, createAudit, redactAndAudit, AUDIT_ACTIONS }
+
+// ---------------------------------------------------------------------------
+// AUD-1 (DR-20 foundation): canonical audit creation contract.
+// ---------------------------------------------------------------------------
+// recordAudit() is the single forward-looking entry point. It does NOT
+// replace createAudit/redactAndAudit (both keep working unchanged for the
+// existing ~130 call sites); it adds the DR-20 minimum context that the
+// legacy helpers cannot express: actor type, tenant scope, result,
+// request/correlation id, reason, source, and metadata.
+//
+// TRUST BOUNDARY (AUD-1):
+// - Scope (tenantId/storeId) comes ONLY from explicit arguments or from
+//   trusted server-side request context (req.storeId, req.user). This
+//   helper NEVER reads req.body / req.query / req.params for scope, so a
+//   client-supplied tenant/store id can never silently become authority.
+// - tenantId has no JWT claim yet (DR-01 NOT IMPLEMENTED): callers must pass
+//   it explicitly from server-side mapping, or leave it null. Null means
+//   "platform/global or unknown scope" — never a guessed tenant.
+// - Timestamps are server-generated (Sequelize createdAt). There is no
+//   timestamp parameter by design: client time is never accepted.
+// - Credential-bearing payloads are redacted via redactValue() before
+//   persistence (same key families as the existing helper). Reason strings
+//   are truncated to REASON_MAX_LENGTH. Deeper payload inspection is AUD-2.
+// - Contract violations (bad actorType/result, missing action) throw
+//   synchronously so programmer errors fail fast in tests/CI.
+//
+// TRANSACTION BEHAVIOR:
+// - When options.transaction is provided, the create participates in the
+//   caller transaction and errors PROPAGATE (so a later AUD-4 atomicity
+//   design can roll the business action back on audit failure).
+// - Without a transaction, errors are swallowed after console.error,
+//   matching the legacy fire-and-forget behavior. Returns the created row
+//   on success, null when the write was skipped on error.
+
+const ACTOR_TYPES = Object.freeze({
+  USER: 'USER',
+  SYSTEM: 'SYSTEM',
+  JOB: 'JOB',
+  INTEGRATION: 'INTEGRATION'
+})
+
+const AUDIT_RESULTS = Object.freeze({
+  SUCCESS: 'SUCCESS',
+  FAILURE: 'FAILURE',
+  DENIED: 'DENIED'
+})
+
+const REASON_MAX_LENGTH = 500
+
+const resolveScopeFromReq = (req) => {
+  if (!req) return { storeId: null }
+  // Trusted server-side context only: middleware/JWT-derived values.
+  // Body, query, and params are deliberately never consulted here.
+  const storeId =
+    req.storeId != null
+      ? parseInt(req.storeId, 10)
+      : req.user?.store != null
+        ? parseInt(req.user.store, 10)
+        : null
+  return { storeId: Number.isFinite(storeId) ? storeId : null }
+}
+
+const resolveActorFromReq = (req) => {
+  if (!req?.user) return { id: null, name: null }
+  return {
+    id: req.user.id != null ? req.user.id : null,
+    name: req.user.userName || req.user.username || req.user.fullName || null
+  }
+}
+
+const recordAudit = async ({
+  actor,
+  req,
+  action,
+  entity,
+  entityId = null,
+  description = null,
+  tenantId = null,
+  storeId,
+  result = AUDIT_RESULTS.SUCCESS,
+  requestId = null,
+  reason = null,
+  previousState = null,
+  newState = null,
+  source = null,
+  metadata = null,
+  transaction = null
+} = {}) => {
+  if (typeof action !== 'string' || action.trim() === '') {
+    throw new Error('recordAudit: action must be a non-empty string')
+  }
+  // The legacy auditLog table requires entity NOT NULL, so resource-less
+  // events carry a domain label (e.g. 'AUTH', 'SYSTEM') instead of null.
+  // entityId stays nullable for events without a concrete resource row.
+  if (typeof entity !== 'string' || entity.trim() === '') {
+    throw new Error('recordAudit: entity must be a non-empty string')
+  }
+  const actorType =
+    actor?.type != null ? String(actor.type).toUpperCase() : ACTOR_TYPES.USER
+  if (!Object.values(ACTOR_TYPES).includes(actorType)) {
+    throw new Error(`recordAudit: unknown actorType "${actor?.type}"`)
+  }
+  const normalizedResult = String(result || '').toUpperCase()
+  if (!Object.values(AUDIT_RESULTS).includes(normalizedResult)) {
+    throw new Error(`recordAudit: unknown result "${result}"`)
+  }
+
+  const reqActor = resolveActorFromReq(req)
+  const reqScope = resolveScopeFromReq(req)
+  const seen = new WeakSet()
+
+  const row = {
+    store: storeId !== undefined ? storeId : reqScope.storeId,
+    userId: actor?.id !== undefined ? actor.id : reqActor.id,
+    userName: actor?.name !== undefined ? actor.name : reqActor.name,
+    action: action.trim(),
+    entity: entity.trim(),
+    entityId: entityId != null ? entityId : null,
+    description: description != null ? String(description) : null,
+    oldValues: previousState != null ? redactValue(toPlain(previousState), seen) : null,
+    newValues: newState != null ? redactValue(toPlain(newState), new WeakSet()) : null,
+    ipAddress: req?.ip || null,
+    userAgent:
+      typeof req?.get === 'function' ? req.get('User-Agent') : null,
+    actorType,
+    tenantId: tenantId != null ? tenantId : null,
+    result: normalizedResult,
+    requestId:
+      requestId != null && String(requestId) !== ''
+        ? String(requestId).slice(0, 64)
+        : crypto.randomUUID(),
+    reason:
+      reason != null ? String(reason).slice(0, REASON_MAX_LENGTH) : null,
+    source: source != null ? String(source).slice(0, 30) : null,
+    metadata:
+      metadata != null ? redactValue(toPlain(metadata), new WeakSet()) : null
+  }
+
+  try {
+    const created = await db.auditLog.create(row, {
+      transaction: transaction || undefined
+    })
+    return created
+  } catch (error) {
+    if (transaction) throw error
+    console.error('Audit log error:', error)
+    return null
+  }
+}
+
+module.exports.recordAudit = recordAudit
+module.exports.ACTOR_TYPES = ACTOR_TYPES
+module.exports.AUDIT_RESULTS = AUDIT_RESULTS
+module.exports.REASON_MAX_LENGTH = REASON_MAX_LENGTH
