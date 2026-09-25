@@ -23,7 +23,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.auditLog.destroy({
     where: { description: { [db.Sequelize.Op.like]: `${P}%` } },
-    force: true
+    force: true,
+    __auditMaintenance: true
   })
   await db.location.destroy({ where: { id: store?.id }, force: true })
   await db.sequelize.close()

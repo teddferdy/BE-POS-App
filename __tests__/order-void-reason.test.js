@@ -38,7 +38,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await db.auditLog.destroy({ where: { store: location.id }, force: true })
+  await db.auditLog.destroy({ where: { store: location.id }, force: true, __auditMaintenance: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })

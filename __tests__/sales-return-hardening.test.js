@@ -166,7 +166,7 @@ afterAll(async () => {
   await db.sales_return.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
   await db.cashMovement.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
   await db.cashRegister.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
-  await db.auditLog.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
+  await db.auditLog.destroy({ where: { store: [store.id, storeOther.id] }, force: true, __auditMaintenance: true })
   await db.stock_history.destroy({ where: { product: [product.id, productB.id] }, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })

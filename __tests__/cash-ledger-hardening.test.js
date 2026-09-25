@@ -147,7 +147,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
-  await db.auditLog.destroy({ where: { store: [store?.id, storeOther?.id] }, force: true })
+  await db.auditLog.destroy({ where: { store: [store?.id, storeOther?.id] }, force: true, __auditMaintenance: true })
   await db.cashMovement.destroy({ where: { store: [store?.id, storeOther?.id] }, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })

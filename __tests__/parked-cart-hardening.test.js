@@ -125,7 +125,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await db.auditLog.destroy({ where: { store: [store?.id, storeOther?.id] }, force: true })
+  await db.auditLog.destroy({ where: { store: [store?.id, storeOther?.id] }, force: true, __auditMaintenance: true })
   await db.parkedCart.destroy({ where: { store: [store?.id, storeOther?.id] }, force: true })
   await db.table.destroy({ where: { id: [table?.id, tableOther?.id] }, force: true })
   await db.user.destroy({
