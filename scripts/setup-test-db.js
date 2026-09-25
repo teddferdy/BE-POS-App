@@ -185,6 +185,40 @@ module.exports = async () => {
       "createdAt" timestamp with time zone NOT NULL,
       "updatedAt" timestamp with time zone NOT NULL,
       "deletedAt" timestamp with time zone
+    )`,
+    // AUTH-1 (DR-01/DR-02/DR-12 foundation, migration 20261008000001): the
+    // tenant/membership/assignment tables plus location.tenantId. The
+    // committed dev-schema.sql snapshot predates that migration, so a fresh
+    // CI clone is missing them. Same precedent as the shells above:
+    // provision idempotently here (no FKs on shells, per the R-1 contract
+    // note) and enroll in the catalog contract below. Column/types mirror
+    // the migration exactly.
+    `CREATE TABLE IF NOT EXISTS tenant (
+      id SERIAL PRIMARY KEY,
+      code character varying(50) NOT NULL UNIQUE,
+      name character varying(100) NOT NULL,
+      status character varying(20) NOT NULL DEFAULT 'active',
+      "createdAt" timestamp with time zone NOT NULL,
+      "updatedAt" timestamp with time zone NOT NULL,
+      "deletedAt" timestamp with time zone
+    )`,
+    `CREATE TABLE IF NOT EXISTS tenant_membership (
+      id SERIAL PRIMARY KEY,
+      "userId" integer NOT NULL,
+      "tenantId" integer NOT NULL,
+      role character varying(30) NOT NULL,
+      status character varying(20) NOT NULL DEFAULT 'ACTIVE',
+      "createdAt" timestamp with time zone NOT NULL,
+      "updatedAt" timestamp with time zone NOT NULL,
+      "deletedAt" timestamp with time zone
+    )`,
+    `CREATE TABLE IF NOT EXISTS store_assignment (
+      id SERIAL PRIMARY KEY,
+      "userId" integer NOT NULL,
+      "tenantId" integer NOT NULL,
+      "storeId" integer NOT NULL,
+      "createdAt" timestamp with time zone NOT NULL,
+      "updatedAt" timestamp with time zone NOT NULL
     )`
   ]
 
@@ -233,7 +267,10 @@ module.exports = async () => {
     ['auditLog', 'requestId', 'VARCHAR(64)'],
     ['auditLog', 'reason', 'TEXT'],
     ['auditLog', 'source', 'VARCHAR(30)'],
-    ['auditLog', 'metadata', 'JSONB']
+    ['auditLog', 'metadata', 'JSONB'],
+    // AUTH-1 (migration 20261008000001): location.tenantId ownership slot.
+    // Nullable first stage — same no-op-on-migrated-DB property as above.
+    ['location', 'tenantId', 'INTEGER']
   ]
 
   // Phase 34: stock_opname_item's quantity columns are migration-owned
@@ -290,7 +327,14 @@ module.exports = async () => {
     // snapshot predates this migration, so provision idempotently so the
     // post-R-5 test DB converges with a migrated dev database. Column
     // provisioning for this index's fields lives in R4_COLUMNS above.
-    `CREATE INDEX IF NOT EXISTS auditlog_tenant_createdat ON "auditLog" ("tenantId", "createdAt")`
+    `CREATE INDEX IF NOT EXISTS auditlog_tenant_createdat ON "auditLog" ("tenantId", "createdAt")`,
+    // AUTH-1 (migration 20261008000001): uniqueness + lookup indexes for the
+    // membership/assignment tables, mirroring the migration exactly.
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_membership_user_tenant ON "tenant_membership" ("userId", "tenantId")`,
+    `CREATE INDEX IF NOT EXISTS ix_tenant_membership_tenant ON "tenant_membership" ("tenantId")`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_store_assignment_user_store ON "store_assignment" ("userId", "storeId")`,
+    `CREATE INDEX IF NOT EXISTS ix_store_assignment_tenant ON "store_assignment" ("tenantId")`,
+    `CREATE INDEX IF NOT EXISTS ix_location_tenant ON "location" ("tenantId")`
   ]
 
   for (const ddl of R4_TABLE_DDL) {
@@ -328,7 +372,11 @@ module.exports = async () => {
     'transaction',
     'shift_swap',
     'user',
-    'product_review'
+    'product_review',
+    // AUTH-1 foundation tables (migration 20261008000001).
+    'tenant',
+    'tenant_membership',
+    'store_assignment'
   ]
   const missingTables = []
   for (const table of R4_REQUIRED_TABLES) {
@@ -352,7 +400,12 @@ module.exports = async () => {
   // R-1 table shells: every model column must exist, not just the table.
   const R4_TABLE_COLUMNS = {
     attendance: ['id', 'userId', 'store', 'shiftId', 'type', 'absenAt', 'latitude', 'longitude', 'accuracy', 'algorithm', 'status', 'note', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt'],
-    overtime: ['id', 'store', 'shift_id', 'employee_id', 'date', 'start_time', 'end_time', 'duration_hours', 'note', 'status', 'decidedBy', 'decidedAt', 'status_history', 'accounting_status', 'postedAt', 'journalId', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt']
+    overtime: ['id', 'store', 'shift_id', 'employee_id', 'date', 'start_time', 'end_time', 'duration_hours', 'note', 'status', 'decidedBy', 'decidedAt', 'status_history', 'accounting_status', 'postedAt', 'journalId', 'createdBy', 'modifiedBy', 'createdAt', 'updatedAt', 'deletedAt'],
+    // AUTH-1 foundation tables: every model column must exist, mirroring the
+    // migration exactly (location.tenantId is covered by R4_COLUMNS above).
+    tenant: ['id', 'code', 'name', 'status', 'createdAt', 'updatedAt', 'deletedAt'],
+    tenant_membership: ['id', 'userId', 'tenantId', 'role', 'status', 'createdAt', 'updatedAt', 'deletedAt'],
+    store_assignment: ['id', 'userId', 'tenantId', 'storeId', 'createdAt', 'updatedAt']
   }
   for (const [table, cols] of Object.entries(R4_TABLE_COLUMNS)) {
     if (missingTables.includes(table)) continue
@@ -391,6 +444,21 @@ module.exports = async () => {
     `SELECT count(*) FROM pg_indexes WHERE indexname = 'auditlog_tenant_createdat'`
   ]).trim()
   if (audIdxCount !== '1') missingIndexes.push('auditlog_tenant_createdat')
+  // AUTH-1 foundation indexes (migration 20261008000001).
+  for (const idx of [
+    'uq_tenant_membership_user_tenant',
+    'ix_tenant_membership_tenant',
+    'uq_store_assignment_user_store',
+    'ix_store_assignment_tenant',
+    'ix_location_tenant'
+  ]) {
+    const c = run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-t', '-A', '-c',
+      `SELECT count(*) FROM pg_indexes WHERE indexname = '${idx}'`
+    ]).trim()
+    if (c !== '1') missingIndexes.push(idx)
+  }
   const wrongTypes = []
   for (const [table, column] of R4_TYPE_CHANGES.map(([t, c]) => [t, c])) {
     const out = run('psql', [

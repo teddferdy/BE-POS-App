@@ -165,6 +165,19 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'departmentId',
       as: 'departmentData'
     })
+    // AUTH-1 (DR-01/DR-03): account → tenant memberships → store assignments.
+    if (models.tenantMembership) {
+      User.hasMany(models.tenantMembership, {
+        foreignKey: 'userId',
+        as: 'tenantMemberships'
+      })
+    }
+    if (models.storeAssignment) {
+      User.hasMany(models.storeAssignment, {
+        foreignKey: 'userId',
+        as: 'storeAssignments'
+      })
+    }
   }
 
   return User

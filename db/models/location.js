@@ -1,6 +1,6 @@
 'use strict'
 module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
+  const Location = sequelize.define(
     'location',
     {
       id: {
@@ -11,6 +11,16 @@ module.exports = (sequelize, DataTypes) => {
       },
       store: {
         type: DataTypes.INTEGER
+      },
+      // AUTH-1 (DR-01): tenant ownership. Nullable as a safe first stage so
+      // existing rows stay valid without backfill; a store belongs to exactly
+      // one tenant once assigned. Tenant ownership is authoritative persisted
+      // state — never inferred from JWT. (Follow-up stage: NOT NULL after
+      // production backfill decides real tenant boundaries.)
+      tenantId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'tenant', key: 'id' }
       },
       image: {
         type: DataTypes.STRING
@@ -128,4 +138,13 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'location'
     }
   )
+
+  Location.associate = (models) => {
+    // AUTH-1 (DR-01): store → tenant ownership.
+    if (models.tenant) {
+      Location.belongsTo(models.tenant, { foreignKey: 'tenantId', as: 'tenant' })
+    }
+  }
+
+  return Location
 }
