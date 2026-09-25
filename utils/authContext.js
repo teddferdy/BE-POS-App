@@ -13,6 +13,13 @@
 // Permission → Store assignment → Resource ownership → ALLOW / DENY.
 // Client-supplied tenant/store IDs are context *candidates*: the resolver
 // validates them against persisted relationships and drops anything foreign.
+//
+// REQUEST CONTEXT CONTRACT — NOT YET DEFINED: no JWT claim, header, cookie or
+// middleware supplies activeTenantId/activeStoreId today (the JWT carries only
+// the legacy {id, roleType, roleId, store}). Callers may pass request values
+// here ONLY as candidates; never treat them, or anything not returned in the
+// resolved ctx, as authoritative. Defining that request source is a separate
+// product/API decision (DR-12 Q19, DR-03 Q8), deliberately not invented here.
 
 const TARGET_ROLES = Object.freeze([
   'platform_admin',
@@ -29,7 +36,8 @@ const MEMBERSHIP_STATUS = Object.freeze(['ACTIVE', 'DEACTIVATED', 'RETIRED'])
 // rows carry no tenant/store-wide marker, so the fail-safe default is the
 // NARROWER store_admin scope. Tenant-wide authority requires an explicit
 // tenant_admin membership — it is never inferred from the legacy string.
-// `super_admin` stays as a compatibility alias for platform_admin.
+// `super_admin` stays as a compatibility alias for platform_admin, but the
+// resolver applies it ONLY to a global account (see legacySuperAdminScopeOf).
 const LEGACY_ROLE_MAP = Object.freeze({
   super_admin: 'platform_admin',
   admin: 'store_admin',
@@ -68,15 +76,35 @@ const ROLE_BASELINE_PERMISSIONS = Object.freeze({
 const isAccountEligible = (status) =>
   String(status || '').toUpperCase() === 'ACTIVE'
 
+// Strict positive-integer id: numbers or canonical digit strings only.
+// Arrays/objects/partial numerics never coerce into an id (Number([5]) === 5).
 const toId = (value) => {
-  const n = Number(value)
-  return Number.isFinite(n) && n > 0 ? n : null
+  if (typeof value === 'number') return Number.isInteger(value) && value > 0 ? value : null
+  if (typeof value === 'string' && /^[1-9]\d*$/.test(value)) {
+    const n = Number(value)
+    return Number.isSafeInteger(n) ? n : null
+  }
+  return null
 }
 
 // Store-level confinement: these roles may only act within explicitly
 // assigned stores. tenant_admin acts tenant-wide (assignment not required);
 // platform_admin acts under platform capability.
 const STORE_CONFINED_ROLES = Object.freeze(['store_admin', 'cashier', 'staff'])
+
+// Legacy super_admin has two existing variants, told apart by the account's
+// persisted `user.store` (the same value the JWT `store` claim is issued
+// from): null = global, set = store-bound. This is the repository's existing
+// rule (backup.js CRIT-3 canAccessBackupArtifact / MED-2
+// requireGlobalSuperAdmin; BA §35.2 AS-IS), not a new meaning. Only the
+// global variant keeps the platform compatibility alias; a store-bound
+// super_admin gets NO legacy authority here (its tenant/store classification
+// is an open DR-02 migration decision) and is governed solely by explicit
+// memberships/assignments — fail closed, never widened to platform.
+const legacySuperAdminScopeOf = (account) => {
+  if (account.roleType !== 'super_admin') return null
+  return account.store == null ? 'global' : 'store-bound'
+}
 
 const resolveAuthorizationContext = async (
   db,
@@ -87,6 +115,7 @@ const resolveAuthorizationContext = async (
     accountStatus: null,
     eligible: false,
     memberships: [],
+    effectiveTenantIds: [],
     activeTenantId: null,
     activeRole: null,
     permissions: [],
@@ -95,6 +124,7 @@ const resolveAuthorizationContext = async (
     activeStoreId: null,
     isPlatformAdmin: false,
     viaLegacyClaims: false,
+    legacySuperAdminScope: null,
     reason: null
   }
 
@@ -104,7 +134,7 @@ const resolveAuthorizationContext = async (
   }
 
   const account = await db.user.findByPk(ctx.accountId, {
-    attributes: ['id', 'status', 'roleType']
+    attributes: ['id', 'status', 'roleType', 'store']
   })
   if (!account) {
     ctx.reason = 'unknown-account'
@@ -117,8 +147,8 @@ const resolveAuthorizationContext = async (
   }
   ctx.eligible = true
 
-  const legacyTarget = legacyRoleTypeToTarget(account.roleType)
-  const legacyIsPlatform = legacyTarget === 'platform_admin'
+  ctx.legacySuperAdminScope = legacySuperAdminScopeOf(account)
+  const legacyIsPlatform = ctx.legacySuperAdminScope === 'global'
 
   const memberships = await db.tenantMembership.findAll({
     where: { userId: ctx.accountId },
@@ -126,7 +156,7 @@ const resolveAuthorizationContext = async (
       {
         model: db.tenant,
         as: 'tenant',
-        attributes: ['id', 'status'],
+        attributes: ['id', 'status', 'deletedAt'],
         required: false
       }
     ]
@@ -137,11 +167,21 @@ const resolveAuthorizationContext = async (
     status: m.status
   }))
 
-  // Effective = ACTIVE membership on an ACTIVE (non-suspended) tenant.
+  // Effective = ACTIVE membership, with a role in the target vocabulary, on
+  // a tenant that explicitly exists, is not soft-deleted and is 'active'.
+  // Validated field by field — never inferred from how the ORM join happens
+  // to resolve a deleted tenant (null include) — and never trusting the
+  // model's isIn validator (bulkCreate/raw writes skip it). Fail closed.
   const effective = memberships.filter(
-    (m) => m.status === 'ACTIVE' && (!m.tenant || m.tenant.status === 'active')
+    (m) =>
+      m.status === 'ACTIVE' &&
+      TARGET_ROLES.includes(m.role) &&
+      m.tenant != null &&
+      m.tenant.deletedAt == null &&
+      m.tenant.status === 'active'
   )
   const effectiveTenantIds = new Set(effective.map((m) => m.tenantId))
+  ctx.effectiveTenantIds = [...effectiveTenantIds]
 
   if (effective.some((m) => m.role === 'platform_admin') || legacyIsPlatform) {
     ctx.isPlatformAdmin = true
@@ -173,18 +213,6 @@ const resolveAuthorizationContext = async (
     ctx.viaLegacyClaims = legacyIsPlatform && !effective.some((m) => m.role === 'platform_admin')
   }
 
-  // Effective assignments: only under an effective membership (DR-03 —
-  // deactivation invalidates assignments without deleting them).
-  if (effective.length > 0) {
-    const assignments = await db.storeAssignment.findAll({
-      where: { userId: ctx.accountId },
-      attributes: ['storeId', 'tenantId']
-    })
-    ctx.assignedStoreIds = assignments
-      .filter((a) => effectiveTenantIds.has(Number(a.tenantId)))
-      .map((a) => Number(a.storeId))
-  }
-
   // Tenant store roster for scope checks (active tenant only).
   if (ctx.activeTenantId != null) {
     const stores = await db.location.findAll({
@@ -192,6 +220,22 @@ const resolveAuthorizationContext = async (
       attributes: ['id']
     })
     ctx.tenantStoreIds = stores.map((s) => Number(s.id))
+  }
+
+  // Effective assignments: ONLY those recorded under the active (effective)
+  // membership AND whose store persistently belongs to the active tenant.
+  // Assignments under other memberships never leak into this context, and a
+  // tenant-inconsistent row (hook bypassed via bulk/raw writes) is ignored.
+  // No active tenant → no assignments (DR-03: deactivation invalidates
+  // assignments without deleting them, via the effective-membership gate).
+  if (activeMembership) {
+    const assignments = await db.storeAssignment.findAll({
+      where: { userId: ctx.accountId, tenantId: ctx.activeTenantId },
+      attributes: ['storeId', 'tenantId']
+    })
+    ctx.assignedStoreIds = assignments
+      .map((a) => Number(a.storeId))
+      .filter((id) => ctx.tenantStoreIds.includes(id))
   }
 
   // Active store: must belong to the active tenant AND satisfy assignment
@@ -202,6 +246,11 @@ const resolveAuthorizationContext = async (
       ctx.activeTenantId != null && ctx.tenantStoreIds.includes(requestedStore)
     const platformWide = ctx.isPlatformAdmin && ctx.activeTenantId == null
     if (!inTenant && !platformWide) {
+      ctx.reason = 'foreign-store'
+      return ctx
+    }
+    // Platform-wide selection still has to name a store that exists.
+    if (!inTenant && !(await db.location.findByPk(requestedStore, { attributes: ['id'] }))) {
       ctx.reason = 'foreign-store'
       return ctx
     }
@@ -238,8 +287,12 @@ const can = (ctx, permission, scope = {}) => {
   if (!PERMISSIONS.includes(permission)) return false
   if (!ctx.permissions.includes(permission)) return false
 
+  // A scope id that is present but malformed denies — it must never
+  // degrade into "unscoped" and skip the tenant/store checks below.
   const tenantId = scope.tenantId != null ? toId(scope.tenantId) : null
   const storeId = scope.storeId != null ? toId(scope.storeId) : null
+  if (scope.tenantId != null && tenantId == null) return false
+  if (scope.storeId != null && storeId == null) return false
 
   // Platform capability: platform-level permissions need no tenant scope;
   // scoped reads are allowed cross-tenant (that IS the platform capability),
@@ -266,10 +319,30 @@ const can = (ctx, permission, scope = {}) => {
   return true
 }
 
+// Resource ownership: decide on a concrete persisted object by its OWN
+// tenantId/storeId (read from the loaded row — never from request input).
+// Same chain as can(), plus: a resource carrying no ownership at all is
+// visible only to a platform actor outside any tenant context — an
+// unowned row can never fall through as "unscoped" for tenant/store actors.
+const canAccessResource = (ctx, permission, resource = {}) => {
+  const { tenantId = null, storeId = null } = resource || {}
+  if (tenantId == null && storeId == null) {
+    if (!ctx || ctx.isPlatformAdmin !== true || ctx.activeTenantId != null) return false
+    return can(ctx, permission, {})
+  }
+  return can(ctx, permission, { tenantId, storeId })
+}
+
 // AUD-3 readiness: derive the tenant-aware audit visibility scope from a
-// resolved context. storeIds === null means tenant-wide; null return means
-// no audit visibility at all. (Wiring this into the audit controller is
-// AUD-3 follow-up, not AUTH-1.)
+// resolved context. storeIds === null means tenant-wide (all stores of
+// tenantId — resolve them via ctx.tenantStoreIds, NEVER treat it as
+// "unfiltered", since auditLog.tenantId is mostly NULL); a {tenantId: null,
+// storeIds: null} result is platform scope only; null return means no audit
+// visibility at all. Store-scoped results only ever contain stores
+// of the active tenant (re-checked against tenantStoreIds as defense in
+// depth); an empty store set fails closed to null so no consumer can mistake
+// "[]" for "unfiltered". (Wiring this into the audit controller is AUD-3
+// follow-up, not AUTH-1.)
 const auditScopeFor = (ctx) => {
   if (!ctx || ctx.eligible !== true) return null
   if (!ctx.permissions.includes('audit.read')) return null
@@ -278,7 +351,9 @@ const auditScopeFor = (ctx) => {
   }
   if (ctx.activeTenantId == null) return null
   if (STORE_CONFINED_ROLES.includes(ctx.activeRole)) {
-    return { tenantId: ctx.activeTenantId, storeIds: [...ctx.assignedStoreIds] }
+    const storeIds = ctx.assignedStoreIds.filter((id) => ctx.tenantStoreIds.includes(id))
+    if (storeIds.length === 0) return null
+    return { tenantId: ctx.activeTenantId, storeIds }
   }
   return { tenantId: ctx.activeTenantId, storeIds: null }
 }
@@ -292,5 +367,6 @@ module.exports = {
   legacyRoleTypeToTarget,
   resolveAuthorizationContext,
   can,
+  canAccessResource,
   auditScopeFor
 }
