@@ -46,7 +46,14 @@ function redactValue(value, seen) {
       if (SENSITIVE_KEYS.has(lowerKey)) {
         out[key] = '[REDACTED]'
       } else if (lowerKey === 'cardnumber' && typeof val === 'string') {
-        out[key] = val.length > 4 ? `****${val.slice(-4)}` : '[REDACTED]'
+        // AUD-2 idempotency: already-redacted markers must survive a second
+        // pass (redactAndAudit() redacts, then the auditLog() choke point
+        // redacts again) instead of being re-masked into '****TED]'.
+        if (val === '[REDACTED]' || val.startsWith('****')) {
+          out[key] = val
+        } else {
+          out[key] = val.length > 4 ? `****${val.slice(-4)}` : '[REDACTED]'
+        }
       } else {
         out[key] = redactValue(val, seen)
       }
@@ -63,6 +70,12 @@ function toPlain(value) {
   return value
 }
 
+// AUD-2: this is the single choke point for every legacy write — oldValues
+// and newValues are redacted here via the same centralized redactValue()
+// used by recordAudit(), so the ~130 existing createAudit call sites cannot
+// leak credentials/secrets into audit storage. Signature and fire-and-forget
+// behavior are unchanged; redactAndAudit() stays valid (re-redaction of the
+// '[REDACTED]' marker is idempotent).
 const auditLog = async ({
   store,
   userId,
@@ -87,8 +100,10 @@ const auditLog = async ({
         entity,
         entityId,
         description,
-        oldValues: oldValues || null,
-        newValues: newValues || null,
+        oldValues:
+          redactValue(toPlain(oldValues), new WeakSet()) || null,
+        newValues:
+          redactValue(toPlain(newValues), new WeakSet()) || null,
         ipAddress: ipAddress || null,
         userAgent: userAgent || null
       },
@@ -99,9 +114,10 @@ const auditLog = async ({
   }
 }
 
-// Unchanged signature and behavior — existing ~130 call sites keep
-// working exactly as they do today, unredacted. New call sites should
-// prefer redactAndAudit() below.
+// Unchanged signature — existing ~130 call sites keep working exactly as
+// they do today. Since AUD-2 the payload is redacted at the auditLog()
+// choke point above, so legacy callers are safe by default. New call sites
+// that already hold redacted values may still prefer redactAndAudit().
 const createAudit = (
   req,
   action,
@@ -171,7 +187,9 @@ module.exports = { auditLog, createAudit, redactAndAudit, AUDIT_ACTIONS }
 //   timestamp parameter by design: client time is never accepted.
 // - Credential-bearing payloads are redacted via redactValue() before
 //   persistence (same key families as the existing helper). Reason strings
-//   are truncated to REASON_MAX_LENGTH. Deeper payload inspection is AUD-2.
+//   are truncated to REASON_MAX_LENGTH. AUD-2 hardened the legacy auditLog()
+//   choke point with the same centralized redaction; JSON-string payloads
+//   are intentionally NOT parsed (no silent reinterpretation of caller data).
 // - Contract violations (bad actorType/result, missing action) throw
 //   synchronously so programmer errors fail fast in tests/CI.
 //

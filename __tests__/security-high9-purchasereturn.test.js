@@ -119,11 +119,11 @@ afterAll(async () => {
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })
   if (userAdmin1?.id) {
-    await db.auditLog.destroy({ where: { userId: userAdmin1.id }, force: true })
+    await db.auditLog.destroy({ where: { userId: userAdmin1.id }, force: true, __auditMaintenance: true })
     await db.user.destroy({ where: { id: userAdmin1.id }, force: true })
   }
   if (userSuper?.id) {
-    await db.auditLog.destroy({ where: { userId: userSuper.id }, force: true })
+    await db.auditLog.destroy({ where: { userId: userSuper.id }, force: true, __auditMaintenance: true })
     await db.user.destroy({ where: { id: userSuper.id }, force: true })
   }
   await db.location.destroy({ where: { id: [store1?.id, store2?.id].filter(Boolean) }, force: true })

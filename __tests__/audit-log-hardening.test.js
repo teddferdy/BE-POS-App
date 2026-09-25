@@ -93,9 +93,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.auditLog.destroy({
     where: { store: [store?.id, storeOther?.id] },
-    force: true
+    force: true,
+    __auditMaintenance: true
   })
-  await db.auditLog.destroy({ where: { entity: 'unit_test_redaction' }, force: true })
+  await db.auditLog.destroy({ where: { entity: 'unit_test_redaction' }, force: true, __auditMaintenance: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
@@ -622,7 +623,7 @@ describe('Audit log endpoint — tenant isolation and authorization', () => {
       .query({ store: storeOther.id, entity: 'tenant_isolation_probe' })
     expect(ownStoreRes.body.data.some((row) => row.entityId === 4242)).toBe(true)
 
-    await db.auditLog.destroy({ where: { entity: 'tenant_isolation_probe' }, force: true })
+    await db.auditLog.destroy({ where: { entity: 'tenant_isolation_probe' }, force: true, __auditMaintenance: true })
   })
 
   test('a cashier-role request to GET /audit-log is rejected with 403', async () => {

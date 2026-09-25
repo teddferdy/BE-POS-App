@@ -63,7 +63,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await db.auditLog.destroy({ where: { userId: [userAdmin1?.id, userSuper?.id].filter(Boolean) }, force: true })
+  await db.auditLog.destroy({ where: { userId: [userAdmin1?.id, userSuper?.id].filter(Boolean) }, force: true, __auditMaintenance: true })
   await db.user.destroy({ where: { id: [userAdmin1?.id, userSuper?.id].filter(Boolean) }, force: true })
   await db.location.destroy({ where: { id: [store1?.id, store2?.id].filter(Boolean) }, force: true })
 })
