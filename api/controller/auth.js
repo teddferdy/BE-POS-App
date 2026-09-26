@@ -29,6 +29,7 @@ const {
   sendEmail,
   buildResetPasswordEmail
 } = require('../../utils/emailService')
+const { hashResetToken, resetTokenMatches } = require('../../utils/resetToken')
 
 // Get User By Location
 // CRIT-2: ordinary roles (user/admin/kasir) are ALWAYS restricted to their own
@@ -183,10 +184,8 @@ exports.changeUserStatusById = async (req, res) => {
 
     createAudit(req, 'update', 'user', id, `Updated user status: ${id}`)
 
-    const result = updatedUser[1][0]?.dataValues
-    if (result) {
-      delete result.password
-    }
+    // RETURNING yields every column, credentials included; toJSON() strips them.
+    const result = updatedUser[1][0]?.toJSON()
 
     return res.status(200).json({
       message: 'Status user berhasil diubah',
@@ -279,8 +278,8 @@ exports.changeUserByIdAndLocation = async (req, res) => {
       })
     }
 
-    const result = updatedUsers[0]?.dataValues
-    delete result.password
+    // RETURNING yields every column, credentials included; toJSON() strips them.
+    const result = updatedUsers[0]?.toJSON()
     createAudit(req, 'update', 'user', id, `Updated user role: ${id}`)
 
     return res.status(200).json({
@@ -345,7 +344,8 @@ exports.login = async (req, res) => {
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userName)
 
     // Cari user berdasarkan email atau username
-    const findUser = await User.findOne({
+    // (the password hash is excluded by default; verification reads it explicitly)
+    const findUser = await User.scope('withCredentials').findOne({
       where: isEmail
         ? { email: userName.toLowerCase() }
         : { userName: userName.toLowerCase() },
@@ -671,7 +671,8 @@ exports.requestResetPassword = async (req, res) => {
         Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000
       )
 
-      existingUser.resetToken = token
+      // Only the digest is stored; the plaintext token exists solely in the email.
+      existingUser.resetToken = hashResetToken(token)
       existingUser.resetTokenExpires = expiresAt
       await existingUser.save()
 
@@ -742,12 +743,11 @@ exports.resetPassword = async (req, res) => {
 
   try {
     const email = String(body.email).trim().toLowerCase()
-    const existingUser = await User.findOne({ where: { email } })
+    const existingUser = await User.scope('withCredentials').findOne({ where: { email } })
 
     if (
       !existingUser ||
-      !existingUser.resetToken ||
-      existingUser.resetToken !== String(body.token) ||
+      !resetTokenMatches(existingUser.resetToken, body.token) ||
       !existingUser.resetTokenExpires ||
       new Date(existingUser.resetTokenExpires).getTime() < Date.now()
     ) {

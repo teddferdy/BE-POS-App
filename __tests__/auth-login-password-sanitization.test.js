@@ -47,7 +47,8 @@ async function expectSanitizedLogin(userName) {
 
   // 2. no credential verifier anywhere in the HTTP response
   expect(res.body?.user).not.toHaveProperty('password')
-  const stored = await db.user.findOne({
+  // the hash is excluded from default reads (P0-1); read it explicitly
+  const stored = await db.user.scope('withCredentials').findOne({
     where: { userName: userName.toLowerCase() },
     paranoid: false
   })
