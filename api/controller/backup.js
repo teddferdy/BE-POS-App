@@ -187,10 +187,17 @@ const cronMatches = (cron, date) => {
 // from a store-bound one (canAccessBackupArtifact already restricts the
 // latter to their own store's artifacts) — without this check a store-bound
 // super_admin could shorten the global retention window and cause another
+// P0: global authority = super_admin with no store. Backup artifacts are
+// platform-global (pg_dump covers the shared DB); the store label is
+// metadata, never authority. Only a global super_admin may perform backup
+// operations.
+const isGlobalSuperAdmin = (req) =>
+  req.user?.roleType === 'super_admin' && req.user?.store == null
+
 // store's (or the global admin's) backups to be deleted, despite having no
 // direct access to those artifacts at all.
 const requireGlobalSuperAdmin = (req, res) => {
-  if (req.user?.store != null) {
+  if (!isGlobalSuperAdmin(req)) {
     res.status(403).json({
       success: false,
       message:
@@ -242,6 +249,8 @@ exports.setSchedule = async (req, res) => {
 
 exports.createBackup = async (req, res) => {
   try {
+    // P0: platform-global operation — global super_admin only, before dump.
+    if (!requireGlobalSuperAdmin(req, res)) return
     const now = new Date()
     const stamp = now.toISOString().replace(/[:.]/g, '-')
     const filename = `backup_${stamp}.dump`
@@ -290,6 +299,9 @@ exports.createBackup = async (req, res) => {
 
 exports.listBackups = async (req, res) => {
   try {
+    // P0: platform-global operation — global super_admin only.
+    // The store label is metadata and never grants listing authority.
+    if (!requireGlobalSuperAdmin(req, res)) return
     // Store-bound super_admin always sees ONLY their own store. A global
     // super_admin may narrow the listing with an explicit store, otherwise
     // the listing is global (with the global nature documented). (CRIT-3)
@@ -322,6 +334,8 @@ exports.listBackups = async (req, res) => {
 
 exports.downloadBackup = async (req, res) => {
   try {
+    // P0: platform-global artifact — global super_admin only. Label is metadata.
+    if (!requireGlobalSuperAdmin(req, res)) return
     const { id } = req.params
     const record = await db.db_backup.findByPk(id)
     if (!record) {
@@ -356,6 +370,9 @@ exports.downloadBackup = async (req, res) => {
 
 exports.restoreBackup = async (req, res) => {
   try {
+    // P0: platform-global destructive operation — global super_admin only,
+    // verified BEFORE any pg_restore execution. Label is never authority.
+    if (!requireGlobalSuperAdmin(req, res)) return
     const { id } = req.params
     const record = await db.db_backup.findByPk(id)
     if (!record) {
@@ -398,6 +415,8 @@ exports.restoreBackup = async (req, res) => {
 
 exports.deleteBackup = async (req, res) => {
   try {
+    // P0: platform-global artifact — global super_admin only. Label is metadata.
+    if (!requireGlobalSuperAdmin(req, res)) return
     const { id } = req.params
     const record = await db.db_backup.findByPk(id)
     if (!record) {

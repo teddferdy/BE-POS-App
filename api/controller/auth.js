@@ -20,6 +20,18 @@ const parseAccessMenu = (menu) => {
   return []
 }
 
+// P0: global authority = super_admin with no store (platform-level).
+// Store-bound super_admin is store-confined, never global (same rule as
+// employee.js P0-2 isGlobalSuperAdmin and authContext legacySuperAdminScopeOf).
+const isGlobalSuperAdmin = (req) =>
+  req.user?.roleType === 'super_admin' && req.user?.store == null
+
+// Store-confined actors (regular admin + store-bound super_admin) are held
+// to their own store for change-profile-user.
+const isStoreConfinedForProfile = (req) =>
+  req.user?.roleType === 'admin' ||
+  (req.user?.roleType === 'super_admin' && !isGlobalSuperAdmin(req))
+
 const {
   uploadToCloudinary,
   deleteFromCloudinary
@@ -214,17 +226,32 @@ exports.changeUserByIdAndLocation = async (req, res) => {
       })
     }
 
-    // Validation: Admin can only manage users in their store
-    if (currentUserRole === 'admin') {
+    // P0: only a global super_admin may touch an existing super_admin
+    // account through this endpoint, whichever field is changed.
+    if (!isGlobalSuperAdmin(req) && targetUser.roleType === 'super_admin') {
+      return res.status(403).json({
+        message: 'Tidak dapat mengubah Super Admin'
+      })
+    }
+
+    // Validation: store-confined actors (admin + store-bound super_admin)
+    // can only manage users in their own store and cannot move them.
+    if (isStoreConfinedForProfile(req)) {
       if (targetUser.store !== currentUserStore) {
         return res.status(403).json({
           message: 'Anda hanya dapat mengubah user di toko Anda'
         })
       }
-      // Admin can't change super_admin
-      if (targetUser.roleType === 'super_admin') {
+      // Admin can't move a user to a different store
+      if (store !== undefined && parseInt(store) !== currentUserStore) {
         return res.status(403).json({
-          message: 'Tidak dapat mengubah Super Admin'
+          message: 'Anda hanya dapat menetapkan user ke toko Anda sendiri'
+        })
+      }
+    } else if (currentUserRole === 'admin') {
+      if (targetUser.store !== currentUserStore) {
+        return res.status(403).json({
+          message: 'Anda hanya dapat mengubah user di toko Anda'
         })
       }
       // Admin can't move a user to a different store
@@ -239,27 +266,41 @@ exports.changeUserByIdAndLocation = async (req, res) => {
     const updateData = { userType, position, store }
 
     if (roleId || roleType) {
-      // Only a super_admin may grant the super_admin role to anyone
-      if (currentUserRole !== 'super_admin' && roleType === 'super_admin') {
+      // P0: only a global super_admin may grant the super_admin role,
+      // via either roleType or roleId representation.
+      if (!isGlobalSuperAdmin(req) && roleType === 'super_admin') {
         return res.status(403).json({
           message: 'Anda tidak memiliki izin untuk memberikan role Super Admin'
         })
       }
       if (roleId) {
         const role = await db.role.findByPk(roleId)
-        if (role) {
-          if (
-            currentUserRole !== 'super_admin' &&
-            role.roleType === 'super_admin'
-          ) {
-            return res.status(403).json({
-              message:
-                'Anda tidak memiliki izin untuk memberikan role Super Admin'
-            })
-          }
-          updateData.roleId = roleId
-          updateData.roleType = role.roleType
+        // P0: unknown roleId is 400 with no mutation (never silent fallback).
+        if (!role) {
+          return res.status(400).json({
+            message: 'Role tidak ditemukan'
+          })
         }
+        if (
+          !isGlobalSuperAdmin(req) &&
+          role.roleType === 'super_admin'
+        ) {
+          return res.status(403).json({
+            message:
+              'Anda tidak memiliki izin untuk memberikan role Super Admin'
+          })
+        }
+        // Legacy compatibility: non-global non-admin callers were already
+        // blocked above for super_admin targets/grants; preserve the
+        // original admin-only grant check for other privileged grants.
+        if (currentUserRole !== 'super_admin' && role.roleType === 'super_admin') {
+          return res.status(403).json({
+            message:
+              'Anda tidak memiliki izin untuk memberikan role Super Admin'
+          })
+        }
+        updateData.roleId = roleId
+        updateData.roleType = role.roleType
       } else if (roleType) {
         updateData.roleType = roleType
         // Clear roleId if changing to custom or different type
