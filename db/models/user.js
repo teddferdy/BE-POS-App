@@ -1,5 +1,11 @@
 'use strict'
 const bcrypt = require('bcrypt')
+const { Model } = require('sequelize')
+
+// P0-1: credential and recovery material. Never loaded by default reads and
+// never serialized. Code that must verify them (login, password reset) reads
+// them explicitly through the `withCredentials` scope.
+const CREDENTIAL_ATTRIBUTES = Object.freeze(['password', 'resetToken', 'resetTokenExpires'])
 
 module.exports = (sequelize, DataTypes) => {
   const User = sequelize.define(
@@ -144,6 +150,15 @@ module.exports = (sequelize, DataTypes) => {
       paranoid: true,
       freezeTableName: true,
       tableName: 'user',
+      // Applied to finders and to `include`s of this model; an explicit
+      // `attributes: { exclude: [...] }` merges with it, an explicit
+      // whitelist replaces it.
+      defaultScope: {
+        attributes: { exclude: [...CREDENTIAL_ATTRIBUTES] }
+      },
+      scopes: {
+        withCredentials: {}
+      },
       hooks: {
         beforeSave: async (user) => {
           if (user.changed('password') && user.password) {
@@ -153,6 +168,17 @@ module.exports = (sequelize, DataTypes) => {
       }
     }
   )
+
+  // Instances from create(), update({ returning: true }) or the
+  // `withCredentials` scope still hold credentials in memory; strip them at
+  // the serialization boundary so returning such an instance cannot leak.
+  User.prototype.toJSON = function toJSON() {
+    const values = Model.prototype.toJSON.call(this)
+    for (const attribute of [...CREDENTIAL_ATTRIBUTES, 'confirmPassword']) {
+      delete values[attribute]
+    }
+    return values
+  }
 
   User.associate = (models) => {
     User.belongsTo(models.role, { foreignKey: 'roleId', as: 'role' })

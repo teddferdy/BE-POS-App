@@ -4,6 +4,7 @@ const router = express.Router()
 const roleController = require('../controller/role')
 const authorization = require('../../utils/authorization')
 const { requireRole } = require('../../utils/authorization')
+const { validateStoreAccess } = require('../../utils/storeValidation')
 const { validate } = require('../middleware/validate')
 const { createRoleSchema, updateRoleSchema } = require('../validation/schemas')
 
@@ -55,8 +56,16 @@ router.put(
   roleController.updateUserRole
 )
 
-// Get Users by Role
-router.get('/get-users-by-role', authorization, roleController.getUsersByRole)
+// Get Users by Role (Super Admin / Admin) — P0-1: a user-management read.
+// validateStoreAccess pins an admin to the token's store and rejects foreign
+// or unassigned scopes before the controller narrows by store.
+router.get(
+  '/get-users-by-role',
+  authorization,
+  validateStoreAccess,
+  requireRole('super_admin', 'admin'),
+  roleController.getUsersByRole
+)
 
 // Update Access Menu for Role (Super Admin only)
 router.put(

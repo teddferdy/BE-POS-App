@@ -288,7 +288,9 @@ describe('redactAndAudit — recursive redaction, verified at the persisted row'
   })
 
   test('plainifies a real Sequelize model instance via toJSON before redacting — the password hash never reaches the stored row', async () => {
-    const freshUser = await db.user.findByPk(adminUser.id)
+    // the hash is excluded from default reads (P0-1); load it explicitly so
+    // the instance really carries it
+    const freshUser = await db.user.scope('withCredentials').findByPk(adminUser.id)
     expect(freshUser.password).toBeTruthy() // sanity: the hash exists on the instance
 
     await redactAndAudit(fakeReq(), {
@@ -303,7 +305,8 @@ describe('redactAndAudit — recursive redaction, verified at the persisted row'
       where: { entity: 'unit_test_redaction', entityId: 8 },
       order: [['id', 'DESC']]
     })
-    expect(row.newValues.password).toBe('[REDACTED]')
+    // user.toJSON() drops credentials before redaction even sees them (P0-1)
+    expect(row.newValues).not.toHaveProperty('password')
     expect(row.newValues.userName).toBe(adminUser.userName)
     expect(JSON.stringify(row.newValues)).not.toContain(freshUser.password)
   })

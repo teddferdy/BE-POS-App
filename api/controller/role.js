@@ -388,21 +388,51 @@ exports.updateUserRole = async (req, res) => {
   }
 }
 
+// P0-1: the caller's authority decides the scope; `roleType` is only a
+// filter inside it. Route gate: requireRole('super_admin', 'admin') +
+// validateStoreAccess.
+//   global super_admin (no store)   -> every store
+//   store-bound super_admin         -> its own store only (same rule as
+//                                      backup.js effectiveBackupStore)
+//   admin                           -> its own store, never super_admin rows
 exports.getUsersByRole = async (req, res) => {
   const { roleType } = req.query
   const currentUserRole = req.user?.roleType
   const currentUserStore = req.user?.store
 
+  const roleTypes = User.rawAttributes.roleType.values
+  const hasFilter = roleType !== undefined && roleType !== ''
+  if (hasFilter && !roleTypes.includes(roleType)) {
+    return res.status(400).json({
+      success: false,
+      message: 'roleType tidak valid'
+    })
+  }
+
   try {
     const whereCondition = {}
 
-    if (roleType) {
+    if (hasFilter) {
       whereCondition.roleType = roleType
     }
 
+    const isGlobalSuperAdmin =
+      currentUserRole === 'super_admin' && currentUserStore == null
+    if (!isGlobalSuperAdmin) {
+      const ownStore = Number(currentUserStore)
+      if (!Number.isInteger(ownStore) || ownStore <= 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Store assignment required'
+        })
+      }
+      whereCondition.store = ownStore
+    }
+
     if (currentUserRole === 'admin') {
-      whereCondition.store = currentUserStore
-      whereCondition.roleType = { [Op.ne]: 'super_admin' }
+      whereCondition.roleType = hasFilter
+        ? { [Op.and]: [{ [Op.eq]: roleType }, { [Op.ne]: 'super_admin' }] }
+        : { [Op.ne]: 'super_admin' }
     }
 
     const users = await db.user.findAll({
