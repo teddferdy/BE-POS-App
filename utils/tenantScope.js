@@ -1,6 +1,52 @@
 'use strict'
 const { Op } = require('sequelize')
 
+// ---------------------------------------------------------------------------
+// Canonical (F5) tenant/store scope — authority from req.authContext only.
+// req.user.roleType, req.user.store, cookies, query, and body values are
+// NEVER consulted here: they are candidates, validated elsewhere against the
+// persisted context. Every legacy helper below delegates here whenever a
+// server-resolved context is attached.
+// ---------------------------------------------------------------------------
+const STORE_CONFINED_ROLES = Object.freeze(['store_admin', 'cashier', 'staff'])
+
+// Build a store-column WHERE fragment from a resolved canonical context.
+// - platform without tenant: no confinement (platform capability decides).
+// - store-confined role: exactly the assigned stores (empty -> impossible).
+// - tenant-wide role: all stores of the active tenant (empty -> impossible).
+// - no active tenant: impossible value (fail closed, never wildcard).
+const canonicalStoreWhereFragment = (ctx) => {
+  if (!ctx || ctx.eligible !== true) return { store: -1 }
+  if (ctx.isPlatformAdmin && ctx.activeTenantId == null) return {}
+  if (ctx.activeTenantId == null) return { store: -1 }
+  if (STORE_CONFINED_ROLES.includes(ctx.activeRole)) {
+    const ids = (ctx.assignedStoreIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    if (ids.length === 0) return { store: -1 }
+    return { store: ids.length === 1 ? ids[0] : { [Op.in]: ids } }
+  }
+  const tenantIds = (ctx.tenantStoreIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0)
+  if (tenantIds.length === 0) return { store: -1 }
+  return { store: tenantIds.length === 1 ? tenantIds[0] : { [Op.in]: tenantIds } }
+}
+
+// Canonical entry point for store-column models: merges the caller's WHERE
+// with the context-derived confinement. Deterministic and fail-closed.
+function canonicalTenantFilter(req, where = {}) {
+  const ctx = req?.authContext
+  if (!ctx) return null // no canonical context attached
+  return { ...where, ...canonicalStoreWhereFragment(ctx) }
+}
+
+// Canonical resource-ownership check on a concrete persisted object.
+// The resource's OWN tenantId/storeId (read from the loaded row) is matched
+// against the resolved context — never against request input.
+function canonicalResourceAccess(req, permission, resource = {}) {
+  const ctx = req?.authContext
+  if (!ctx) return false
+  const { canAccessResource } = require('./authContext')
+  return canAccessResource(ctx, permission, resource)
+}
+
 // Query-level tenant guard, complementing (not replacing) storeValidation's
 // validateStoreAccess. That middleware only checks which store value a
 // caller is ALLOWED TO CLAIM in the request body/query — it never looks at
@@ -33,6 +79,8 @@ const isSuperAdmin = (req) => req.user?.roleType === 'super_admin'
 //   at the middleware boundary, and controllers calling this helper stay
 //   closed even on routes that forget that guard).
 function resolveStoreId(req) {
+  // F5: the session selection wins when a canonical context is attached.
+  if (req?.authContext?.activeStoreId != null) return Number(req.authContext.activeStoreId)
   if (isSuperAdmin(req)) {
     return req.storeId || req.cookies?.store || req.user?.store
   }
@@ -48,6 +96,8 @@ function resolveStoreId(req) {
 // Fails closed: a non-super-admin token without a numeric `store` claim
 // matches an impossible value instead of silently matching every row.
 function scalarStoreScope(req, where = {}) {
+  // F5: canonical context wins whenever it is attached.
+  if (req?.authContext) return canonicalTenantFilter(req, where)
   if (isSuperAdmin(req)) return { ...where }
   const userStore = Number(req.user?.store)
   return { ...where, store: Number.isFinite(userStore) ? userStore : -1 }
@@ -67,6 +117,7 @@ function scalarStoreScope(req, where = {}) {
 // array (multi-store assignment), without needing a data migration to land
 // this security fix.
 function arrayStoreScope(req, where = {}) {
+  if (req?.authContext) return canonicalTenantFilter(req, where)
   if (isSuperAdmin(req)) return { ...where }
   const userStore = Number(req.user?.store)
   if (!Number.isFinite(userStore)) {
@@ -109,6 +160,7 @@ function nullableArrayStoreWhere(storeId) {
 }
 
 function nullableArrayStoreScope(req, where = {}) {
+  if (req?.authContext) return canonicalTenantFilter(req, where)
   if (isSuperAdmin(req)) return { ...where }
   const userStore = Number(req.user?.store)
   const storeId = Number.isFinite(userStore) ? userStore : -1
@@ -140,6 +192,23 @@ const supplierStoreScope = nullableArrayStoreScope
 //                     driver). 'supplier' is accepted as an alias for the
 //                     same behavior — kept for the two existing call sites.
 function relatedStoreInclude(req, { model, as, attributes, parentShape = 'scalar' }) {
+  if (req?.authContext) {
+    const ctx = req.authContext
+    if (!ctx || ctx.eligible !== true || ctx.activeTenantId == null) {
+      return { model, as, required: true, where: { store: -1 }, ...(attributes ? { attributes } : {}) }
+    }
+    if (ctx.isPlatformAdmin && ctx.activeTenantId == null) {
+      return { model, as, required: false, ...(attributes ? { attributes } : {}) }
+    }
+    const ids = (STORE_CONFINED_ROLES.includes(ctx.activeRole) ? ctx.assignedStoreIds : ctx.tenantStoreIds || []).map(Number)
+    return {
+      model,
+      as,
+      required: true,
+      where: { store: ids.length === 0 ? -1 : ids.length === 1 ? ids[0] : { [Op.in]: ids } },
+      ...(attributes ? { attributes } : {})
+    }
+  }
   if (isSuperAdmin(req)) {
     return { model, as, required: false, ...(attributes ? { attributes } : {}) }
   }
@@ -165,5 +234,8 @@ module.exports = {
   arrayStoreScope,
   supplierStoreScope,
   nullableArrayStoreScope,
-  relatedStoreInclude
+  relatedStoreInclude,
+  canonicalTenantFilter,
+  canonicalResourceAccess,
+  canonicalStoreWhereFragment
 }

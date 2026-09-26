@@ -88,7 +88,8 @@ const storeArray = () =>
       return v.map(Number)
     })
 
-const statusEnum = z.enum(['active', 'inactive', 'draft']).default('active')
+const statusEnumBase = z.enum(['active', 'inactive', 'draft'])
+const statusEnum = statusEnumBase.default('active')
 
 // F7: explicit fulfillment-strategy flag — an unrecognized value must fail
 // clearly at the boundary, never be silently coerced to a valid mode.
@@ -332,10 +333,302 @@ exports.updateOrderItemStatusSchema = z.object({
   itemStatus: z.enum(['pending', 'preparing', 'ready', 'served'])
 })
 
+// ===================== Store lifecycle / tenant ownership =====================
+
+const STORE_LIFECYCLE_STATUSES = Object.freeze([
+  'active',
+  'inactive',
+  'draft',
+  'closed',
+  'retired',
+  'quarantined'
+])
+
+// Only 'active' stores are operationally usable. Everything else is an
+// explicitly non-operational state: draft (not published yet), inactive /
+// closed (temporarily out of service), retired / quarantined (terminal).
+const OPERATIONAL_STORE_STATUSES = Object.freeze(['active'])
+const NON_OPERATIONAL_STORE_STATUSES = Object.freeze(
+  STORE_LIFECYCLE_STATUSES.filter((status) => !OPERATIONAL_STORE_STATUSES.includes(status))
+)
+const IRREVERSIBLE_STORE_STATUSES = Object.freeze(['retired', 'quarantined'])
+
+// Statuses an ordinary request may never move INTO 'active'. 'draft' is
+// excluded on purpose: publishing a freshly created draft store is the normal
+// create-then-activate flow, not a reactivation.
+const REQUEST_BLOCKED_ACTIVATION_STATUSES = Object.freeze(
+  NON_OPERATIONAL_STORE_STATUSES.filter((status) => status !== 'draft')
+)
+
+const strictTenantId = (value) => {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : null
+  }
+  if (typeof value === 'string' && /^[1-9]\d*$/.test(value)) {
+    const normalized = Number(value)
+    return Number.isSafeInteger(normalized) ? normalized : null
+  }
+  return null
+}
+
+const normalizeLifecycleStatus = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return { provided: false, value: null, known: true }
+  }
+  if (typeof value !== 'string') return { provided: true, value: null, known: false }
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return { provided: false, value: null, known: true }
+  if (!STORE_LIFECYCLE_STATUSES.includes(normalized)) {
+    return { provided: true, value: null, known: false }
+  }
+  return { provided: true, value: normalized, known: true }
+}
+
+const normalizeOptionalTenantId = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return { provided: false, value: null, valid: true }
+  }
+  const normalized = strictTenantId(value)
+  return { provided: true, value: normalized, valid: normalized !== null }
+}
+
+const lifecycleRejection = (code, field, message) => ({
+  ok: false,
+  code,
+  field,
+  message,
+  tenantId: null,
+  status: null,
+  becomesOperational: false
+})
+
+// Pure, deterministic store-lifecycle / tenant-ownership decision. Returns the
+// first failing rule in a fixed order, so the same input always produces the
+// same code. `storeInput` fields:
+//   currentStatus     persisted lifecycle status of the store (null on create)
+//   requestedStatus   lifecycle status the request asks for (null = unchanged)
+//   tenantId          target tenant CANDIDATE from the request (optional)
+//   persistedTenantId tenant ownership already stored on the row (optional)
+const assertOperationalStoreTenant = (context, storeInput) => {
+  const input =
+    storeInput && typeof storeInput === 'object' && !Array.isArray(storeInput)
+      ? storeInput
+      : {}
+
+  if (!context || context.eligible !== true) {
+    return lifecycleRejection(
+      'CONTEXT_UNRESOLVED',
+      'context',
+      'an eligible resolved authorization context is required'
+    )
+  }
+
+  const currentStatus = normalizeLifecycleStatus(input.currentStatus)
+  const requestedStatus = normalizeLifecycleStatus(input.requestedStatus)
+  if (!currentStatus.known) {
+    return lifecycleRejection(
+      'UNKNOWN_STORE_STATUS',
+      'currentStatus',
+      'currentStatus is not a known store lifecycle status'
+    )
+  }
+  if (!requestedStatus.known) {
+    return lifecycleRejection(
+      'UNKNOWN_STORE_STATUS',
+      'requestedStatus',
+      'requestedStatus is not a known store lifecycle status'
+    )
+  }
+
+  const requestedTenantId = normalizeOptionalTenantId(input.tenantId)
+  if (!requestedTenantId.valid) {
+    return lifecycleRejection(
+      'INVALID_TENANT_ID',
+      'tenantId',
+      'tenantId must be a positive integer'
+    )
+  }
+  const persistedTenantId = normalizeOptionalTenantId(input.persistedTenantId)
+  if (!persistedTenantId.valid) {
+    return lifecycleRejection(
+      'INVALID_TENANT_ID',
+      'persistedTenantId',
+      'persistedTenantId must be a positive integer'
+    )
+  }
+
+  const requestsOperational =
+    requestedStatus.provided && OPERATIONAL_STORE_STATUSES.includes(requestedStatus.value)
+  const wasOperational =
+    currentStatus.provided && OPERATIONAL_STORE_STATUSES.includes(currentStatus.value)
+  const becomesOperational = requestsOperational && !wasOperational
+
+  if (
+    requestsOperational &&
+    currentStatus.provided &&
+    !wasOperational &&
+    REQUEST_BLOCKED_ACTIVATION_STATUSES.includes(currentStatus.value)
+  ) {
+    return IRREVERSIBLE_STORE_STATUSES.includes(currentStatus.value)
+      ? lifecycleRejection(
+          'STORE_STATUS_IRREVERSIBLE',
+          'currentStatus',
+          `${currentStatus.value} is a terminal store state and cannot be reactivated`
+        )
+      : lifecycleRejection(
+          'STORE_ACTIVATION_NOT_PERMITTED',
+          'currentStatus',
+          `a ${currentStatus.value} store cannot become active by request`
+        )
+  }
+
+  if (
+    currentStatus.provided &&
+    IRREVERSIBLE_STORE_STATUSES.includes(currentStatus.value) &&
+    requestedStatus.provided &&
+    requestedStatus.value !== currentStatus.value
+  ) {
+    return lifecycleRejection(
+      'STORE_STATUS_IRREVERSIBLE',
+      'currentStatus',
+      `${currentStatus.value} is a terminal store state and cannot be changed by request`
+    )
+  }
+
+  const contextTenantId = normalizeOptionalTenantId(context.activeTenantId)
+  if (!contextTenantId.valid) {
+    return lifecycleRejection(
+      'INVALID_TENANT_ID',
+      'context',
+      'the resolved context carries a malformed tenant id'
+    )
+  }
+
+  let tenantId = contextTenantId.value
+  if (tenantId === null) {
+    if (context.isPlatformAdmin !== true) {
+      return lifecycleRejection(
+        'TENANT_SCOPE_REQUIRED',
+        'context',
+        'a resolved tenant context is required for store lifecycle changes'
+      )
+    }
+    // Platform-wide context: it carries no tenant of its own, so an
+    // operational store must name one explicitly. A non-operational store may
+    // stay tenantless until the production cutover gate.
+    if (requestedTenantId.value === null) {
+      if (requestsOperational) {
+        return lifecycleRejection(
+          'TARGET_TENANT_REQUIRED',
+          'tenantId',
+          'platform store creation requires an explicit target tenant'
+        )
+      }
+    } else {
+      tenantId = requestedTenantId.value
+    }
+  } else if (requestedTenantId.value !== null && requestedTenantId.value !== tenantId) {
+    return lifecycleRejection(
+      'TENANT_SCOPE_MISMATCH',
+      'tenantId',
+      'the requested tenant is outside the resolved tenant context'
+    )
+  }
+
+  if (requestsOperational && tenantId === null) {
+    return lifecycleRejection(
+      'STORE_TENANT_REQUIRED',
+      'tenantId',
+      'an operational store requires an approved tenant'
+    )
+  }
+
+  if (
+    persistedTenantId.value !== null &&
+    tenantId !== null &&
+    persistedTenantId.value !== tenantId
+  ) {
+    return lifecycleRejection(
+      'TENANT_REASSIGNMENT_NOT_PERMITTED',
+      'tenantId',
+      'store tenant ownership cannot be reassigned by request'
+    )
+  }
+
+  return {
+    ok: true,
+    code: null,
+    field: null,
+    message: null,
+    tenantId,
+    status: requestedStatus.provided ? requestedStatus.value : currentStatus.value,
+    becomesOperational,
+    wasOperational
+  }
+}
+
+const PRODUCT_ASSIGNMENT_REJECTION = Object.freeze({
+  PRODUCT_UNASSIGNED_NOT_SELLABLE:
+    'a sellable product must be assigned to at least one store of one tenant'
+})
+
+// Pure, deterministic product-assignment decision. `assignmentProvided` is true
+// only when the request actually carried a `stores` payload — omitting it is
+// NOT a request to unassign, so historical assignments and their ownership are
+// preserved untouched. An explicit empty assignment on a product that is still
+// active/available is rejected: clearing every assignment would leave the
+// product visible to every store (the "unassigned ⇒ globally sellable" fail
+// open). Unassigning stays possible in the same request that makes the product
+// non-sellable.
+const assertSellableProductAssignment = (productInput) => {
+  const input =
+    productInput && typeof productInput === 'object' && !Array.isArray(productInput)
+      ? productInput
+      : {}
+  const storeIds = Array.isArray(input.storeIds) ? input.storeIds : []
+  const status = normalizeLifecycleStatus(input.status).value
+  const isAvailable = input.isAvailable !== false && input.isAvailable !== 'false'
+
+  if (input.assignmentProvided !== true) {
+    return {
+      ok: true,
+      code: 'ASSIGNMENT_UNCHANGED',
+      field: 'stores',
+      message: null,
+      storeIds,
+      globallySellable: false
+    }
+  }
+
+  if (storeIds.length === 0 && status === 'active' && isAvailable) {
+    return {
+      ok: false,
+      code: 'PRODUCT_UNASSIGNED_NOT_SELLABLE',
+      field: 'stores',
+      message: PRODUCT_ASSIGNMENT_REJECTION.PRODUCT_UNASSIGNED_NOT_SELLABLE,
+      storeIds,
+      globallySellable: false
+    }
+  }
+
+  return {
+    ok: true,
+    code: null,
+    field: null,
+    message: null,
+    storeIds,
+    globallySellable: false
+  }
+}
+
 // ===================== Location =====================
 exports.createLocationSchema = z.object({
   name: z.string().min(1, 'Location name is required'),
   store: strToNum().optional().nullable(),
+  // Target-tenant candidate for the new store. It is validated against the
+  // resolved authorization context by assertOperationalStoreTenant and is
+  // never treated as ownership evidence on its own.
+  tenantId: strToNum().optional().nullable(),
   address: z.string().optional().nullable(),
   detailLocation: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
@@ -359,11 +652,23 @@ exports.createLocationSchema = z.object({
   image: z.string().optional().nullable()
 })
 
+// ponytail: passthrough preserves locationId, id, storeId, coordinates, etc.
+// that the controller needs but aren't in the base schema.
+// AUTH-2: `status` is overridden with the bare (defaultless) enum for the same
+// reason inventoryMode is — `.partial()` does not strip `.default()`, so an
+// omitted status on an edit parsed to 'active' and every partial edit silently
+// reactivated the store, defeating the lifecycle rules entirely.
 exports.updateLocationSchema = exports.createLocationSchema
   .partial()
   .passthrough()
-// ponytail: passthrough preserves locationId, id, storeId, coordinates, etc.
-// that the controller needs but aren't in the base schema
+  .extend({ status: statusEnumBase.optional() })
+
+exports.STORE_LIFECYCLE_STATUSES = STORE_LIFECYCLE_STATUSES
+exports.OPERATIONAL_STORE_STATUSES = OPERATIONAL_STORE_STATUSES
+exports.NON_OPERATIONAL_STORE_STATUSES = NON_OPERATIONAL_STORE_STATUSES
+exports.IRREVERSIBLE_STORE_STATUSES = IRREVERSIBLE_STORE_STATUSES
+exports.assertOperationalStoreTenant = assertOperationalStoreTenant
+exports.assertSellableProductAssignment = assertSellableProductAssignment
 
 // ===================== Supplier =====================
 exports.createSupplierSchema = z.object({

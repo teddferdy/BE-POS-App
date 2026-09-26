@@ -146,5 +146,80 @@ module.exports = (sequelize, DataTypes) => {
     }
   }
 
+  // AUTH-2: tenant ownership of a store that already has one is never
+  // rewritten implicitly. Reassignment is an approved migration decision
+  // (see scripts/tenant-backfill-preflight.js), so any write that would move
+  // an owned store to a different tenant must opt in explicitly through
+  // `allowTenantReassignment`. First-time assignment (null -> tenant) and
+  // writes that do not touch tenantId at all stay unblocked: null is the
+  // explicitly non-operational migration state until the cutover gate.
+  const collectWhereIds = (where, into = []) => {
+    if (!where || typeof where !== 'object') return into
+    const keys = [...Object.keys(where), ...Object.getOwnPropertySymbols(where)]
+    for (const key of keys) {
+      const value = where[key]
+      // Sequelize wraps a paranoid model's filter in `Op.and`, a symbol key,
+      // so the primary key filter is one level down.
+      if (typeof key !== 'string' || Array.isArray(value)) {
+        collectWhereIds(value, into)
+        continue
+      }
+      if (key === 'id' || key === Location.primaryKeyAttribute) {
+        for (const candidate of Array.isArray(value) ? value : [value]) {
+          const id = Number(candidate)
+          if (Number.isSafeInteger(id) && id > 0) into.push(id)
+        }
+        continue
+      }
+      collectWhereIds(value, into)
+    }
+    return into
+  }
+
+  const isRejectedReassignment = async (id, nextTenantId) => {
+    if (nextTenantId == null || nextTenantId === '') return false
+    const rows = await Location.findAll({
+      where: { id },
+      attributes: ['id', 'tenantId'],
+      paranoid: false
+    })
+    return rows.some(
+      (row) =>
+        row.tenantId != null &&
+        row.tenantId !== '' &&
+        Number(row.tenantId) !== Number(nextTenantId)
+    )
+  }
+
+  const assertTenantReassignmentApproved = async (instance, options = {}) => {
+    if (options.allowTenantReassignment === true) return
+    if (instance.changed('tenantId') !== true) return
+    const previous = instance.previous('tenantId')
+    if (previous == null || previous === '') return
+    if (await isRejectedReassignment(instance.get(Location.primaryKeyAttribute), instance.tenantId)) {
+      throw new Error(
+        'location rejected: store tenant ownership cannot be reassigned implicitly'
+      )
+    }
+  }
+
+  const assertBulkTenantReassignmentApproved = async (options = {}) => {
+    if (options.allowTenantReassignment === true) return
+    const attributes = options.attributes
+    if (!attributes || !Object.prototype.hasOwnProperty.call(attributes, 'tenantId')) {
+      return
+    }
+    const ids = [...new Set(collectWhereIds(options.where))]
+    if (ids.length === 0) return
+    if (await isRejectedReassignment(ids, attributes.tenantId)) {
+      throw new Error(
+        'location rejected: store tenant ownership cannot be reassigned implicitly'
+      )
+    }
+  }
+
+  Location.addHook('beforeUpdate', assertTenantReassignmentApproved)
+  Location.addHook('beforeBulkUpdate', assertBulkTenantReassignmentApproved)
+
   return Location
 }

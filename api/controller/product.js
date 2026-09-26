@@ -17,6 +17,7 @@ const {
   parseProductTemplate
 } = require('../../utils/excelTemplate')
 const { isSuperAdmin } = require('../../utils/tenantScope')
+const { assertSellableProductAssignment } = require('../validation/schemas')
 
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
@@ -134,6 +135,25 @@ const syncProductStores = async (productId, storeIds, transaction) => {
       transaction
     })
   }
+}
+
+// product_store IS the product's tenant boundary. The persisted
+// location.tenantId values decide it — never a caller-supplied store id, and
+// never a caller-supplied "this is global" claim. Rejects a write that would
+// make a product's assignment set straddle two tenants, mix a still-tenantless
+// migration-state store with an owned one, or reference a store that does not
+// exist, BEFORE any row is written so the caller gets a deterministic 400
+// instead of a hook-thrown 500.
+const assertProductStoresAssignable = async (productId, storeIds, transaction) => {
+  if (!(await hasProductStoreTable())) return null
+  if (!storeIds.length) return null
+  const result = await db.product_store.assertTenantConsistentAssignment({
+    product: productId,
+    storeIds,
+    options: { transaction }
+  })
+  if (result.ok) return null
+  return result
 }
 
 const getProductStoreSubQuery = (storeId) => {
@@ -674,6 +694,20 @@ exports.postAddProduct = async (req, res) => {
         parsedStores = []
       }
     }
+    const assignmentDecision = assertSellableProductAssignment({
+      assignmentProvided: stores !== undefined && stores !== null,
+      storeIds: parsedStores,
+      status: normalizeStatus(status),
+      isAvailable
+    })
+    if (!assignmentDecision.ok) {
+      return res.status(400).json({
+        success: false,
+        code: assignmentDecision.code,
+        field: assignmentDecision.field,
+        message: assignmentDecision.message
+      })
+    }
     // HIGH-7: validate the submitted stores[] against the caller's own store.
     // super_admin may bind a product to any store (intentional multi-store
     // administration). For tenant admins, any foreign store ID in the array
@@ -743,6 +777,19 @@ exports.postAddProduct = async (req, res) => {
           rate: taxConfig.rate
         })
       }
+    }
+
+    const createAssignmentError = await assertProductStoresAssignable(
+      null,
+      parsedStores
+    )
+    if (createAssignmentError) {
+      return res.status(400).json({
+        success: false,
+        code: createAssignmentError.code,
+        field: 'stores',
+        message: createAssignmentError.message
+      })
     }
 
     const postData = await Product.create({
@@ -961,6 +1008,39 @@ exports.editProductByLocationAndId = async (req, res) => {
       } catch {
         parsedStores = []
       }
+    }
+    const assignmentDecision = assertSellableProductAssignment({
+      assignmentProvided: stores !== undefined,
+      storeIds: parsedStores,
+      status:
+        status !== undefined
+          ? normalizeStatus(status)
+          : getAllProductByIdAndLocation.status,
+      isAvailable:
+        isAvailable !== undefined
+          ? isAvailable
+          : getAllProductByIdAndLocation.isAvailable
+    })
+    if (!assignmentDecision.ok) {
+      return res.status(400).json({
+        success: false,
+        code: assignmentDecision.code,
+        field: assignmentDecision.field,
+        message: assignmentDecision.message
+      })
+    }
+
+    const editAssignmentError = await assertProductStoresAssignable(
+      id,
+      parsedStores
+    )
+    if (editAssignmentError) {
+      return res.status(400).json({
+        success: false,
+        code: editAssignmentError.code,
+        field: 'stores',
+        message: editAssignmentError.message
+      })
     }
     // HIGH-7: validate the submitted stores[] against the caller's own store.
     // super_admin may bind a product to any store (intentional multi-store

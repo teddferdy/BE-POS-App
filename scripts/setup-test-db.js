@@ -219,6 +219,20 @@ module.exports = async () => {
       "storeId" integer NOT NULL,
       "createdAt" timestamp with time zone NOT NULL,
       "updatedAt" timestamp with time zone NOT NULL
+    )`,
+    // F5 (migration 20261009000001): server-side authorization context
+    // sessions. Same R-4 precedent as the AUTH-1 shells above.
+    `CREATE TABLE IF NOT EXISTS authorization_context_session (
+      id SERIAL PRIMARY KEY,
+      "sessionId" character varying(64) NOT NULL UNIQUE,
+      "userId" integer NOT NULL,
+      "activeTenantId" integer,
+      "activeStoreId" integer,
+      version integer NOT NULL DEFAULT 1,
+      "expiresAt" timestamp with time zone NOT NULL,
+      "revokedAt" timestamp with time zone,
+      "createdAt" timestamp with time zone NOT NULL,
+      "updatedAt" timestamp with time zone NOT NULL
     )`
   ]
 
@@ -334,7 +348,10 @@ module.exports = async () => {
     `CREATE INDEX IF NOT EXISTS ix_tenant_membership_tenant ON "tenant_membership" ("tenantId")`,
     `CREATE UNIQUE INDEX IF NOT EXISTS uq_store_assignment_user_store ON "store_assignment" ("userId", "storeId")`,
     `CREATE INDEX IF NOT EXISTS ix_store_assignment_tenant ON "store_assignment" ("tenantId")`,
-    `CREATE INDEX IF NOT EXISTS ix_location_tenant ON "location" ("tenantId")`
+    `CREATE INDEX IF NOT EXISTS ix_location_tenant ON "location" ("tenantId")`,
+    // F5 session indexes (migration 20261009000001).
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_authorization_context_session_id ON "authorization_context_session" ("sessionId")`,
+    `CREATE INDEX IF NOT EXISTS ix_authorization_context_session_user ON "authorization_context_session" ("userId")`
   ]
 
   for (const ddl of R4_TABLE_DDL) {
@@ -360,6 +377,31 @@ module.exports = async () => {
     } catch {}
   }
 
+  // F5 session FK convergence: test DBs whose session table was created via
+  // Model.sync() (rather than the FK-less shell above) carry a
+  // RESTRICT-style userId FK that blocks hard-deleting users in pre-existing
+  // suites (e.g. CRIT-1 cleanup after login now mints a session row).
+  // Sessions are ephemeral — converge the constraint to ON DELETE CASCADE
+  // idempotently; no-ops when the shell (no FKs) or an already-converged
+  // table is present.
+  try {
+    psqlTest(`DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'authorization_context_session_userId_fkey'
+          AND conrelid = 'public.authorization_context_session'::regclass
+          AND confdeltype <> 'c'
+      ) THEN
+        ALTER TABLE "authorization_context_session"
+          DROP CONSTRAINT "authorization_context_session_userId_fkey";
+        ALTER TABLE "authorization_context_session"
+          ADD CONSTRAINT "authorization_context_session_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "user"(id)
+          ON UPDATE CASCADE ON DELETE CASCADE;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN NULL; END $$;`)
+  } catch {}
+
   // 3c. Phase 33 R-4: verify the full schema contract from PostgreSQL
   // catalogs BEFORE tests run. Any gap fails loudly here instead of being
   // silently repaired by afterConnect later. This is the R-4 guarantee.
@@ -376,7 +418,9 @@ module.exports = async () => {
     // AUTH-1 foundation tables (migration 20261008000001).
     'tenant',
     'tenant_membership',
-    'store_assignment'
+    'store_assignment',
+    // F5 session table (migration 20261009000001).
+    'authorization_context_session'
   ]
   const missingTables = []
   for (const table of R4_REQUIRED_TABLES) {
@@ -405,7 +449,8 @@ module.exports = async () => {
     // migration exactly (location.tenantId is covered by R4_COLUMNS above).
     tenant: ['id', 'code', 'name', 'status', 'createdAt', 'updatedAt', 'deletedAt'],
     tenant_membership: ['id', 'userId', 'tenantId', 'role', 'status', 'createdAt', 'updatedAt', 'deletedAt'],
-    store_assignment: ['id', 'userId', 'tenantId', 'storeId', 'createdAt', 'updatedAt']
+    store_assignment: ['id', 'userId', 'tenantId', 'storeId', 'createdAt', 'updatedAt'],
+    authorization_context_session: ['id', 'sessionId', 'userId', 'activeTenantId', 'activeStoreId', 'version', 'expiresAt', 'revokedAt', 'createdAt', 'updatedAt']
   }
   for (const [table, cols] of Object.entries(R4_TABLE_COLUMNS)) {
     if (missingTables.includes(table)) continue
@@ -450,7 +495,9 @@ module.exports = async () => {
     'ix_tenant_membership_tenant',
     'uq_store_assignment_user_store',
     'ix_store_assignment_tenant',
-    'ix_location_tenant'
+    'ix_location_tenant',
+    'uq_authorization_context_session_id',
+    'ix_authorization_context_session_user'
   ]) {
     const c = run('psql', [
       '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,

@@ -50,7 +50,94 @@ const normalizeStoreIds = (value) => {
   return []
 }
 
-// Canonical multi-store authorization rule (C-1..C-4 root cause).
+// ---------------------------------------------------------------------------
+// Canonical (F5) candidate parsing — pure normalization, NEVER authority.
+// Collects every client-supplied store value (query/body/cookies, including
+// the frontend activeStore display state) into a deduplicated candidate list.
+// The result carries NO allow/deny verdict: callers must pass it to
+// resolveCanonicalStoreScope() with the server-resolved req.authContext.
+// ---------------------------------------------------------------------------
+const parseStoreCandidates = (req) => {
+  const raw = []
+  const push = (v) => {
+    raw.push(v)
+  }
+  if (req?.query?.store !== undefined) push(req.query.store)
+  if (req?.body?.store !== undefined) push(req.body.store)
+  if (req?.body?.storeId !== undefined) push(req.body.storeId)
+  if (req?.cookies?.store !== undefined) push(req.cookies.store)
+  if (req?.cookies?.activeStore !== undefined) push(req.cookies.activeStore)
+  const merged = []
+  for (const value of raw) {
+    for (const id of normalizeStoreIds(value)) {
+      if (!merged.includes(id)) merged.push(id)
+    }
+  }
+  return { candidates: merged }
+}
+
+// ---------------------------------------------------------------------------
+// Canonical (F5) store scope resolution against the server-resolved context.
+// Authority comes ONLY from req.authContext (persisted membership, role,
+// assignment, tenant store roster). Client candidates that are foreign,
+// unassigned, nonexistent, mismatched, or ambiguously multi-store fail closed.
+// Returns { ok:true, stores:[...] } or { ok:false, code, message }.
+// ---------------------------------------------------------------------------
+const STORE_CONFINED = Object.freeze(['store_admin', 'cashier', 'staff'])
+
+const resolveCanonicalStoreScope = (req, candidateIds) => {
+  const ctx = req?.authContext
+  if (!ctx || ctx.eligible !== true) {
+    return { ok: false, code: 'CONTEXT_UNRESOLVED', message: 'authorization context is unresolved' }
+  }
+  const list = Array.isArray(candidateIds) ? candidateIds : []
+  const candidates = [...new Set(
+    list.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)
+  )]
+
+  // Platform actors outside any tenant operate under explicit platform
+  // capability (checked separately via can()); scope resolution passes the
+  // candidates through without tenant confinement.
+  if (ctx.isPlatformAdmin && ctx.activeTenantId == null) {
+    return { ok: true, stores: candidates, code: 'PLATFORM_SCOPE' }
+  }
+
+  if (ctx.activeTenantId == null) {
+    return { ok: false, code: 'TENANT_SCOPE_REQUIRED', message: 'an active tenant is required' }
+  }
+
+  const tenantStores = (ctx.tenantStoreIds || []).map(Number)
+  const assigned = (ctx.assignedStoreIds || []).map(Number)
+  const confined = STORE_CONFINED.includes(ctx.activeRole)
+
+  if (candidates.length === 0) {
+    // No candidate: pin to the session selection for confined roles.
+    if (confined) {
+      if (ctx.activeStoreId != null && assigned.includes(Number(ctx.activeStoreId))) {
+        return { ok: true, stores: [Number(ctx.activeStoreId)], code: 'SESSION_PINNED' }
+      }
+      return { ok: false, code: 'STORE_SCOPE_REQUIRED', message: 'an assigned store is required' }
+    }
+    return { ok: true, stores: [], code: 'TENANT_SCOPE' }
+  }
+
+  for (const id of candidates) {
+    if (!tenantStores.includes(id)) {
+      return { ok: false, code: 'FOREIGN_STORE', message: `store ${id} is not in the active tenant` }
+    }
+  }
+  if (confined) {
+    if (candidates.length > 1) {
+      return { ok: false, code: 'MULTI_STORE_FORBIDDEN', message: 'multiple stores are not permitted for this role' }
+    }
+    for (const id of candidates) {
+      if (!assigned.includes(id)) {
+        return { ok: false, code: 'UNASSIGNED_STORE', message: `store ${id} is not assigned` }
+      }
+    }
+  }
+  return { ok: true, stores: candidates, code: 'CANONICAL_SCOPE' }
+}
 //
 // For a NON-super-admin with authoritative store req.storeId (the JWT `store`
 // claim pinned by validateStoreAccess):
@@ -134,6 +221,26 @@ const authorizedWriteStore = (req) => {
 }
 
 const validateStoreAccess = (req, res, next) => {
+  // F5 canonical path: when the server-side context is attached, candidates
+  // are validated against it — legacy JWT/cookie values grant nothing.
+  if (req?.authContext) {
+    const { candidates } = parseStoreCandidates(req)
+    // No candidates at all: preserve the historical default-to-own behavior
+    // ONLY as a pinned session value, still validated canonically below.
+    const scope = resolveCanonicalStoreScope(
+      req,
+      candidates.length > 0 ? candidates : req.authContext.activeStoreId != null ? [req.authContext.activeStoreId] : []
+    )
+    if (!scope.ok) {
+      return res.status(403).json({
+        message: 'Anda hanya dapat mengakses data di toko Anda',
+        code: scope.code
+      })
+    }
+    req.storeId = scope.stores[0] ?? req.authContext.activeStoreId ?? null
+    return next()
+  }
+
   const userRole = req.user?.roleType
   const userStore = req.user?.store
   const supplied =
@@ -200,5 +307,7 @@ module.exports = {
   validateStoreId,
   normalizeStoreIds,
   authorizedStoreIds,
-  authorizedWriteStore
+  authorizedWriteStore,
+  parseStoreCandidates,
+  resolveCanonicalStoreScope
 }

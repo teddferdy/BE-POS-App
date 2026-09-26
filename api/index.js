@@ -36,6 +36,7 @@ const userContext = require('../utils/userContext')
 
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
+const authorizationContextRoutes = require('./routes/authorizationContext')
 const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
@@ -193,6 +194,7 @@ app.use((req, res, next) => {
 
 const routes = [
   { path: '/auth', route: authRoutes },
+  { path: '/auth', route: authorizationContextRoutes },
   { path: '/product', route: productRoutes },
   { path: '/category', route: categoryRoutes },
   { path: '/location', route: locationRoutes },
