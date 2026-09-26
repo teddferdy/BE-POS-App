@@ -14,6 +14,7 @@ const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { syncEmployeeShift } = require('../../utils/shiftChain')
 const { scalarStoreScope } = require('../../utils/tenantScope')
+const { authorizedWriteStore } = require('../../utils/storeValidation')
 
 const dateOrNull = (value, fallback) =>
   value === undefined ? fallback : value ? value : null
@@ -30,6 +31,52 @@ const parseAccessMenu = (menu) => {
   return []
 }
 
+// P0-2: only a global super_admin (no store claim, the rule already used by
+// backup.js requireGlobalSuperAdmin and authContext legacySuperAdminScopeOf)
+// administers employees across stores or hands out the super_admin role.
+// Everyone else, a store-bound super_admin included, is held to its own store.
+const isGlobalSuperAdmin = (req) =>
+  req.user?.roleType === 'super_admin' && req.user?.store == null
+
+const ownStoreOf = (req) => {
+  const store = Number(req.user?.store)
+  return Number.isInteger(store) && store > 0 ? store : null
+}
+
+// authorizedWriteStore and scalarStoreScope treat every super_admin as global.
+// Evaluate a store-bound super_admin with the single-store rule instead.
+const asStoreConfined = (req) =>
+  req.user?.roleType === 'super_admin' && !isGlobalSuperAdmin(req)
+    ? { user: { ...req.user, roleType: 'admin' }, body: req.body, query: req.query }
+    : req
+
+// The destination store of an employee write comes from here, never straight
+// from body.store. It runs in the controller, after multer and validate(), so
+// it also covers multipart and `data`-wrapped bodies: the route-level
+// validateStoreAccess runs before both and never sees their store.
+const employeeWriteStore = (req) => {
+  if (isGlobalSuperAdmin(req)) return authorizedWriteStore(req)
+  if (ownStoreOf(req) == null) return { ok: false }
+  return authorizedWriteStore(asStoreConfined(req))
+}
+
+const STORE_DENIED = 'Anda hanya dapat menetapkan karyawan ke toko Anda sendiri'
+
+// Same grant rule as auth.js change-profile-user, applied to the RESOLVED
+// role: only a global super_admin may assign a super_admin role. An unknown
+// roleId is rejected instead of silently falling back to another role.
+const resolveGrantableRole = async (req, roleId) => {
+  const role = await db.role.findByPk(roleId)
+  if (!role) return { status: 400, message: 'Role tidak ditemukan' }
+  if (role.roleType === 'super_admin' && !isGlobalSuperAdmin(req)) {
+    return {
+      status: 403,
+      message: 'Anda tidak memiliki izin untuk memberikan role Super Admin'
+    }
+  }
+  return { role }
+}
+
 exports.addEmployee = async (req, res) => {
   const body = req.body
   const imageFile = req.files?.['image']?.[0]
@@ -41,6 +88,26 @@ exports.addEmployee = async (req, res) => {
         success: false,
         message: 'User Name dan Password wajib diisi'
       })
+    }
+
+    // P0-2: authorize the destination store and the role before any lookup,
+    // upload or write.
+    const destination = employeeWriteStore(req)
+    if (!destination.ok) {
+      return res.status(403).json({ success: false, message: STORE_DENIED })
+    }
+
+    let role = null
+    if (body?.roleId) {
+      const grant = await resolveGrantableRole(req, body.roleId)
+      if (!grant.role) {
+        return res
+          .status(grant.status)
+          .json({ success: false, message: grant.message })
+      }
+      role = grant.role
+    } else {
+      role = await db.role.findOne({ where: { roleType: 'user' } })
     }
 
     const userName = body?.userName || null
@@ -127,10 +194,6 @@ exports.addEmployee = async (req, res) => {
       }
     }
 
-    const role = body?.roleId
-      ? await db.role.findByPk(body.roleId)
-      : await db.role.findOne({ where: { roleType: 'user' } })
-
     const employeeId =
       body?.employeeID ||
       body?.employeeId ||
@@ -159,7 +222,7 @@ exports.addEmployee = async (req, res) => {
       dateOfBirth: body?.dateOfBirth || null,
       placeOfBirth: body?.placeOfBirth || '',
       status: isDraft ? 'draft' : body?.status || 'active',
-      store: body?.store || null,
+      store: destination.storeId || null,
       shift: body?.shift ? Number(body.shift) : null,
       position: body?.position || null,
       accessMenu: body?.accessMenu ? parseAccessMenu(body.accessMenu) : null,
@@ -395,7 +458,7 @@ exports.updateEmployee = async (req, res) => {
     // Store A admin to edit another store's staff record (id taken from
     // req.body, not the URL, but the same bug either way).
     const employee = await User.findOne({
-      where: scalarStoreScope(req, { id: employeeId })
+      where: scalarStoreScope(asStoreConfined(req), { id: employeeId })
     })
 
     if (!employee || employee.userType !== 'user') {
@@ -403,6 +466,31 @@ exports.updateEmployee = async (req, res) => {
         success: false,
         message: 'Karyawan tidak ditemukan'
       })
+    }
+
+    // P0-2: a super_admin account is managed only by a global super_admin
+    // (auth.js change-profile-user precedent), whichever field is changed.
+    if (!isGlobalSuperAdmin(req) && employee.roleType === 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Tidak dapat mengubah Super Admin'
+      })
+    }
+
+    const destination = employeeWriteStore(req)
+    if (!destination.ok) {
+      return res.status(403).json({ success: false, message: STORE_DENIED })
+    }
+
+    let grantedRole = null
+    if (body?.roleId) {
+      const grant = await resolveGrantableRole(req, body.roleId)
+      if (!grant.role) {
+        return res
+          .status(grant.status)
+          .json({ success: false, message: grant.message })
+      }
+      grantedRole = grant.role
     }
 
     if (body?.userName && body.userName !== employee.userName) {
@@ -526,7 +614,7 @@ exports.updateEmployee = async (req, res) => {
             ? 'active'
             : 'inactive'
           : employee.status),
-      store: body?.store ?? employee.store,
+      store: destination.storeId ?? employee.store,
       shift: body?.shift !== undefined
         ? body?.shift
           ? Number(body.shift)
@@ -552,11 +640,8 @@ exports.updateEmployee = async (req, res) => {
       updateData.password = body.password
     }
 
-    if (body?.roleId) {
-      const role = await db.role.findByPk(body.roleId)
-      if (role) {
-        updateData.roleType = role.roleType
-      }
+    if (grantedRole) {
+      updateData.roleType = grantedRole.roleType
     }
 
     await employee.update(updateData)
