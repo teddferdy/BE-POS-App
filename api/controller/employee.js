@@ -62,6 +62,21 @@ const employeeWriteStore = (req) => {
 
 const STORE_DENIED = 'Anda hanya dapat menetapkan karyawan ke toko Anda sendiri'
 
+// P1: store-confined employee reads use the same global/bound distinction as
+// P0-2 writes. A location filter is never authority: omitted/null/'' means
+// the actor's own store; an explicit value must equal it, otherwise 403
+// before any employee row is queried. Arrays/multi-values and malformed
+// values fail closed.
+const LIST_DENIED = 'Anda hanya dapat mengakses data di toko Anda'
+
+const normalizeLocationFilter = (value) => {
+  if (value === undefined || value === null || value === '') return { absent: true }
+  if (Array.isArray(value)) return { ok: false }
+  const n = typeof value === 'number' ? value : Number(String(value).trim())
+  if (!Number.isInteger(n) || n <= 0) return { ok: false }
+  return { ok: true, storeId: n }
+}
+
 // Same grant rule as auth.js change-profile-user, applied to the RESOLVED
 // role: only a global super_admin may assign a super_admin role. An unknown
 // roleId is rejected instead of silently falling back to another role.
@@ -277,9 +292,6 @@ exports.addEmployee = async (req, res) => {
 
 exports.getAllEmployee = async (req, res) => {
   try {
-    const currentUserRole = req.user?.roleType
-    const currentUserStore = req.user?.store
-
     const {
       page: rawPage = 1,
       limit: rawLimit = 10,
@@ -305,10 +317,29 @@ exports.getAllEmployee = async (req, res) => {
       ]
     }
 
-    if (location) {
-      whereCondition.store = location
-    } else if (currentUserRole !== 'super_admin' && currentUserStore != null) {
-      whereCondition.store = currentUserStore
+    // P1: list confinement. Global super_admin keeps unrestricted behavior
+    // (explicit location honored as a filter). Confined actors (admin +
+    // store-bound super_admin, plus any other non-global role reaching this
+    // route) are scoped to their own store; location can only select the own
+    // store, never expand beyond it. validateStoreAccess does not inspect
+    // query.location, so the check lives here before any employee query.
+    if (isGlobalSuperAdmin(req)) {
+      if (location) {
+        whereCondition.store = location
+      }
+    } else {
+      const ownStore = ownStoreOf(req)
+      if (ownStore == null) {
+        return res.status(403).json({ success: false, message: LIST_DENIED })
+      }
+      const normalized = normalizeLocationFilter(location)
+      if (normalized.absent) {
+        whereCondition.store = ownStore
+      } else if (!normalized.ok || normalized.storeId !== ownStore) {
+        return res.status(403).json({ success: false, message: LIST_DENIED })
+      } else {
+        whereCondition.store = ownStore
+      }
     }
 
     const [employees, total, activeCount, inactiveCount, draftCount] =
@@ -375,10 +406,11 @@ exports.getEmployeeById = async (req, res) => {
   const { id } = req.params
 
   try {
-    // IDOR fix: was findByPk(id) with no store filter, leaking another
-    // store's staff PII (documents, contact info, salary-adjacent fields).
+    // P1: confine single-resource reads to the authorized store. A bound
+    // super_admin is evaluated with the single-store rule so it cannot read
+    // another store's employee; misses stay indistinguishable (404).
     const employee = await User.findOne({
-      where: scalarStoreScope(req, { id }),
+      where: scalarStoreScope(asStoreConfined(req), { id }),
       attributes: { exclude: ['password'] },
       include: [
         { model: Location, as: 'storeData', attributes: ['id', 'name'] },
@@ -414,8 +446,11 @@ exports.getEmployeeByEmployeeID = async (req, res) => {
   const { employeeID } = req.params
 
   try {
+    // P1: employeeID lookup carries the same store scope as the numeric-ID
+    // lookup; without it any actor could pull another store's PII by
+    // guessing a globally-unique employeeID.
     const employee = await User.findOne({
-      where: { employeeID },
+      where: scalarStoreScope(asStoreConfined(req), { employeeID }),
       attributes: { exclude: ['password'] },
       include: [
         { model: Location, as: 'storeData', attributes: ['id', 'name'] },
@@ -691,13 +726,11 @@ exports.deleteEmployee = async (req, res) => {
   const { id } = req.params
 
   try {
-    // IDOR fix: was findByPk(id) + User.destroy({where:{id}}) — both
-    // unscoped, so a Store A admin could permanently delete another
-    // store's staff account. Both the read and the destroy are now
-    // query-scoped; the destroyed-count check below is defense in depth
-    // against a race where the row's store changed between the two calls.
+    // P1: the same confined scope guards lookup and destroy so an actor
+    // that cannot read a target can never delete it. Side-effects stay
+    // after the scoped lookup (fail-closed ordering preserved).
     const employee = await User.findOne({
-      where: scalarStoreScope(req, { id })
+      where: scalarStoreScope(asStoreConfined(req), { id })
     })
 
     if (!employee || employee.userType !== 'user') {
@@ -714,7 +747,7 @@ exports.deleteEmployee = async (req, res) => {
     await syncEmployeeShift({ userId: id, newShiftId: null })
 
     const destroyedCount = await User.destroy({
-      where: scalarStoreScope(req, { id })
+      where: scalarStoreScope(asStoreConfined(req), { id })
     })
     if (destroyedCount === 0) {
       return res.status(404).json({
