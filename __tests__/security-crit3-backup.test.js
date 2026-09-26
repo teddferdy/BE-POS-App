@@ -197,13 +197,13 @@ describe('CRIT-3 backup global boundary', () => {
     })
 
     test('store-bound super_admin can download their own store backup', async () => {
+      // P0-C (locked): backups are platform-global artifacts; the store label
+      // is metadata, never authority. Only global super_admin may download.
       const res = await request(app)
         .get(`/backup/download/${ownBackup.id}`)
         .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7205)}`)
 
-      expect(res.status).toBe(200)
-      expect(Buffer.isBuffer(res.body)).toBe(true)
-      expect(res.body.toString()).toBe('OWN_DUMP')
+      expect(res.status).toBe(403)
     })
 
     test('global super_admin can download any backup', async () => {
@@ -217,15 +217,12 @@ describe('CRIT-3 backup global boundary', () => {
     })
 
     test('store-bound super_admin listing only sees their own store backups', async () => {
+      // P0-C (locked): listing is platform-global; store-bound denied.
       const res = await request(app)
         .get('/backup/list')
         .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7207)}`)
 
-      expect(res.status).toBe(200)
-      const ids = (res.body?.data || []).map((b) => b.id)
-      expect(ids).toContain(ownBackup.id)
-      expect(ids).not.toContain(otherStoreBackup.id)
-      expect(ids).not.toContain(globalBackup.id)
+      expect(res.status).toBe(403)
     })
 
     test('global super_admin listing sees backups across stores', async () => {
@@ -240,11 +237,13 @@ describe('CRIT-3 backup global boundary', () => {
     })
 
     test('store-bound super_admin deleting own backup succeeds', async () => {
+      // P0-C (locked): delete is platform-global; store-bound denied, row survives.
       const res = await request(app)
         .delete(`/backup/delete/${ownBackup.id}`)
         .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7209)}`)
 
-      expect(res.status).toBe(200)
+      expect(res.status).toBe(403)
+      expect(await db.db_backup.findByPk(ownBackup.id)).not.toBeNull()
     })
   })
 })

@@ -4,6 +4,11 @@ const User = db.user
 const { Op } = db.Sequelize
 const { createAudit } = require('../../utils/auditLog')
 
+// P0: global authority = super_admin with no store. Store-bound super_admin
+// is store-confined, never global (same rule as employee.js P0-2).
+const isGlobalSuperAdmin = (req) =>
+  req.user?.roleType === 'super_admin' && req.user?.store == null
+
 exports.getAllRole = async (req, res) => {
   try {
     const getAllRole = await Role.findAll({
@@ -95,6 +100,14 @@ exports.addNewRole = async (req, res) => {
   const body = req.body
 
   try {
+    // P0: creating a super_admin role requires global super_admin.
+    // Authorization happens before any lookup or write.
+    if ((body?.roleType || 'user') === 'super_admin' && !isGlobalSuperAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki izin untuk memberikan role Super Admin'
+      })
+    }
     const findOneRole = await Role?.findOne({
       where: {
         name: body?.name
@@ -157,6 +170,23 @@ exports.editRoleById = async (req, res) => {
   }
 
   try {
+    // P0: editing a role into super_admin requires global super_admin.
+    // Covers both explicit roleType change and preservation of an existing
+    // super_admin role through an edit. Authorization before mutation.
+    const targetForEdit = await Role.findByPk(req.params.id)
+    if (!targetForEdit) {
+      return res.status(404).json({
+        success: false,
+        message: 'Role Tidak Ditemukan'
+      })
+    }
+    const resultingRoleType = body.roleType || targetForEdit.roleType || 'user'
+    if (resultingRoleType === 'super_admin' && !isGlobalSuperAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki izin untuk memberikan role Super Admin'
+      })
+    }
     const getDuplicate = await Role.findOne({
       where: {
         name: body.name,
@@ -321,9 +351,24 @@ exports.updateUserRole = async (req, res) => {
     const role = await Role.findByPk(roleId)
 
     if (!role) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
-        message: 'Role Tidak Ditemukan'
+        message: 'Role tidak ditemukan'
+      })
+    }
+
+    // P0: only a global super_admin may touch an existing super_admin
+    // account or grant a super_admin role, in any store.
+    if (!isGlobalSuperAdmin(req) && user.roleType === 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Tidak dapat mengubah Super Admin'
+      })
+    }
+    if (!isGlobalSuperAdmin(req) && role.roleType === 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda tidak memiliki izin untuk memberikan role Super Admin'
       })
     }
 
@@ -358,6 +403,18 @@ exports.updateUserRole = async (req, res) => {
           message: 'Anda hanya dapat mengelola user di toko Anda'
         })
       }
+    }
+
+    // P0: store-bound super_admin is store-confined like admin.
+    if (
+      req.user?.roleType === 'super_admin' &&
+      !isGlobalSuperAdmin(req) &&
+      user.store !== req.user.store
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Anda hanya dapat mengelola user di toko Anda'
+      })
     }
 
     await user.update({
