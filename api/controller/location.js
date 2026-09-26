@@ -36,6 +36,33 @@ const {
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { resolveAuthorizationContext } = require('../../utils/authContext')
+const { assertOperationalStoreTenant } = require('../validation/schemas')
+
+// Store ownership/lifecycle is decided from persisted authorization state
+// only. req.user.store, the JWT store claim, cookies, query params and the
+// request body are never ownership evidence: the body `tenantId` is at most a
+// target-tenant candidate, validated against the resolved context below.
+const resolveStoreLifecycleContext = (req) =>
+  resolveAuthorizationContext(db, { userId: req.user?.id })
+
+const assertApprovedTenant = async (tenantId) => {
+  if (tenantId == null) {
+    return { ok: true, code: null, field: null, message: null }
+  }
+  const tenant = await db.tenant.findByPk(tenantId, {
+    attributes: ['id', 'status', 'deletedAt']
+  })
+  if (!tenant || tenant.deletedAt != null || tenant.status !== 'active') {
+    return {
+      ok: false,
+      code: 'TENANT_NOT_APPROVED',
+      field: 'tenantId',
+      message: 'the target tenant does not exist or is not active'
+    }
+  }
+  return { ok: true, code: null, field: null, message: null }
+}
 
 // Phase 39 Batch 6D — per-day is24Hours flag on openingHours. Defaults a
 // missing/non-boolean is24Hours to false; never inferred from open===close,
@@ -316,6 +343,7 @@ exports.addNewLocation = async (req, res) => {
     openingHours,
     socialMedia,
     timezone,
+    tenantId: requestedTenantId,
     _createdBy
   } = bodyData
 
@@ -325,7 +353,35 @@ exports.addNewLocation = async (req, res) => {
   const finalLatitude = coordinates?.lat ?? latitude ?? null
   const finalLongitude = coordinates?.lng ?? longitude ?? null
 
+  const resolvedStatus =
+    status ||
+    (isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft')
+
   try {
+    const lifecycleContext = await resolveStoreLifecycleContext(req)
+    const lifecycle = assertOperationalStoreTenant(lifecycleContext, {
+      currentStatus: null,
+      requestedStatus: resolvedStatus,
+      tenantId: requestedTenantId
+    })
+    if (!lifecycle.ok) {
+      return res.status(422).json({
+        success: false,
+        code: lifecycle.code,
+        field: lifecycle.field,
+        message: lifecycle.message
+      })
+    }
+    const approvedTenant = await assertApprovedTenant(lifecycle.tenantId)
+    if (!approvedTenant.ok) {
+      return res.status(422).json({
+        success: false,
+        code: approvedTenant.code,
+        field: approvedTenant.field,
+        message: approvedTenant.message
+      })
+    }
+
     // If locationId is provided, use it; otherwise generate new ID
     let nextId
     let idConflict = false
@@ -385,6 +441,7 @@ exports.addNewLocation = async (req, res) => {
     const newLocation = await Location.create({
       id: nextId,
       store: nextId,
+      tenantId: lifecycle.tenantId ?? null,
       image: imageUrl,
       name,
       phoneNumber,
@@ -397,9 +454,7 @@ exports.addNewLocation = async (req, res) => {
       village,
       postalCode,
       description,
-      status:
-        status ||
-        (isActive !== undefined ? (isActive ? 'active' : 'inactive') : 'draft'),
+      status: resolvedStatus,
       category,
       managerName,
       latitude: finalLatitude,
@@ -474,6 +529,7 @@ exports.editLocationById = async (req, res) => {
     _storeId,
     location: _locationField,
     isActive,
+    tenantId: requestedTenantId,
     ...rest
   } = bodyData
   const id = rawId
@@ -497,6 +553,44 @@ exports.editLocationById = async (req, res) => {
     }
 
     const dataExist = location.dataValues
+    const requestedStatus =
+      isActive !== undefined
+        ? isActive
+          ? 'active'
+          : 'inactive'
+        : status !== undefined
+          ? status === true
+            ? 'active'
+            : status === false
+              ? 'draft'
+              : status
+          : undefined
+
+    const lifecycleContext = await resolveStoreLifecycleContext(req)
+    const lifecycle = assertOperationalStoreTenant(lifecycleContext, {
+      currentStatus: dataExist.status,
+      requestedStatus,
+      tenantId: requestedTenantId,
+      persistedTenantId: dataExist.tenantId
+    })
+    if (!lifecycle.ok) {
+      return res.status(422).json({
+        success: false,
+        code: lifecycle.code,
+        field: lifecycle.field,
+        message: lifecycle.message
+      })
+    }
+    const approvedTenant = await assertApprovedTenant(lifecycle.tenantId)
+    if (!approvedTenant.ok) {
+      return res.status(422).json({
+        success: false,
+        code: approvedTenant.code,
+        field: approvedTenant.field,
+        message: approvedTenant.message
+      })
+    }
+
     let imageUrl = dataExist.image
     if (req.file) {
       const { url } = await uploadToCloudinaryWithDedup(
@@ -523,18 +617,14 @@ exports.editLocationById = async (req, res) => {
       image: imageUrl,
       name,
       modifiedBy: req.user?.id,
-      status:
-        isActive !== undefined
-          ? isActive
-            ? 'active'
-            : 'inactive'
-          : status !== undefined
-            ? status === true
-              ? 'active'
-              : status === false
-                ? 'draft'
-                : status
-            : undefined
+      status: requestedStatus
+    }
+
+    // A store that already has a tenant keeps it: assertOperationalStoreTenant
+    // rejects any reassignment, so this only ever performs a first-time
+    // assignment of a still-tenantless (non-operational migration state) store.
+    if (lifecycle.tenantId != null) {
+      updatedData.tenantId = lifecycle.tenantId
     }
 
     // Handle coordinates mapping

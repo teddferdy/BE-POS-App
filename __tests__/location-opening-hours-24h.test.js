@@ -20,8 +20,13 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
 let superAdminToken = null
 let superAdminUser = null
+let tenant = null
 
 beforeAll(async () => {
+  tenant = await db.tenant.create({
+    code: `LOC24H_${Date.now()}`,
+    name: 'LOC24H Tenant'
+  })
   superAdminUser = await db.user.create({
     userName: 'loc_24h_regression_admin_' + Date.now(),
     email: `loc_24h_${Date.now()}@test.com`,
@@ -39,6 +44,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.location.destroy({ where: { createdBy: superAdminUser?.id }, force: true })
   await db.user.destroy({ where: { id: superAdminUser?.id }, force: true })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true })
 })
 
 const createLocation = (payload) =>
@@ -69,6 +75,7 @@ const basePayload = (overrides = {}) => ({
   village: '3171010001',
   postalCode: '10110',
   status: 'active',
+  tenantId: tenant.id,
   ...overrides
 })
 

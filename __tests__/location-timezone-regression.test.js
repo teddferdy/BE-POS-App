@@ -22,8 +22,13 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
 let superAdminToken = null
 let superAdminUser = null
+let tenant = null
 
 beforeAll(async () => {
+  tenant = await db.tenant.create({
+    code: `LOCTZ_${Date.now()}`,
+    name: 'LOCTZ Tenant'
+  })
   superAdminUser = await db.user.create({
     userName: 'loc_tz_regression_admin_' + Date.now(),
     email: `loc_tz_${Date.now()}@test.com`,
@@ -41,6 +46,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.location.destroy({ where: { createdBy: superAdminUser?.id }, force: true })
   await db.user.destroy({ where: { id: superAdminUser?.id }, force: true })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true })
 })
 
 const createLocation = (payload) =>
@@ -62,7 +68,8 @@ describe('Blocker 1 — Location timezone: creation must not 500 when column exi
       district: '3171010',
       village: '3171010001',
       postalCode: '10110',
-      status: 'active'
+      status: 'active',
+      tenantId: tenant.id
       // no timezone key — controller uses default
     })
     // Before migration fix this was 500 "column timezone does not exist"
@@ -88,6 +95,7 @@ describe('Blocker 1 — Location timezone: creation must not 500 when column exi
       village: '3171010001',
       postalCode: '10110',
       status: 'active',
+      tenantId: tenant.id,
       timezone: 'Asia/Jayapura'
     })
     expect(res.status).toBe(201)
@@ -108,6 +116,7 @@ describe('Blocker 1 — Location timezone: creation must not 500 when column exi
       village: '3171010001',
       postalCode: '10110',
       status: 'active',
+      tenantId: tenant.id,
       timezone: 'WIB' // not IANA — must be Asia/Jakarta etc.
     })
     expect(res.status).toBe(400)

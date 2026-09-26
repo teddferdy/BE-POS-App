@@ -358,6 +358,14 @@ exports.login = async (req, res) => {
       })
     }
 
+    // F5: a soft-deleted account can never authenticate — login must not
+    // reactivate it (fail closed; the query above uses paranoid:false).
+    if (findUser.deletedAt != null) {
+      return res.status(401).json({
+        message: 'User Name / Email Tidak Ditemukan'
+      })
+    }
+
     // Cocokkan password
     const isPasswordValid = await bcrypt.compare(password, findUser.password)
     if (!isPasswordValid) {
@@ -374,6 +382,21 @@ exports.login = async (req, res) => {
       }
     )
 
+    // F5: create an isolated server-side authorization context session for
+    // this login. The JWT carries identity (id) + the opaque sessionId only;
+    // tenant/store authority is resolved server-side per request. Legacy
+    // role/store claims are retained as non-authoritative compatibility data.
+    let contextSessionId = null
+    try {
+      if (db.authorizationContextSession) {
+        const { createContextSession } = require('../../utils/authorizationContextMiddleware')
+        const session = await createContextSession(db, { userId: findUser.id })
+        contextSessionId = session.sessionId
+      }
+    } catch {
+      contextSessionId = null
+    }
+
     // Generate token dengan role info
     const getToken = generateToken({
       id: findUser.id,
@@ -381,7 +404,8 @@ exports.login = async (req, res) => {
       fullName: findUser.fullName,
       roleType: findUser.roleType || 'user',
       roleId: findUser.roleId,
-      store: findUser.store
+      store: findUser.store,
+      ...(contextSessionId ? { sessionId: contextSessionId } : {})
     })
 
     // Ambil role dan accessMenu
@@ -591,7 +615,7 @@ exports.editUser = async (req, res) => {
       `Updated user: ${updatedUser.id}`
     )
 
-    const token = generateToken({ id: updatedUser.id })
+    const token = generateToken({ id: updatedUser.id, ...(req.user?.sessionId ? { sessionId: req.user.sessionId } : {}) })
 
     const locationByIdUserLogin = await Location.findOne({
       where: {
@@ -776,6 +800,9 @@ exports.generateEmployeeId = async (req, res) => {
 }
 
 // User Logout
+// F5: revokes only the selected server-side context session. Legacy tokens
+// without a sessionId fall back to the historical deactivate-and-clear
+// behavior so pre-session clients keep working.
 exports.logout = async (req, res) => {
   try {
     const user = req.user
@@ -783,6 +810,15 @@ exports.logout = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         message: 'Unauthorized'
+      })
+    }
+
+    if (user.sessionId && db.authorizationContextSession) {
+      const { revokeContextSession } = require('../../utils/authorizationContextMiddleware')
+      await revokeContextSession(db, user.sessionId, user.id)
+      res.clearCookie('token')
+      return res.status(200).json({
+        message: 'User Berhasil Logout'
       })
     }
 

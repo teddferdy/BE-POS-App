@@ -66,12 +66,57 @@ const guardedJoin = (socket, event, room, storeId, ack) => {
     if (typeof ack === 'function') ack({ ok: false, message })
     socket.emit('join-rejected', { event, store: storeId, ok: false, message })
   }
+  // F5 canonical path: tokens carrying a server-side session are validated
+  // against persisted membership/assignment state, not JWT claims.
+  if (socket.user?.sessionId) {
+    canJoinStoreCanonical(socket, storeId).then(
+      (allowed) => {
+        if (!allowed) return reject('Forbidden store')
+        socket.join(room)
+        if (verbose) console.log(`Socket ${socket.id} joined ${room}`)
+        if (typeof ack === 'function') ack({ ok: true })
+      },
+      () => reject('Forbidden store')
+    )
+    return
+  }
   if (!canJoinStore(socket, storeId)) {
     return reject('Forbidden store')
   }
   socket.join(room)
   if (verbose) console.log(`Socket ${socket.id} joined ${room}`)
   if (typeof ack === 'function') ack({ ok: true })
+}
+
+// F5: canonical socket room check. Resolves the same server-side context as
+// HTTP (session -> persisted membership/assignment/lifecycle) and allows the
+// join only when the requested store is inside the resolved scope. Tokens
+// without a session fall back to the legacy JWT-claim check in canJoinStore
+// (compatibility only — never authority beyond the signed claim).
+const canJoinStoreCanonical = async (socket, storeId) => {
+  try {
+    const requested = Number(storeId)
+    if (!Number.isInteger(requested) || requested <= 0) return false
+    const db = require('../../db/models')
+    const { loadContextSession } = require('../../utils/authorizationContextMiddleware')
+    const { resolveAuthorizationContext } = require('../../utils/authContext')
+    const session = await loadContextSession(db, socket.user.sessionId)
+    if (!session || Number(session.userId) !== Number(socket.user?.id)) return false
+    const ctx = await resolveAuthorizationContext(db, {
+      userId: socket.user.id,
+      activeTenantId: session.activeTenantId,
+      activeStoreId: session.activeStoreId
+    })
+    if (!ctx || ctx.eligible !== true) return false
+    if (ctx.isPlatformAdmin && ctx.activeTenantId == null) return true
+    if (ctx.activeTenantId == null) return false
+    if (!(ctx.tenantStoreIds || []).map(Number).includes(requested)) return false
+    const confined = ['store_admin', 'cashier', 'staff'].includes(ctx.activeRole)
+    if (confined && !(ctx.assignedStoreIds || []).map(Number).includes(requested)) return false
+    return true
+  } catch {
+    return false
+  }
 }
 
 const initSocket = (server) => {
@@ -188,5 +233,7 @@ module.exports = {
   emitNewOrder,
   emitOrderUpdate,
   emitItemStatusUpdate,
-  emitNotification
+  emitNotification,
+  canJoinStore,
+  canJoinStoreCanonical
 }
