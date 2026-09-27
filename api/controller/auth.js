@@ -202,8 +202,15 @@ exports.changeUserStatusById = async (req, res) => {
       }
     }
 
+    // P1-3: canonical account disable/re-enable. `inactive` sets the
+    // authoritative disablement timestamp AND keeps the presence status;
+    // `active` clears it. Single atomic mutation so the two can never
+    // disagree. P1-2 authorization above is unchanged.
     const updatedUser = await User.update(
-      { status },
+      {
+        status,
+        disabledAt: status === 'inactive' ? new Date() : null
+      },
       {
         returning: true,
         where: { id }
@@ -435,6 +442,17 @@ exports.login = async (req, res) => {
     // F5: a soft-deleted account can never authenticate — login must not
     // reactivate it (fail closed; the query above uses paranoid:false).
     if (findUser.deletedAt != null) {
+      return res.status(401).json({
+        message: 'User Name / Email Tidak Ditemukan'
+      })
+    }
+
+    // P1-3: a disabled account can never authenticate. Presence `status`
+    // alone (e.g. `inactive` from legacy logout) never disables: only the
+    // separate `disabledAt` state denies. Placed before password
+    // verification like the soft-delete gate above, so denied logins mint
+    // no token/session and never reach the presence reactivation below.
+    if (findUser.disabledAt != null) {
       return res.status(401).json({
         message: 'User Name / Email Tidak Ditemukan'
       })
