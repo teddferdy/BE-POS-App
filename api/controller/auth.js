@@ -52,11 +52,10 @@ const { hashResetToken, resetTokenMatches } = require('../../utils/resetToken')
 exports.userByLocation = async (req, res) => {
   const { location } = req.query
   const userRole = req.user?.roleType
-  const userStore = req.storeId || req.user?.store || null
 
   let targetStore = null
 
-  if (userRole === 'super_admin') {
+  if (userRole === 'super_admin' && isGlobalSuperAdmin(req)) {
     if (location === undefined || location === '') {
       return res.status(400).json({
         message: 'Location wajib diisi'
@@ -70,14 +69,17 @@ exports.userByLocation = async (req, res) => {
     }
     targetStore = parsed
   } else {
-    // Ordinary tenant users: always their own store. An explicit location
-    // that differs from their store is rejected (kasir included).
-    if (userStore === null || userStore === undefined) {
+    // Ordinary tenant users — and store-bound super_admin, which is
+    // store-confined (P1-2): always their own store, derived from the JWT
+    // store claim only (never req.storeId, which is client-controlled for
+    // super_admin callers). An explicit location that differs is rejected.
+    const ownStore = req.user?.store
+    if (ownStore === null || ownStore === undefined) {
       return res.status(403).json({
         message: 'Akun Anda belum ditetapkan ke toko'
       })
     }
-    targetStore = parseInt(userStore, 10)
+    targetStore = parseInt(ownStore, 10)
     if (Number.isNaN(targetStore)) {
       return res.status(403).json({
         message: 'Akun Anda belum ditetapkan ke toko'
@@ -164,6 +166,26 @@ exports.changeUserStatusById = async (req, res) => {
     if (!targetUser) {
       return res.status(404).json({
         message: 'User tidak ditemukan'
+      })
+    }
+
+    // P1-2: only a global super_admin may change status of a super_admin
+    // account (global or bound), whichever store it belongs to.
+    if (!isGlobalSuperAdmin(req) && targetUser.roleType === 'super_admin') {
+      return res.status(403).json({
+        message: 'Tidak dapat mengubah Super Admin'
+      })
+    }
+
+    // P1-2: a store-bound super_admin is confined to its own store like an
+    // admin. Global bypasses the store restriction.
+    if (
+      req.user?.roleType === 'super_admin' &&
+      !isGlobalSuperAdmin(req) &&
+      targetUser.store !== currentUserStore
+    ) {
+      return res.status(403).json({
+        message: 'Anda hanya dapat mengubah user di toko Anda'
       })
     }
 
@@ -345,6 +367,17 @@ exports.getAllUser = async (req, res) => {
 
     // Admin can only see users in their store
     if (currentUserRole === 'admin') {
+      whereCondition.store = currentUserStore
+      whereCondition.roleType = { [Op.ne]: 'super_admin' }
+    }
+
+    // P1-2 (locked): a store-bound super_admin gets the same own-store
+    // audience as an admin (super_admin rows hidden). Global keeps the
+    // existing unrestricted audience. DB-level filtering, never JS filtering.
+    if (
+      currentUserRole === 'super_admin' &&
+      !isGlobalSuperAdmin(req)
+    ) {
       whereCondition.store = currentUserStore
       whereCondition.roleType = { [Op.ne]: 'super_admin' }
     }
