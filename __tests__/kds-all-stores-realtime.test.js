@@ -87,6 +87,24 @@ beforeAll(async () => {
   )
   superToken = jwt.sign({ id: 9800, userName: 'kdsall_super', roleType: 'super_admin' }, JWT_SECRET)
 
+  // P1-5: handshake denies unknown caller identities; these rows give the
+  // caller ids real identities. Assertions below are unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [9801, 'kdsall_admin', 'admin', 'admin', store1.id],
+    [9800, 'kdsall_super', 'super_admin', 'admin', null]
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-kdsall@test.com`,
+      roleType,
+      userType,
+      store,
+      status: 'active',
+      fullName: userName
+    })
+  }
+
   server = http.createServer()
   initSocket(server)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -104,6 +122,7 @@ afterAll(async () => {
   if (server && server.listening) {
     await new Promise((resolve) => server.close(resolve))
   }
+  await db.user.destroy({ where: { id: [9801, 9800] }, force: true })
   await db.location.destroy({ where: { id: [store1?.id, store2?.id].filter(Boolean) }, force: true })
 })
 
