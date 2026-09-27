@@ -38,9 +38,31 @@ let store1
 describe('MED-2 backup schedule authorization boundary', () => {
   beforeAll(async () => {
     store1 = await db.location.create({ name: 'MED2_STORE_1', status: 'active' })
+
+    // P1-4: central gate denies unknown caller identities; these rows give
+    // the mkToken() caller ids real identities. Assertions unchanged.
+    for (const [id, userName, roleType, userType, store] of [
+      [501, 'med2_bound1', 'super_admin', 'admin', store1.id],
+      [502, 'med2_bound2', 'super_admin', 'admin', store1.id],
+      [503, 'med2_global1', 'super_admin', 'admin', null],
+      [504, 'med2_global2', 'super_admin', 'admin', null],
+      [505, 'med2_admin', 'admin', 'admin', store1.id]
+    ]) {
+      await db.user.create({
+        id,
+        userName,
+        email: `p14-${id}-med2@test.com`,
+        roleType,
+        userType,
+        store,
+        status: 'active',
+        fullName: userName
+      })
+    }
   })
 
   afterAll(async () => {
+    await db.user.destroy({ where: { id: [501, 502, 503, 504, 505] }, force: true })
     await db.location.destroy({ where: { id: store1.id }, force: true })
   })
 

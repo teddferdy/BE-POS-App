@@ -35,9 +35,32 @@ beforeAll(async () => {
     { id: ADMIN_ID, userName: 'admin_void_reason', roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows give the
+  // constant caller ids real identities. Assertions below are unchanged.
+  await db.user.create({
+    id: KASIR_ID,
+    userName: 'kasir_void_reason',
+    email: 'p14-7201-void-reason@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: location.id,
+    status: 'active',
+    fullName: 'kasir_void_reason'
+  })
+  await db.user.create({
+    id: ADMIN_ID,
+    userName: 'admin_void_reason',
+    email: 'p14-7202-void-reason@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active',
+    fullName: 'admin_void_reason'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [KASIR_ID, ADMIN_ID] }, force: true })
   await db.auditLog.destroy({ where: { store: location.id }, force: true, __auditMaintenance: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })

@@ -41,9 +41,29 @@ describe('C-7 location detail — tenant isolation', () => {
       { id: 88803, userName: 'c7_super', roleType: 'super_admin', store: null },
       JWT_SECRET
     )
+
+    // P1-4: central gate denies unknown caller identities; these rows give
+    // the caller ids real identities. Assertions below are unchanged.
+    for (const [id, userName, roleType, userType, store] of [
+      [88801, 'c7_admin_a', 'admin', 'admin', storeA.id],
+      [88802, 'c7_admin_b', 'admin', 'admin', storeB.id],
+      [88803, 'c7_super', 'super_admin', 'admin', null]
+    ]) {
+      await db.user.create({
+        id,
+        userName,
+        email: `p14-${id}-c7@test.com`,
+        roleType,
+        userType,
+        store,
+        status: 'active',
+        fullName: userName
+      })
+    }
   })
 
   afterAll(async () => {
+    await db.user.destroy({ where: { id: [88801, 88802, 88803] }, force: true })
     await db.location.destroy({ where: { id: [storeA.id, storeB.id] }, force: true })
   })
 

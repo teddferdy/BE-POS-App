@@ -49,9 +49,34 @@ beforeAll(async () => {
   adminA = mkToken('admin', storeA.id, 81201)
   adminB = mkToken('admin', storeB.id, 81202)
   superToken = mkToken('super_admin', null, 81200)
+
+  // P1-4: central gate denies unknown caller identities; these rows give
+  // the caller ids real identities (unassigned ids use store null to
+  // preserve unassigned controller semantics). Assertions unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [81201, 'c12_admin_a', 'admin', 'admin', storeA.id],
+    [81202, 'c12_admin_b', 'admin', 'admin', storeB.id],
+    [81200, 'c12_super', 'super_admin', 'admin', null],
+    [81203, 'c12_unassigned1', 'admin', 'admin', null],
+    [81204, 'c12_unassigned2', 'admin', 'admin', null],
+    [81205, 'c12_unassigned3', 'admin', 'admin', null],
+    [81206, 'c12_unassigned4', 'admin', 'admin', null]
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-chigh@test.com`,
+      roleType,
+      userType,
+      store,
+      status: 'active',
+      fullName: userName
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [81201, 81202, 81200, 81203, 81204, 81205, 81206] }, force: true })
   if (storeB) await db.location.destroy({ where: { id: storeB.id }, force: true })
   if (storeA) await db.location.destroy({ where: { id: storeA.id }, force: true })
 })

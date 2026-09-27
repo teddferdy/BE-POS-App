@@ -29,6 +29,58 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
       { id: 8801, userName: 'race_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 8801,
+    userName: 'race_cashier',
+    email: 'p14-8801-concurrency-race-conditions@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    status: 'active',
+    fullName: 'race_cashier'
+  })
+  await db.user.create({
+    id: 8802,
+    userName: 'race_status_cashier',
+    email: 'p14-8802-concurrency-race-conditions@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    status: 'active',
+    fullName: 'race_status_cashier'
+  })
+  await db.user.create({
+    id: 8803,
+    userName: 'race_po_admin',
+    email: 'p14-8803-concurrency-race-conditions@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    status: 'active',
+    fullName: 'race_po_admin'
+  })
+  await db.user.create({
+    id: 8804,
+    userName: 'race_idempotency_cashier',
+    email: 'p14-8804-concurrency-race-conditions@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    status: 'active',
+    fullName: 'race_idempotency_cashier'
+  })
+  await db.user.create({
+    id: 8805,
+    userName: 'race_custnum_cashier',
+    email: 'p14-8805-concurrency-race-conditions@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    status: 'active',
+    fullName: 'race_custnum_cashier'
+  })
   })
 
   afterAll(async () => {
@@ -345,6 +397,7 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
   })
 
   afterAll(async () => {
+    await db.user.destroy({ where: { id: [8801, 8802, 8803, 8804, 8805] }, force: true })
     await db.order_item.destroy({ where: {}, force: true })
     await db.transaction.destroy({ where: {}, force: true })
     await db.order_status.destroy({ where: {}, force: true })

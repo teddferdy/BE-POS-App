@@ -59,6 +59,27 @@ describe('SO-01/02/03 stockOpname.js cookie-based tenant-isolation bypass', () =
     tokenB = mkToken('admin', storeB.id, 79102)
     superToken = mkToken('super_admin', null, 79103)
     unassignedToken = mkToken('admin', null, 79104)
+
+    // P1-4: central gate denies unknown caller identities; these rows give
+    // the caller ids real identities with matching assigned/unassigned
+    // semantics (store null preserves unassigned). Assertions unchanged.
+    for (const [id, userName, roleType, userType, store] of [
+      [79101, 'so_admin_a', 'admin', 'admin', storeA.id],
+      [79102, 'so_admin_b', 'admin', 'admin', storeB.id],
+      [79103, 'so_super', 'super_admin', 'admin', null],
+      [79104, 'so_unassigned', 'admin', 'admin', null]
+    ]) {
+      await db.user.create({
+        id,
+        userName,
+        email: `p14-${id}-sostock@test.com`,
+        roleType,
+        userType,
+        store,
+        status: 'active',
+        fullName: userName
+      })
+    }
   })
 
   afterAll(async () => {
@@ -74,6 +95,7 @@ describe('SO-01/02/03 stockOpname.js cookie-based tenant-isolation bypass', () =
       })
     }
     await db.stockOpname.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
+    await db.user.destroy({ where: { id: [79101, 79102, 79103, 79104] }, force: true })
     await db.location.destroy({ where: { id: [storeA.id, storeB.id] }, force: true })
   })
 

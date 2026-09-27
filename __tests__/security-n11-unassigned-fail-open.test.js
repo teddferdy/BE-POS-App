@@ -50,9 +50,45 @@ beforeAll(async () => {
     exchangeRate: 1,
     status: 'active'
   })
+
+  // P1-4: central gate denies unknown caller identities. These rows give the
+  // deterministic token identities below real rows with matching
+  // unassigned/assigned semantics (store null = unassigned). Assertions
+  // below are unchanged.
+  await db.user.create({
+    id: 79111,
+    userName: 'n11_admin_unassigned',
+    email: 'p14-79111-n11@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'n11_admin_unassigned'
+  })
+  await db.user.create({
+    id: 79112,
+    userName: 'n11_admin_a',
+    email: 'p14-79112-n11@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: storeA.id,
+    status: 'active',
+    fullName: 'n11_admin_a'
+  })
+  await db.user.create({
+    id: 79113,
+    userName: 'n11_super',
+    email: 'p14-79113-n11@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'n11_super'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [79111, 79112, 79113] }, force: true })
   await db.currency.destroy({ where: { id: [currencyA.id, currencyB.id] }, force: true })
   await db.location.destroy({ where: { id: [storeA.id, storeB.id] }, force: true })
 })
@@ -60,7 +96,10 @@ afterAll(async () => {
 const tokenFor = (roleType, store) =>
   jwt.sign(
     {
-      id: Math.floor(Math.random() * 100000 + 1),
+      // Deterministic ids matching the caller rows above (P1-4 identity
+      // invariant); unassigned callers keep no store claim.
+      id:
+        roleType === 'super_admin' ? 79113 : store != null ? 79112 : 79111,
       userName: `n11_${roleType}`,
       roleType,
       ...(store != null ? { store } : {})

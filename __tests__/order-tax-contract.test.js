@@ -28,9 +28,22 @@ beforeAll(async () => {
     { id: 7002, userName: 'cashier_tax_ct', roleType: 'kasir', store: location.id },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 7002,
+    userName: 'cashier_tax_ct',
+    email: 'p14-7002-order-tax-contract@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: location.id,
+    status: 'active',
+    fullName: 'cashier_tax_ct'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [7002] }, force: true })
   await db.taxConfig.destroy({ where: { store: null, name: 'TEST_GLOBAL_PPN' }, force: true })
   await db.taxConfig.destroy({ where: { store: location.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })

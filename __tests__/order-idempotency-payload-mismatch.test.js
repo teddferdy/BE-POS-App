@@ -65,9 +65,22 @@ beforeAll(async () => {
     { id: 7201, userName: 'cashier_idem', roleType: 'kasir', store: store.id },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 7201,
+    userName: 'cashier_idem',
+    email: 'p14-7201-order-idempotency-payload-mismatch@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: store.id,
+    status: 'active',
+    fullName: 'cashier_idem'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [7201] }, force: true })
   const productIds = [productA?.id, productB?.id].filter(Boolean)
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })

@@ -27,6 +27,19 @@ beforeAll(async () => {
   })
   locId = loc.id
 
+  // P1-4: central gate denies unknown caller identities; this row satisfies
+  // the identity invariant. The JWT and all assertions are unchanged.
+  await db.user.create({
+    id: 9999,
+    userName: 'superadmin_integ',
+    email: 'p14-9999-reportexport-integration@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'superadmin_integ'
+  })
+
   const order = await db.order.create({
     orderNumber: `INTEG-${Date.now()}`,
     store: locId,
@@ -41,6 +54,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9999] }, force: true })
   if (orderId) await db.order.destroy({ where: { id: orderId }, force: true })
   if (locId) await db.location.destroy({ where: { id: locId }, force: true })
 })

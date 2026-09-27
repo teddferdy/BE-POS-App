@@ -28,6 +28,56 @@ const userStore1Token = jwt.sign(
   JWT_SECRET
 )
 
+// P1-4: central gate denies unknown caller identities; these rows satisfy
+// the identity invariant. JWT claims (incl. abstract store numbers used by
+// these authorization-shape tests) and all assertions are unchanged.
+beforeAll(async () => {
+  await db.user.create({
+    id: 9999,
+    userName: 'superauth',
+    email: 'p14-9999-auth@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'superauth'
+  })
+  await db.user.create({
+    id: 9998,
+    userName: 'adminauth',
+    email: 'p14-9998-auth@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'adminauth'
+  })
+  await db.user.create({
+    id: 9997,
+    userName: 'admin2auth',
+    email: 'p14-9997-auth@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'admin2auth'
+  })
+  await db.user.create({
+    id: 9996,
+    userName: 'userauth',
+    email: 'p14-9996-auth@test.com',
+    roleType: 'user',
+    userType: 'user',
+    store: null,
+    status: 'active',
+    fullName: 'userauth'
+  })
+})
+
+afterAll(async () => {
+  await db.user.destroy({ where: { id: [9999, 9998, 9997, 9996] }, force: true })
+})
+
 describe('Authorization middleware — role-based access', () => {
   describe('GET /invoice/setting', () => {
     test('super_admin can access any store setting', async () => {

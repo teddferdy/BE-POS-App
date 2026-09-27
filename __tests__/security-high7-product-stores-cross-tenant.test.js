@@ -43,9 +43,22 @@ beforeAll(async () => {
     { id: 9750, userName: `high7_super_${suffix}`, roleType: 'super_admin' },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; the super token id
+  // gets a real row. Assertions below are unchanged.
+  await db.user.create({
+    id: 9750,
+    userName: `high7_super_${suffix}`,
+    email: `p14-9750-security-high7-product-stores-cross-tenant-${Date.now()}@test.com`,
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: `high7_super_${suffix}`
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9750] }, force: true })
   if (createdProductIds.length > 0) {
     await db.product_store_stock.destroy({
       where: { product: createdProductIds },

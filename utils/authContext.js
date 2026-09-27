@@ -134,10 +134,17 @@ const resolveAuthorizationContext = async (
   }
 
   const account = await db.user.findByPk(ctx.accountId, {
-    attributes: ['id', 'status', 'roleType', 'store']
+    attributes: ['id', 'status', 'roleType', 'store', 'disabledAt']
   })
   if (!account) {
     ctx.reason = 'unknown-account'
+    return ctx
+  }
+  // P1-4: a disabled account establishes no canonical context, matching the
+  // login gate and the legacy per-request gate. Presence `status` handling
+  // below is unchanged.
+  if (account.disabledAt != null) {
+    ctx.reason = 'ineligible-account'
     return ctx
   }
   ctx.accountStatus = account.status

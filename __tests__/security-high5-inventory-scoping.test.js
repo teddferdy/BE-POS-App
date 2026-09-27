@@ -56,6 +56,18 @@ beforeAll(async () => {
     { id: 9500, userName: `high5_super_${suffix}`, roleType: 'super_admin' },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; the super token id
+  // gets a real row. Assertions below are unchanged.
+  await db.user.create({
+    id: 9500,
+    userName: `high5_super_${suffix}`,
+    email: `p14-9500-security-high5-inventory-scoping-${Date.now()}@test.com`,
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: `high5_super_${suffix}`
+  })
 
   const today = new Date().toISOString().slice(0, 10)
   forecast1 = await db.stock_forecast.create({
@@ -94,6 +106,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9500] }, force: true })
   await db.product_batch.destroy({
     where: { id: [batch1?.id, batch2?.id].filter(Boolean) },
     force: true

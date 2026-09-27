@@ -72,6 +72,18 @@ beforeAll(async () => {
     { id: 9402, userName: 'sec_admin_s1', roleType: 'admin', store: store1.id },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 9402,
+    userName: 'sec_admin_s1',
+    email: 'p14-9402-customer-order-security@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store1.id,
+    status: 'active',
+    fullName: 'sec_admin_s1'
+  })
 
   table1 = await db.table.create({ store: store1.id, name: 'SEC_TABLE_1' })
   table2 = await db.table.create({ store: store1.id, name: 'SEC_TABLE_2' })
@@ -209,6 +221,7 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9402] }, force: true })
   // Sweep every order belonging to the two test stores — including any
   // orders tests intentionally failed before creating (RED-phase
   // artifacts) — so cleanup never trips over FK leftovers.

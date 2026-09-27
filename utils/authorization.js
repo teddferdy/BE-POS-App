@@ -42,7 +42,27 @@ const getToken = (req) => {
   return token
 }
 
-const authorization = (req, res, next) => {
+// P1-4: per-request account-state enforcement. A valid signature proves
+// identity, never continued eligibility: the caller row is re-read and a
+// missing (unknown/soft-deleted, via paranoid default scope) or disabled
+// (`disabledAt != null`) account is denied with the existing authorization
+// denial shape. Covers legacy, session-backed, sessionless, and canonical
+// routes alike because they all pass through `authorization` first.
+const denyIfAccountIneligible = async (req, res) => {
+  const db = require('../db/models')
+  const account = await db.user.findByPk(req.user?.id, {
+    attributes: ['id', 'disabledAt']
+  })
+  if (!account || account.disabledAt != null) {
+    res.status(403).json({
+      message: 'Akses Ditolak - Anda tidak memiliki izin'
+    })
+    return true
+  }
+  return false
+}
+
+const authorization = async (req, res, next) => {
   const getTokenValue = getToken(req)
 
   if (!getTokenValue) {
@@ -55,6 +75,13 @@ const authorization = (req, res, next) => {
     const decoded = jwt.verify(getTokenValue, process.env.JWT_SECRET_KEY)
     req.user = decoded
     setUserContext(decoded)
+    try {
+      if (await denyIfAccountIneligible(req, res)) return
+    } catch {
+      return res.status(500).json({
+        message: 'Internal Server Error'
+      })
+    }
     return next()
   } catch {
     return res.status(401).json({

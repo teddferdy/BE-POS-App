@@ -19,9 +19,22 @@ beforeAll(async () => {
   category = await db.category.create({ name: 'RECON_CAT' })
   product = await db.product.create({ nameProduct: 'RECON_PROD', category: category.id, price: 50000, costPrice: 20000, stock: 1000 })
   token = jwt.sign({ id: 98020, userName: 'recon_admin', roleType: 'admin', store: store.id }, JWT_SECRET)
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 98020,
+    userName: 'recon_admin',
+    email: 'p14-98020-reporting-reconciliation@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store.id,
+    status: 'active',
+    fullName: 'recon_admin'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [98020] }, force: true })
   await db.journal_entry_line.destroy({ where: {}, force: true })
   await db.journal_entry.destroy({ where: { store: store.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })

@@ -44,9 +44,22 @@ describe('F-01 accounts_receivable.recordPayment — concurrent double-apply / l
       { id: 8805, userName: 'ar_race_admin', roleType: 'admin', store: location.id },
       JWT_SECRET
     )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 8805,
+    userName: 'ar_race_admin',
+    email: 'p14-8805-accounts-receivable-concurrency@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active',
+    fullName: 'ar_race_admin'
+  })
   })
 
   afterAll(async () => {
+  await db.user.destroy({ where: { id: [8805] }, force: true })
     await db.ar_payment.destroy({ where: {}, force: true })
     await db.accounts_receivable.destroy({ where: {}, force: true })
     await db.order.destroy({ where: { store: location.id }, force: true })

@@ -45,6 +45,38 @@ beforeAll(async () => {
     { id: 9700, userName: 'high2_super', roleType: 'super_admin' },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows give
+  // the caller ids real identities. Assertions below are unchanged.
+  await db.user.create({
+    id: 9701,
+    userName: 'high2_admin_a',
+    email: 'p14-9701-high2@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store1.id,
+    status: 'active',
+    fullName: 'high2_admin_a'
+  })
+  await db.user.create({
+    id: 9702,
+    userName: 'high2_admin_b',
+    email: 'p14-9702-high2@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store2.id,
+    status: 'active',
+    fullName: 'high2_admin_b'
+  })
+  await db.user.create({
+    id: 9700,
+    userName: 'high2_super',
+    email: 'p14-9700-high2@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'high2_super'
+  })
 
   order1 = await db.order.create({
     orderNumber: `HIGH2-${Date.now()}-A`,
@@ -67,6 +99,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9701, 9702, 9700] }, force: true })
   await db.order_item.destroy({ where: { order: [order1?.id, order2?.id].filter(Boolean) }, force: true })
   await db.order.destroy({ where: { id: [order1?.id, order2?.id].filter(Boolean) }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })

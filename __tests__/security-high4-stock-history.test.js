@@ -84,6 +84,18 @@ beforeAll(async () => {
     { id: 9400, userName: `high4_super_${suffix}`, roleType: 'super_admin' },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; the super token id
+  // gets a real row. Assertions below are unchanged.
+  await db.user.create({
+    id: 9400,
+    userName: `high4_super_${suffix}`,
+    email: `p14-9400-security-high4-stock-history-${Date.now()}@test.com`,
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: `high4_super_${suffix}`
+  })
 
   // Create stock_history entries for product in store1, store2, and null (unassigned)
   hist1 = await db.stock_history.create({
@@ -122,6 +134,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9400] }, force: true })
   await db.stock_history.destroy({
     where: { product: product?.id },
     force: true
