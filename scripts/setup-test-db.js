@@ -284,7 +284,12 @@ module.exports = async () => {
     ['auditLog', 'metadata', 'JSONB'],
     // AUTH-1 (migration 20261008000001): location.tenantId ownership slot.
     // Nullable first stage — same no-op-on-migrated-DB property as above.
-    ['location', 'tenantId', 'INTEGER']
+    ['location', 'tenantId', 'INTEGER'],
+    // P1-3 (migration 20261010000001): user.disabledAt account-disablement
+    // state, separate from presence `status`. Same precedent as above:
+    // provision idempotently here so fresh CI clones converge, no-op when
+    // the migration already ran. NULL default = enabled for all rows.
+    ['user', 'disabledAt', 'TIMESTAMP']
   ]
 
   // Phase 34: stock_opname_item's quantity columns are migration-owned

@@ -89,6 +89,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING(20),
         defaultValue: 'active'
       },
+      // P1-3: authoritative account-disablement state, separate from the
+      // presence/session `status` above. NULL = enabled; non-NULL (timestamp
+      // of disablement) = disabled and barred from authentication. Legacy
+      // logout writes `status = inactive` without touching this field.
+      disabledAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null
+      },
       dateOfBirth: {
         type: DataTypes.DATEONLY
       },
