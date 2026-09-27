@@ -84,6 +84,25 @@ beforeAll(async () => {
   adminStore2Token = mkToken('admin', store2.id, 7302)
   superAdminToken = mkToken('super_admin', null, 7300)
 
+  // P1-4: central gate denies unknown caller identities; these rows give the
+  // caller ids above real identities. Assertions below are unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [7301, 'cr4_admin1', 'admin', 'admin', store1.id],
+    [7302, 'cr4_admin2', 'admin', 'admin', store2.id],
+    [7300, 'cr4_super', 'super_admin', 'admin', null]
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-crit4@test.com`,
+      roleType,
+      userType,
+      store,
+      status: 'active',
+      fullName: userName
+    })
+  }
+
   const suffix = Date.now()
 
   supplierS1 = await db.supplier.create({
@@ -131,6 +150,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [7301, 7302, 7300] }, force: true })
   await db.product_store.destroy(
     { where: { product: [productS1.id, productS2.id] }, force: true }
   )

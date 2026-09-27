@@ -79,11 +79,25 @@ beforeAll(async () => {
     { id: 9801, userName: 'sec_log_1_admin', roleType: 'admin', store: store.id },
     JWT_SECRET
   )
+
+  // P1-4: central gate denies unknown caller identities; this row gives the
+  // caller id a real identity. Assertions below are unchanged.
+  await db.user.create({
+    id: 9801,
+    userName: 'sec_log_1_admin',
+    email: 'p14-9801-seclog1@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store.id,
+    status: 'active',
+    fullName: 'sec_log_1_admin'
+  })
 })
 
 afterAll(async () => {
   // The isolated load never queries, but its pools must still be closed.
   await Promise.all((isolated?.created || []).map((s) => s.close().catch(() => {})))
+  await db.user.destroy({ where: { id: [9801] }, force: true })
   await db.order.destroy({ where: { id: orderIds }, force: true })
   await db.location.destroy({ where: { id: [store?.id, otherStore?.id].filter(Boolean) }, force: true })
 })

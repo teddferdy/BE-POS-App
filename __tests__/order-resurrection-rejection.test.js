@@ -49,9 +49,22 @@ describe('F-03 cancelled/refunded order must not be resurrected to paid', () => 
       { id: 9901, userName: 'f03_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 9901,
+    userName: 'f03_cashier',
+    email: 'p14-9901-order-resurrection-rejection@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: location.id,
+    status: 'active',
+    fullName: 'f03_cashier'
+  })
   })
 
   afterAll(async () => {
+  await db.user.destroy({ where: { id: [9901] }, force: true })
     await db.order_item.destroy({ where: {}, force: true })
     await db.transaction.destroy({ where: {}, force: true })
     await db.order_status.destroy({ where: {}, force: true })

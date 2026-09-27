@@ -45,9 +45,31 @@ beforeAll(async () => {
   superAdminToken = jwt.sign({ id: 9802, userName: 'override_super', roleType: 'super_admin', store: store.id }, JWT_SECRET)
   kasirToken = jwt.sign({ id: 9803, userName: 'override_kasir', roleType: 'kasir', store: store.id }, JWT_SECRET)
   userToken = jwt.sign({ id: 9804, userName: 'override_user', roleType: 'user', store: store.id }, JWT_SECRET)
+
+  // P1-4: central gate denies unknown caller identities; these rows give the
+  // caller ids real identities (bound super_admin stays bound). Assertions
+  // below are unchanged.
+  for (const [id, userName, roleType, userType] of [
+    [9801, 'override_admin', 'admin', 'admin'],
+    [9802, 'override_super', 'super_admin', 'admin'],
+    [9803, 'override_kasir', 'kasir', 'user'],
+    [9804, 'override_user', 'user', 'user']
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-override@test.com`,
+      roleType,
+      userType,
+      store: store.id,
+      status: 'active',
+      fullName: userName
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9801, 9802, 9803, 9804] }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })

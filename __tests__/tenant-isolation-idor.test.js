@@ -168,6 +168,49 @@ beforeAll(async () => {
     JWT_SECRET
   )
 
+  // P1-4: central per-request gate denies unknown caller identities, so the
+  // tokens above must belong to real rows (all test assertions unchanged).
+  await db.user.create({
+    id: 70001,
+    userName: 'idor_super',
+    email: 'idor_super@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'IDOR_SUPER'
+  })
+  await db.user.create({
+    id: 70002,
+    userName: 'idor_admin1',
+    email: 'idor_admin1@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store1.id,
+    status: 'active',
+    fullName: 'IDOR_ADMIN_1'
+  })
+  await db.user.create({
+    id: 70003,
+    userName: 'idor_admin2',
+    email: 'idor_admin2@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store2.id,
+    status: 'active',
+    fullName: 'IDOR_ADMIN_2'
+  })
+  await db.user.create({
+    id: 70004,
+    userName: 'idor_kasir1',
+    email: 'idor_kasir1@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: store1.id,
+    status: 'active',
+    fullName: 'IDOR_KASIR_1'
+  })
+
   // ---- purchasePayment fixtures ----
   supplier = await db.supplier.create({ name: 'IDOR_SUPPLIER', phone: '0800000000' })
   po1 = await db.purchase_order.create({
@@ -530,6 +573,8 @@ afterAll(async () => {
   await db.order.destroy({ where: { id: [sbOrder1?.id, sbOrder2?.id] }, force: true })
   await db.discount.destroy({ where: { id: [discount1?.id, discount2?.id] }, force: true })
   await db.user.destroy({ where: { id: [employee1?.id, employee2?.id] }, force: true })
+  // P1-4 caller-identity fixtures (see beforeAll).
+  await db.user.destroy({ where: { id: [70001, 70002, 70003, 70004] }, force: true })
   await db.delivery_status_history.destroy({ where: {}, force: true })
   await db.delivery_order.destroy({
     where: { store: [store1?.id, store2?.id] },

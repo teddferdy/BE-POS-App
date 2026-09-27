@@ -20,6 +20,19 @@ beforeAll(async () => {
     JWT_SECRET
   )
 
+  // P1-4: central gate denies unknown caller identities; this row gives the
+  // caller id a real identity. Assertions below are unchanged.
+  await db.user.create({
+    id: 7901,
+    userName: 'admin_sales_summary',
+    email: 'p14-7901-sales-summary@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active',
+    fullName: 'admin_sales_summary'
+  })
+
   const now = new Date()
   const fortyDaysAgo = new Date(now.getTime() - 40 * 86400000)
 
@@ -45,6 +58,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [7901] }, force: true })
   await db.order.destroy({ where: { store: location.id }, force: true })
   await db.location.destroy({ where: { id: location?.id }, force: true })
 })
@@ -94,6 +108,19 @@ describe('GET /report/sales-summary — per-store breakdown (derived from the gr
       JWT_SECRET
     )
 
+    // P1-4: central gate denies unknown caller identities; this row gives the
+    // caller id a real identity. Assertions below are unchanged.
+    await db.user.create({
+      id: 7902,
+      userName: 'superadmin_sales_summary',
+      email: 'p14-7902-sales-summary@test.com',
+      roleType: 'super_admin',
+      userType: 'admin',
+      store: null,
+      status: 'active',
+      fullName: 'superadmin_sales_summary'
+    })
+
     const now = new Date()
     await db.order.create({
       orderNumber: `SS-A-${Date.now()}`,
@@ -125,6 +152,7 @@ describe('GET /report/sales-summary — per-store breakdown (derived from the gr
   })
 
   afterAll(async () => {
+    await db.user.destroy({ where: { id: [7902] }, force: true })
     await db.order.destroy({ where: { store: [locA.id, locB.id] }, force: true })
     await db.location.destroy({ where: { id: [locA?.id, locB?.id] }, force: true })
   })

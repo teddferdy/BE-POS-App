@@ -79,6 +79,20 @@ beforeAll(async () => {
     { id: 9998, userName: 'super_bom_gbp', roleType: 'super_admin' },
     JWT_SECRET
   )
+
+  // P1-4: central gate denies unknown caller identities; this row gives the
+  // super token id a real identity (adminA/adminB rows already exist above).
+  // Assertions below are unchanged.
+  await db.user.create({
+    id: 9998,
+    userName: 'super_bom_gbp',
+    email: 'p14-9998-bom-gbp@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'super_bom_gbp'
+  })
 })
 
 afterAll(async () => {
@@ -89,7 +103,7 @@ afterAll(async () => {
     force: true
   })
   await db.category.destroy({ where: { id: category?.id }, force: true })
-  await db.user.destroy({ where: { id: [adminA?.id, adminB?.id] }, force: true })
+  await db.user.destroy({ where: { id: [adminA?.id, adminB?.id, 9998] }, force: true })
   await db.location.destroy({ where: { id: [storeA?.id, storeB?.id] }, force: true })
 })
 

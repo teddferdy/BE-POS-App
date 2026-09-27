@@ -6,6 +6,11 @@ const jwt = require('jsonwebtoken')
 const reportConfigRoutes = require('../api/routes/reportConfig')
 
 jest.mock('../db/models', () => ({
+  // P1-4: central authorization gate re-reads the caller row; the mock must
+  // provide it (assertions below are unchanged).
+  user: {
+    findByPk: jest.fn(() => Promise.resolve({ id: 9999, disabledAt: null }))
+  },
   reportConfig: {
     findAll: jest.fn(() => Promise.resolve([])),
     findOne: jest.fn(() => Promise.resolve(null)),

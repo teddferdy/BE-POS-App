@@ -44,9 +44,44 @@ beforeAll(async () => {
     email: 'test2@store.com',
     status: 'active'
   })
+
+  // P1-4: central gate denies unknown caller identities; these rows satisfy
+  // the identity invariant. JWT claims (abstract store numbers) and all
+  // assertions are unchanged; row store stays null (no FK implication).
+  await db.user.create({
+    id: 9999,
+    userName: 'superadmin',
+    email: 'p14-9999-invoice-setting@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'superadmin'
+  })
+  await db.user.create({
+    id: 9998,
+    userName: 'admin1',
+    email: 'p14-9998-invoice-setting@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'admin1'
+  })
+  await db.user.create({
+    id: 9997,
+    userName: 'admin2',
+    email: 'p14-9997-invoice-setting@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'admin2'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9999, 9998, 9997] }, force: true })
   await db.invoice_setting.destroy({
     where: { store: [1, 2] },
     force: true

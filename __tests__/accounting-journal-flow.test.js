@@ -19,6 +19,18 @@ beforeAll(async () => {
     { id: 7501, userName: 'admin_acc_flow', roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 7501,
+    userName: 'admin_acc_flow',
+    email: 'p14-7501-accounting-journal-flow@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active',
+    fullName: 'admin_acc_flow'
+  })
 
   const cashRes = await request(app)
     .post('/accounting/accounts')
@@ -44,6 +56,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [7501] }, force: true })
   await db.journal_entry_line.destroy({ where: {}, force: true })
   await db.journal_entry.destroy({ where: { store: location.id }, force: true })
   await db.account.destroy({ where: { store: location.id }, force: true })

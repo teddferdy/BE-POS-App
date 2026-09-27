@@ -64,9 +64,39 @@ beforeAll(async () => {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true })
 
   backupS1 = await makeBackup(store1.id, 's1.dump', 'STORE1_DUMP')
+
+  // P1-4: central gate denies unknown caller identities; these rows give
+  // every mkToken() caller id below a real identity with matching
+  // role/store semantics. Assertions below are unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [7101, 'cr3_user', 'user', 'user', store1.id],
+    [7102, 'cr3_admin', 'admin', 'admin', store1.id],
+    [7103, 'cr3_kasir', 'kasir', 'user', store1.id],
+    [7201, 'cr3_bound1', 'super_admin', 'admin', store1.id],
+    [7202, 'cr3_bound2', 'super_admin', 'admin', store1.id],
+    [7203, 'cr3_bound3', 'super_admin', 'admin', store1.id],
+    [7204, 'cr3_bound4', 'super_admin', 'admin', store1.id],
+    [7205, 'cr3_bound5', 'super_admin', 'admin', store1.id],
+    [7206, 'cr3_global1', 'super_admin', 'admin', null],
+    [7207, 'cr3_bound6', 'super_admin', 'admin', store1.id],
+    [7208, 'cr3_global2', 'super_admin', 'admin', null],
+    [7209, 'cr3_bound7', 'super_admin', 'admin', store1.id]
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-crit3@test.com`,
+      roleType,
+      userType,
+      store,
+      status: 'active',
+      fullName: userName
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [7101, 7102, 7103, 7201, 7202, 7203, 7204, 7205, 7206, 7207, 7208, 7209] }, force: true })
   await db.db_backup.destroy({ where: { id: createdIds }, force: true })
   await db.location.destroy({
     where: { id: [store1?.id, store2?.id].filter(Boolean) },

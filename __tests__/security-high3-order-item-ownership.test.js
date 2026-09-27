@@ -48,6 +48,38 @@ beforeAll(async () => {
     { id: 9300, userName: 'high3_super', roleType: 'super_admin' },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; these rows give
+  // the caller ids real identities. Assertions below are unchanged.
+  await db.user.create({
+    id: 9301,
+    userName: 'high3_admin_a',
+    email: 'p14-9301-high3@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store1.id,
+    status: 'active',
+    fullName: 'high3_admin_a'
+  })
+  await db.user.create({
+    id: 9302,
+    userName: 'high3_admin_b',
+    email: 'p14-9302-high3@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store2.id,
+    status: 'active',
+    fullName: 'high3_admin_b'
+  })
+  await db.user.create({
+    id: 9300,
+    userName: 'high3_super',
+    email: 'p14-9300-high3@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'high3_super'
+  })
 
   order1 = await db.order.create({
     orderNumber: `HIGH3-${Date.now()}-A`,
@@ -80,6 +112,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9301, 9302, 9300] }, force: true })
   await db.order_item.destroy({
     where: { id: [item1?.id, item2?.id].filter(Boolean) },
     force: true

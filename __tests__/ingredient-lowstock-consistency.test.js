@@ -47,11 +47,25 @@ beforeAll(async () => {
     JWT_SECRET
   )
   superToken = jwt.sign({ id: 9990, userName: 'super_lowstock', roleType: 'super_admin' }, JWT_SECRET)
+
+  // P1-4: central gate denies unknown caller identities; this row gives the
+  // super token id a real identity (adminA row already exists above).
+  // Assertions below are unchanged.
+  await db.user.create({
+    id: 9990,
+    userName: 'super_lowstock',
+    email: 'p14-9990-lowstock@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: 'super_lowstock'
+  })
 })
 
 afterAll(async () => {
   await db.ingredient.destroy({ where: { store: storeA.id }, force: true })
-  await db.user.destroy({ where: { id: adminA?.id }, force: true })
+  await db.user.destroy({ where: { id: [adminA?.id, 9990].filter(Boolean) }, force: true })
   await db.location.destroy({ where: { id: storeA?.id }, force: true })
 })
 

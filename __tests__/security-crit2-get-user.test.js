@@ -82,6 +82,29 @@ beforeAll(async () => {
     userS2A.id,
     userS2B.id
   )
+
+  // P1-4: central gate denies unknown caller identities; these rows give the
+  // mkToken() caller ids below real identities. Assertions unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [7001, 'cr2caller1', 'user', 'user', store1.id],
+    [7002, 'cr2caller2', 'user', 'user', store1.id],
+    [7003, 'cr2caller3', 'kasir', 'user', store1.id],
+    [7004, 'cr2caller4', 'kasir', 'user', store1.id],
+    [7005, 'cr2caller5', 'super_admin', 'admin', null],
+    [7006, 'cr2caller6', 'super_admin', 'admin', null],
+    [7007, 'cr2caller7', 'admin', 'admin', store1.id]
+  ]) {
+    await db.user.create({
+      id,
+      userName: name(userName),
+      email: name(userName) + '@test.com',
+      roleType,
+      userType,
+      store,
+      status: 'active'
+    })
+    fixtureIds.push(id)
+  }
 })
 
 afterAll(async () => {

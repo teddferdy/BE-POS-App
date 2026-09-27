@@ -30,6 +30,27 @@ beforeAll(async () => {
     JWT_SECRET
   )
 
+  // P1-4: central per-request gate denies unknown caller identities, so the
+  // tokens above must belong to real rows (assertions below are unchanged).
+  await db.user.create({
+    id: 8001,
+    userName: 'admin1_priv',
+    email: 'admin1_priv@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store1.id,
+    status: 'active'
+  })
+  await db.user.create({
+    id: 8000,
+    userName: 'superadmin_priv',
+    email: 'superadmin_priv@test.com',
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active'
+  })
+
   userInStore1 = await db.user.create({
     userName: 'target_store1_priv',
     email: 'target1_priv@test.com',
@@ -50,7 +71,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.user.destroy({
-    where: { id: [userInStore1?.id, userInStore2?.id].filter(Boolean) },
+    where: { id: [userInStore1?.id, userInStore2?.id, 8000, 8001].filter(Boolean) },
     force: true
   })
   await db.location.destroy({

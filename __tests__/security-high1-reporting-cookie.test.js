@@ -50,6 +50,19 @@ beforeAll(async () => {
     JWT_SECRET
   )
 
+  // P1-4: central gate denies unknown caller identities; the super token id
+  // needs a real row (9901/9902 already exist above). Assertions unchanged.
+  await db.user.create({
+    id: 9900,
+    userName: `high1_super_${suffix}`,
+    email: `p14-9900-high1-${suffix}@test.com`,
+    roleType: 'super_admin',
+    userType: 'admin',
+    store: null,
+    status: 'active',
+    fullName: `high1_super_${suffix}`
+  })
+
   kasirUser = await db.user.create({
     id: 9902,
     userName: `high1_kasir_${suffix}`,
@@ -85,7 +98,7 @@ afterAll(async () => {
   await db.sales_summary.destroy({ where: { store: storeIds }, force: true })
   await db.product.destroy({ where: { id: product1?.id }, force: true })
   await db.category.destroy({ where: { id: category1?.id }, force: true })
-  await db.user.destroy({ where: { id: [9901, 9902] }, force: true })
+  await db.user.destroy({ where: { id: [9901, 9902, 9900] }, force: true })
   await db.location.destroy({ where: { id: storeIds }, force: true })
 })
 

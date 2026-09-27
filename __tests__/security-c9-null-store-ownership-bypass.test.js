@@ -21,9 +21,28 @@ describe('C-9 null-store (global) record ownership bypass', () => {
       { id: 88902, userName: 'c9_super', roleType: 'super_admin', store: null },
       JWT_SECRET
     )
+
+    // P1-4: central gate denies unknown caller identities; these rows give
+    // the caller ids real identities. Assertions below are unchanged.
+    for (const [id, userName, roleType, userType, store] of [
+      [88901, 'c9_admin_a', 'admin', 'admin', storeA.id],
+      [88902, 'c9_super', 'super_admin', 'admin', null]
+    ]) {
+      await db.user.create({
+        id,
+        userName,
+        email: `p14-${id}-c9@test.com`,
+        roleType,
+        userType,
+        store,
+        status: 'active',
+        fullName: userName
+      })
+    }
   })
 
   afterAll(async () => {
+    await db.user.destroy({ where: { id: [88901, 88902] }, force: true })
     await db.location.destroy({ where: { id: storeA.id }, force: true })
   })
 

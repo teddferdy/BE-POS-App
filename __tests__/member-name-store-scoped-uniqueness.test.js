@@ -41,9 +41,29 @@ beforeAll(async () => {
     { id: 9103, userName: 'c13_super_admin', roleType: 'super_admin', store: null },
     JWT_SECRET
   )
+
+  // P1-4: central gate denies unknown caller identities; these rows give the
+  // caller ids real identities. Assertions below are unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [9101, 'c13_admin_a', 'admin', 'admin', storeA.id],
+    [9102, 'c13_admin_b', 'admin', 'admin', storeB.id],
+    [9103, 'c13_super_admin', 'super_admin', 'admin', null]
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-c13@test.com`,
+      roleType,
+      userType,
+      store,
+      status: 'active',
+      fullName: userName
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9101, 9102, 9103] }, force: true })
   await db.member.destroy({
     where: { store: [storeA?.id, storeB?.id].filter(Boolean) },
     force: true

@@ -97,6 +97,18 @@ beforeAll(async () => {
     { id: 7901, userName: `admin_gr_b1_${SUFFIX}`, roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // P1-4: central gate denies unknown caller identities; the token above
+  // must belong to a real row (assertions below are unchanged).
+  await db.user.create({
+    id: 7901,
+    userName: `admin_gr_b1_${SUFFIX}`,
+    email: `admin_gr_b1_${SUFFIX}@test.com`,
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active',
+    fullName: 'GR_B1_ADMIN'
+  })
 })
 
 afterAll(async () => {
@@ -110,6 +122,7 @@ afterAll(async () => {
   await db.purchase_order.destroy({ where: { store: location.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })
+  await db.user.destroy({ where: { id: [7901] }, force: true })
   await db.location.destroy({ where: { id: location?.id }, force: true })
 })
 

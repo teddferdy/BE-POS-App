@@ -113,10 +113,24 @@ beforeAll(async () => {
     { id: 9711, userName: 'pos_occ_cashier', roleType: 'kasir', store: store.id },
     JWT_SECRET
   )
+
+  // P1-4: central gate denies unknown caller identities; this row gives the
+  // caller id a real identity. Assertions below are unchanged.
+  await db.user.create({
+    id: 9711,
+    userName: 'pos_occ_cashier',
+    email: 'p14-9711-pos-occ@test.com',
+    roleType: 'kasir',
+    userType: 'user',
+    store: store.id,
+    status: 'active',
+    fullName: 'pos_occ_cashier'
+  })
 })
 
 afterAll(async () => {
   jest.restoreAllMocks()
+  await db.user.destroy({ where: { id: [9711] }, force: true })
   const orders = await db.order.findAll({
     where: { store: [store?.id, otherStore?.id].filter(Boolean) },
     attributes: ['id']

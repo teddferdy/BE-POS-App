@@ -111,9 +111,22 @@ beforeAll(async () => {
   tableA = await db.table.create({ store: storeA.id, name: 'F7_TABLE' })
   category = await db.category.create({ name: 'F7_CATEGORY' })
   tokenA = jwt.sign({ id: 9401, userName: 'f7_admin_a', roleType: 'admin', store: storeA.id }, JWT_SECRET)
+  // P1-4: central gate denies unknown caller identities; these rows
+  // satisfy the identity invariant. Assertions below are unchanged.
+  await db.user.create({
+    id: 9401,
+    userName: 'f7_admin_a',
+    email: 'p14-9401-f7-bom-ingredient-deduction@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: storeA.id,
+    status: 'active',
+    fullName: 'f7_admin_a'
+  })
 })
 
 afterAll(async () => {
+  await db.user.destroy({ where: { id: [9401] }, force: true })
   await db.stock_history.destroy({ where: {}, force: true })
   await db.bom_line.destroy({ where: {}, force: true })
   await db.bom_header.destroy({ where: {}, force: true })
