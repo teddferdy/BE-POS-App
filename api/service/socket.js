@@ -34,14 +34,29 @@ const authorizeSocket = (socket, next) => {
   if (!token) {
     return next(new Error('Authentication required'))
   }
+  let decoded
   try {
     // HIGH-6: only the JWT's own claims are trusted — roleType and store
     // cannot be spoofed from the client payload because the token is signed.
-    socket.user = jwt.verify(token, process.env.JWT_SECRET_KEY)
-    return next()
+    decoded = jwt.verify(token, process.env.JWT_SECRET_KEY)
   } catch {
     return next(new Error('Unauthorized'))
   }
+  // P1-5: a valid signature proves identity, never continued eligibility.
+  // The caller row is re-read (paranoid default scope excludes soft-deleted
+  // rows); a missing or disabled (`disabledAt != null`) account is rejected
+  // with the existing handshake convention. Lookup failures fail closed.
+  const db = require('../../db/models')
+  db.user
+    .findByPk(decoded.id, { attributes: ['id', 'disabledAt'] })
+    .then((account) => {
+      if (!account || account.disabledAt != null) {
+        return next(new Error('Unauthorized'))
+      }
+      socket.user = decoded
+      return next()
+    })
+    .catch(() => next(new Error('Unauthorized')))
 }
 
 const isSuperAdminSocket = (socket) => socket.user?.roleType === 'super_admin'
@@ -80,12 +95,25 @@ const guardedJoin = (socket, event, room, storeId, ack) => {
     )
     return
   }
-  if (!canJoinStore(socket, storeId)) {
-    return reject('Forbidden store')
-  }
-  socket.join(room)
-  if (verbose) console.log(`Socket ${socket.id} joined ${room}`)
-  if (typeof ack === 'function') ack({ ok: true })
+  // P1-5: sessionless joins carry no server handle, so the caller row is
+  // re-checked here as well (same rule as the handshake gate). Eligibility
+  // precedes the super-admin/role/store bypass below; failures reuse the
+  // existing room-rejection path. Lookup errors fail closed.
+  const db = require('../../db/models')
+  db.user
+    .findByPk(socket.user?.id, { attributes: ['id', 'disabledAt'] })
+    .then((account) => {
+      if (!account || account.disabledAt != null) {
+        return reject('Forbidden store')
+      }
+      if (!canJoinStore(socket, storeId)) {
+        return reject('Forbidden store')
+      }
+      socket.join(room)
+      if (verbose) console.log(`Socket ${socket.id} joined ${room}`)
+      if (typeof ack === 'function') ack({ ok: true })
+    })
+    .catch(() => reject('Forbidden store'))
 }
 
 // F5: canonical socket room check. Resolves the same server-side context as

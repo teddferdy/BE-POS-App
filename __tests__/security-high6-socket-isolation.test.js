@@ -118,6 +118,25 @@ beforeAll(async () => {
     JWT_SECRET
   )
 
+  // P1-5: handshake denies unknown caller identities; these rows give the
+  // caller ids real identities. Assertions below are unchanged.
+  for (const [id, userName, roleType, userType, store] of [
+    [9601, 'sock6_admin_a', 'admin', 'admin', store1.id],
+    [9602, 'sock6_admin_b', 'admin', 'admin', store2.id],
+    [9600, 'sock6_super', 'super_admin', 'admin', null]
+  ]) {
+    await db.user.create({
+      id,
+      userName,
+      email: `p14-${id}-sock6@test.com`,
+      roleType,
+      userType,
+      store,
+      status: 'active',
+      fullName: userName
+    })
+  }
+
   server = http.createServer()
   initSocket(server)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -135,6 +154,7 @@ afterAll(async () => {
   if (server && server.listening) {
     await new Promise((resolve) => server.close(resolve))
   }
+  await db.user.destroy({ where: { id: [9601, 9602, 9600] }, force: true })
   await db.location.destroy({
     where: { id: [store1?.id, store2?.id].filter(Boolean) },
     force: true
