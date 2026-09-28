@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken')
 const { io: socketClient } = require('socket.io-client')
 const { initSocket, getIO } = require('../api/service/socket')
 const db = require('../db/models')
+const { signSessionToken } = require('../test-helpers/authSession')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
@@ -18,6 +19,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
 let server = null
 let port = null
+let tenant = null
 let store1 = null
 let store2 = null
 let adminAToken = null
@@ -102,24 +104,13 @@ const awaitEvent = (sock, event, ms = 600) =>
   })
 
 beforeAll(async () => {
-  store1 = await db.location.create({ name: 'SOCK6_STORE_A', status: 'active' })
-  store2 = await db.location.create({ name: 'SOCK6_STORE_B', status: 'active' })
+  // AUTH-1 P4: socket authority is the DB session/account, and store joins
+  // are canonical (DR-12) — a store admin is a tenant member assigned to its
+  // store; tokens are bound to real sessions. Assertions below are unchanged.
+  tenant = await db.tenant.create({ code: `SOCK6_TN_${Date.now()}`, name: 'SOCK6 Tenant' })
+  store1 = await db.location.create({ name: 'SOCK6_STORE_A', status: 'active', tenantId: tenant.id })
+  store2 = await db.location.create({ name: 'SOCK6_STORE_B', status: 'active', tenantId: tenant.id })
 
-  adminAToken = jwt.sign(
-    { id: 9601, userName: 'sock6_admin_a', roleType: 'admin', store: store1.id },
-    JWT_SECRET
-  )
-  adminBToken = jwt.sign(
-    { id: 9602, userName: 'sock6_admin_b', roleType: 'admin', store: store2.id },
-    JWT_SECRET
-  )
-  superToken = jwt.sign(
-    { id: 9600, userName: 'sock6_super', roleType: 'super_admin' },
-    JWT_SECRET
-  )
-
-  // P1-5: handshake denies unknown caller identities; these rows give the
-  // caller ids real identities. Assertions below are unchanged.
   for (const [id, userName, roleType, userType, store] of [
     [9601, 'sock6_admin_a', 'admin', 'admin', store1.id],
     [9602, 'sock6_admin_b', 'admin', 'admin', store2.id],
@@ -136,6 +127,16 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  for (const [userId, storeId] of [
+    [9601, store1.id],
+    [9602, store2.id]
+  ]) {
+    await db.tenantMembership.create({ userId, tenantId: tenant.id, role: 'store_admin', status: 'ACTIVE' })
+    await db.storeAssignment.create({ userId, tenantId: tenant.id, storeId })
+  }
+  adminAToken = await signSessionToken({ id: 9601, userName: 'sock6_admin_a' }, JWT_SECRET)
+  adminBToken = await signSessionToken({ id: 9602, userName: 'sock6_admin_b' }, JWT_SECRET)
+  superToken = await signSessionToken({ id: 9600, userName: 'sock6_super' }, JWT_SECRET)
 
   server = http.createServer()
   initSocket(server)
@@ -154,11 +155,14 @@ afterAll(async () => {
   if (server && server.listening) {
     await new Promise((resolve) => server.close(resolve))
   }
+  await db.storeAssignment.destroy({ where: { userId: [9601, 9602] }, force: true }).catch(() => {})
+  await db.tenantMembership.destroy({ where: { userId: [9601, 9602] }, force: true }).catch(() => {})
   await db.user.destroy({ where: { id: [9601, 9602, 9600] }, force: true })
   await db.location.destroy({
     where: { id: [store1?.id, store2?.id].filter(Boolean) },
     force: true
   })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true }).catch(() => {})
 })
 
 describe('HIGH-6 socket handshake authentication', () => {
@@ -179,6 +183,12 @@ describe('HIGH-6 socket handshake authentication', () => {
       'wrong-secret'
     )
     const res = await expectConnectError(forged)
+    expect(res.connected).toBe(false)
+  })
+
+  test('AUTH-1 P4: a correctly signed but sessionless token is rejected', async () => {
+    const sessionless = jwt.sign({ id: 9600, userName: 'sock6_super', roleType: 'super_admin' }, JWT_SECRET)
+    const res = await expectConnectError(sessionless)
     expect(res.connected).toBe(false)
   })
 

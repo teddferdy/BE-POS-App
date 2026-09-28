@@ -57,44 +57,39 @@ const loadAuthenticatedSession = (db, sessionId) =>
     ]
   })
 
-// AUTH-1 P2 canonical authentication. The JWT proves only `id` + `sessionId`;
-// every authenticated request must present a live DB session owned by that
-// id, and req.user is hydrated from the current account row — mutable JWT
-// claims (roleType, roleId, store, names) never reach authorization. Order:
-// credential → signature → sessionId → session+account (one query) →
-// session live and owned → account eligible (disabledAt/deletedAt only;
-// presence `status` is not authority) → hydrate → next(). A lookup failure
-// is 500 and never falls through to next().
-const authorization = async (req, res, next) => {
-  const token = getToken(req)
+const deny = (status, body) => ({ ok: false, status, body })
 
+// AUTH-1 P2 canonical authentication, shared by HTTP (`authorization`) and
+// Socket.IO (P4 handshake) so both enforce one definition of a valid
+// credential. The JWT proves only `id` + `sessionId`; the credential is valid
+// only with a live DB session owned by that id, and the returned user is
+// hydrated from the current account row — mutable JWT claims (roleType,
+// roleId, store, names) never reach authorization. Order: credential →
+// signature → sessionId → session+account (one query) → session live and
+// owned → account eligible (disabledAt/deletedAt only; presence `status` is
+// not authority) → hydrate. A lookup failure is a 500 denial, never success.
+const authenticateCredential = async (token) => {
   if (!token) {
-    return res.status(401).json({
-      message: 'User Belum Login'
-    })
+    return deny(401, { message: 'User Belum Login' })
   }
 
   let decoded
   try {
     decoded = jwt.verify(token, process.env.JWT_SECRET_KEY)
   } catch {
-    return res.status(401).json({
-      message: 'Token Tidak Valid'
-    })
+    return deny(401, { message: 'Token Tidak Valid' })
   }
 
   const sessionId = typeof decoded?.sessionId === 'string' ? decoded.sessionId : null
   if (!sessionId || sessionId.length < 32) {
-    return res.status(401).json(SESSION_INVALID)
+    return deny(401, SESSION_INVALID)
   }
 
   let session
   try {
     session = await loadAuthenticatedSession(require('../db/models'), sessionId)
   } catch {
-    return res.status(500).json({
-      message: 'Internal Server Error'
-    })
+    return deny(500, { message: 'Internal Server Error' })
   }
 
   if (
@@ -103,30 +98,40 @@ const authorization = async (req, res, next) => {
     new Date(session.expiresAt).getTime() <= Date.now() ||
     Number(session.userId) !== Number(decoded.id)
   ) {
-    return res.status(401).json(SESSION_INVALID)
+    return deny(401, SESSION_INVALID)
   }
 
   // P1-4 contract: a missing, soft-deleted or disabled account is denied
   // with the existing authorization denial shape.
   const account = session.user
   if (!account || account.deletedAt != null || account.disabledAt != null) {
-    return res.status(403).json({
-      message: 'Akses Ditolak - Anda tidak memiliki izin'
-    })
+    return deny(403, { message: 'Akses Ditolak - Anda tidak memiliki izin' })
   }
 
-  req.user = {
-    id: account.id,
-    userName: account.userName,
-    fullName: account.fullName,
-    roleType: account.roleType,
-    roleId: account.roleId,
-    store: account.store,
-    disabledAt: account.disabledAt,
-    deletedAt: account.deletedAt,
-    sessionId
+  return {
+    ok: true,
+    session,
+    user: {
+      id: account.id,
+      userName: account.userName,
+      fullName: account.fullName,
+      roleType: account.roleType,
+      roleId: account.roleId,
+      store: account.store,
+      disabledAt: account.disabledAt,
+      deletedAt: account.deletedAt,
+      sessionId
+    }
   }
-  req.authSession = session
+}
+
+const authorization = async (req, res, next) => {
+  const result = await authenticateCredential(getToken(req))
+  if (!result.ok) {
+    return res.status(result.status).json(result.body)
+  }
+  req.user = result.user
+  req.authSession = result.session
   setUserContext(req.user)
   return next()
 }
@@ -155,6 +160,7 @@ module.exports = authorization
 module.exports.requireRole = requireRole
 module.exports.setUserContext = setUserContext
 module.exports.getToken = getToken
+module.exports.authenticateCredential = authenticateCredential
 
 // Canonical permission gate for migrated routes.
 //
