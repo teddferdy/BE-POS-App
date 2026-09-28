@@ -1,8 +1,8 @@
 const { Server } = require('socket.io')
-const jwt = require('jsonwebtoken')
 // ponytail: pakai kebijakan origin yang sama dengan Express REST
 const { corsOriginCheck } = require('../utils/corsOptions')
 const userContext = require('../../utils/userContext')
+const { authenticateCredential } = require('../../utils/authorization')
 
 let io = null
 
@@ -12,9 +12,8 @@ const verbose = process.env.NODE_ENV !== 'production'
 
 // HIGH-6: the socket.IO namespace is its own trust boundary — it never saw
 // Express's authorization/validateStoreAccess middleware, so the handshake
-// must verify the very same JWT the REST routes trust (JWT_SECRET_KEY) and
-// bind room membership to the verified `store` claim. The token is accepted
-// from socket.io's `auth` object (modern clients), the query string
+// must verify the very same credential the REST routes trust. The token is
+// accepted from socket.io's `auth` object (modern clients), the query string
 // (WebSocket upgrade fallback), or an Authorization header, mirroring
 // utils/authorization.js' getToken().
 const getSocketToken = (socket) => {
@@ -29,98 +28,57 @@ const getSocketToken = (socket) => {
   return null
 }
 
+// AUTH-1 P4: the handshake enforces the same canonical credential as HTTP
+// (utils/authorization.js authenticateCredential): JWT signature/expiry, a
+// required sessionId, a live session owned by the JWT's id, and an eligible
+// account. socket.user is hydrated from the DB row — JWT role/store/name
+// claims are never authority. Denials keep the existing handshake messages
+// and never expose internal errors; a lookup failure fails closed.
 const authorizeSocket = (socket, next) => {
   const token = getSocketToken(socket)
   if (!token) {
     return next(new Error('Authentication required'))
   }
-  let decoded
-  try {
-    // HIGH-6: only the JWT's own claims are trusted — roleType and store
-    // cannot be spoofed from the client payload because the token is signed.
-    decoded = jwt.verify(token, process.env.JWT_SECRET_KEY)
-  } catch {
-    return next(new Error('Unauthorized'))
-  }
-  // P1-5: a valid signature proves identity, never continued eligibility.
-  // The caller row is re-read (paranoid default scope excludes soft-deleted
-  // rows); a missing or disabled (`disabledAt != null`) account is rejected
-  // with the existing handshake convention. Lookup failures fail closed.
-  const db = require('../../db/models')
-  db.user
-    .findByPk(decoded.id, { attributes: ['id', 'disabledAt'] })
-    .then((account) => {
-      if (!account || account.disabledAt != null) {
-        return next(new Error('Unauthorized'))
-      }
-      socket.user = decoded
+  authenticateCredential(token).then(
+    (result) => {
+      if (!result.ok) return next(new Error('Unauthorized'))
+      socket.user = result.user
       return next()
-    })
-    .catch(() => next(new Error('Unauthorized')))
-}
-
-const isSuperAdminSocket = (socket) => socket.user?.roleType === 'super_admin'
-
-// HIGH-6: a non-super socket may only ever join the room that corresponds to
-// its verified `store` claim. The client-supplied storeId is compared, never
-// interpolated first, so payload coercion (arrays, objects, NaN, string
-// floats) cannot forge another tenant's room.
-const canJoinStore = (socket, storeId) => {
-  if (isSuperAdminSocket(socket)) return true
-  const userStore = Number(socket.user?.store)
-  const requested = Number(storeId)
-  return (
-    Number.isFinite(userStore) &&
-    Number.isFinite(requested) &&
-    userStore === requested
+    },
+    () => next(new Error('Unauthorized'))
   )
 }
+
+// Server-internal rooms addressing a socket by the session and the account
+// it authenticated with; client join events only ever build `store-`/
+// `kitchen-` rooms, so no client can enter these.
+const sessionRoom = (sessionId) => `session:${sessionId}`
+const userRoom = (userId) => `user:${userId}`
 
 const guardedJoin = (socket, event, room, storeId, ack) => {
   const reject = (message) => {
     if (typeof ack === 'function') ack({ ok: false, message })
     socket.emit('join-rejected', { event, store: storeId, ok: false, message })
   }
-  // F5 canonical path: tokens carrying a server-side session are validated
-  // against persisted membership/assignment state, not JWT claims.
-  if (socket.user?.sessionId) {
-    canJoinStoreCanonical(socket, storeId).then(
-      (allowed) => {
-        if (!allowed) return reject('Forbidden store')
-        socket.join(room)
-        if (verbose) console.log(`Socket ${socket.id} joined ${room}`)
-        if (typeof ack === 'function') ack({ ok: true })
-      },
-      () => reject('Forbidden store')
-    )
-    return
-  }
-  // P1-5: sessionless joins carry no server handle, so the caller row is
-  // re-checked here as well (same rule as the handshake gate). Eligibility
-  // precedes the super-admin/role/store bypass below; failures reuse the
-  // existing room-rejection path. Lookup errors fail closed.
-  const db = require('../../db/models')
-  db.user
-    .findByPk(socket.user?.id, { attributes: ['id', 'disabledAt'] })
-    .then((account) => {
-      if (!account || account.disabledAt != null) {
-        return reject('Forbidden store')
-      }
-      if (!canJoinStore(socket, storeId)) {
-        return reject('Forbidden store')
-      }
+  // AUTH-1 P4: every socket is session-backed (the handshake requires it), so
+  // every join is validated canonically against the live session and
+  // persisted membership/assignment state — never JWT claims.
+  canJoinStoreCanonical(socket, storeId).then(
+    (allowed) => {
+      if (!allowed) return reject('Forbidden store')
       socket.join(room)
       if (verbose) console.log(`Socket ${socket.id} joined ${room}`)
       if (typeof ack === 'function') ack({ ok: true })
-    })
-    .catch(() => reject('Forbidden store'))
+    },
+    () => reject('Forbidden store')
+  )
 }
 
 // F5: canonical socket room check. Resolves the same server-side context as
 // HTTP (session -> persisted membership/assignment/lifecycle) and allows the
-// join only when the requested store is inside the resolved scope. Tokens
-// without a session fall back to the legacy JWT-claim check in canJoinStore
-// (compatibility only — never authority beyond the signed claim).
+// join only when the requested store is inside the resolved scope. The
+// session is re-read on every join, so a session revoked since the handshake
+// can never join a room.
 const canJoinStoreCanonical = async (socket, storeId) => {
   try {
     const requested = Number(storeId)
@@ -147,6 +105,30 @@ const canJoinStoreCanonical = async (socket, storeId) => {
   }
 }
 
+// Re-runs the canonical credential check for the socket's own handshake
+// token; anything but the same live, eligible account disconnects it.
+const ensureSessionStillLive = (socket) => {
+  authenticateCredential(getSocketToken(socket)).then(
+    (result) => {
+      if (!result.ok || Number(result.user.id) !== Number(socket.user.id)) socket.disconnect(true)
+    },
+    () => socket.disconnect(true)
+  )
+}
+
+// AUTH-1 P4 eviction. Called by the revoking code path only AFTER its
+// transaction has committed (database revocation stays authoritative; a
+// rolled-back revocation never reaches these). In-process only: with the
+// single-process in-memory adapter this reaches every socket of the server;
+// a multi-instance deployment would need a shared adapter (D5).
+const disconnectSession = (sessionId) => {
+  if (io && sessionId) io.in(sessionRoom(sessionId)).disconnectSockets(true)
+}
+
+const disconnectUser = (userId) => {
+  if (io && userId != null) io.in(userRoom(userId)).disconnectSockets(true)
+}
+
 const initSocket = (server) => {
   io = new Server(server, {
     cors: {
@@ -160,6 +142,13 @@ const initSocket = (server) => {
 
   io.on('connection', (socket) => {
     if (verbose) console.log('Client connected:', socket.id)
+
+    // AUTH-1 P4: register the socket under its session and account so a
+    // committed revocation can find and disconnect it. A revocation that
+    // committed after the handshake but before this registration would miss
+    // the socket, so the session is re-checked once registered.
+    socket.join([sessionRoom(socket.user.sessionId), userRoom(socket.user.id)])
+    ensureSessionStillLive(socket)
 
     const context = {
       userId: socket.user?.id,
@@ -212,10 +201,11 @@ const initSocket = (server) => {
 const emitToKitchen = (storeId, event, data) => {
   if (io) {
     io.to(`kitchen-${storeId}`).emit(event, data)
-    // P0: a super_admin's "All Stores" KDS view joins `kitchen-all` (only
-    // reachable by a verified super_admin socket — see canJoinStore) instead
-    // of any single store's room, so it must also receive every store's
-    // kitchen events or its board silently stops updating in realtime.
+    // P0: a super_admin's "All Stores" KDS view asks for `kitchen-all`
+    // instead of any single store's room, so every store's kitchen events are
+    // mirrored there. AUTH-1 P4: the canonical join accepts numeric store ids
+    // only, so no socket can currently join `kitchen-all` (open decision);
+    // that view falls back to polling.
     io.to('kitchen-all').emit(event, data)
   }
 }
@@ -262,6 +252,7 @@ module.exports = {
   emitOrderUpdate,
   emitItemStatusUpdate,
   emitNotification,
-  canJoinStore,
-  canJoinStoreCanonical
+  canJoinStoreCanonical,
+  disconnectSession,
+  disconnectUser
 }

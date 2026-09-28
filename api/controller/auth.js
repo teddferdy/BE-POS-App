@@ -9,6 +9,7 @@ const {
   revokeContextSession,
   revokeAllUserSessions
 } = require('../../utils/authorizationContextMiddleware')
+const { disconnectSession, disconnectUser } = require('../service/socket')
 const bcrypt = require('bcrypt')
 const moment = require('moment')
 const crypto = require('crypto')
@@ -239,6 +240,9 @@ exports.changeUserStatusById = async (req, res) => {
         message: 'User not found or no changes made.'
       })
     }
+
+    // AUTH-1 P4: the disable (and its revocation) committed; drop live sockets.
+    if (status === 'inactive') disconnectUser(targetUser.id)
 
     createAudit(req, 'update', 'user', id, `Updated user status: ${id}`)
 
@@ -897,6 +901,8 @@ exports.resetPassword = async (req, res) => {
       await existingUser.save({ transaction: t })
       await revokeAllUserSessions(db, existingUser.id, { transaction: t })
     })
+    // AUTH-1 P4: committed; drop the account's live sockets.
+    disconnectUser(existingUser.id)
 
     createAudit(
       req,
@@ -950,6 +956,8 @@ exports.logout = async (req, res) => {
     }
 
     await revokeContextSession(db, session.sessionId, req.user.id)
+    // AUTH-1 P4: the revocation is committed; drop this session's live sockets.
+    disconnectSession(session.sessionId)
 
     res.clearCookie('token')
 

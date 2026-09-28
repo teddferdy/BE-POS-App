@@ -18,6 +18,7 @@ const {
   switchSessionTenant,
   switchSessionStore
 } = require('../../utils/authorizationContextMiddleware')
+const { disconnectSession } = require('../service/socket')
 
 const sessionOf = (req) => req.authSession || null
 
@@ -129,10 +130,11 @@ exports.selectStore = async (req, res) => {
 
 exports.clearContext = async (req, res) => {
   const session = sessionOf(req)
-  if (session) {
-    await revokeContextSession(db, session.sessionId, req.user?.id)
-  } else if (req.user?.sessionId) {
-    await revokeContextSession(db, req.user.sessionId, req.user?.id)
+  const sessionId = session ? session.sessionId : req.user?.sessionId
+  if (sessionId) {
+    await revokeContextSession(db, sessionId, req.user?.id)
+    // AUTH-1 P4: the revocation is committed; drop this session's live sockets.
+    disconnectSession(sessionId)
   }
   res.clearCookie('token')
   return res.status(200).json({ message: 'Context cleared' })

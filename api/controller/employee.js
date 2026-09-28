@@ -16,6 +16,7 @@ const { syncEmployeeShift } = require('../../utils/shiftChain')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { authorizedWriteStore } = require('../../utils/storeValidation')
 const { revokeAllUserSessions } = require('../../utils/authorizationContextMiddleware')
+const { disconnectUser } = require('../service/socket')
 
 const dateOrNull = (value, fallback) =>
   value === undefined ? fallback : value ? value : null
@@ -688,6 +689,8 @@ exports.updateEmployee = async (req, res) => {
         await revokeAllUserSessions(db, employee.id, { transaction: t })
       }
     })
+    // AUTH-1 P4: committed; drop the employee's live sockets.
+    if (updateData.password) disconnectUser(employee.id)
 
     if (body?.shift !== undefined) {
       await syncEmployeeShift({
@@ -773,6 +776,8 @@ exports.deleteEmployee = async (req, res) => {
         message: 'Karyawan tidak ditemukan'
       })
     }
+    // AUTH-1 P4: the soft-delete committed; drop the employee's live sockets.
+    disconnectUser(employee.id)
 
     createAudit(req, 'delete', 'employee', id, `Deleted employee: ${id}`)
 

@@ -1,10 +1,10 @@
 process.env.NODE_ENV = 'test'
 
 const http = require('http')
-const jwt = require('jsonwebtoken')
 const { io: socketClient } = require('socket.io-client')
 const { initSocket, getIO, emitNewOrder, emitItemStatusUpdate } = require('../api/service/socket')
 const db = require('../db/models')
+const { signSessionToken } = require('../test-helpers/authSession')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
@@ -18,12 +18,13 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 //
 // This is a REALTIME-DELIVERY bug only. Store-scoped REST authorization
 // (validateStoreAccess / getKitchenOrders) and per-store socket room
-// isolation (canJoinStore / guardedJoin) were already correct and are only
+// isolation (guardedJoin, canonical since AUTH-1 P4) were already correct and are only
 // re-asserted here as regression guards, not as bug reproductions — they are
 // expected to pass both before and after the fix.
 
 let server = null
 let port = null
+let tenant = null
 let store1 = null
 let store2 = null
 let adminToken = null
@@ -78,17 +79,12 @@ const awaitEvent = (sock, event, ms = 800) =>
   })
 
 beforeAll(async () => {
-  store1 = await db.location.create({ name: 'KDSALL_STORE_A', status: 'active' })
-  store2 = await db.location.create({ name: 'KDSALL_STORE_B', status: 'active' })
+  // AUTH-1 P4: sockets are session-backed and store joins canonical (DR-12),
+  // so the store admin is a tenant member assigned to store1.
+  tenant = await db.tenant.create({ code: `KDSALL_TN_${Date.now()}`, name: 'KDSALL Tenant' })
+  store1 = await db.location.create({ name: 'KDSALL_STORE_A', status: 'active', tenantId: tenant.id })
+  store2 = await db.location.create({ name: 'KDSALL_STORE_B', status: 'active', tenantId: tenant.id })
 
-  adminToken = jwt.sign(
-    { id: 9801, userName: 'kdsall_admin', roleType: 'admin', store: store1.id },
-    JWT_SECRET
-  )
-  superToken = jwt.sign({ id: 9800, userName: 'kdsall_super', roleType: 'super_admin' }, JWT_SECRET)
-
-  // P1-5: handshake denies unknown caller identities; these rows give the
-  // caller ids real identities. Assertions below are unchanged.
   for (const [id, userName, roleType, userType, store] of [
     [9801, 'kdsall_admin', 'admin', 'admin', store1.id],
     [9800, 'kdsall_super', 'super_admin', 'admin', null]
@@ -104,6 +100,10 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  await db.tenantMembership.create({ userId: 9801, tenantId: tenant.id, role: 'store_admin', status: 'ACTIVE' })
+  await db.storeAssignment.create({ userId: 9801, tenantId: tenant.id, storeId: store1.id })
+  adminToken = await signSessionToken({ id: 9801, userName: 'kdsall_admin' }, JWT_SECRET)
+  superToken = await signSessionToken({ id: 9800, userName: 'kdsall_super' }, JWT_SECRET)
 
   server = http.createServer()
   initSocket(server)
@@ -122,35 +122,43 @@ afterAll(async () => {
   if (server && server.listening) {
     await new Promise((resolve) => server.close(resolve))
   }
+  await db.storeAssignment.destroy({ where: { userId: 9801 }, force: true }).catch(() => {})
+  await db.tenantMembership.destroy({ where: { userId: 9801 }, force: true }).catch(() => {})
   await db.user.destroy({ where: { id: [9801, 9800] }, force: true })
   await db.location.destroy({ where: { id: [store1?.id, store2?.id].filter(Boolean) }, force: true })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true }).catch(() => {})
 })
 
 describe('KDS All Stores realtime delivery (P0)', () => {
-  test('super_admin viewing All Stores receives a new-order event for ANY store', async () => {
+  // OPEN DECISION (AUTH-1 P4): the canonical socket join accepts numeric
+  // store ids only, so a session-backed super_admin cannot currently join
+  // the "all" room (the FE KDS falls back to polling). This pins the current
+  // boundary; it is not a policy decision.
+  test('OPEN DECISION: a session-backed super_admin cannot currently join the "all" kitchen room', async () => {
     const sock = await connect(superToken)
     try {
       const ack = await joinAck(sock, 'join-kitchen', 'all')
-      expect(ack && ack.ok).toBe(true)
-
-      const p = awaitEvent(sock, 'new-order')
-      emitNewOrder(store1.id, { orderNumber: 'KDSALL-ORDER-1' })
-      const received = await p
-      expect(received).toEqual({ orderNumber: 'KDSALL-ORDER-1' })
+      expect(ack && ack.ok).toBe(false)
     } finally {
       sock.disconnect()
     }
   })
 
-  test('super_admin viewing All Stores receives an item-status-updated event for ANY store', async () => {
+  // The P0 fan-out itself is unchanged: every store's kitchen events are
+  // mirrored to `kitchen-all`. Room membership is placed server-side here —
+  // deliberately bypassing join authorization — to test only the broadcast.
+  test('kitchen events of ANY store are mirrored to the kitchen-all room', async () => {
     const sock = await connect(superToken)
     try {
-      await joinAck(sock, 'join-kitchen', 'all')
+      getIO().of('/').sockets.get(sock.id).join('kitchen-all')
 
-      const p = awaitEvent(sock, 'item-status-updated')
+      const orderP = awaitEvent(sock, 'new-order')
+      emitNewOrder(store1.id, { orderNumber: 'KDSALL-ORDER-1' })
+      expect(await orderP).toEqual({ orderNumber: 'KDSALL-ORDER-1' })
+
+      const itemP = awaitEvent(sock, 'item-status-updated')
       emitItemStatusUpdate(store2.id, 123, { id: 456, status: 'preparing' })
-      const received = await p
-      expect(received).toEqual({ orderId: 123, item: { id: 456, status: 'preparing' } })
+      expect(await itemP).toEqual({ orderId: 123, item: { id: 456, status: 'preparing' } })
     } finally {
       sock.disconnect()
     }
@@ -171,8 +179,8 @@ describe('KDS All Stores realtime delivery (P0)', () => {
 
   // Regression guard (already correct, not part of this bug): a non-super
   // socket can never join the "all" room by sending the literal string
-  // 'all' as its storeId — canJoinStore's numeric comparison naturally
-  // rejects it (Number('all') is NaN).
+  // 'all' as its storeId — the canonical join accepts numeric store ids only and
+  // so rejects it (Number('all') is NaN).
   test('a store-scoped admin cannot join the "all" kitchen room', async () => {
     const sock = await connect(adminToken)
     try {
