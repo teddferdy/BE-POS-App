@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -25,10 +25,6 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
       price: 10000,
       stock: 1 // exactly one unit — the classic "two cashiers, one item" scenario
     })
-    token = jwt.sign(
-      { id: 8801, userName: 'race_cashier', roleType: 'kasir', store: location.id },
-      JWT_SECRET
-    )
   // P1-4: central gate denies unknown caller identities; these rows
   // satisfy the identity invariant. Assertions below are unchanged.
   await db.user.create({
@@ -37,7 +33,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     email: 'p14-8801-concurrency-race-conditions@test.com',
     roleType: 'kasir',
     userType: 'user',
-    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    store: null, // assigned per describe before its token is minted (AUTH-1 P2: the row drives scope)
     status: 'active',
     fullName: 'race_cashier'
   })
@@ -47,7 +43,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     email: 'p14-8802-concurrency-race-conditions@test.com',
     roleType: 'kasir',
     userType: 'user',
-    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    store: null, // assigned per describe before its token is minted (AUTH-1 P2: the row drives scope)
     status: 'active',
     fullName: 'race_status_cashier'
   })
@@ -57,7 +53,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     email: 'p14-8803-concurrency-race-conditions@test.com',
     roleType: 'admin',
     userType: 'admin',
-    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    store: null, // assigned per describe before its token is minted (AUTH-1 P2: the row drives scope)
     status: 'active',
     fullName: 'race_po_admin'
   })
@@ -67,7 +63,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     email: 'p14-8804-concurrency-race-conditions@test.com',
     roleType: 'kasir',
     userType: 'user',
-    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    store: null, // assigned per describe before its token is minted (AUTH-1 P2: the row drives scope)
     status: 'active',
     fullName: 'race_idempotency_cashier'
   })
@@ -77,10 +73,17 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     email: 'p14-8805-concurrency-race-conditions@test.com',
     roleType: 'kasir',
     userType: 'user',
-    store: null, // null avoids FK ordering across describes; JWT claim still drives scope
+    store: null, // assigned per describe before its token is minted (AUTH-1 P2: the row drives scope)
     status: 'active',
     fullName: 'race_custnum_cashier'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+    // AUTH-1 P2: the row is the authority — assign it the store the token claims.
+    await db.user.update({ store: location.id }, { where: { id: 8801 } })
+    token = await signSessionToken(
+      { id: 8801, userName: 'race_cashier', roleType: 'kasir', store: location.id },
+      JWT_SECRET
+    )
   })
 
   afterAll(async () => {
@@ -93,6 +96,8 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
     await db.product.destroy({ where: { id: product.id }, force: true })
     await db.category.destroy({ where: { id: category.id }, force: true })
+    // Release the per-describe store assignment (user.store FK) before deleting it.
+    await db.user.update({ store: null }, { where: { store: location.id } })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -139,7 +144,9 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
       price: 5000,
       stock: 10
     })
-    token = jwt.sign(
+    // AUTH-1 P2: the row is the authority — assign it the store the token claims.
+    await db.user.update({ store: location.id }, { where: { id: 8802 } })
+    token = await signSessionToken(
       { id: 8802, userName: 'race_status_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
@@ -175,6 +182,8 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
     await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
     await db.product.destroy({ where: { id: product.id }, force: true })
     await db.category.destroy({ where: { id: category.id }, force: true })
+    // Release the per-describe store assignment (user.store FK) before deleting it.
+    await db.user.update({ store: null }, { where: { store: location.id } })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -213,7 +222,9 @@ describe('Concurrent PO receiving — lost update on product.stock (purchaseOrde
       costPrice: 4000,
       stock: 0
     })
-    token = jwt.sign(
+    // AUTH-1 P2: the row is the authority — assign it the store the token claims.
+    await db.user.update({ store: location.id }, { where: { id: 8803 } })
+    token = await signSessionToken(
       { id: 8803, userName: 'race_po_admin', roleType: 'admin', store: location.id },
       JWT_SECRET
     )
@@ -244,6 +255,8 @@ describe('Concurrent PO receiving — lost update on product.stock (purchaseOrde
     await db.purchase_order.destroy({ where: { store: location.id }, force: true })
     await db.product.destroy({ where: { id: product.id }, force: true })
     await db.category.destroy({ where: { id: category.id }, force: true })
+    // Release the per-describe store assignment (user.store FK) before deleting it.
+    await db.user.update({ store: null }, { where: { store: location.id } })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -291,7 +304,9 @@ describe('Concurrent duplicate submit — idempotency key (order.js createOrder)
       store: location.id,
       stock: product.stock
     })
-    token = jwt.sign(
+    // AUTH-1 P2: the row is the authority — assign it the store the token claims.
+    await db.user.update({ store: location.id }, { where: { id: 8804 } })
+    token = await signSessionToken(
       { id: 8804, userName: 'race_idempotency_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
@@ -307,6 +322,8 @@ describe('Concurrent duplicate submit — idempotency key (order.js createOrder)
     await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
     await db.product.destroy({ where: { id: product.id }, force: true })
     await db.category.destroy({ where: { id: category.id }, force: true })
+    // Release the per-describe store assignment (user.store FK) before deleting it.
+    await db.user.update({ store: null }, { where: { store: location.id } })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -390,7 +407,9 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
       store: location.id,
       stock: product.stock
     })
-    token = jwt.sign(
+    // AUTH-1 P2: the row is the authority — assign it the store the token claims.
+    await db.user.update({ store: location.id }, { where: { id: 8805 } })
+    token = await signSessionToken(
       { id: 8805, userName: 'race_custnum_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
@@ -407,6 +426,8 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
     await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
     await db.product.destroy({ where: { id: product.id }, force: true })
     await db.category.destroy({ where: { id: category.id }, force: true })
+    // Release the per-describe store assignment (user.store FK) before deleting it.
+    await db.user.update({ store: null }, { where: { store: location.id } })
     await db.location.destroy({ where: { id: location.id }, force: true })
   }, 30000)
 

@@ -2,31 +2,24 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken, ensureLocationIds } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
-const superAdminToken = jwt.sign(
-  { id: 9999, userName: 'superadmin', roleType: 'super_admin' },
-  JWT_SECRET
-)
+let superAdminToken
 
-const adminStore1Token = jwt.sign(
-  { id: 9998, userName: 'admin1', roleType: 'admin', store: 1 },
-  JWT_SECRET
-)
+let adminStore1Token
 
-const adminStore2Token = jwt.sign(
-  { id: 9997, userName: 'admin2', roleType: 'admin', store: 2 },
-  JWT_SECRET
-)
+let adminStore2Token
 
 let locationStore1 = null
 let locationStore2 = null
 
 beforeAll(async () => {
+  // AUTH-1 P2: the caller store comes from the DB row; abstract stores must exist.
+  await ensureLocationIds(1, 2)
   locationStore1 = await db.location.create({
     store: 1,
     name: 'TEST_STORE_INVOICE_1',
@@ -64,7 +57,7 @@ beforeAll(async () => {
     email: 'p14-9998-invoice-setting@test.com',
     roleType: 'admin',
     userType: 'admin',
-    store: null,
+    store: 1,
     status: 'active',
     fullName: 'admin1'
   })
@@ -74,10 +67,26 @@ beforeAll(async () => {
     email: 'p14-9997-invoice-setting@test.com',
     roleType: 'admin',
     userType: 'admin',
-    store: null,
+    store: 2,
     status: 'active',
     fullName: 'admin2'
   })
+})
+
+// AUTH-1 P2: tokens bound to real sessions, minted once the users exist.
+beforeAll(async () => {
+  superAdminToken = await signSessionToken(
+  { id: 9999, userName: 'superadmin', roleType: 'super_admin' },
+  JWT_SECRET
+)
+  adminStore1Token = await signSessionToken(
+  { id: 9998, userName: 'admin1', roleType: 'admin', store: 1 },
+  JWT_SECRET
+)
+  adminStore2Token = await signSessionToken(
+  { id: 9997, userName: 'admin2', roleType: 'admin', store: 2 },
+  JWT_SECRET
+)
 })
 
 afterAll(async () => {

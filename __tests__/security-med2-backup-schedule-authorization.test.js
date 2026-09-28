@@ -10,7 +10,7 @@ const path = require('path')
 process.env.BACKUP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'med2-backups-'))
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -31,7 +31,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 // rejected, same as tenant roles already are.
 
 const mkToken = (roleType, store, id) =>
-  jwt.sign({ id, userName: `tok_${roleType}_${id}`, roleType, store }, JWT_SECRET)
+  signSessionToken({ id, userName: `tok_${roleType}_${id}`, roleType, store }, JWT_SECRET)
 
 let store1
 
@@ -40,7 +40,7 @@ describe('MED-2 backup schedule authorization boundary', () => {
     store1 = await db.location.create({ name: 'MED2_STORE_1', status: 'active' })
 
     // P1-4: central gate denies unknown caller identities; these rows give
-    // the mkToken() caller ids real identities. Assertions unchanged.
+    // the await mkToken() caller ids real identities. Assertions unchanged.
     for (const [id, userName, roleType, userType, store] of [
       [501, 'med2_bound1', 'super_admin', 'admin', store1.id],
       [502, 'med2_bound2', 'super_admin', 'admin', store1.id],
@@ -69,7 +69,7 @@ describe('MED-2 backup schedule authorization boundary', () => {
   test('store-bound super_admin CANNOT set the global retention schedule', async () => {
     const res = await request(app)
       .put('/backup/schedule')
-      .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 501)}`)
+      .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 501)}`)
       .send({ enabled: true, cron: '0 0 * * *', retention: 1 })
 
     expect([403, 401]).toContain(res.status)
@@ -78,7 +78,7 @@ describe('MED-2 backup schedule authorization boundary', () => {
   test('store-bound super_admin CANNOT read the global retention schedule', async () => {
     const res = await request(app)
       .get('/backup/schedule')
-      .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 502)}`)
+      .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 502)}`)
 
     expect([403, 401]).toContain(res.status)
   })
@@ -86,7 +86,7 @@ describe('MED-2 backup schedule authorization boundary', () => {
   test('global super_admin (no store claim) CAN set the retention schedule', async () => {
     const res = await request(app)
       .put('/backup/schedule')
-      .set('Authorization', `Bearer ${mkToken('super_admin', null, 503)}`)
+      .set('Authorization', `Bearer ${await mkToken('super_admin', null, 503)}`)
       .send({ enabled: false, cron: '0 0 * * *', retention: 30 })
 
     expect(res.status).toBe(200)
@@ -95,7 +95,7 @@ describe('MED-2 backup schedule authorization boundary', () => {
   test('global super_admin (no store claim) CAN read the retention schedule', async () => {
     const res = await request(app)
       .get('/backup/schedule')
-      .set('Authorization', `Bearer ${mkToken('super_admin', null, 504)}`)
+      .set('Authorization', `Bearer ${await mkToken('super_admin', null, 504)}`)
 
     expect(res.status).toBe(200)
   })
@@ -103,7 +103,7 @@ describe('MED-2 backup schedule authorization boundary', () => {
   test('tenant admin still cannot touch the schedule (pre-existing guard unaffected)', async () => {
     const res = await request(app)
       .put('/backup/schedule')
-      .set('Authorization', `Bearer ${mkToken('admin', store1.id, 505)}`)
+      .set('Authorization', `Bearer ${await mkToken('admin', store1.id, 505)}`)
       .send({ enabled: true, cron: '0 0 * * *', retention: 1 })
 
     expect([403, 401]).toContain(res.status)

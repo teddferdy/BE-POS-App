@@ -329,8 +329,8 @@ describe('Legacy roleType never grants authority by itself', () => {
   })
 
   const forgeAndResolve = async (user, claims, opts = {}) => {
-    const jwt = require('jsonwebtoken')
-    const token = jwt.sign(
+    const { signSessionToken } = require('../test-helpers/authSession')
+    const token = await signSessionToken(
       { id: user.id, userName: 'x', ...claims },
       process.env.JWT_SECRET_KEY || 'secret-key-user'
     )

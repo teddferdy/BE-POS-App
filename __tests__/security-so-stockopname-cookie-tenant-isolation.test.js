@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const excelJS = require('exceljs')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 let storeA, storeB, tokenA, tokenB, superToken, unassignedToken
 
 const mkToken = (roleType, store, id) =>
-  jwt.sign({ id, userName: `so_tok_${roleType}_${id}`, roleType, store }, JWT_SECRET)
+  signSessionToken({ id, userName: `so_tok_${roleType}_${id}`, roleType, store }, JWT_SECRET)
 
 // Builds a valid "Stock Opname" xlsx buffer matching uploadExcel's EXPECTED
 // header contract exactly.
@@ -55,10 +55,6 @@ describe('SO-01/02/03 stockOpname.js cookie-based tenant-isolation bypass', () =
     storeA = await db.location.create({ name: 'SO_STORE_A', status: 'active' })
     storeB = await db.location.create({ name: 'SO_STORE_B', status: 'active' })
 
-    tokenA = mkToken('admin', storeA.id, 79101)
-    tokenB = mkToken('admin', storeB.id, 79102)
-    superToken = mkToken('super_admin', null, 79103)
-    unassignedToken = mkToken('admin', null, 79104)
 
     // P1-4: central gate denies unknown caller identities; these rows give
     // the caller ids real identities with matching assigned/unassigned
@@ -80,6 +76,11 @@ describe('SO-01/02/03 stockOpname.js cookie-based tenant-isolation bypass', () =
         fullName: userName
       })
     }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+    tokenA = await mkToken('admin', storeA.id, 79101)
+    tokenB = await mkToken('admin', storeB.id, 79102)
+    superToken = await mkToken('super_admin', null, 79103)
+    unassignedToken = await mkToken('admin', null, 79104)
   })
 
   afterAll(async () => {

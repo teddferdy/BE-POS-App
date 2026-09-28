@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -24,10 +24,6 @@ beforeAll(async () => {
   })
   // Match the store-scoped stock row a live store would have.
   await db.product_store_stock.create({ product: productA.id, store: location.id, stock: 100 })
-  cashierToken = jwt.sign(
-    { id: 7002, userName: 'cashier_tax_ct', roleType: 'kasir', store: location.id },
-    JWT_SECRET
-  )
   // P1-4: central gate denies unknown caller identities; these rows
   // satisfy the identity invariant. Assertions below are unchanged.
   await db.user.create({
@@ -40,6 +36,11 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'cashier_tax_ct'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  cashierToken = await signSessionToken(
+    { id: 7002, userName: 'cashier_tax_ct', roleType: 'kasir', store: location.id },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

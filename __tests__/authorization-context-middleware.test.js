@@ -15,6 +15,19 @@ let userA
 
 const signToken = (payload) => jwt.sign(payload, process.env.JWT_SECRET_KEY)
 
+// AUTH-1 P2: the context middleware runs after canonical `authorization`
+// (which verifies the JWT, loads the session and hydrates req.user), exactly
+// as the routes mount it.
+const runChain = async (req, res, next) => {
+  const authorization = require('../utils/authorization')
+  const { authorizationContextMiddleware } = require('../utils/authorizationContextMiddleware')
+  let authenticated = false
+  await authorization(req, res, () => {
+    authenticated = true
+  })
+  if (authenticated) await authorizationContextMiddleware(req, res, next)
+}
+
 const mockRes = () => {
   const res = {}
   res.statusCode = null
@@ -61,15 +74,14 @@ afterAll(async () => {
 
 describe('authorizationContextMiddleware', () => {
   test('rejects requests without a token', async () => {
-    const { authorizationContextMiddleware } = require('../utils/authorizationContextMiddleware')
     const req = { headers: {}, cookies: {} }
     const res = mockRes()
     let nextCalled = false
-    await authorizationContextMiddleware({ ...req, app: undefined, db }, res, () => {
+    await runChain({ ...req, app: undefined, db }, res, () => {
       nextCalled = true
     })
-    // middleware uses req.db ?? global models; call with db attached via closure below
-    expect(nextCalled || res.statusCode === 401).toBe(true)
+    expect(nextCalled).toBe(false)
+    expect(res.statusCode).toBe(401)
   })
 
   test('resolves canonical context from a valid session and ignores JWT role claims', async () => {
@@ -82,7 +94,7 @@ describe('authorizationContextMiddleware', () => {
     const req = { headers: { authorization: `Bearer ${token}` }, cookies: {}, db }
     const res = mockRes()
     let nextCalled = false
-    await mw.authorizationContextMiddleware(req, res, () => {
+    await runChain(req, res, () => {
       nextCalled = true
     })
     expect(nextCalled).toBe(true)
@@ -101,7 +113,7 @@ describe('authorizationContextMiddleware', () => {
     const req = { headers: { authorization: `Bearer ${token}` }, cookies: {}, db }
     const res = mockRes()
     let nextCalled = false
-    await mw.authorizationContextMiddleware(req, res, () => {
+    await runChain(req, res, () => {
       nextCalled = true
     })
     expect(nextCalled).toBe(false)
@@ -118,7 +130,7 @@ describe('authorizationContextMiddleware', () => {
       const req = { headers: { authorization: `Bearer ${token}` }, cookies: {}, db }
       const res = mockRes()
       let nextCalled = false
-      await mw.authorizationContextMiddleware(req, res, () => {
+      await runChain(req, res, () => {
         nextCalled = true
       })
       // Stale tenant selection must not authorize: either 403 or context without tenant.

@@ -2,7 +2,6 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
 const app = require('../api/index')
 const db = require('../db/models')
 

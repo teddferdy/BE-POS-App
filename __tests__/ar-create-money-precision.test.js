@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -28,7 +28,7 @@ beforeAll(async () => {
     store: store1.id,
     password: 'x'
   })
-  admin1Token = jwt.sign(
+  admin1Token = await signSessionToken(
     { id: user1.id, userName: user1.userName, roleType: 'admin', store: store1.id },
     JWT_SECRET
   )

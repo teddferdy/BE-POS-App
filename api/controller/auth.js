@@ -3,6 +3,12 @@ const User = db.user
 const Location = db.location
 const Position = db.position
 const generateToken = require('../../utils/jwtConvert')
+const { credentialWindow } = require('../../utils/jwtConvert')
+const {
+  createContextSession,
+  revokeContextSession,
+  revokeAllUserSessions
+} = require('../../utils/authorizationContextMiddleware')
 const bcrypt = require('bcrypt')
 const moment = require('moment')
 const crypto = require('crypto')
@@ -206,16 +212,27 @@ exports.changeUserStatusById = async (req, res) => {
     // authoritative disablement timestamp AND keeps the presence status;
     // `active` clears it. Single atomic mutation so the two can never
     // disagree. P1-2 authorization above is unchanged.
-    const updatedUser = await User.update(
-      {
-        status,
-        disabledAt: status === 'inactive' ? new Date() : null
-      },
-      {
-        returning: true,
-        where: { id }
+    // AUTH-1 P3: disabling also revokes every session of the account in the
+    // same transaction (the user-row UPDATE runs first, serializing with the
+    // login row lock). Re-enabling touches no session: revoked rows stay
+    // revoked, so only a fresh login regains access (DR-03 Q8).
+    const updatedUser = await db.sequelize.transaction(async (t) => {
+      const updated = await User.update(
+        {
+          status,
+          disabledAt: status === 'inactive' ? new Date() : null
+        },
+        {
+          returning: true,
+          where: { id },
+          transaction: t
+        }
+      )
+      if (updated[0] > 0 && status === 'inactive') {
+        await revokeAllUserSessions(db, targetUser.id, { transaction: t })
       }
-    )
+      return updated
+    })
 
     if (updatedUser[0] === 0) {
       return res.status(404).json({
@@ -466,39 +483,60 @@ exports.login = async (req, res) => {
       })
     }
 
-    // Update status active
-    await User.update(
-      { status: 'active' },
-      {
-        where: { id: findUser.id }
+    // AUTH-1 P1: every login credential is bound to an authorization session
+    // created in one transaction with a locked re-check of the account. The
+    // password was verified outside the transaction (bcrypt is slow), so the
+    // row is re-read under lock: an account disabled/removed, or a password
+    // changed, since that verification gets no session and no token. Any
+    // failure (including session creation) rolls back and reaches the
+    // catch below — login fails closed, never with a sessionless JWT.
+    const verifiedHash = findUser.password
+    const credential = credentialWindow()
+    const outcome = await db.sequelize.transaction(async (t) => {
+      const current = await User.scope('withCredentials').findOne({
+        where: { id: findUser.id },
+        paranoid: false,
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      })
+      if (!current || current.deletedAt != null || current.disabledAt != null) {
+        return { denied: 'User Name / Email Tidak Ditemukan' }
       }
-    )
+      if (current.password !== verifiedHash) {
+        return { denied: 'Password Salah' }
+      }
 
-    // F5: create an isolated server-side authorization context session for
-    // this login. The JWT carries identity (id) + the opaque sessionId only;
-    // tenant/store authority is resolved server-side per request. Legacy
-    // role/store claims are retained as non-authoritative compatibility data.
-    let contextSessionId = null
-    try {
-      if (db.authorizationContextSession) {
-        const { createContextSession } = require('../../utils/authorizationContextMiddleware')
-        const session = await createContextSession(db, { userId: findUser.id })
-        contextSessionId = session.sessionId
-      }
-    } catch {
-      contextSessionId = null
+      // Update status active
+      await User.update({ status: 'active' }, { where: { id: findUser.id }, transaction: t })
+
+      const session = await createContextSession(db, {
+        userId: findUser.id,
+        expiresAt: new Date(credential.exp * 1000),
+        transaction: t
+      })
+      return { sessionId: session.sessionId, account: current }
+    })
+
+    if (outcome.denied) {
+      return res.status(401).json({ message: outcome.denied })
     }
 
-    // Generate token dengan role info
-    const getToken = generateToken({
-      id: findUser.id,
-      userName: findUser.userName,
-      fullName: findUser.fullName,
-      roleType: findUser.roleType || 'user',
-      roleId: findUser.roleId,
-      store: findUser.store,
-      ...(contextSessionId ? { sessionId: contextSessionId } : {})
-    })
+    // Signed only after the session committed; exp equals the session's
+    // expiresAt. Claims come from the locked, re-checked row. Legacy
+    // role/store claims stay as compatibility data until JWT minimization.
+    const { account } = outcome
+    const getToken = generateToken(
+      {
+        id: account.id,
+        userName: account.userName,
+        fullName: account.fullName,
+        roleType: account.roleType || 'user',
+        roleId: account.roleId,
+        store: account.store,
+        sessionId: outcome.sessionId
+      },
+      credential
+    )
 
     // Ambil role dan accessMenu
     let roleData = null
@@ -707,8 +745,8 @@ exports.editUser = async (req, res) => {
       `Updated user: ${updatedUser.id}`
     )
 
-    const token = generateToken({ id: updatedUser.id, ...(req.user?.sessionId ? { sessionId: req.user.sessionId } : {}) })
-
+    // AUTH-1 P1: a profile edit mints no credential — only login does. The
+    // caller keeps its existing session token.
     const locationByIdUserLogin = await Location.findOne({
       where: {
         id: updatedUser.dataValues.store
@@ -723,7 +761,6 @@ exports.editUser = async (req, res) => {
 
     return res.status(200).json({
       message: 'Success Login',
-      token: token,
       user: {
         ...updatedUser?.dataValues,
         storeName: locationByIdUserLogin?.dataValues?.name ?? '',
@@ -852,7 +889,14 @@ exports.resetPassword = async (req, res) => {
     existingUser.password = body.newPassword
     existingUser.resetToken = null
     existingUser.resetTokenExpires = null
-    await existingUser.save()
+    // AUTH-1 P3: a credential change invalidates every existing session in
+    // the same transaction; the password UPDATE runs first, so a racing
+    // login either sees the new hash under its row lock (P1) or has its
+    // session revoked here.
+    await db.sequelize.transaction(async (t) => {
+      await existingUser.save({ transaction: t })
+      await revokeAllUserSessions(db, existingUser.id, { transaction: t })
+    })
 
     createAudit(
       req,
@@ -892,29 +936,20 @@ exports.generateEmployeeId = async (req, res) => {
 }
 
 // User Logout
-// F5: revokes only the selected server-side context session. Legacy tokens
-// without a sessionId fall back to the historical deactivate-and-clear
-// behavior so pre-session clients keep working.
+// AUTH-1 P3: revokes the authenticated session loaded by canonical
+// `authorization` (req.authSession). There is no sessionless path: a token
+// that is not bound to a live session never reaches this handler.
 exports.logout = async (req, res) => {
   try {
-    const user = req.user
+    const session = req.authSession
 
-    if (!user) {
+    if (!session || !req.user) {
       return res.status(401).json({
         message: 'Unauthorized'
       })
     }
 
-    if (user.sessionId && db.authorizationContextSession) {
-      const { revokeContextSession } = require('../../utils/authorizationContextMiddleware')
-      await revokeContextSession(db, user.sessionId, user.id)
-      res.clearCookie('token')
-      return res.status(200).json({
-        message: 'User Berhasil Logout'
-      })
-    }
-
-    await User.update({ status: 'inactive' }, { where: { id: user.id } })
+    await revokeContextSession(db, session.sessionId, req.user.id)
 
     res.clearCookie('token')
 

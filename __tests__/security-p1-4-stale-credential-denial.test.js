@@ -3,6 +3,7 @@ process.env.VERCEL = 'true'
 
 const request = require('supertest')
 const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -11,7 +12,7 @@ const DENIED = 'Akses Ditolak - Anda tidak memiliki izin'
 const PREFIX = `p14_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
 let seq = 0
 const unique = (key) => `${PREFIX}_${key}_${++seq}`.toLowerCase()
-const sign = (claims) => jwt.sign(claims, JWT_SECRET)
+const sign = (claims) => signSessionToken(claims, JWT_SECRET)
 const bearer = (token) => ({ Authorization: `Bearer ${token}` })
 const PASSWORD = 'Rahasia123!'
 
@@ -63,14 +64,15 @@ const empPath = () => `/employee/get-employee/${empA.id}`
 
 describe('P1-4 legacy stale credential denial', () => {
   test('enabled JWT control → 200', async () => {
-    const res = await request(app).get(empPath()).set(bearer(callerToken()))
+    const res = await request(app).get(empPath()).set(bearer(await callerToken()))
     expect(res.status).toBe(200)
   })
 
   test('disable → same JWT 403 exact shape, no mutation', async () => {
+    const tok = await callerToken()
     await db.user.update({ disabledAt: new Date() }, { where: { id: caller.id } })
     const before = await snapshotAuth(caller.id)
-    const res = await request(app).get(empPath()).set(bearer(callerToken()))
+    const res = await request(app).get(empPath()).set(bearer(tok))
     expect(res.status).toBe(403)
     expect(res.body.message).toBe(DENIED)
     const after = await snapshotAuth(caller.id)
@@ -81,8 +83,12 @@ describe('P1-4 legacy stale credential denial', () => {
   })
 })
 
+// These P1-4 cases write `disabledAt` directly, bypassing the canonical
+// disable operation (which also revokes every session — AUTH-1 P3, see
+// auth-p3-session-revocation). They pin the per-request account gate as an
+// independent defense: it denies even while a session row is still live.
 describe('P1-4 session-backed stale credential denial', () => {
-  test('login session works; disable → same token 403; session row untouched', async () => {
+  test('login session works; direct disabledAt write → same token 403 via the account gate', async () => {
     const login = await request(app).post('/auth/login').send({ userName: caller.userName, password: PASSWORD })
     expect(login.status).toBe(200)
     const token = login.body.token
@@ -117,9 +123,9 @@ describe('P1-4 canonical route denial', () => {
   })
 })
 
-describe('P1-4 re-enable limitation (documented)', () => {
-  test('old JWT denied while disabled; re-enable restores fresh login; old JWT shape follows current-state check', async () => {
-    const tok = callerToken()
+describe('P1-4 account gate follows current state (direct DB writes)', () => {
+  test('old JWT denied while disabled; fresh login after re-enable; a still-live session follows current state', async () => {
+    const tok = await callerToken()
     await db.user.update({ disabledAt: new Date() }, { where: { id: caller.id } })
     expect((await request(app).get(empPath()).set(bearer(tok))).status).toBe(403)
 
@@ -127,18 +133,20 @@ describe('P1-4 re-enable limitation (documented)', () => {
     const login = await request(app).post('/auth/login').send({ userName: caller.userName, password: PASSWORD })
     expect(login.status).toBe(200)
     expect(login.body.token).toBeDefined()
-    // No versioning/blacklist in scope: the same pre-disable JWT validates
-    // again once current state is enabled. Locked architectural limitation.
+    // Only reachable because this test flips `disabledAt` directly and so
+    // never revoked the session: a live session follows current account
+    // state. The canonical disable operation revokes it, and a revoked
+    // session stays dead after re-enable (DR-03 Q8, auth-p3 suite).
     expect((await request(app).get(empPath()).set(bearer(tok))).status).toBe(200)
   })
 })
 
 describe('P1-4 unknown/soft-deleted caller denial', () => {
-  test('signed JWT for nonexistent user → 403 same shape', async () => {
-    const tok = sign({ id: 2147480000, roleType: 'admin', store: storeA.id })
+  test('signed JWT for nonexistent user → 401 (AUTH-1 P2: no session can exist for it)', async () => {
+    const tok = jwt.sign({ id: 2147480000, roleType: 'admin', store: storeA.id }, JWT_SECRET)
     const res = await request(app).get(empPath()).set(bearer(tok))
-    expect(res.status).toBe(403)
-    expect(res.body.message).toBe(DENIED)
+    expect(res.status).toBe(401)
+    expect(res.body.code).toBe('SESSION_INVALID')
   })
 
   test('signed JWT for soft-deleted user → 403 same shape', async () => {
@@ -154,7 +162,7 @@ describe('P1-4 unknown/soft-deleted caller denial', () => {
       store: storeA.id
     })
     createdUserIds.push(row.id)
-    const tok = sign({ id: row.id, roleType: 'user', store: storeA.id })
+    const tok = await sign({ id: row.id, roleType: 'user', store: storeA.id })
     await db.user.destroy({ where: { id: row.id } })
     const res = await request(app).get(empPath()).set(bearer(tok))
     expect(res.status).toBe(403)

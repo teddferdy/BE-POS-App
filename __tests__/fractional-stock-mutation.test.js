@@ -1,7 +1,7 @@
 process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
@@ -19,7 +19,7 @@ beforeAll(async () => {
   await db.product_store_stock.create({ product: prodPcs.id, store: store.id, stock: 10 })
   ingredientKg = await db.ingredient.create({ store: store.id, name: 'FRAC_KG_ING', stock: 10, unit: 'kg', baseUnit: 'kg' })
   admin = await db.user.create({ userName: 'frac_mut_admin', email: 'frac_mut@test.com', roleType: 'admin', userType: 'admin', store: store.id, status: 'active' })
-  token = jwt.sign({ id: admin.id, userName: admin.userName, roleType: 'admin', store: store.id }, JWT_SECRET)
+  token = await signSessionToken({ id: admin.id, userName: admin.userName, roleType: 'admin', store: store.id }, JWT_SECRET)
 })
 
 afterAll(async () => {

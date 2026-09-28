@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -15,10 +15,6 @@ let oldOrder = null
 
 beforeAll(async () => {
   location = await db.location.create({ name: 'SALES_SUMMARY_STORE', status: 'active' })
-  adminToken = jwt.sign(
-    { id: 7901, userName: 'admin_sales_summary', roleType: 'admin', store: location.id },
-    JWT_SECRET
-  )
 
   // P1-4: central gate denies unknown caller identities; this row gives the
   // caller id a real identity. Assertions below are unchanged.
@@ -32,6 +28,11 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'admin_sales_summary'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminToken = await signSessionToken(
+    { id: 7901, userName: 'admin_sales_summary', roleType: 'admin', store: location.id },
+    JWT_SECRET
+  )
 
   const now = new Date()
   const fortyDaysAgo = new Date(now.getTime() - 40 * 86400000)
@@ -103,10 +104,6 @@ describe('GET /report/sales-summary — per-store breakdown (derived from the gr
   beforeAll(async () => {
     locA = await db.location.create({ name: 'SALES_SUMMARY_STORE_A', status: 'active' })
     locB = await db.location.create({ name: 'SALES_SUMMARY_STORE_B', status: 'active' })
-    superAdminToken = jwt.sign(
-      { id: 7902, userName: 'superadmin_sales_summary', roleType: 'super_admin' },
-      JWT_SECRET
-    )
 
     // P1-4: central gate denies unknown caller identities; this row gives the
     // caller id a real identity. Assertions below are unchanged.
@@ -120,6 +117,11 @@ describe('GET /report/sales-summary — per-store breakdown (derived from the gr
       status: 'active',
       fullName: 'superadmin_sales_summary'
     })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+    superAdminToken = await signSessionToken(
+      { id: 7902, userName: 'superadmin_sales_summary', roleType: 'super_admin' },
+      JWT_SECRET
+    )
 
     const now = new Date()
     await db.order.create({

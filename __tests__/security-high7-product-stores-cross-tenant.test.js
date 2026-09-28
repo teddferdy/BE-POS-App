@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -35,14 +35,6 @@ beforeAll(async () => {
     store: store1.id,
     password: 'x'
   })
-  admin1Token = jwt.sign(
-    { id: user1.id, userName: user1.userName, roleType: 'admin', store: store1.id },
-    JWT_SECRET
-  )
-  superToken = jwt.sign(
-    { id: 9750, userName: `high7_super_${suffix}`, roleType: 'super_admin' },
-    JWT_SECRET
-  )
   // P1-4: central gate denies unknown caller identities; the super token id
   // gets a real row. Assertions below are unchanged.
   await db.user.create({
@@ -55,6 +47,15 @@ beforeAll(async () => {
     status: 'active',
     fullName: `high7_super_${suffix}`
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  admin1Token = await signSessionToken(
+    { id: user1.id, userName: user1.userName, roleType: 'admin', store: store1.id },
+    JWT_SECRET
+  )
+  superToken = await signSessionToken(
+    { id: 9750, userName: `high7_super_${suffix}`, roleType: 'super_admin' },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

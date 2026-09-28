@@ -3,6 +3,7 @@ process.env.VERCEL = 'true'
 
 const request = require('supertest')
 const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -10,7 +11,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 const PREFIX = `p13_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
 let seq = 0
 const unique = (key) => `${PREFIX}_${key}_${++seq}`.toLowerCase()
-const sign = (claims) => jwt.sign(claims, JWT_SECRET)
+const sign = (claims) => signSessionToken(claims, JWT_SECRET)
 const bearer = (token) => ({ Authorization: `Bearer ${token}` })
 const PASSWORD = 'Rahasia123!'
 
@@ -117,7 +118,7 @@ describe('P1-3 disabled login denied', () => {
 describe('P1-3 admin disable/re-enable lifecycle', () => {
   test('disable → disabledAt set + inactive; login denied; re-enable → NULL + login works', async () => {
     const u = await makeUser('life1', {})
-    const t = adminToken()
+    const t = await adminToken()
     let res = await request(app).put('/auth/change-user-status').set(bearer(t)).send({ id: u.id, status: 'inactive' })
     expect(res.status).toBe(200)
     let row = await db.user.findByPk(u.id)
@@ -142,19 +143,25 @@ describe('P1-3 admin disable/re-enable lifecycle', () => {
 
 // ---- logout compatibility ----
 describe('P1-3 logout compatibility', () => {
-  test('legacy logout → inactive but still enabled; next login succeeds + restores active', async () => {
+  test('logout never disables the account; next login succeeds + restores active', async () => {
     const u = await makeUser('loLeg', {})
-    // Sessionless token (no sessionId) exercises the legacy logout path.
-    const legacyTok = sign({ id: u.id, roleType: 'user', store: storeA.id })
-    let res = await request(app).post('/auth/logout').set(bearer(legacyTok))
+    const tok = await sign({ id: u.id, roleType: 'user', store: storeA.id })
+    let res = await request(app).post('/auth/logout').set(bearer(tok))
     expect(res.status).toBe(200)
-    let row = await db.user.findByPk(u.id)
-    expect(row.status).toBe('inactive')
+    const row = await db.user.findByPk(u.id)
     expect(row.disabledAt).toBeNull()
 
     res = await request(app).post('/auth/login').send({ userName: u.userName, password: PASSWORD })
     expect(res.status).toBe(200)
     expect(res.body.token).toBeDefined()
     expect((await db.user.findByPk(u.id)).status).toBe('active')
+  })
+
+  test('AUTH-1 P2: a sessionless token can no longer reach logout (401)', async () => {
+    const u = await makeUser('loNoSession', {})
+    const sessionless = jwt.sign({ id: u.id, roleType: 'user', store: storeA.id }, JWT_SECRET)
+    const res = await request(app).post('/auth/logout').set(bearer(sessionless))
+    expect(res.status).toBe(401)
+    expect((await db.user.findByPk(u.id)).disabledAt).toBeNull()
   })
 })

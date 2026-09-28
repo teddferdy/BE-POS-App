@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const { Op } = require('sequelize')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -27,14 +27,6 @@ const createdProductIds = []
 beforeAll(async () => {
   location = await db.location.create({ name: 'VOID_REASON_STORE', status: 'active' })
   category = await db.category.create({ name: 'VOID_REASON_CATEGORY' })
-  kasirToken = jwt.sign(
-    { id: KASIR_ID, userName: 'kasir_void_reason', roleType: 'kasir', store: location.id },
-    JWT_SECRET
-  )
-  adminToken = jwt.sign(
-    { id: ADMIN_ID, userName: 'admin_void_reason', roleType: 'admin', store: location.id },
-    JWT_SECRET
-  )
   // P1-4: central gate denies unknown caller identities; these rows give the
   // constant caller ids real identities. Assertions below are unchanged.
   await db.user.create({
@@ -57,6 +49,15 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'admin_void_reason'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  kasirToken = await signSessionToken(
+    { id: KASIR_ID, userName: 'kasir_void_reason', roleType: 'kasir', store: location.id },
+    JWT_SECRET
+  )
+  adminToken = await signSessionToken(
+    { id: ADMIN_ID, userName: 'admin_void_reason', roleType: 'admin', store: location.id },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

@@ -6,10 +6,20 @@ const jwt = require('jsonwebtoken')
 const reportConfigRoutes = require('../api/routes/reportConfig')
 
 jest.mock('../db/models', () => ({
-  // P1-4: central authorization gate re-reads the caller row; the mock must
-  // provide it (assertions below are unchanged).
-  user: {
-    findByPk: jest.fn(() => Promise.resolve({ id: 9999, disabledAt: null }))
+  // AUTH-1 P2: canonical authentication loads the session joined with its
+  // account in one query; the account row (not the JWT) is the authority.
+  authorizationContextSession: {
+    findOne: jest.fn(({ where }) => {
+      const account = (id, roleType) => ({ id, roleType, store: null, disabledAt: null, deletedAt: null })
+      const sessions = {
+        ['a'.repeat(64)]: { userId: 9999, user: account(9999, 'super_admin') },
+        ['b'.repeat(64)]: { userId: 9998, user: account(9998, 'kasir') }
+      }
+      const s = sessions[where.sessionId]
+      return Promise.resolve(
+        s ? { ...s, sessionId: where.sessionId, revokedAt: null, expiresAt: new Date(Date.now() + 3600000) } : null
+      )
+    })
   },
   reportConfig: {
     findAll: jest.fn(() => Promise.resolve([])),
@@ -19,8 +29,8 @@ jest.mock('../db/models', () => ({
 }))
 
 const secret = process.env.JWT_SECRET_KEY || 'secret-key-user'
-const token = jwt.sign({ id: 9999, userName: 'superadmin', roleType: 'super_admin' }, secret)
-const kasirToken = jwt.sign({ id: 9998, userName: 'kasir', roleType: 'kasir' }, secret)
+const token = jwt.sign({ id: 9999, sessionId: 'a'.repeat(64), userName: 'superadmin', roleType: 'super_admin' }, secret)
+const kasirToken = jwt.sign({ id: 9998, sessionId: 'b'.repeat(64), userName: 'kasir', roleType: 'kasir' }, secret)
 
 const app = express()
 app.use(express.json())

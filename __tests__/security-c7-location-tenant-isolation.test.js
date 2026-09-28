@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -29,18 +29,6 @@ describe('C-7 location detail — tenant isolation', () => {
       dailyTarget: 222222
     })
 
-    tokenA = jwt.sign(
-      { id: 88801, userName: 'c7_admin_a', roleType: 'admin', store: storeA.id },
-      JWT_SECRET
-    )
-    tokenB = jwt.sign(
-      { id: 88802, userName: 'c7_admin_b', roleType: 'admin', store: storeB.id },
-      JWT_SECRET
-    )
-    superToken = jwt.sign(
-      { id: 88803, userName: 'c7_super', roleType: 'super_admin', store: null },
-      JWT_SECRET
-    )
 
     // P1-4: central gate denies unknown caller identities; these rows give
     // the caller ids real identities. Assertions below are unchanged.
@@ -60,6 +48,19 @@ describe('C-7 location detail — tenant isolation', () => {
         fullName: userName
       })
     }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+    tokenA = await signSessionToken(
+      { id: 88801, userName: 'c7_admin_a', roleType: 'admin', store: storeA.id },
+      JWT_SECRET
+    )
+    tokenB = await signSessionToken(
+      { id: 88802, userName: 'c7_admin_b', roleType: 'admin', store: storeB.id },
+      JWT_SECRET
+    )
+    superToken = await signSessionToken(
+      { id: 88803, userName: 'c7_super', roleType: 'super_admin', store: null },
+      JWT_SECRET
+    )
   })
 
   afterAll(async () => {

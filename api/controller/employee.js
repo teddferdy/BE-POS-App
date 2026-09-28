@@ -15,6 +15,7 @@ const { enrichAuditFields } = require('../../utils/auditFields')
 const { syncEmployeeShift } = require('../../utils/shiftChain')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { authorizedWriteStore } = require('../../utils/storeValidation')
+const { revokeAllUserSessions } = require('../../utils/authorizationContextMiddleware')
 
 const dateOrNull = (value, fallback) =>
   value === undefined ? fallback : value ? value : null
@@ -679,7 +680,14 @@ exports.updateEmployee = async (req, res) => {
       updateData.roleType = grantedRole.roleType
     }
 
-    await employee.update(updateData)
+    // AUTH-1 P3: a password change revokes every session of the target
+    // employee (never the acting admin's) atomically with the new hash.
+    await db.sequelize.transaction(async (t) => {
+      await employee.update(updateData, { transaction: t })
+      if (updateData.password) {
+        await revokeAllUserSessions(db, employee.id, { transaction: t })
+      }
+    })
 
     if (body?.shift !== undefined) {
       await syncEmployeeShift({
@@ -746,8 +754,18 @@ exports.deleteEmployee = async (req, res) => {
 
     await syncEmployeeShift({ userId: id, newShiftId: null })
 
-    const destroyedCount = await User.destroy({
-      where: scalarStoreScope(asStoreConfined(req), { id })
+    // AUTH-1 P3: soft-delete and session revocation commit together, so a
+    // removed account keeps no usable session (and a later restore cannot
+    // revive one — revoked rows stay revoked).
+    const destroyedCount = await db.sequelize.transaction(async (t) => {
+      const count = await User.destroy({
+        where: scalarStoreScope(asStoreConfined(req), { id }),
+        transaction: t
+      })
+      if (count > 0) {
+        await revokeAllUserSessions(db, employee.id, { transaction: t })
+      }
+      return count
     })
     if (destroyedCount === 0) {
       return res.status(404).json({

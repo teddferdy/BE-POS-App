@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 const { generateApReminders } = require('../api/service/apReminderService')
@@ -97,7 +97,7 @@ beforeAll(async () => {
     store: storeJakarta.id,
     status: 'active'
   })
-  adminJakartaToken = jwt.sign(
+  adminJakartaToken = await signSessionToken(
     { id: adminJakartaUser.id, userName: adminJakartaUser.userName, roleType: 'admin', store: storeJakarta.id },
     JWT_SECRET
   )
@@ -109,7 +109,7 @@ beforeAll(async () => {
     store: storeJayapura.id,
     status: 'active'
   })
-  adminJayapuraToken = jwt.sign(
+  adminJayapuraToken = await signSessionToken(
     { id: adminJayapuraUser.id, userName: adminJayapuraUser.userName, roleType: 'admin', store: storeJayapura.id },
     JWT_SECRET
   )

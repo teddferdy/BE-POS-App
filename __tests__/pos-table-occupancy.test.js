@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -109,10 +109,6 @@ beforeAll(async () => {
     isAvailable: true
   })
   await db.product_store_stock.create({ product: lowStockProduct.id, store: store.id, stock: 100 })
-  cashierToken = jwt.sign(
-    { id: 9711, userName: 'pos_occ_cashier', roleType: 'kasir', store: store.id },
-    JWT_SECRET
-  )
 
   // P1-4: central gate denies unknown caller identities; this row gives the
   // caller id a real identity. Assertions below are unchanged.
@@ -126,6 +122,11 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'pos_occ_cashier'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  cashierToken = await signSessionToken(
+    { id: 9711, userName: 'pos_occ_cashier', roleType: 'kasir', store: store.id },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {
