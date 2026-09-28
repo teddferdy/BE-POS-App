@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -13,14 +13,6 @@ let storeA, tokenA, superToken
 describe('C-9 null-store (global) record ownership bypass', () => {
   beforeAll(async () => {
     storeA = await db.location.create({ name: 'C9_STORE_A', status: 'active' })
-    tokenA = jwt.sign(
-      { id: 88901, userName: 'c9_admin_a', roleType: 'admin', store: storeA.id },
-      JWT_SECRET
-    )
-    superToken = jwt.sign(
-      { id: 88902, userName: 'c9_super', roleType: 'super_admin', store: null },
-      JWT_SECRET
-    )
 
     // P1-4: central gate denies unknown caller identities; these rows give
     // the caller ids real identities. Assertions below are unchanged.
@@ -39,6 +31,15 @@ describe('C-9 null-store (global) record ownership bypass', () => {
         fullName: userName
       })
     }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+    tokenA = await signSessionToken(
+      { id: 88901, userName: 'c9_admin_a', roleType: 'admin', store: storeA.id },
+      JWT_SECRET
+    )
+    superToken = await signSessionToken(
+      { id: 88902, userName: 'c9_super', roleType: 'super_admin', store: null },
+      JWT_SECRET
+    )
   })
 
   afterAll(async () => {

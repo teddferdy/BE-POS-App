@@ -2,12 +2,12 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
-const token = jwt.sign({ id: 9999, userName: 'superadmin_integ', roleType: 'super_admin' }, JWT_SECRET)
+let token
 
 let locId = null
 let orderId = null
@@ -51,6 +51,11 @@ beforeAll(async () => {
     shiftId: 0
   })
   orderId = order.id
+})
+
+// AUTH-1 P2: tokens bound to real sessions, minted once the users exist.
+beforeAll(async () => {
+  token = await signSessionToken({ id: 9999, userName: 'superadmin_integ', roleType: 'super_admin' }, JWT_SECRET)
 })
 
 afterAll(async () => {

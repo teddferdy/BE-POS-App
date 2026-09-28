@@ -18,7 +18,7 @@ process.env.VERCEL = 'true'
 // no cross-tenant effect), never the shared base price.
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -45,14 +45,6 @@ beforeAll(async () => {
   // Product is sold ONLY at store B (shared base price consumed at B's checkout).
   await db.product_store.create({ product: product.id, store: storeB.id })
 
-  adminA = jwt.sign(
-    { id: 97111, userName: 'c11_admin_a', roleType: 'admin', store: storeA.id },
-    JWT_SECRET
-  )
-  superToken = jwt.sign(
-    { id: 97110, userName: 'c11_super', roleType: 'super_admin' },
-    JWT_SECRET
-  )
 
   // P1-4: central gate denies unknown caller identities; these rows give the
   // caller ids real identities. Assertions below are unchanged.
@@ -71,6 +63,15 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminA = await signSessionToken(
+    { id: 97111, userName: 'c11_admin_a', roleType: 'admin', store: storeA.id },
+    JWT_SECRET
+  )
+  superToken = await signSessionToken(
+    { id: 97110, userName: 'c11_super', roleType: 'super_admin' },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

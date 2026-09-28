@@ -20,7 +20,7 @@ process.env.VERCEL = 'true'
 // response content + DB rows, not just statuses.
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -94,7 +94,7 @@ afterAll(async () => {
 })
 
 const tokenFor = (roleType, store) =>
-  jwt.sign(
+  signSessionToken(
     {
       // Deterministic ids matching the caller rows above (P1-4 identity
       // invariant); unassigned callers keep no store claim.
@@ -115,7 +115,7 @@ const listCurrencies = (token, { query = {}, cookieStore } = {}) => {
 
 describe('N-11 unassigned-account fail-open is closed', () => {
   test('unassigned admin gets 403 even with a forged store cookie and ?store=', async () => {
-    const unassignedToken = tokenFor('admin')
+    const unassignedToken = await tokenFor('admin')
     const res = await listCurrencies(unassignedToken, {
       query: { store: storeB.id },
       cookieStore: storeB.id
@@ -125,14 +125,14 @@ describe('N-11 unassigned-account fail-open is closed', () => {
   })
 
   test('plain unassigned admin (no claims at all) is rejected with the store-required guard', async () => {
-    const unassignedToken = tokenFor('admin')
+    const unassignedToken = await tokenFor('admin')
     const res = await listCurrencies(unassignedToken)
     expect(res.status).toBe(403)
     expect(res.body.message).toBe('Store assignment required')
   })
 
   test('unassigned admin gets 403 on a second scoped controller (expense list too)', async () => {
-    const unassignedToken = tokenFor('admin')
+    const unassignedToken = await tokenFor('admin')
     const res = await request(app)
       .get('/expense/get-all')
       .set('Authorization', `Bearer ${unassignedToken}`)
@@ -141,7 +141,7 @@ describe('N-11 unassigned-account fail-open is closed', () => {
   })
 
   test('assigned admin claiming a DIFFERENT store in ?store= is 403 (middleware rejects the conflict)', async () => {
-    const adminA = tokenFor('admin', storeA.id)
+    const adminA = await tokenFor('admin', storeA.id)
     const res = await listCurrencies(adminA, {
       query: { store: storeB.id },
       cookieStore: storeB.id
@@ -151,7 +151,7 @@ describe('N-11 unassigned-account fail-open is closed', () => {
   })
 
   test('assigned admin with a forged store cookie (no query) is still pinned to store A', async () => {
-    const adminA = tokenFor('admin', storeA.id)
+    const adminA = await tokenFor('admin', storeA.id)
     const res = await listCurrencies(adminA, { cookieStore: storeB.id })
     expect(res.status).toBe(200)
     const rows = res.body.data || res.body.currencies || []
@@ -161,7 +161,7 @@ describe('N-11 unassigned-account fail-open is closed', () => {
   })
 
   test('super_admin WITHOUT a store claim keeps the global unscoped view (both stores)', async () => {
-    const superToken = tokenFor('super_admin')
+    const superToken = await tokenFor('super_admin')
     const res = await listCurrencies(superToken)
     expect(res.status).toBe(200)
     const rows = res.body.data || res.body.currencies || []
@@ -171,7 +171,7 @@ describe('N-11 unassigned-account fail-open is closed', () => {
   })
 
   test('super_admin store selector ?store=B returns only store B rows (global override preserved)', async () => {
-    const superToken = tokenFor('super_admin')
+    const superToken = await tokenFor('super_admin')
     const res = await listCurrencies(superToken, { query: { store: storeB.id } })
     expect(res.status).toBe(200)
     const rows = res.body.data || res.body.currencies || []

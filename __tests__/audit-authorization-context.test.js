@@ -172,15 +172,17 @@ describe('AUD-3 authentication', () => {
     expect((await request(app).get(`/audit-log/${P}ORDER/101`)).status).toBe(401)
   })
 
-  test('ineligible account is 401', async () => {
+  // AUTH-1 P2: ineligibility is enablement (disabledAt), not presence
+  // `status`; canonical authentication denies it before the audit gate with
+  // the P1-4 403 shape.
+  test('ineligible (disabled) account is denied', async () => {
     const u = await mkUser('inactive', 'admin', storeA1)
     await db.tenantMembership.create({ userId: u.id, tenantId: tenantA.id, role: 'store_admin', status: 'ACTIVE' })
-    // Tenant-less session: isolates ineligibility from stale-tenant state
-    // (a selected tenant on an ineligible account is correctly a 403).
+    // Tenant-less session: isolates ineligibility from stale-tenant state.
     const { token } = await sessionToken(u)
     try {
-      await u.update({ status: 'inactive' })
-      expect((await get(token)).status).toBe(401)
+      await u.update({ disabledAt: new Date() })
+      expect((await get(token)).status).toBe(403)
     } finally {
       await db.tenantMembership.destroy({ where: { userId: u.id }, force: true }).catch(() => {})
       if (db.authorizationContextSession) {

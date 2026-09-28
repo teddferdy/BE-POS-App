@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -71,10 +71,6 @@ beforeAll(async () => {
   // createdBy/userId columns on order/order_item/transaction/stock_history
   // carry no FK constraint, so a synthetic JWT subject is fine here (unlike
   // attendance, which does FK to a real user row).
-  cashierToken = jwt.sign(
-    { id: 7001, userName: 'cashier_ord_flow', roleType: 'kasir', store: location.id },
-    JWT_SECRET
-  )
   // P1-4: central gate denies unknown caller identities; these rows
   // satisfy the identity invariant. Assertions below are unchanged.
   await db.user.create({
@@ -87,6 +83,11 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'cashier_ord_flow'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  cashierToken = await signSessionToken(
+    { id: 7001, userName: 'cashier_ord_flow', roleType: 'kasir', store: location.id },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

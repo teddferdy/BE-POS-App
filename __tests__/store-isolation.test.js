@@ -2,36 +2,26 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken, ensureLocationIds } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
-const superAdminToken = jwt.sign(
-  { id: 9999, userName: 'superadmin_iso', roleType: 'super_admin' },
-  JWT_SECRET
-)
+let superAdminToken
 
-const adminStore1Token = jwt.sign(
-  { id: 9998, userName: 'admin1_iso', roleType: 'admin', store: 1 },
-  JWT_SECRET
-)
+let adminStore1Token
 
-const adminStore2Token = jwt.sign(
-  { id: 9997, userName: 'admin2_iso', roleType: 'admin', store: 2 },
-  JWT_SECRET
-)
+let adminStore2Token
 
-const userStore1Token = jwt.sign(
-  { id: 9996, userName: 'user1_iso', roleType: 'user', store: 1 },
-  JWT_SECRET
-)
+let userStore1Token
 
 let loc1 = null
 let loc2 = null
 
 beforeAll(async () => {
+  // AUTH-1 P2: the caller store comes from the DB row; abstract stores must exist.
+  await ensureLocationIds(1, 2)
   loc1 = await db.location.create({
     store: 1,
     name: 'ISO_STORE_1',
@@ -53,11 +43,13 @@ beforeAll(async () => {
   // P1-4: central gate denies unknown caller identities; these rows satisfy
   // the identity invariant. JWT claims (abstract store numbers) and all
   // assertions are unchanged; row store stays null (no FK implication).
-  for (const [id, userName, roleType, userType] of [
-    [9999, 'superadmin_iso', 'super_admin', 'admin'],
-    [9998, 'admin1_iso', 'admin', 'admin'],
-    [9997, 'admin2_iso', 'admin', 'admin'],
-    [9996, 'user1_iso', 'user', 'user']
+  // AUTH-1 P2: the row (not the JWT) is the authority, so each row carries
+  // the store its token claims (abstract stores 1/2 exist, see above).
+  for (const [id, userName, roleType, userType, store] of [
+    [9999, 'superadmin_iso', 'super_admin', 'admin', null],
+    [9998, 'admin1_iso', 'admin', 'admin', 1],
+    [9997, 'admin2_iso', 'admin', 'admin', 2],
+    [9996, 'user1_iso', 'user', 'user', 1]
   ]) {
     await db.user.create({
       id,
@@ -65,7 +57,7 @@ beforeAll(async () => {
       email: `p14-${id}-store-isolation@test.com`,
       roleType,
       userType,
-      store: null,
+      store,
       status: 'active',
       fullName: userName
     })
@@ -86,6 +78,26 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+})
+
+// AUTH-1 P2: tokens bound to real sessions, minted once the users exist.
+beforeAll(async () => {
+  superAdminToken = await signSessionToken(
+  { id: 9999, userName: 'superadmin_iso', roleType: 'super_admin' },
+  JWT_SECRET
+)
+  adminStore1Token = await signSessionToken(
+  { id: 9998, userName: 'admin1_iso', roleType: 'admin', store: 1 },
+  JWT_SECRET
+)
+  adminStore2Token = await signSessionToken(
+  { id: 9997, userName: 'admin2_iso', roleType: 'admin', store: 2 },
+  JWT_SECRET
+)
+  userStore1Token = await signSessionToken(
+  { id: 9996, userName: 'user1_iso', roleType: 'user', store: 1 },
+  JWT_SECRET
+)
 })
 
 afterAll(async () => {
@@ -206,7 +218,7 @@ describe('Store data isolation — location', () => {
   // these two location-detail tests need their own tokens whose store claim
   // genuinely matches the location under test.
   test('admin store 1 can access own location detail', async () => {
-    const ownToken = jwt.sign(
+    const ownToken = await signSessionToken(
       { id: 9995, userName: 'admin_loc1_owner', roleType: 'admin', store: loc1.id },
       JWT_SECRET
     )
@@ -224,7 +236,7 @@ describe('Store data isolation — location', () => {
   // This test previously asserted that gap as correct ("no isolation on
   // this endpoint"); it now asserts the fixed, tenant-scoped contract.
   test('admin store 1 CANNOT access store 2 location detail (C-7 fix)', async () => {
-    const ownToken = jwt.sign(
+    const ownToken = await signSessionToken(
       { id: 9994, userName: 'admin_loc1_owner2', roleType: 'admin', store: loc1.id },
       JWT_SECRET
     )

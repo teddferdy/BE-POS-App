@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -26,11 +26,13 @@ beforeAll(async () => {
   storeB = await db.location.create({ name: `CRH_STORE_B_${SUFFIX}` })
   opener = await db.user.create({
     userName: `crh_opener_${SUFFIX}`,
-    roleType: 'admin',
-    store: storeA.id,
+    // AUTH-1 P2: authority comes from this row, not the JWT — the caller these
+    // tests mean (per the token claims) is a global super_admin.
+    roleType: 'super_admin',
+    store: null,
     password: 'x'
   })
-  superToken = jwt.sign(
+  superToken = await signSessionToken(
     { id: opener.id, userName: 'crh_super', roleType: 'super_admin', store: null },
     JWT_SECRET
   )

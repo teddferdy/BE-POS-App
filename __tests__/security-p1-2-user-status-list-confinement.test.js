@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const { Op } = require('sequelize')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -11,7 +11,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 const PREFIX = `p12_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
 let seq = 0
 const unique = (key) => `${PREFIX}_${key}_${++seq}`.toLowerCase()
-const sign = (claims) => jwt.sign(claims, JWT_SECRET)
+const sign = (claims) => signSessionToken(claims, JWT_SECRET)
 const bearer = (token) => ({ Authorization: `Bearer ${token}` })
 
 let storeA = null
@@ -56,17 +56,17 @@ afterAll(async () => {
   await db.location.destroy({ where: { id: [storeA?.id, storeB?.id].filter(Boolean) }, force: true }).catch(() => {})
 })
 
-const tokens = () => ({
-  adminA: sign({ id: actors.adminA.id, roleType: 'admin', store: storeA.id }),
-  superGlobal: sign({ id: actors.superGlobal.id, roleType: 'super_admin', store: null }),
-  superBoundA: sign({ id: actors.superBoundA.id, roleType: 'super_admin', store: storeA.id })
+const tokens = async () => ({
+  adminA: await sign({ id: actors.adminA.id, roleType: 'admin', store: storeA.id }),
+  superGlobal: await sign({ id: actors.superGlobal.id, roleType: 'super_admin', store: null }),
+  superBoundA: await sign({ id: actors.superBoundA.id, roleType: 'super_admin', store: storeA.id })
 })
 
 // ---- change-user-status ----
 describe('P1-2 change-user-status confinement', () => {
   test('bound own-store user → 200 + changed', async () => {
     const target = await makeUser('stOwn', { roleType: 'user', store: storeA.id })
-    const res = await request(app).put('/auth/change-user-status').set(bearer(tokens().superBoundA)).send({ id: target.id, status: 'inactive' })
+    const res = await request(app).put('/auth/change-user-status').set(bearer((await tokens()).superBoundA)).send({ id: target.id, status: 'inactive' })
     expect(res.status).toBe(200)
     expect((await db.user.findByPk(target.id)).status).toBe('inactive')
   })
@@ -74,25 +74,25 @@ describe('P1-2 change-user-status confinement', () => {
   test('bound foreign user → 403 + unchanged', async () => {
     const target = await makeUser('stFor', { roleType: 'user', store: storeB.id })
     const before = await snapshotUser(target.id)
-    const res = await request(app).put('/auth/change-user-status').set(bearer(tokens().superBoundA)).send({ id: target.id, status: 'inactive' })
+    const res = await request(app).put('/auth/change-user-status').set(bearer((await tokens()).superBoundA)).send({ id: target.id, status: 'inactive' })
     expect(res.status).toBe(403)
     expect(await snapshotUser(target.id)).toEqual(before)
   })
 
   test('bound global super_admin target → 403 + unchanged', async () => {
     const before = await snapshotUser(actors.globalTarget.id)
-    const res = await request(app).put('/auth/change-user-status').set(bearer(tokens().superBoundA)).send({ id: actors.globalTarget.id, status: 'inactive' })
+    const res = await request(app).put('/auth/change-user-status').set(bearer((await tokens()).superBoundA)).send({ id: actors.globalTarget.id, status: 'inactive' })
     expect(res.status).toBe(403)
     expect(await snapshotUser(actors.globalTarget.id)).toEqual(before)
   })
 
   test('bound missing → 404', async () => {
-    const res = await request(app).put('/auth/change-user-status').set(bearer(tokens().superBoundA)).send({ id: 2147480000, status: 'inactive' })
+    const res = await request(app).put('/auth/change-user-status').set(bearer((await tokens()).superBoundA)).send({ id: 2147480000, status: 'inactive' })
     expect(res.status).toBe(404)
   })
 
   test('global any target → 200 (own, foreign, super_admin)', async () => {
-    const t = tokens().superGlobal
+    const t = (await tokens()).superGlobal
     const own = await makeUser('stG1', { roleType: 'user', store: storeA.id })
     const foreign = await makeUser('stG2', { roleType: 'user', store: storeB.id })
     expect((await request(app).put('/auth/change-user-status').set(bearer(t)).send({ id: own.id, status: 'inactive' })).status).toBe(200)
@@ -107,7 +107,7 @@ describe('P1-2 get-all-user confinement', () => {
   test('bound sees own normal users; no foreign, no global/foreign super_admin; shape preserved', async () => {
     const ownUser = await makeUser('liOwn', { roleType: 'user', store: storeA.id })
     const foreignUser = await makeUser('liFor', { roleType: 'user', store: storeB.id })
-    const res = await request(app).get('/auth/get-all-user').set(bearer(tokens().superBoundA))
+    const res = await request(app).get('/auth/get-all-user').set(bearer((await tokens()).superBoundA))
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body.data)).toBe(true)
     const ids = res.body.data.map((u) => u.id)
@@ -123,7 +123,7 @@ describe('P1-2 get-all-user confinement', () => {
   })
 
   test('global audience unchanged (sees own, foreign, super_admin)', async () => {
-    const res = await request(app).get('/auth/get-all-user').set(bearer(tokens().superGlobal))
+    const res = await request(app).get('/auth/get-all-user').set(bearer((await tokens()).superGlobal))
     expect(res.status).toBe(200)
     const ids = res.body.data.map((u) => u.id)
     expect(ids).toContain(actors.globalTarget.id)
@@ -133,7 +133,7 @@ describe('P1-2 get-all-user confinement', () => {
 // ---- get-user / location ----
 describe('P1-2 get-user location confinement', () => {
   test('bound omitted → own; own → own; foreign → 403 with no foreign data', async () => {
-    const t = tokens().superBoundA
+    const t = (await tokens()).superBoundA
     let res = await request(app).get('/auth/get-user').set(bearer(t))
     expect(res.status).toBe(200)
     res = await request(app).get(`/auth/get-user?location=${storeA.id}`).set(bearer(t))
@@ -144,9 +144,9 @@ describe('P1-2 get-user location confinement', () => {
   })
 
   test('global + admin preserved', async () => {
-    const res = await request(app).get(`/auth/get-user?location=${storeB.id}`).set(bearer(tokens().superGlobal))
+    const res = await request(app).get(`/auth/get-user?location=${storeB.id}`).set(bearer((await tokens()).superGlobal))
     expect(res.status).toBe(200)
-    const adminRes = await request(app).get('/auth/get-user').set(bearer(tokens().adminA))
+    const adminRes = await request(app).get('/auth/get-user').set(bearer((await tokens()).adminA))
     expect(adminRes.status).toBe(200)
   })
 })

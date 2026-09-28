@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -21,14 +21,6 @@ beforeAll(async () => {
   store1 = await db.location.create({ name: 'PRIV_STORE_1', status: 'active' })
   store2 = await db.location.create({ name: 'PRIV_STORE_2', status: 'active' })
 
-  adminStore1Token = jwt.sign(
-    { id: 8001, userName: 'admin1_priv', roleType: 'admin', store: store1.id },
-    JWT_SECRET
-  )
-  superAdminToken = jwt.sign(
-    { id: 8000, userName: 'superadmin_priv', roleType: 'super_admin' },
-    JWT_SECRET
-  )
 
   // P1-4: central per-request gate denies unknown caller identities, so the
   // tokens above must belong to real rows (assertions below are unchanged).
@@ -67,6 +59,15 @@ beforeAll(async () => {
     store: store2.id,
     status: 'active'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminStore1Token = await signSessionToken(
+    { id: 8001, userName: 'admin1_priv', roleType: 'admin', store: store1.id },
+    JWT_SECRET
+  )
+  superAdminToken = await signSessionToken(
+    { id: 8000, userName: 'superadmin_priv', roleType: 'super_admin' },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

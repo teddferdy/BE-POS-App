@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -151,22 +151,6 @@ beforeAll(async () => {
   store1 = await db.location.create({ name: 'IDOR_STORE_1', status: 'active' })
   store2 = await db.location.create({ name: 'IDOR_STORE_2', status: 'active' })
 
-  superAdminToken = jwt.sign(
-    { id: 70001, userName: 'idor_super', roleType: 'super_admin' },
-    JWT_SECRET
-  )
-  adminStore1Token = jwt.sign(
-    { id: 70002, userName: 'idor_admin1', roleType: 'admin', store: store1.id },
-    JWT_SECRET
-  )
-  adminStore2Token = jwt.sign(
-    { id: 70003, userName: 'idor_admin2', roleType: 'admin', store: store2.id },
-    JWT_SECRET
-  )
-  kasirStore1Token = jwt.sign(
-    { id: 70004, userName: 'idor_kasir1', roleType: 'kasir', store: store1.id },
-    JWT_SECRET
-  )
 
   // P1-4: central per-request gate denies unknown caller identities, so the
   // tokens above must belong to real rows (all test assertions unchanged).
@@ -378,6 +362,23 @@ beforeAll(async () => {
     userName: 'idor_swap_tgt2', email: 'idor_swap_tgt2@test.com',
     roleType: 'kasir', userType: 'user', store: store2.id, status: 'active'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  superAdminToken = await signSessionToken(
+    { id: 70001, userName: 'idor_super', roleType: 'super_admin' },
+    JWT_SECRET
+  )
+  adminStore1Token = await signSessionToken(
+    { id: 70002, userName: 'idor_admin1', roleType: 'admin', store: store1.id },
+    JWT_SECRET
+  )
+  adminStore2Token = await signSessionToken(
+    { id: 70003, userName: 'idor_admin2', roleType: 'admin', store: store2.id },
+    JWT_SECRET
+  )
+  kasirStore1Token = await signSessionToken(
+    { id: 70004, userName: 'idor_kasir1', roleType: 'kasir', store: store1.id },
+    JWT_SECRET
+  )
   swap1 = await db.shift_swap.create({
     store: store1.id,
     requesterId: userReq1.id,
@@ -2420,16 +2421,12 @@ describe('POST /purchase-payment/create — cross-tenant PO payment (P0)', () =>
   })
 
   test('store 1 admin can record a payment against their own purchase order', async () => {
-    // purchase_payment.createdBy has a real FK to user.id — adminStore1Token's
-    // subject (70002) has no backing row, so it must use a token whose
-    // subject is a real user; employee1 (store 1) already exists for this.
-    const realUserToken = jwt.sign(
-      { id: employee1.id, userName: employee1.userName, roleType: 'admin', store: store1.id },
-      JWT_SECRET
-    )
+    // purchase_payment.createdBy has a real FK to user.id. adminStore1Token's
+    // subject (70002) is a real store-1 admin row (P1-4), and under AUTH-1 P2
+    // the row — not an `admin` claim on a kasir account — is the authority.
     const res = await request(app)
       .post('/purchase-payment/create')
-      .set('Authorization', `Bearer ${realUserToken}`)
+      .set('Authorization', `Bearer ${adminStore1Token}`)
       .send({ purchaseOrder: po1.id, amount: 10000, paymentMethod: 'cash', supplier: supplier.id })
 
     expect(res.status).toBe(201)

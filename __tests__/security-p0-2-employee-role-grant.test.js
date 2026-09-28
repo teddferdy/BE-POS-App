@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const { Op } = require('sequelize')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -23,7 +23,7 @@ const SENSITIVE = ['password', 'resetToken', 'resetTokenExpires', 'confirmPasswo
 const PREFIX = `p02_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
 let seq = 0
 const unique = (key) => `${PREFIX}_${key}_${++seq}`.toLowerCase()
-const sign = (claims) => jwt.sign(claims, JWT_SECRET)
+const sign = (claims) => signSessionToken(claims, JWT_SECRET)
 const bearer = (token) => ({ Authorization: `Bearer ${token}` })
 
 let storeA = null
@@ -77,10 +77,10 @@ afterAll(async () => {
   await db.location.destroy({ where: { id: [storeA?.id, storeB?.id].filter(Boolean) }, force: true })
 })
 
-const tokens = () => ({
-  adminA: sign({ id: actors.adminA.id, roleType: 'admin', store: storeA.id }),
-  superGlobal: sign({ id: actors.superGlobal.id, roleType: 'super_admin', store: null }),
-  superBoundA: sign({ id: actors.superBoundA.id, roleType: 'super_admin', store: storeA.id })
+const tokens = async () => ({
+  adminA: await sign({ id: actors.adminA.id, roleType: 'admin', store: storeA.id }),
+  superGlobal: await sign({ id: actors.superGlobal.id, roleType: 'super_admin', store: null }),
+  superBoundA: await sign({ id: actors.superBoundA.id, roleType: 'super_admin', store: storeA.id })
 })
 
 // ---- request shapes -------------------------------------------------------
@@ -152,7 +152,7 @@ describe('P0-2 admin cannot grant super_admin on add-employee', () => {
     ['omitted store, data wrapper', 'wrapped', () => ({})]
   ])('%s → 403, no account created', async (_label, shape, extra) => {
     const body = newEmployee({ roleId: roleSuper.id, ...extra() })
-    const res = await add(shape, tokens().adminA, body)
+    const res = await add(shape, (await tokens()).adminA, body)
 
     expect(res.status).toBe(403)
     await expectNotCreated(body.userName)
@@ -160,7 +160,7 @@ describe('P0-2 admin cannot grant super_admin on add-employee', () => {
 
   test('unknown roleId → 400, no silent fallback, no account created', async () => {
     const body = newEmployee({ roleId: 2147480000, store: storeA.id })
-    const res = await add('json', tokens().adminA, body)
+    const res = await add('json', (await tokens()).adminA, body)
 
     expect(res.status).toBe(400)
     await expectNotCreated(body.userName)
@@ -170,7 +170,7 @@ describe('P0-2 admin cannot grant super_admin on add-employee', () => {
 describe('P0-2 admin cannot promote to super_admin on edit-employee', () => {
   test.each(['json', 'multipart', 'wrapped'])('self-promotion (%s) → 403, row unchanged', async (shape) => {
     const before = await snapshot(actors.adminA.id)
-    const res = await edit(shape, tokens().adminA, { id: actors.adminA.id, roleId: roleSuper.id })
+    const res = await edit(shape, (await tokens()).adminA, { id: actors.adminA.id, roleId: roleSuper.id })
 
     expect(res.status).toBe(403)
     expect(await snapshot(actors.adminA.id)).toEqual(before)
@@ -179,7 +179,7 @@ describe('P0-2 admin cannot promote to super_admin on edit-employee', () => {
   test.each(['json', 'multipart', 'wrapped'])('promoting another own-store employee (%s) → 403, row unchanged', async (shape) => {
     const target = await makeUser('promoteTarget', { roleType: 'user', store: storeA.id })
     const before = await snapshot(target.id)
-    const res = await edit(shape, tokens().adminA, { id: target.id, roleId: roleSuper.id })
+    const res = await edit(shape, (await tokens()).adminA, { id: target.id, roleId: roleSuper.id })
 
     expect(res.status).toBe(403)
     expect(await snapshot(target.id)).toEqual(before)
@@ -188,7 +188,7 @@ describe('P0-2 admin cannot promote to super_admin on edit-employee', () => {
   test('unknown roleId → 400, row unchanged', async () => {
     const target = await makeUser('unknownRoleTarget', { roleType: 'user', store: storeA.id })
     const before = await snapshot(target.id)
-    const res = await edit('json', tokens().adminA, { id: target.id, roleId: 2147480000 })
+    const res = await edit('json', (await tokens()).adminA, { id: target.id, roleId: 2147480000 })
 
     expect(res.status).toBe(400)
     expect(await snapshot(target.id)).toEqual(before)
@@ -207,14 +207,14 @@ describe('P0-2 admin cannot edit an existing same-store super_admin', () => {
     ['role (demotion)', () => ({ roleId: roleUser.id })]
   ])('%s change → 403, target unchanged', async (_label, extra) => {
     const before = await snapshot(target.id)
-    const res = await edit('json', tokens().adminA, { id: target.id, ...extra() })
+    const res = await edit('json', (await tokens()).adminA, { id: target.id, ...extra() })
 
     expect(res.status).toBe(403)
     expect(await snapshot(target.id)).toEqual(before)
   })
 
   test('the old password still logs in; the attacker-chosen one does not', async () => {
-    await edit('json', tokens().adminA, { id: target.id, password: 'Diambil123!', confirmPassword: 'Diambil123!' })
+    await edit('json', (await tokens()).adminA, { id: target.id, password: 'Diambil123!', confirmPassword: 'Diambil123!' })
 
     const legit = await request(app).post('/auth/login').send({ userName: target.userName, password: PASSWORD })
     expect(legit.status).toBe(200)
@@ -226,7 +226,7 @@ describe('P0-2 admin cannot edit an existing same-store super_admin', () => {
 describe('P0-2 admin destination store is authorized after multer + validate', () => {
   test.each(['json', 'multipart', 'wrapped'])('add to a foreign store (%s) → 403, no account created', async (shape) => {
     const body = newEmployee({ roleId: roleUser.id, store: storeB.id })
-    const res = await add(shape, tokens().adminA, body)
+    const res = await add(shape, (await tokens()).adminA, body)
 
     expect(res.status).toBe(403)
     await expectNotCreated(body.userName)
@@ -235,7 +235,7 @@ describe('P0-2 admin destination store is authorized after multer + validate', (
   test.each(['json', 'multipart', 'wrapped'])('move an own-store employee to a foreign store (%s) → 403, row unchanged', async (shape) => {
     const target = await makeUser('moveTarget', { roleType: 'user', store: storeA.id })
     const before = await snapshot(target.id)
-    const res = await edit(shape, tokens().adminA, { id: target.id, store: storeB.id })
+    const res = await edit(shape, (await tokens()).adminA, { id: target.id, store: storeB.id })
 
     expect(res.status).toBe(403)
     expect(await snapshot(target.id)).toEqual(before)
@@ -243,7 +243,7 @@ describe('P0-2 admin destination store is authorized after multer + validate', (
 
   test('"0" store with a normal role is rejected by the single-store rule, no account created', async () => {
     const body = newEmployee({ roleId: roleUser.id, store: '0' })
-    const res = await add('json', tokens().adminA, body)
+    const res = await add('json', (await tokens()).adminA, body)
 
     expect(res.status).toBe(403)
     await expectNotCreated(body.userName)
@@ -259,7 +259,7 @@ describe('P0-2 legitimate admin employee administration keeps working', () => {
     ['omitted store, data wrapper', 'wrapped', () => ({})]
   ])('add with %s → 200, persisted to the admin\'s own store', async (_label, shape, extra) => {
     const body = newEmployee({ roleId: roleUser.id, ...extra() })
-    const res = await add(shape, tokens().adminA, body)
+    const res = await add(shape, (await tokens()).adminA, body)
 
     expect(res.status).toBe(200)
     expectNoSecrets(res.body)
@@ -276,7 +276,7 @@ describe('P0-2 legitimate admin employee administration keeps working', () => {
     ['multipart', () => ({ store: storeA.id })]
   ])('edit an own-store employee (%s) → 200, stays in the own store', async (shape, extra) => {
     const target = await makeUser('legitEdit', { roleType: 'user', store: storeA.id })
-    const res = await edit(shape, tokens().adminA, { id: target.id, fullName: 'Renamed', roleId: roleUser.id, ...extra() })
+    const res = await edit(shape, (await tokens()).adminA, { id: target.id, fullName: 'Renamed', roleId: roleUser.id, ...extra() })
 
     expect(res.status).toBe(200)
     expectNoSecrets(res.body)
@@ -290,7 +290,7 @@ describe('P0-2 legitimate admin employee administration keeps working', () => {
 describe('P0-2 store-bound super_admin is held to its own store (fail closed)', () => {
   test('cannot grant super_admin → 403, no account created', async () => {
     const body = newEmployee({ roleId: roleSuper.id })
-    const res = await add('json', tokens().superBoundA, body)
+    const res = await add('json', (await tokens()).superBoundA, body)
 
     expect(res.status).toBe(403)
     await expectNotCreated(body.userName)
@@ -298,7 +298,7 @@ describe('P0-2 store-bound super_admin is held to its own store (fail closed)', 
 
   test('cannot add to a foreign store (multipart) → 403, no account created', async () => {
     const body = newEmployee({ roleId: roleUser.id, store: storeB.id })
-    const res = await add('multipart', tokens().superBoundA, body)
+    const res = await add('multipart', (await tokens()).superBoundA, body)
 
     expect(res.status).toBe(403)
     await expectNotCreated(body.userName)
@@ -306,7 +306,7 @@ describe('P0-2 store-bound super_admin is held to its own store (fail closed)', 
 
   test('omitted store persists to its own store, never global', async () => {
     const body = newEmployee({ roleId: roleUser.id })
-    const res = await add('json', tokens().superBoundA, body)
+    const res = await add('json', (await tokens()).superBoundA, body)
 
     expect(res.status).toBe(200)
     const row = await findCreated(body.userName)
@@ -316,7 +316,7 @@ describe('P0-2 store-bound super_admin is held to its own store (fail closed)', 
   test('cannot edit an employee of another store → 404, row unchanged', async () => {
     const target = await makeUser('foreignForBound', { roleType: 'user', store: storeB.id })
     const before = await snapshot(target.id)
-    const res = await edit('json', tokens().superBoundA, { id: target.id, fullName: 'HIJACKED' })
+    const res = await edit('json', (await tokens()).superBoundA, { id: target.id, fullName: 'HIJACKED' })
 
     expect(res.status).toBe(404)
     expect(await snapshot(target.id)).toEqual(before)
@@ -325,7 +325,7 @@ describe('P0-2 store-bound super_admin is held to its own store (fail closed)', 
   test('cannot promote an own-store employee to super_admin → 403, row unchanged', async () => {
     const target = await makeUser('boundPromote', { roleType: 'user', store: storeA.id })
     const before = await snapshot(target.id)
-    const res = await edit('json', tokens().superBoundA, { id: target.id, roleId: roleSuper.id })
+    const res = await edit('json', (await tokens()).superBoundA, { id: target.id, roleId: roleSuper.id })
 
     expect(res.status).toBe(403)
     expect(await snapshot(target.id)).toEqual(before)
@@ -335,7 +335,7 @@ describe('P0-2 store-bound super_admin is held to its own store (fail closed)', 
 describe('P0-2 global super_admin keeps platform employee administration', () => {
   test('creates a normal employee in another store', async () => {
     const body = newEmployee({ roleId: roleUser.id, store: storeB.id })
-    const res = await add('json', tokens().superGlobal, body)
+    const res = await add('json', (await tokens()).superGlobal, body)
 
     expect(res.status).toBe(200)
     const row = await findCreated(body.userName)
@@ -344,7 +344,7 @@ describe('P0-2 global super_admin keeps platform employee administration', () =>
 
   test('creates a global super_admin (store omitted)', async () => {
     const body = newEmployee({ roleId: roleSuper.id })
-    const res = await add('json', tokens().superGlobal, body)
+    const res = await add('json', (await tokens()).superGlobal, body)
 
     expect(res.status).toBe(200)
     const row = await findCreated(body.userName)
@@ -354,7 +354,7 @@ describe('P0-2 global super_admin keeps platform employee administration', () =>
 
   test('edits an employee in another store, including role and store', async () => {
     const target = await makeUser('globalEdit', { roleType: 'user', store: storeB.id })
-    const res = await edit('multipart', tokens().superGlobal, {
+    const res = await edit('multipart', (await tokens()).superGlobal, {
       id: target.id,
       fullName: 'Moved',
       roleId: roleSuper.id,
@@ -370,7 +370,7 @@ describe('P0-2 global super_admin keeps platform employee administration', () =>
 
   test('edits an existing super_admin', async () => {
     const target = await makeUser('globalEditsSuper', { roleType: 'super_admin', store: storeA.id })
-    const res = await edit('json', tokens().superGlobal, { id: target.id, fullName: 'Edited' })
+    const res = await edit('json', (await tokens()).superGlobal, { id: target.id, fullName: 'Edited' })
 
     expect(res.status).toBe(200)
     await target.reload()
@@ -384,7 +384,7 @@ describe('P0-2 change-profile-user roleId grant stays blocked', () => {
     const before = await snapshot(target.id)
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().adminA))
+      .set(bearer((await tokens()).adminA))
       .send({ id: target.id, roleId: roleSuper.id, store: storeA.id })
 
     expect(res.status).toBe(403)

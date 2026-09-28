@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -100,7 +100,7 @@ beforeAll(async () => {
     store: store.id,
     password: 'x'
   })
-  adminToken = jwt.sign(
+  adminToken = await signSessionToken(
     { id: opener.id, userName: opener.userName, roleType: 'admin', store: store.id },
     JWT_SECRET
   )
@@ -407,7 +407,7 @@ describe('Batch B RED — register reconciliation contract', () => {
       store: storeOther.id,
       password: 'x'
     })
-    const otherToken = jwt.sign(
+    const otherToken = await signSessionToken(
       { id: otherAdmin.id, userName: otherAdmin.userName, roleType: 'admin', store: storeOther.id },
       JWT_SECRET
     )

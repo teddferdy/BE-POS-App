@@ -7,7 +7,7 @@ process.env.VERCEL = 'true'
 // store via scalarStoreScope.
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const ExcelJS = require('exceljs')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -40,11 +40,11 @@ beforeAll(async () => {
     roleType: 'super_admin',
     password: 'x'
   })
-  admin1Token = jwt.sign(
+  admin1Token = await signSessionToken(
     { id: userAdmin1.id, userName: userAdmin1.userName, roleType: 'admin', store: store1.id },
     JWT_SECRET
   )
-  superToken = jwt.sign(
+  superToken = await signSessionToken(
     { id: userSuper.id, userName: userSuper.userName, roleType: 'super_admin' },
     JWT_SECRET
   )

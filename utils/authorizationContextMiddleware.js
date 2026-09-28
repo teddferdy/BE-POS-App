@@ -3,30 +3,22 @@
 // TASK 3 — server-side authorization context middleware (F5).
 //
 // Chain per request:
-//   1. authenticate identity (JWT verify — identity only);
-//   2. load the server-side context session by opaque sessionId;
-//   3. resolve the canonical authorization context from persisted state;
-//   4. validate membership / tenant lifecycle / store ownership /
+//   1. canonical `authorization` (utils/authorization.js) verifies the JWT,
+//      loads + validates the session with its account and hydrates req.user;
+//   2. this middleware resolves the canonical authorization context from
+//      persisted state for that session (reusing the loaded account);
+//   3. validate membership / tenant lifecycle / store ownership /
 //      assignment / store lifecycle;
-//   5. attach the resolved context to req.authContext.
+//   4. attach the resolved context to req.authContext.
 //
-// req.user remains identity data only. JWT role/store claims, cookies,
-// query/body store values, and frontend activeStore are NEVER authority —
-// they are at most candidates, and this middleware only honors the
-// server-persisted session selection (validated against the DB).
+// JWT role/store claims, cookies, query/body store values, and frontend
+// activeStore are NEVER authority — they are at most candidates, and this
+// middleware only honors the server-persisted session selection (validated
+// against the DB).
 
 const crypto = require('crypto')
-const jwt = require('jsonwebtoken')
 const { resolveAuthorizationContext } = require('./authContext')
-
-const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
-
-const getToken = (req) => {
-  if (req?.cookies?.token) return req.cookies.token
-  const header = req?.headers?.authorization
-  if (header && header.startsWith('Bearer ')) return header.substring(7)
-  return null
-}
+const { credentialWindow } = require('./jwtConvert')
 
 const toPositiveIntOrNull = (value) => {
   if (value == null || value === '') return null
@@ -43,20 +35,31 @@ const modelsOf = (req, explicitDb) =>
 
 const newSessionId = () => crypto.randomBytes(32).toString('hex')
 
-async function createContextSession(database, { userId, activeTenantId = null, activeStoreId = null, ttlMs = DEFAULT_TTL_MS } = {}) {
+// Expiry: an explicit `expiresAt` (login passes its JWT's exp), else an
+// explicit `ttlMs`, else the single authentication lifetime (JWT_EXPIRED_IN).
+async function createContextSession(
+  database,
+  { userId, activeTenantId = null, activeStoreId = null, ttlMs, expiresAt, transaction } = {}
+) {
   const db = database || require('../db/models')
   const uid = toPositiveIntOrNull(userId)
   if (uid == null) throw new Error('CONTEXT_SESSION_INVALID_USER')
-  const now = new Date()
-  const row = await db.authorizationContextSession.create({
-    sessionId: newSessionId(),
-    userId: uid,
-    activeTenantId: toPositiveIntOrNull(activeTenantId),
-    activeStoreId: toPositiveIntOrNull(activeStoreId),
-    version: 1,
-    expiresAt: new Date(now.getTime() + ttlMs),
-    revokedAt: null
-  })
+  let expiry
+  if (expiresAt != null) expiry = new Date(expiresAt)
+  else if (ttlMs != null) expiry = new Date(Date.now() + ttlMs)
+  else expiry = new Date(credentialWindow().exp * 1000)
+  const row = await db.authorizationContextSession.create(
+    {
+      sessionId: newSessionId(),
+      userId: uid,
+      activeTenantId: toPositiveIntOrNull(activeTenantId),
+      activeStoreId: toPositiveIntOrNull(activeStoreId),
+      version: 1,
+      expiresAt: expiry,
+      revokedAt: null
+    },
+    { transaction }
+  )
   return row
 }
 
@@ -70,16 +73,37 @@ async function loadContextSession(database, sessionId) {
   return row
 }
 
-async function revokeContextSession(database, sessionId, userId) {
+// AUTH-1 P3: revocation is write-once. The stamp is a conditional UPDATE on
+// `revokedAt IS NULL`, so a repeated or concurrent revocation never moves the
+// original timestamp, and no code path ever clears it. Both primitives accept
+// the caller's transaction so revocation commits atomically with the
+// account mutation that triggered it.
+const REVOKE_VALUES = (db) => ({ revokedAt: new Date(), version: db.sequelize.literal('"version" + 1') })
+
+// Revokes one session (owned by `userId` when given). Returns false when no
+// such session exists, true when it is — or already was — revoked.
+async function revokeContextSession(database, sessionId, userId, { transaction } = {}) {
   const db = database || require('../db/models')
-  const row = await db.authorizationContextSession.findOne({ where: { sessionId } })
+  if (typeof sessionId !== 'string' || !sessionId) return false
+  const where = userId != null ? { sessionId, userId } : { sessionId }
+  const row = await db.authorizationContextSession.findOne({ where, attributes: ['id'], transaction })
   if (!row) return false
-  if (userId != null && Number(row.userId) !== Number(userId)) return false
-  if (row.revokedAt != null) return true
-  row.revokedAt = new Date()
-  row.version = Number(row.version || 1) + 1
-  await row.save()
+  await db.authorizationContextSession.update(REVOKE_VALUES(db), {
+    where: { ...where, revokedAt: null },
+    transaction
+  })
   return true
+}
+
+// Revokes every not-yet-revoked session of one user. Returns the count
+// newly revoked; already-revoked rows keep their original timestamp.
+async function revokeAllUserSessions(database, userId, { transaction } = {}) {
+  const db = database || require('../db/models')
+  const [count] = await db.authorizationContextSession.update(REVOKE_VALUES(db), {
+    where: { userId, revokedAt: null },
+    transaction
+  })
+  return count
 }
 
 // Atomic tenant switch: validates the tenant as an effective membership via
@@ -165,41 +189,28 @@ async function switchSessionStore(database, sessionId, userId, storeId) {
   }
 }
 
+// AUTH-1 P2: runs after canonical `authorization`, which already verified the
+// JWT, loaded and validated the session and hydrated req.user from the DB.
+// This middleware reuses req.authSession / req.user — no second verify, no
+// second session lookup — and fails closed when mounted without them.
 const authorizationContextMiddleware = async (req, res, next) => {
   const db = modelsOf(req, req?.db)
-  const token = getToken(req)
-  if (!token) {
+  const session = req.authSession
+  if (!session || !req.user || Number(session.userId) !== Number(req.user.id)) {
     return res.status(401).json({ message: 'User Belum Login', code: 'UNAUTHENTICATED' })
   }
-  let decoded
+
+  let ctx
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET_KEY)
+    ctx = await resolveAuthorizationContext(db, {
+      userId: req.user.id,
+      activeTenantId: session.activeTenantId,
+      activeStoreId: session.activeStoreId,
+      account: session.user
+    })
   } catch {
-    return res.status(401).json({ message: 'Token Tidak Valid', code: 'INVALID_TOKEN' })
+    return res.status(500).json({ message: 'Internal Server Error', code: 'AUTHORIZATION_ERROR' })
   }
-  // Identity only — role/store claims inside the token are never consulted.
-  req.user = decoded
-
-  const sessionId = typeof decoded.sessionId === 'string' ? decoded.sessionId : null
-  if (!sessionId) {
-    // Legacy token (no session): resolve identity-only context. No tenant or
-    // store authority is granted — callers requiring scope will fail closed.
-    const ctx = await resolveAuthorizationContext(db, { userId: decoded.id })
-    req.authContext = ctx
-    req.authSession = null
-    return next()
-  }
-
-  const session = await loadContextSession(db, sessionId)
-  if (!session || Number(session.userId) !== Number(decoded.id)) {
-    return res.status(401).json({ message: 'Session revoked or expired', code: 'SESSION_INVALID' })
-  }
-
-  const ctx = await resolveAuthorizationContext(db, {
-    userId: decoded.id,
-    activeTenantId: session.activeTenantId,
-    activeStoreId: session.activeStoreId
-  })
 
   // Stale-context rejection: the session names a tenant/store that no longer
   // resolves (membership revoked, tenant suspended/deleted, store deleted,
@@ -231,6 +242,7 @@ module.exports = {
   createContextSession,
   loadContextSession,
   revokeContextSession,
+  revokeAllUserSessions,
   switchSessionTenant,
   switchSessionStore
 }

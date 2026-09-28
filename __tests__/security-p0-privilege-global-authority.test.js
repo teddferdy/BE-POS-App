@@ -11,7 +11,7 @@ if (!process.env.BACKUP_DIR) {
 }
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -21,7 +21,7 @@ const BACKUP_DIR = process.env.BACKUP_DIR
 const PREFIX = `p0_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
 let seq = 0
 const unique = (key) => `${PREFIX}_${key}_${++seq}`.toLowerCase()
-const sign = (claims) => jwt.sign(claims, JWT_SECRET)
+const sign = (claims) => signSessionToken(claims, JWT_SECRET)
 const bearer = (token) => ({ Authorization: `Bearer ${token}` })
 
 let storeA = null
@@ -92,10 +92,10 @@ afterAll(async () => {
   } catch {}
 })
 
-const tokens = () => ({
-  adminA: sign({ id: actors.adminA.id, roleType: 'admin', store: storeA.id }),
-  superGlobal: sign({ id: actors.superGlobal.id, roleType: 'super_admin', store: null }),
-  superBoundA: sign({ id: actors.superBoundA.id, roleType: 'super_admin', store: storeA.id })
+const tokens = async () => ({
+  adminA: await sign({ id: actors.adminA.id, roleType: 'admin', store: storeA.id }),
+  superGlobal: await sign({ id: actors.superGlobal.id, roleType: 'super_admin', store: null }),
+  superBoundA: await sign({ id: actors.superBoundA.id, roleType: 'super_admin', store: storeA.id })
 })
 
 // ---- P0-A: change-profile-user ----
@@ -105,7 +105,7 @@ describe('P0-A change-profile-user global gate', () => {
     const before = await snapshotUser(target.id)
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ id: target.id, roleType: 'super_admin', store: storeA.id })
     expect(res.status).toBe(403)
     expect(await snapshotUser(target.id)).toEqual(before)
@@ -116,7 +116,7 @@ describe('P0-A change-profile-user global gate', () => {
     const before = await snapshotUser(target.id)
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ id: target.id, roleId: roleSuper.id, store: storeA.id })
     expect(res.status).toBe(403)
     expect(await snapshotUser(target.id)).toEqual(before)
@@ -126,7 +126,7 @@ describe('P0-A change-profile-user global gate', () => {
     const before = await snapshotUser(actors.superTargetA.id)
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ id: actors.superTargetA.id, fullName: 'HIJACKED' })
     expect(res.status).toBe(403)
     expect(await snapshotUser(actors.superTargetA.id)).toEqual(before)
@@ -137,7 +137,7 @@ describe('P0-A change-profile-user global gate', () => {
     const before = await snapshotUser(target.id)
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ id: target.id, store: storeB.id })
     expect(res.status).toBe(403)
     expect(await snapshotUser(target.id)).toEqual(before)
@@ -148,7 +148,7 @@ describe('P0-A change-profile-user global gate', () => {
     const before = await snapshotUser(target.id)
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ id: target.id, roleId: 2147480000 })
     expect(res.status).toBe(400)
     expect(await snapshotUser(target.id)).toEqual(before)
@@ -158,7 +158,7 @@ describe('P0-A change-profile-user global gate', () => {
     const target = await makeUser('p0aTarget5', { roleType: 'user', store: storeB.id })
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().superGlobal))
+      .set(bearer((await tokens()).superGlobal))
       .send({ id: target.id, roleId: roleSuper.id, store: storeB.id })
     expect(res.status).toBe(200)
     await target.reload()
@@ -172,7 +172,7 @@ describe('P0-B role management global gate', () => {
     const name = unique('norole')
     const res = await request(app)
       .post('/role/add-new-role')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ name, roleType: 'super_admin', store: null })
     expect(res.status).toBe(403)
     expect(await db.role.count({ where: { name } })).toBe(0)
@@ -184,7 +184,7 @@ describe('P0-B role management global gate', () => {
     const before = role.get({ plain: true }).roleType
     const res = await request(app)
       .put(`/role/edit-role/${role.id}`)
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ name: role.name, roleType: 'super_admin' })
     expect(res.status).toBe(403)
     await role.reload()
@@ -196,7 +196,7 @@ describe('P0-B role management global gate', () => {
     const before = await snapshotUser(target.id)
     const res = await request(app)
       .put('/role/update-user-role')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ userId: target.id, roleId: roleSuper.id })
     expect(res.status).toBe(403)
     expect(await snapshotUser(target.id)).toEqual(before)
@@ -207,7 +207,7 @@ describe('P0-B role management global gate', () => {
     const before = await snapshotUser(target.id)
     const res = await request(app)
       .put('/role/update-user-role')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({ userId: target.id, roleId: 2147480000 })
     expect([400, 404]).toContain(res.status)
     expect(await snapshotUser(target.id)).toEqual(before)
@@ -217,7 +217,7 @@ describe('P0-B role management global gate', () => {
     const name = unique('globalrole')
     const res = await request(app)
       .post('/role/add-new-role')
-      .set(bearer(tokens().superGlobal))
+      .set(bearer((await tokens()).superGlobal))
       .send({ name, roleType: 'super_admin', store: null })
     expect(res.status).toBe(200)
     const row = await db.role.findOne({ where: { name } })
@@ -232,7 +232,7 @@ describe('P0-C backup platform-global gate', () => {
   test('store-bound super_admin cannot list backups → 403', async () => {
     const res = await request(app)
       .get('/backup/list')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
     expect(res.status).toBe(403)
   })
 
@@ -240,7 +240,7 @@ describe('P0-C backup platform-global gate', () => {
     const before = await db.db_backup.count()
     const res = await request(app)
       .post('/backup/create')
-      .set(bearer(tokens().superBoundA))
+      .set(bearer((await tokens()).superBoundA))
       .send({})
     expect(res.status).toBe(403)
     expect(await db.db_backup.count()).toBe(before)
@@ -260,15 +260,15 @@ describe('P0-C backup platform-global gate', () => {
     createdBackupIds.push(rec.id)
     const mtimeBefore = fs.statSync(filepath).mtimeMs
 
-    const dl = await request(app).get(`/backup/download/${rec.id}`).set(bearer(tokens().superBoundA))
+    const dl = await request(app).get(`/backup/download/${rec.id}`).set(bearer((await tokens()).superBoundA))
     expect(dl.status).toBe(403)
 
-    const rs = await request(app).post(`/backup/restore/${rec.id}`).set(bearer(tokens().superBoundA))
+    const rs = await request(app).post(`/backup/restore/${rec.id}`).set(bearer((await tokens()).superBoundA))
     expect(rs.status).toBe(403)
     // restore must not touch the artifact or DB state
     expect(fs.statSync(filepath).mtimeMs).toBe(mtimeBefore)
 
-    const del = await request(app).delete(`/backup/delete/${rec.id}`).set(bearer(tokens().superBoundA))
+    const del = await request(app).delete(`/backup/delete/${rec.id}`).set(bearer((await tokens()).superBoundA))
     expect(del.status).toBe(403)
     expect(await db.db_backup.findByPk(rec.id)).not.toBeNull()
   })
@@ -276,7 +276,7 @@ describe('P0-C backup platform-global gate', () => {
   test('global super_admin retains backup list access → 200', async () => {
     const res = await request(app)
       .get('/backup/list')
-      .set(bearer(tokens().superGlobal))
+      .set(bearer((await tokens()).superGlobal))
     expect(res.status).toBe(200)
   })
 })

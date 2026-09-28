@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -55,11 +55,11 @@ beforeAll(async () => {
     lifetimePoints: 2500
   })
 
-  cashierAToken = jwt.sign(
+  cashierAToken = await signSessionToken(
     { id: 9901, userName: 'redeem_cashier_a', roleType: 'kasir', store: locationA.id },
     JWT_SECRET
   )
-  cashierBToken = jwt.sign(
+  cashierBToken = await signSessionToken(
     { id: 9902, userName: 'redeem_cashier_b', roleType: 'kasir', store: locationB.id },
     JWT_SECRET
   )

@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 const { attemptJob, drainAccountingOutbox, enqueueAccountingJob } = require('../api/service/accountingOutboxService')
@@ -67,7 +67,7 @@ beforeAll(async () => {
     store: location.id,
     status: 'active'
   })
-  adminToken = jwt.sign(
+  adminToken = await signSessionToken(
     { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: location.id },
     JWT_SECRET
   )
@@ -529,7 +529,7 @@ describe('Expense journal posting — durable outbox parity via state reconcilia
       store: storeB.id,
       status: 'active'
     })
-    const tokenB = jwt.sign(
+    const tokenB = await signSessionToken(
       { id: userB.id, userName: userB.userName, roleType: 'admin', store: storeB.id },
       JWT_SECRET
     )

@@ -245,20 +245,32 @@ describe('AUTH-1 context & attack matrix', () => {
     expect(ctx.activeTenantId).toBeNull()
   })
 
-  test('inactive account is ineligible even with active membership', async () => {
-    await db.user.update({ status: 'inactive' }, { where: { id: userMulti.id } })
+  // AUTH-1 P2: eligibility is enablement (disabledAt/deletedAt); presence
+  // `status` is not authorization authority.
+  test('disabled account is ineligible even with active membership', async () => {
+    await db.user.update({ disabledAt: new Date() }, { where: { id: userMulti.id } })
     try {
       const ctx = await resolveAuthorizationContext(db, { userId: userMulti.id, activeTenantId: tenantA.id })
       expect(ctx.eligible).toBe(false)
       expect(can(ctx, 'audit.read', { tenantId: tenantA.id })).toBe(false)
+    } finally {
+      await db.user.update({ disabledAt: null }, { where: { id: userMulti.id } })
+    }
+  })
+
+  test('presence status "inactive" alone does not make an enabled account ineligible', async () => {
+    await db.user.update({ status: 'inactive' }, { where: { id: userMulti.id } })
+    try {
+      const ctx = await resolveAuthorizationContext(db, { userId: userMulti.id, activeTenantId: tenantA.id })
+      expect(ctx.eligible).toBe(true)
     } finally {
       await db.user.update({ status: 'active' }, { where: { id: userMulti.id } })
     }
   })
 
   test('stale/forged JWT claims cannot escalate: context resolves from DB, not the token', async () => {
-    const jwt = require('jsonwebtoken')
-    const forged = jwt.sign(
+    const { signSessionToken } = require('../test-helpers/authSession')
+    const forged = await signSessionToken(
       { id: userPlain.id, userName: 'x', roleType: 'super_admin', store: storeA1.id },
       process.env.JWT_SECRET_KEY || 'secret-key-user'
     )

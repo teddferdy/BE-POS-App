@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -29,11 +29,15 @@ const createdRegisterIds = []
 
 let opener = null
 
-const tokenFor = (storeId) =>
-  jwt.sign(
+// AUTH-1 P2: the caller's store is its DB row, not a JWT claim — assign the
+// opener to the store under test before minting its session token.
+const tokenFor = async (storeId) => {
+  await db.user.update({ store: storeId }, { where: { id: opener.id } })
+  return signSessionToken(
     { id: opener.id, userName: opener.userName, roleType: 'admin', store: storeId },
     JWT_SECRET
   )
+}
 
 async function mkStore(name) {
   const store = await db.location.create({ name: `TR_${name}_${SUFFIX}` })
@@ -107,7 +111,7 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
     const res = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(200)
     // Eligible: occ_no_order (no order at all) + occ_paid_qr (a QR order
@@ -125,7 +129,7 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
     const res = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(200)
     expect(res.body.data.eligibleCount).toBe(0)
@@ -138,7 +142,7 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
     const res = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(200)
     expect(res.body.data.eligibleCount).toBe(0)
@@ -151,7 +155,7 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
     const res = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(200)
     expect(res.body.data.eligibleCount).toBe(0)
@@ -164,7 +168,7 @@ describe('Phase 39 Batch 6C — GET /cash-register/table-reset-preview', () => {
     const res = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(200)
     expect(res.body.data.eligibleCount).toBe(0)
@@ -183,7 +187,7 @@ describe('Phase 39 Batch 6C — POST /cash-register/open with confirmTableReset'
     const res = await request(app)
       .post('/cash-register/open')
       .send({ store: store.id, openingBalance: 100000, confirmTableReset: true })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(201)
     createdRegisterIds.push(res.body.data.id)
@@ -214,7 +218,7 @@ describe('Phase 39 Batch 6C — POST /cash-register/open with confirmTableReset'
     const res = await request(app)
       .post('/cash-register/open')
       .send({ store: store.id, openingBalance: 100000, confirmTableReset: true })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     findAllSpy.mockRestore()
 
@@ -243,7 +247,7 @@ describe('Phase 39 Batch 6C — POST /cash-register/open with confirmTableReset'
     const res = await request(app)
       .post('/cash-register/open')
       .send({ store: store.id, openingBalance: 100000, confirmTableReset: true })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     updateSpy.mockRestore()
 
@@ -272,7 +276,7 @@ describe('Phase 39 Batch 6C — POST /cash-register/open with confirmTableReset'
     const res = await request(app)
       .post('/cash-register/open')
       .send({ store: store.id, openingBalance: 100000 })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
 
     expect(res.status).toBe(201)
     createdRegisterIds.push(res.body.data.id)
@@ -289,7 +293,7 @@ describe('Phase 39 Batch 6C — POST /cash-register/open with confirmTableReset'
   test('14 — the existing "store already has an open register" guard is unaffected', async () => {
     const store = await mkStore('OPEN_GUARD_INTACT')
     const eligible = await mkTable(store.id, 'eligible', 'occupied')
-    const token = tokenFor(store.id)
+    const token = await tokenFor(store.id)
 
     const first = await request(app)
       .post('/cash-register/open')
@@ -325,14 +329,14 @@ describe('Phase 39 — POS table occupancy vs Batch 6C reset', () => {
     const preview = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
     expect(preview.status).toBe(200)
     expect(preview.body.data.eligibleCount).toBe(2)
 
     const res = await request(app)
       .post('/cash-register/open')
       .send({ store: store.id, openingBalance: 100000, confirmTableReset: true })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
     expect(res.status).toBe(201)
     createdRegisterIds.push(res.body.data.id)
     expect(res.body.tableCleanupResult).toEqual({ attempted: true, succeeded: 2, failed: 0 })
@@ -354,7 +358,7 @@ describe('Phase 39 — POS table occupancy vs Batch 6C reset', () => {
     const preview = await request(app)
       .get('/cash-register/table-reset-preview')
       .query({ store: store.id })
-      .set('Authorization', `Bearer ${tokenFor(store.id)}`)
+      .set('Authorization', `Bearer ${await tokenFor(store.id)}`)
     expect(preview.status).toBe(200)
     // Only qr_latest: its most recent order is a stale QR order.
     expect(preview.body.data.eligibleCount).toBe(1)

@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -19,7 +19,7 @@ let store1 = null
 let store2 = null
 
 const mkToken = (roleType, store, id) =>
-  jwt.sign(
+  signSessionToken(
     { id, userName: `tok_${roleType}_${id}`, roleType, store },
     JWT_SECRET
   )
@@ -84,7 +84,7 @@ beforeAll(async () => {
   )
 
   // P1-4: central gate denies unknown caller identities; these rows give the
-  // mkToken() caller ids below real identities. Assertions unchanged.
+  // await mkToken() caller ids below real identities. Assertions unchanged.
   for (const [id, userName, roleType, userType, store] of [
     [7001, 'cr2caller1', 'user', 'user', store1.id],
     [7002, 'cr2caller2', 'user', 'user', store1.id],
@@ -122,7 +122,7 @@ const getAllStoresReturned = (data) => {
 
 describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   test('ordinary Store-1 user without location only sees Store-1 users', async () => {
-    const token = mkToken('user', store1.id, 7001)
+    const token = await mkToken('user', store1.id, 7001)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)
@@ -139,7 +139,7 @@ describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   })
 
   test('ordinary Store-1 user with location=Store-2 is rejected', async () => {
-    const token = mkToken('user', store1.id, 7002)
+    const token = await mkToken('user', store1.id, 7002)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)
@@ -149,7 +149,7 @@ describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   })
 
   test('kasir Store-1 without location only sees Store-1 users', async () => {
-    const token = mkToken('kasir', store1.id, 7003)
+    const token = await mkToken('kasir', store1.id, 7003)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)
@@ -161,7 +161,7 @@ describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   })
 
   test('kasir Store-1 with location=Store-2 is rejected', async () => {
-    const token = mkToken('kasir', store1.id, 7004)
+    const token = await mkToken('kasir', store1.id, 7004)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)
@@ -171,7 +171,7 @@ describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   })
 
   test('super_admin with explicit location may query that store', async () => {
-    const token = mkToken('super_admin', null, 7005)
+    const token = await mkToken('super_admin', null, 7005)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)
@@ -184,7 +184,7 @@ describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   })
 
   test('super_admin without location must not dump all stores globally', async () => {
-    const token = mkToken('super_admin', null, 7006)
+    const token = await mkToken('super_admin', null, 7006)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)
@@ -195,7 +195,7 @@ describe('CRIT-2 GET /auth/get-user tenant isolation', () => {
   })
 
   test('Store-1 responses never contain Store-2 users', async () => {
-    const token = mkToken('admin', store1.id, 7007)
+    const token = await mkToken('admin', store1.id, 7007)
     const res = await request(app)
       .get('/auth/get-user')
       .set('Authorization', `Bearer ${token}`)

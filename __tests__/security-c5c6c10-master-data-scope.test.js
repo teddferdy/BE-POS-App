@@ -21,7 +21,7 @@ process.env.VERCEL = 'true'
 //                                   inflating shared product stock. Now requires
 //                                   product_store membership for non-super.
 
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const request = require('supertest')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -49,14 +49,6 @@ let batch = null
 beforeAll(async () => {
   storeA = await db.location.create({ name: 'C5_STORE_A', status: 'active' })
   storeB = await db.location.create({ name: 'C5_STORE_B', status: 'active' })
-  adminAToken = jwt.sign(
-    { id: 71001, userName: 'c5_admin_a', roleType: 'admin', store: storeA.id },
-    JWT_SECRET
-  )
-  adminBToken = jwt.sign(
-    { id: 71002, userName: 'c5_admin_b', roleType: 'admin', store: storeB.id },
-    JWT_SECRET
-  )
 
   // P1-4: central gate denies unknown caller identities; these rows give the
   // caller ids real identities. Assertions below are unchanged.
@@ -75,6 +67,15 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminAToken = await signSessionToken(
+    { id: 71001, userName: 'c5_admin_a', roleType: 'admin', store: storeA.id },
+    JWT_SECRET
+  )
+  adminBToken = await signSessionToken(
+    { id: 71002, userName: 'c5_admin_b', roleType: 'admin', store: storeB.id },
+    JWT_SECRET
+  )
 
   notifA = await db.notification.create({
     store: storeA.id,

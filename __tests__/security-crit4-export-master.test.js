@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const ExcelJS = require('exceljs')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -24,7 +24,7 @@ const bufParser = (res, cb) => {
 }
 
 const mkToken = (roleType, store, id) =>
-  jwt.sign(
+  signSessionToken(
     { id, userName: `tok_${roleType}_${id}`, roleType, store },
     JWT_SECRET
   )
@@ -80,9 +80,6 @@ beforeAll(async () => {
     status: 'active'
   })
 
-  adminStore1Token = mkToken('admin', store1.id, 7301)
-  adminStore2Token = mkToken('admin', store2.id, 7302)
-  superAdminToken = mkToken('super_admin', null, 7300)
 
   // P1-4: central gate denies unknown caller identities; these rows give the
   // caller ids above real identities. Assertions below are unchanged.
@@ -102,6 +99,10 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminStore1Token = await mkToken('admin', store1.id, 7301)
+  adminStore2Token = await mkToken('admin', store2.id, 7302)
+  superAdminToken = await mkToken('super_admin', null, 7300)
 
   const suffix = Date.now()
 

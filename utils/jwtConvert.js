@@ -1,12 +1,36 @@
 const jwt = require('jsonwebtoken')
+// The exact parser jsonwebtoken applies to `expiresIn`, reused so the JWT and
+// its authorization session derive from one configured lifetime with
+// identical semantics (e.g. '1d', '12h', numeric-string milliseconds).
+const timespan = require('jsonwebtoken/lib/timespan')
 
-const generateToken = (payload) => {
+const DEFAULT_LIFETIME = '1d'
+
+// AUTH-1 P1: the single authentication lifetime (JWT_EXPIRED_IN). Returns the
+// `iat`/`exp` (seconds) of a credential issued at `nowMs`; the authorization
+// session expires at `exp * 1000`, so JWT lifetime == session lifetime.
+const credentialWindow = (nowMs = Date.now()) => {
+  const iat = Math.floor(nowMs / 1000)
+  const exp = timespan(process.env.JWT_EXPIRED_IN || DEFAULT_LIFETIME, iat)
+  if (!Number.isFinite(exp) || exp <= iat) {
+    throw new Error('Invalid JWT_EXPIRED_IN authentication lifetime')
+  }
+  return { iat, exp }
+}
+
+// With a `window`, the token carries exactly that iat/exp (login binds it to
+// the session row); without one, the lifetime is applied as `expiresIn`.
+const generateToken = (payload, window) => {
   const secretKey = process.env.JWT_SECRET_KEY
-  const expiresIn = process.env.JWT_EXPIRED_IN || '1d'
+
+  if (window) {
+    return jwt.sign({ ...payload, iat: window.iat, exp: window.exp }, secretKey)
+  }
 
   return jwt.sign(payload, secretKey, {
-    expiresIn: expiresIn
+    expiresIn: process.env.JWT_EXPIRED_IN || DEFAULT_LIFETIME
   })
 }
 
 module.exports = generateToken
+module.exports.credentialWindow = credentialWindow

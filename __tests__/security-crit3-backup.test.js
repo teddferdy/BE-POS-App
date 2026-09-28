@@ -10,7 +10,7 @@ const path = require('path')
 process.env.BACKUP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'crit3-backups-'))
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -26,7 +26,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 const BACKUP_DIR = process.env.BACKUP_DIR
 
 const mkToken = (roleType, store, id) =>
-  jwt.sign(
+  signSessionToken(
     { id, userName: `tok_${roleType}_${id}`, roleType, store },
     JWT_SECRET
   )
@@ -66,7 +66,7 @@ beforeAll(async () => {
   backupS1 = await makeBackup(store1.id, 's1.dump', 'STORE1_DUMP')
 
   // P1-4: central gate denies unknown caller identities; these rows give
-  // every mkToken() caller id below a real identity with matching
+  // every await mkToken() caller id below a real identity with matching
   // role/store semantics. Assertions below are unchanged.
   for (const [id, userName, roleType, userType, store] of [
     [7101, 'cr3_user', 'user', 'user', store1.id],
@@ -118,7 +118,7 @@ describe('CRIT-3 backup global boundary', () => {
     test(`tenant ${role} cannot create a backup`, async () => {
       const res = await request(app)
         .post('/backup/create')
-        .set('Authorization', `Bearer ${mkToken(role, store1.id, id)}`)
+        .set('Authorization', `Bearer ${await mkToken(role, store1.id, id)}`)
 
       expect([403, 401]).toContain(res.status)
     })
@@ -126,7 +126,7 @@ describe('CRIT-3 backup global boundary', () => {
     test(`tenant ${role} cannot list backups`, async () => {
       const res = await request(app)
         .get('/backup/list')
-        .set('Authorization', `Bearer ${mkToken(role, store1.id, id)}`)
+        .set('Authorization', `Bearer ${await mkToken(role, store1.id, id)}`)
 
       expect([403, 401]).toContain(res.status)
     })
@@ -134,7 +134,7 @@ describe('CRIT-3 backup global boundary', () => {
     test(`tenant ${role} cannot download a backup`, async () => {
       const res = await request(app)
         .get(`/backup/download/${backupS1.id}`)
-        .set('Authorization', `Bearer ${mkToken(role, store1.id, id)}`)
+        .set('Authorization', `Bearer ${await mkToken(role, store1.id, id)}`)
 
       expect([403, 401]).toContain(res.status)
     })
@@ -142,7 +142,7 @@ describe('CRIT-3 backup global boundary', () => {
     test(`tenant ${role} cannot restore a backup`, async () => {
       const res = await request(app)
         .post(`/backup/restore/${backupS1.id}`)
-        .set('Authorization', `Bearer ${mkToken(role, store1.id, id)}`)
+        .set('Authorization', `Bearer ${await mkToken(role, store1.id, id)}`)
 
       expect([403, 401]).toContain(res.status)
     })
@@ -150,7 +150,7 @@ describe('CRIT-3 backup global boundary', () => {
     test(`tenant ${role} cannot delete a backup`, async () => {
       const res = await request(app)
         .delete(`/backup/delete/${backupS1.id}`)
-        .set('Authorization', `Bearer ${mkToken(role, store1.id, id)}`)
+        .set('Authorization', `Bearer ${await mkToken(role, store1.id, id)}`)
 
       expect([403, 401]).toContain(res.status)
     })
@@ -158,7 +158,7 @@ describe('CRIT-3 backup global boundary', () => {
     test(`tenant ${role} cannot modify the global backup schedule`, async () => {
       const res = await request(app)
         .put('/backup/schedule')
-        .set('Authorization', `Bearer ${mkToken(role, store1.id, id)}`)
+        .set('Authorization', `Bearer ${await mkToken(role, store1.id, id)}`)
         .send({ enabled: true, cron: '0 0 * * *', retention: 7 })
 
       expect([403, 401]).toContain(res.status)
@@ -195,7 +195,7 @@ describe('CRIT-3 backup global boundary', () => {
     test('store-bound super_admin cannot download another store backup', async () => {
       const res = await request(app)
         .get(`/backup/download/${otherStoreBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7201)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7201)}`)
 
       expect([403, 401, 404]).toContain(res.status)
     })
@@ -203,7 +203,7 @@ describe('CRIT-3 backup global boundary', () => {
     test('store-bound super_admin cannot delete another store backup', async () => {
       const res = await request(app)
         .delete(`/backup/delete/${otherStoreBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7202)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7202)}`)
 
       expect([403, 401]).toContain(res.status)
       // record must survive
@@ -213,7 +213,7 @@ describe('CRIT-3 backup global boundary', () => {
     test('store-bound super_admin cannot restore another store backup', async () => {
       const res = await request(app)
         .post(`/backup/restore/${otherStoreBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7203)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7203)}`)
 
       expect([403, 401]).toContain(res.status)
     })
@@ -221,7 +221,7 @@ describe('CRIT-3 backup global boundary', () => {
     test('store-bound super_admin cannot download a global (store-null) backup', async () => {
       const res = await request(app)
         .get(`/backup/download/${globalBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7204)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7204)}`)
 
       expect([403, 401, 404]).toContain(res.status)
     })
@@ -231,7 +231,7 @@ describe('CRIT-3 backup global boundary', () => {
       // is metadata, never authority. Only global super_admin may download.
       const res = await request(app)
         .get(`/backup/download/${ownBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7205)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7205)}`)
 
       expect(res.status).toBe(403)
     })
@@ -239,7 +239,7 @@ describe('CRIT-3 backup global boundary', () => {
     test('global super_admin can download any backup', async () => {
       const res = await request(app)
         .get(`/backup/download/${otherStoreBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', null, 7206)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', null, 7206)}`)
 
       expect(res.status).toBe(200)
       expect(Buffer.isBuffer(res.body)).toBe(true)
@@ -250,7 +250,7 @@ describe('CRIT-3 backup global boundary', () => {
       // P0-C (locked): listing is platform-global; store-bound denied.
       const res = await request(app)
         .get('/backup/list')
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7207)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7207)}`)
 
       expect(res.status).toBe(403)
     })
@@ -258,7 +258,7 @@ describe('CRIT-3 backup global boundary', () => {
     test('global super_admin listing sees backups across stores', async () => {
       const res = await request(app)
         .get('/backup/list')
-        .set('Authorization', `Bearer ${mkToken('super_admin', null, 7208)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', null, 7208)}`)
 
       expect(res.status).toBe(200)
       const ids = (res.body?.data || []).map((b) => b.id)
@@ -270,7 +270,7 @@ describe('CRIT-3 backup global boundary', () => {
       // P0-C (locked): delete is platform-global; store-bound denied, row survives.
       const res = await request(app)
         .delete(`/backup/delete/${ownBackup.id}`)
-        .set('Authorization', `Bearer ${mkToken('super_admin', store1.id, 7209)}`)
+        .set('Authorization', `Bearer ${await mkToken('super_admin', store1.id, 7209)}`)
 
       expect(res.status).toBe(403)
       expect(await db.db_backup.findByPk(ownBackup.id)).not.toBeNull()

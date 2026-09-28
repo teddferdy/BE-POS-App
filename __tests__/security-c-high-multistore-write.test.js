@@ -23,7 +23,7 @@ process.env.VERCEL = 'true'
 // partial mutation.
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -36,7 +36,7 @@ let adminB = null
 let superToken = null
 
 const mkToken = (roleType, store, id) =>
-  jwt.sign(
+  signSessionToken(
     { id, userName: `c12_${roleType}_${id}`, roleType, store },
     JWT_SECRET
   )
@@ -46,9 +46,6 @@ const TARGETS = []
 beforeAll(async () => {
   storeA = await db.location.create({ name: 'C12_STORE_A', status: 'active' })
   storeB = await db.location.create({ name: 'C12_STORE_B', status: 'active' })
-  adminA = mkToken('admin', storeA.id, 81201)
-  adminB = mkToken('admin', storeB.id, 81202)
-  superToken = mkToken('super_admin', null, 81200)
 
   // P1-4: central gate denies unknown caller identities; these rows give
   // the caller ids real identities (unassigned ids use store null to
@@ -73,6 +70,10 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminA = await mkToken('admin', storeA.id, 81201)
+  adminB = await mkToken('admin', storeB.id, 81202)
+  superToken = await mkToken('super_admin', null, 81200)
 })
 
 afterAll(async () => {
@@ -174,7 +175,7 @@ describe('C-1 type_payment create — multi-store write authorization', () => {
   })
 
   test('unassigned admin (no store claim) is 403 even with forged store array', async () => {
-    const unassigned = mkToken('admin', null, 81203)
+    const unassigned = await mkToken('admin', null, 81203)
     const res = await postTypePayment(unassigned, {
       name: `C1_UNASSIGNED_${Date.now()}`,
       store: [storeA.id, storeB.id]
@@ -266,7 +267,7 @@ describe('C-3 shift create — multi-store write authorization', () => {
   })
 
   test('unassigned admin shift create is 403', async () => {
-    const unassigned = mkToken('admin', null, 81204)
+    const unassigned = await mkToken('admin', null, 81204)
     const res = await postShift(unassigned, shiftBody(`C3_UN_${Date.now()}`, [storeA.id]))
     expect(res.status).toBe(403)
   })
@@ -344,7 +345,7 @@ describe('C-2 category store-assignment — multi-store write authorization', ()
   })
 
   test('unassigned admin category create is 403', async () => {
-    const unassigned = mkToken('admin', null, 81206)
+    const unassigned = await mkToken('admin', null, 81206)
     const res = await postCategory(unassigned, { name: `C2_UN_${Date.now()}`, store: [storeA.id] })
     expect(res.status).toBe(403)
   })
@@ -410,7 +411,7 @@ describe('C-4 delivery driver create — multi-store write authorization', () =>
   })
 
   test('unassigned admin driver create is 403', async () => {
-    const unassigned = mkToken('admin', null, 81205)
+    const unassigned = await mkToken('admin', null, 81205)
     const res = await postDriver(unassigned, { name: `C4_UN_${Date.now()}`, store: [storeA.id] })
     expect(res.status).toBe(403)
   })

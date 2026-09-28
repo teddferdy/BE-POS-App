@@ -9,7 +9,7 @@ jest.mock('../utils/emailService', () => {
 })
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 const { sendEmail } = require('../utils/emailService')
@@ -26,7 +26,7 @@ const SENSITIVE = ['password', 'resetToken', 'resetTokenExpires', 'confirmPasswo
 // takeover of any user, super_admin included.
 
 const unique = (prefix) => `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
-const sign = (claims) => jwt.sign(claims, JWT_SECRET)
+const sign = (claims) => signSessionToken(claims, JWT_SECRET)
 const bearer = (token) => ({ Authorization: `Bearer ${token}` })
 
 const expectNoSecrets = (value) => {
@@ -89,12 +89,12 @@ afterAll(async () => {
   await db.location.destroy({ where: { id: [storeA?.id, storeB?.id].filter(Boolean) }, force: true })
 })
 
-const tokens = () => ({
-  adminA: sign({ id: users.adminA.id, roleType: 'admin', store: storeA.id }),
-  kasirA: sign({ id: users.kasirA.id, roleType: 'kasir', store: storeA.id }),
-  userA: sign({ id: users.userA.id, roleType: 'user', store: storeA.id }),
-  superGlobal: sign({ id: users.superGlobal.id, roleType: 'super_admin', store: null }),
-  superA: sign({ id: users.superA.id, roleType: 'super_admin', store: storeA.id })
+const tokens = async () => ({
+  adminA: await sign({ id: users.adminA.id, roleType: 'admin', store: storeA.id }),
+  kasirA: await sign({ id: users.kasirA.id, roleType: 'kasir', store: storeA.id }),
+  userA: await sign({ id: users.userA.id, roleType: 'user', store: storeA.id }),
+  superGlobal: await sign({ id: users.superGlobal.id, roleType: 'super_admin', store: null }),
+  superA: await sign({ id: users.superA.id, roleType: 'super_admin', store: storeA.id })
 })
 
 const listUsers = (token, query = {}) =>
@@ -121,7 +121,7 @@ describe('TEST-1 user serialization never carries credentials', () => {
   })
 
   test('get-user (by location), employee list and change-user-status responses carry no credentials', async () => {
-    const t = tokens()
+    const t = (await tokens())
     const byLocation = await request(app)
       .get('/auth/get-user')
       .query({ location: storeA.id })
@@ -147,7 +147,7 @@ describe('TEST-1 user serialization never carries credentials', () => {
   test('change-profile-user response carries no credentials', async () => {
     const res = await request(app)
       .put('/auth/change-profile-user')
-      .set(bearer(tokens().adminA))
+      .set(bearer((await tokens()).adminA))
       .send({ id: users.userA.id, userType: 'user', store: storeA.id })
     expect(res.status).toBe(200)
     expect(res.body.data.id).toBe(users.userA.id)
@@ -157,7 +157,7 @@ describe('TEST-1 user serialization never carries credentials', () => {
 
 describe('TEST-2 get-users-by-role requires user-management authority', () => {
   test.each(['userA', 'kasirA'])('%s is denied', async (key) => {
-    const res = await listUsers(tokens()[key])
+    const res = await listUsers((await tokens())[key])
     expect(res.status).toBe(403)
     expect(res.body.data).toBeUndefined()
   })
@@ -170,7 +170,7 @@ describe('TEST-2 get-users-by-role requires user-management authority', () => {
 
 describe('TEST-3 store-scoped enumeration', () => {
   test('admin of store A receives only store A users', async () => {
-    const res = await listUsers(tokens().adminA)
+    const res = await listUsers((await tokens()).adminA)
     expect(res.status).toBe(200)
     const ids = res.body.data.map((u) => u.id)
     expect(ids).toEqual(expect.arrayContaining([users.adminA.id, users.kasirA.id, users.userA.id]))
@@ -180,26 +180,28 @@ describe('TEST-3 store-scoped enumeration', () => {
   })
 
   test('a client-supplied foreign store cannot broaden the scope', async () => {
-    const res = await listUsers(tokens().adminA, { store: storeB.id })
+    const res = await listUsers((await tokens()).adminA, { store: storeB.id })
     expect(res.status).toBe(403)
     expect(JSON.stringify(res.body)).not.toContain(users.userB.userName)
   })
 
   test('an admin without a store assignment is denied', async () => {
-    const res = await listUsers(sign({ id: users.adminA.id, roleType: 'admin', store: null }))
+    // AUTH-1 P2: "no store assignment" must be the account's state, not a claim.
+    const unassigned = await makeUser('adminNoStore', { roleType: 'admin', userType: 'admin', store: null })
+    const res = await listUsers(await sign({ id: unassigned.id, roleType: 'admin', store: null }))
     expect(res.status).toBe(403)
   })
 })
 
 describe('TEST-4 super_admin filter isolation', () => {
   test('admin asking for roleType=super_admin receives no super_admin accounts', async () => {
-    const res = await listUsers(tokens().adminA, { roleType: 'super_admin' })
+    const res = await listUsers((await tokens()).adminA, { roleType: 'super_admin' })
     expect(res.status).toBe(200)
     expect(res.body.data).toEqual([])
   })
 
   test('store-bound super_admin sees only its own store, never global or foreign super_admins', async () => {
-    const res = await listUsers(tokens().superA, { roleType: 'super_admin' })
+    const res = await listUsers((await tokens()).superA, { roleType: 'super_admin' })
     expect(res.status).toBe(200)
     const ids = res.body.data.map((u) => u.id)
     expect(ids).toContain(users.superA.id)
@@ -209,26 +211,26 @@ describe('TEST-4 super_admin filter isolation', () => {
   })
 
   test('an unknown roleType filter is rejected', async () => {
-    const res = await listUsers(tokens().adminA, { roleType: 'owner' })
+    const res = await listUsers((await tokens()).adminA, { roleType: 'owner' })
     expect(res.status).toBe(400)
   })
 })
 
 describe('TEST-7 authorized listing keeps working', () => {
   test('admin roleType filter is honored within the store', async () => {
-    const res = await listUsers(tokens().adminA, { roleType: 'kasir' })
+    const res = await listUsers((await tokens()).adminA, { roleType: 'kasir' })
     expect(res.status).toBe(200)
     expect(res.body.data.map((u) => u.id)).toEqual([users.kasirA.id])
   })
 
   test('global super_admin lists across stores with the role filter applied', async () => {
-    const all = await listUsers(tokens().superGlobal)
+    const all = await listUsers((await tokens()).superGlobal)
     expect(all.status).toBe(200)
     const ids = all.body.data.map((u) => u.id)
     expect(ids).toEqual(expect.arrayContaining([users.userA.id, users.userB.id, users.superB.id]))
     expectNoSecrets(all.body)
 
-    const supers = await listUsers(tokens().superGlobal, { roleType: 'super_admin' })
+    const supers = await listUsers((await tokens()).superGlobal, { roleType: 'super_admin' })
     expect(supers.status).toBe(200)
     expect(supers.body.data.every((u) => u.roleType === 'super_admin')).toBe(true)
     expect(supers.body.data.map((u) => u.id)).toEqual(

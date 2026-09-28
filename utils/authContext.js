@@ -71,10 +71,10 @@ const ROLE_BASELINE_PERMISSIONS = Object.freeze({
   staff: []
 })
 
-// Account eligibility: legacy statuses ('active'/'inactive') plus DR-03
-// words, matched case-insensitively. Anything unrecognized is ineligible.
-const isAccountEligible = (status) =>
-  String(status || '').toUpperCase() === 'ACTIVE'
+// AUTH-1 P2: account eligibility is enablement only — `disabledAt` and
+// `deletedAt` both NULL. Presence `status` (written by login/logout) is not
+// authorization authority.
+const isAccountEligible = (account) => account.disabledAt == null && account.deletedAt == null
 
 // Strict positive-integer id: numbers or canonical digit strings only.
 // Arrays/objects/partial numerics never coerce into an id (Number([5]) === 5).
@@ -106,9 +106,12 @@ const legacySuperAdminScopeOf = (account) => {
   return account.store == null ? 'global' : 'store-bound'
 }
 
+// `account` (optional): the caller's account row already loaded by canonical
+// authentication for this request; reused instead of a second read when it
+// is the same account.
 const resolveAuthorizationContext = async (
   db,
-  { userId, activeTenantId, activeStoreId } = {}
+  { userId, activeTenantId, activeStoreId, account: loadedAccount } = {}
 ) => {
   const ctx = {
     accountId: toId(userId),
@@ -133,22 +136,20 @@ const resolveAuthorizationContext = async (
     return ctx
   }
 
-  const account = await db.user.findByPk(ctx.accountId, {
-    attributes: ['id', 'status', 'roleType', 'store', 'disabledAt']
-  })
+  const account =
+    loadedAccount && Number(loadedAccount.id) === ctx.accountId
+      ? loadedAccount
+      : await db.user.findByPk(ctx.accountId, {
+          attributes: ['id', 'status', 'roleType', 'store', 'disabledAt', 'deletedAt']
+        })
   if (!account) {
     ctx.reason = 'unknown-account'
     return ctx
   }
-  // P1-4: a disabled account establishes no canonical context, matching the
-  // login gate and the legacy per-request gate. Presence `status` handling
-  // below is unchanged.
-  if (account.disabledAt != null) {
-    ctx.reason = 'ineligible-account'
-    return ctx
-  }
-  ctx.accountStatus = account.status
-  if (!isAccountEligible(account.status)) {
+  ctx.accountStatus = account.status ?? null
+  // A disabled or soft-deleted account establishes no canonical context,
+  // matching the login gate and canonical authentication.
+  if (!isAccountEligible(account)) {
     ctx.reason = 'ineligible-account'
     return ctx
   }

@@ -241,8 +241,14 @@ const validateStoreAccess = (req, res, next) => {
     return next()
   }
 
-  const userRole = req.user?.roleType
-  const userStore = req.user?.store
+  // Legacy branch: role/store come from the account hydrated by canonical
+  // `authorization` (current DB state), never from JWT claims. Without an
+  // authenticated session there is nothing trustworthy to check — fail closed.
+  if (!req?.authSession || !req.user) {
+    return res.status(401).json({ message: 'User Belum Login' })
+  }
+  const userRole = req.user.roleType
+  const userStore = req.user.store
   const supplied =
     req.query.store !== undefined
       ? req.query.store

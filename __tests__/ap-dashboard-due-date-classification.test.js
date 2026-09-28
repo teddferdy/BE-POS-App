@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken, createAuthenticatedTestSession } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 const { getStoreLocalDate } = require('../utils/businessDate')
@@ -101,11 +101,11 @@ beforeAll(async () => {
     store: storeJayapura.id,
     status: 'active'
   })
-  adminJakartaToken = jwt.sign(
+  adminJakartaToken = await signSessionToken(
     { id: adminJakartaUser.id, userName: adminJakartaUser.userName, roleType: 'admin', store: storeJakarta.id },
     JWT_SECRET
   )
-  adminJayapuraToken = jwt.sign(
+  adminJayapuraToken = await signSessionToken(
     { id: adminJayapuraUser.id, userName: adminJayapuraUser.userName, roleType: 'admin', store: storeJayapura.id },
     JWT_SECRET
   )
@@ -251,16 +251,25 @@ describe('Location timezone — IANA validation and safe default', () => {
   })
 
   test('POST /location/add-new-location rejects a non-IANA timezone value', async () => {
-    const superToken = jwt.sign(
-      { id: adminJakartaUser.id, userName: 'super_ap_tz', roleType: 'super_admin' },
-      JWT_SECRET
-    )
-    const res = await request(app)
-      .post('/location/add-new-location')
-      .set('Authorization', `Bearer ${superToken}`)
-      .field('name', nextTag())
-      .field('status', 'active')
-      .field('timezone', 'WIB')
-    expect(res.status).toBe(400)
+    // AUTH-1 P2: a super_admin claim on an admin row no longer escalates;
+    // this check needs a real global super_admin account.
+    const { user: superUser, token: superToken } = await createAuthenticatedTestSession({
+      userName: `super_ap_tz_${Date.now()}`,
+      roleType: 'super_admin',
+      userType: 'admin',
+      store: null,
+      password: 'x'
+    })
+    try {
+      const res = await request(app)
+        .post('/location/add-new-location')
+        .set('Authorization', `Bearer ${superToken}`)
+        .field('name', nextTag())
+        .field('status', 'active')
+        .field('timezone', 'WIB')
+      expect(res.status).toBe(400)
+    } finally {
+      await db.user.destroy({ where: { id: superUser.id }, force: true }).catch(() => {})
+    }
   })
 })

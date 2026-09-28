@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -41,10 +41,6 @@ beforeAll(async () => {
   })
   await db.product_bundle_item.create({ bundleId: bundle.id, product: product.id, quantity: 1 })
 
-  adminToken = jwt.sign({ id: 9801, userName: 'override_admin', roleType: 'admin', store: store.id }, JWT_SECRET)
-  superAdminToken = jwt.sign({ id: 9802, userName: 'override_super', roleType: 'super_admin', store: store.id }, JWT_SECRET)
-  kasirToken = jwt.sign({ id: 9803, userName: 'override_kasir', roleType: 'kasir', store: store.id }, JWT_SECRET)
-  userToken = jwt.sign({ id: 9804, userName: 'override_user', roleType: 'user', store: store.id }, JWT_SECRET)
 
   // P1-4: central gate denies unknown caller identities; these rows give the
   // caller ids real identities (bound super_admin stays bound). Assertions
@@ -66,6 +62,11 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminToken = await signSessionToken({ id: 9801, userName: 'override_admin', roleType: 'admin', store: store.id }, JWT_SECRET)
+  superAdminToken = await signSessionToken({ id: 9802, userName: 'override_super', roleType: 'super_admin', store: store.id }, JWT_SECRET)
+  kasirToken = await signSessionToken({ id: 9803, userName: 'override_kasir', roleType: 'kasir', store: store.id }, JWT_SECRET)
+  userToken = await signSessionToken({ id: 9804, userName: 'override_user', roleType: 'user', store: store.id }, JWT_SECRET)
 })
 
 afterAll(async () => {

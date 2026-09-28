@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -77,19 +77,19 @@ describe('MEDIUM: Unassigned Account Fail-Closed & Secondary Cookie Sweep', () =
       password: 'x'
     })
 
-    adminAToken = jwt.sign(
+    adminAToken = await signSessionToken(
       { id: userA.id, userName: userA.userName, roleType: 'admin', store: storeA.id },
       JWT_SECRET
     )
-    adminBToken = jwt.sign(
+    adminBToken = await signSessionToken(
       { id: userB.id, userName: userB.userName, roleType: 'admin', store: storeB.id },
       JWT_SECRET
     )
-    unassignedToken = jwt.sign(
+    unassignedToken = await signSessionToken(
       { id: userUnassigned.id, userName: userUnassigned.userName, roleType: 'admin', store: null },
       JWT_SECRET
     )
-    superToken = jwt.sign(
+    superToken = await signSessionToken(
       { id: userSuper.id, userName: userSuper.userName, roleType: 'super_admin' },
       JWT_SECRET
     )

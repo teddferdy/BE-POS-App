@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -26,10 +26,6 @@ beforeAll(async () => {
     category: category.id,
     price: 5000
   })
-  token = jwt.sign(
-    { id: 7401, userName: 'itemstatus_admin', roleType: 'admin', store: store.id },
-    JWT_SECRET
-  )
   // P1-4: central gate denies unknown caller identities; these rows
   // satisfy the identity invariant. Assertions below are unchanged.
   await db.user.create({
@@ -42,6 +38,11 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'itemstatus_admin'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  token = await signSessionToken(
+    { id: 7401, userName: 'itemstatus_admin', roleType: 'admin', store: store.id },
+    JWT_SECRET
+  )
   order = await db.order.create({
     orderNumber: `ITEMSTATUS-${Date.now()}`,
     store: store.id,

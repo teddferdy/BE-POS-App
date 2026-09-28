@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const { Op } = require('sequelize')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -93,10 +93,6 @@ beforeAll(async () => {
     costPrice: 5000,
     stock: 0
   })
-  adminToken = jwt.sign(
-    { id: 7901, userName: `admin_gr_b1_${SUFFIX}`, roleType: 'admin', store: location.id },
-    JWT_SECRET
-  )
   // P1-4: central gate denies unknown caller identities; the token above
   // must belong to a real row (assertions below are unchanged).
   await db.user.create({
@@ -109,6 +105,11 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'GR_B1_ADMIN'
   })
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  adminToken = await signSessionToken(
+    { id: 7901, userName: `admin_gr_b1_${SUFFIX}`, roleType: 'admin', store: location.id },
+    JWT_SECRET
+  )
 })
 
 afterAll(async () => {

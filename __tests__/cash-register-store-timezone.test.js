@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -23,6 +23,7 @@ const SUFFIX = Date.now()
 let storeDefault = null
 let storeCustom = null
 let opener = null
+let openerCustom = null
 let adminToken = null
 let adminTokenCustom = null
 let registerDefault = null
@@ -47,12 +48,20 @@ beforeAll(async () => {
     password: 'x'
   })
 
-  adminToken = jwt.sign(
+  adminToken = await signSessionToken(
     { id: opener.id, userName: opener.userName, roleType: 'admin', store: storeDefault.id },
     JWT_SECRET
   )
-  adminTokenCustom = jwt.sign(
-    { id: opener.id, userName: opener.userName, roleType: 'admin', store: storeCustom.id },
+  // AUTH-1 P2: the caller's store is its DB row, so the custom-store admin
+  // is its own account rather than a second store claim on `opener`.
+  openerCustom = await db.user.create({
+    userName: `tz_opener_custom_${SUFFIX}`,
+    roleType: 'admin',
+    store: storeCustom.id,
+    password: 'x'
+  })
+  adminTokenCustom = await signSessionToken(
+    { id: openerCustom.id, userName: openerCustom.userName, roleType: 'admin', store: storeCustom.id },
     JWT_SECRET
   )
 
@@ -84,7 +93,7 @@ afterAll(async () => {
     where: { id: [registerDefault?.id, registerCustom?.id].filter(Boolean) },
     force: true
   }).catch(() => {})
-  await db.user.destroy({ where: { id: opener?.id }, force: true }).catch(() => {})
+  await db.user.destroy({ where: { id: [opener?.id, openerCustom?.id].filter(Boolean) }, force: true }).catch(() => {})
   await db.location.destroy({
     where: { id: [storeDefault?.id, storeCustom?.id].filter(Boolean) },
     force: true

@@ -2,36 +2,26 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken, ensureLocationIds } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 
-const superAdminToken = jwt.sign(
-  { id: 9999, userName: 'superauth', roleType: 'super_admin', store: null },
-  JWT_SECRET
-)
+let superAdminToken
 
-const adminStore1Token = jwt.sign(
-  { id: 9998, userName: 'adminauth', roleType: 'admin', store: 1 },
-  JWT_SECRET
-)
+let adminStore1Token
 
-const adminStore2Token = jwt.sign(
-  { id: 9997, userName: 'admin2auth', roleType: 'admin', store: 2 },
-  JWT_SECRET
-)
+let adminStore2Token
 
-const userStore1Token = jwt.sign(
-  { id: 9996, userName: 'userauth', roleType: 'user', store: 1 },
-  JWT_SECRET
-)
+let userStore1Token
 
 // P1-4: central gate denies unknown caller identities; these rows satisfy
 // the identity invariant. JWT claims (incl. abstract store numbers used by
 // these authorization-shape tests) and all assertions are unchanged.
 beforeAll(async () => {
+  // AUTH-1 P2: the caller store comes from the DB row; abstract stores must exist.
+  await ensureLocationIds(1, 2)
   await db.user.create({
     id: 9999,
     userName: 'superauth',
@@ -48,7 +38,7 @@ beforeAll(async () => {
     email: 'p14-9998-auth@test.com',
     roleType: 'admin',
     userType: 'admin',
-    store: null,
+    store: 1,
     status: 'active',
     fullName: 'adminauth'
   })
@@ -58,7 +48,7 @@ beforeAll(async () => {
     email: 'p14-9997-auth@test.com',
     roleType: 'admin',
     userType: 'admin',
-    store: null,
+    store: 2,
     status: 'active',
     fullName: 'admin2auth'
   })
@@ -68,10 +58,30 @@ beforeAll(async () => {
     email: 'p14-9996-auth@test.com',
     roleType: 'user',
     userType: 'user',
-    store: null,
+    store: 1,
     status: 'active',
     fullName: 'userauth'
   })
+})
+
+// AUTH-1 P2: tokens bound to real sessions, minted once the users exist.
+beforeAll(async () => {
+  superAdminToken = await signSessionToken(
+  { id: 9999, userName: 'superauth', roleType: 'super_admin', store: null },
+  JWT_SECRET
+)
+  adminStore1Token = await signSessionToken(
+  { id: 9998, userName: 'adminauth', roleType: 'admin', store: 1 },
+  JWT_SECRET
+)
+  adminStore2Token = await signSessionToken(
+  { id: 9997, userName: 'admin2auth', roleType: 'admin', store: 2 },
+  JWT_SECRET
+)
+  userStore1Token = await signSessionToken(
+  { id: 9996, userName: 'userauth', roleType: 'user', store: 1 },
+  JWT_SECRET
+)
 })
 
 afterAll(async () => {

@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
-const jwt = require('jsonwebtoken')
+const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
 
@@ -117,9 +117,6 @@ beforeAll(async () => {
   storeB = await db.location.create({ name: 'F6_STORE_B', status: 'active' })
   storeC = await db.location.create({ name: 'F6_STORE_C', status: 'active' })
   category = await db.category.create({ name: 'F6_CATEGORY' })
-  tokenA = jwt.sign({ id: 8401, userName: 'f6_admin_a', roleType: 'admin', store: storeA.id }, JWT_SECRET)
-  tokenB = jwt.sign({ id: 8402, userName: 'f6_admin_b', roleType: 'admin', store: storeB.id }, JWT_SECRET)
-  superAdminToken = jwt.sign({ id: 8403, userName: 'f6_super', roleType: 'super_admin' }, JWT_SECRET)
 
   // P1-4: central gate denies unknown caller identities; these rows give the
   // caller ids (incl. inline storeC tokens below) real identities. Assertions
@@ -142,6 +139,10 @@ beforeAll(async () => {
       fullName: userName
     })
   }
+  // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
+  tokenA = await signSessionToken({ id: 8401, userName: 'f6_admin_a', roleType: 'admin', store: storeA.id }, JWT_SECRET)
+  tokenB = await signSessionToken({ id: 8402, userName: 'f6_admin_b', roleType: 'admin', store: storeB.id }, JWT_SECRET)
+  superAdminToken = await signSessionToken({ id: 8403, userName: 'f6_super', roleType: 'super_admin' }, JWT_SECRET)
 })
 
 afterAll(async () => {
@@ -300,7 +301,7 @@ describe('F6-02 — tenant scoping enforced via req.storeId, not req.query.store
     const orderA = await makeOrder({ store: storeC.id, totalPrice: 12345 })
     const productC = await makeProduct('F6_DAILY_TENANT_C_PRODUCT')
     await makeOrderItem({ order: orderA, product: productC, quantity: 1, price: 12345, totalPrice: 12345, hppSnapshot: 1000 })
-    const tokenC = jwt.sign({ id: 8404, userName: 'f6_admin_c', roleType: 'admin', store: storeC.id }, JWT_SECRET)
+    const tokenC = await signSessionToken({ id: 8404, userName: 'f6_admin_c', roleType: 'admin', store: storeC.id }, JWT_SECRET)
     const otherOrder = await makeOrder({ store: storeB.id, totalPrice: 99999 })
     const productOther = await makeProduct('F6_DAILY_TENANT_OTHER_PRODUCT')
     await makeOrderItem({ order: otherOrder, product: productOther, quantity: 1, price: 99999, totalPrice: 99999, hppSnapshot: 1000 })
@@ -337,7 +338,7 @@ describe('F6 — daily report and profit-per-product report reconcile on identic
     const item = await makeOrderItem({ order, product, quantity: 5, price: 20000, totalPrice: 100000, hppSnapshot: 8000 })
     await makeApprovedReturn({ order, store: storeC.id, product, orderItem: item, qty: 2, price: 20000 })
 
-    const tokenC = jwt.sign({ id: 8405, userName: 'f6_admin_c2', roleType: 'admin', store: storeC.id }, JWT_SECRET)
+    const tokenC = await signSessionToken({ id: 8405, userName: 'f6_admin_c2', roleType: 'admin', store: storeC.id }, JWT_SECRET)
     const ppp = await getProfitPerProduct(tokenC)
     const row = ppp.body.data.find((r) => r.productId === product.id)
     expect(row.totalSales).toBe(60000)
