@@ -118,6 +118,68 @@ describe('tenant backfill mapping preflight', () => {
     expect(result.errors).toEqual([expect.objectContaining({ code: 'UNAPPROVED' })])
   })
 
+  test('rejects a self-approved row where source and reviewer are identical', () => {
+    const result = validateStoreMapping([baseRow({ source: 'reviewer@example.test' })], stores)
+
+    expect(result.valid).toBe(false)
+    expect(result.mapped).toBe(0)
+    expect(result.unresolved).toBe(1)
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'SELF_APPROVAL', field: 'reviewer', rowIndex: 0 })
+    ])
+  })
+
+  test('rejects a self-approved row that differs only by case', () => {
+    const result = validateStoreMapping([baseRow({ source: 'REVIEWER@EXAMPLE.TEST' })], stores)
+
+    expect(result.valid).toBe(false)
+    expect(result.unresolved).toBe(1)
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'SELF_APPROVAL', field: 'reviewer' })
+    ])
+  })
+
+  test('rejects a self-approved row that differs only by surrounding whitespace', () => {
+    const result = validateStoreMapping([baseRow({ source: '  reviewer@example.test  ' })], stores)
+
+    expect(result.valid).toBe(false)
+    expect(result.unresolved).toBe(1)
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'SELF_APPROVAL', field: 'reviewer' })
+    ])
+  })
+
+  test('accepts genuinely distinct source and reviewer identities', () => {
+    const result = validateStoreMapping([baseRow()], stores)
+
+    expect(result.valid).toBe(true)
+    expect(result.mapped).toBe(1)
+    expect(result.unresolved).toBe(0)
+    expect(result.errors).toEqual([])
+  })
+
+  test('validateMappingRow pins the self-approval rule without consulting persisted stores', () => {
+    const result = validateMappingRow(baseRow({ reviewer: 'migration-review' }))
+
+    expect(result.disposition).toBe('MAP')
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'SELF_APPROVAL', field: 'reviewer' })
+    ])
+  })
+
+  test('orders SELF_APPROVAL deterministically alongside other row errors', () => {
+    const result = validateStoreMapping(
+      [baseRow({ disposition: 'ASSIGN', source: 'reviewer@example.test' })],
+      stores
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors.map((error) => error.code)).toEqual([
+      'SELF_APPROVAL',
+      'UNKNOWN_DISPOSITION'
+    ])
+  })
+
   test('rejects unknown dispositions', () => {
     const result = validateStoreMapping([baseRow({ disposition: 'ASSIGN' })], stores)
 
