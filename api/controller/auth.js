@@ -526,17 +526,13 @@ exports.login = async (req, res) => {
     }
 
     // Signed only after the session committed; exp equals the session's
-    // expiresAt. Claims come from the locked, re-checked row. Legacy
-    // role/store claims stay as compatibility data until JWT minimization.
+    // expiresAt. P6: the payload carries only the canonical identity/session
+    // identifiers; iat/exp come from the credential window. Authority always
+    // comes from the DB session + account row, never JWT claims.
     const { account } = outcome
     const getToken = generateToken(
       {
         id: account.id,
-        userName: account.userName,
-        fullName: account.fullName,
-        roleType: account.roleType || 'user',
-        roleId: account.roleId,
-        store: account.store,
         sessionId: outcome.sessionId
       },
       credential
