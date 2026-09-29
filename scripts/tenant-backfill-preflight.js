@@ -90,6 +90,13 @@ const validateMappingRow = (row) => {
   if (normalized.approval !== null && normalized.approval !== 'approved') {
     errors.push(makeError('UNAPPROVED', 'approval', 'approval must be approved'))
   }
+  if (
+    normalized.source !== null &&
+    normalized.reviewer !== null &&
+    normalized.source.toLowerCase() === normalized.reviewer.toLowerCase()
+  ) {
+    errors.push(makeError('SELF_APPROVAL', 'reviewer', 'reviewer must be a different identity from source'))
+  }
 
   return {
     row: normalized,
