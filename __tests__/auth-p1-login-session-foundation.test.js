@@ -89,9 +89,8 @@ describe('P1 login creates a session-bound credential', () => {
     expect(claims.sessionId).toMatch(/^[0-9a-f]{64}$/)
     expect(Number.isInteger(claims.iat)).toBe(true)
     expect(Number.isInteger(claims.exp)).toBe(true)
-    // Legacy claims stay for compatibility until JWT minimization.
-    expect(claims.roleType).toBe('admin')
-    expect(claims.store).toBe(storeA.id)
+    // P6: minimized claims — only canonical identity/session identifiers.
+    expect([...Object.keys(claims)].sort()).toEqual(['exp', 'iat', 'id', 'sessionId'])
 
     const session = await db.authorizationContextSession.findOne({ where: { sessionId: claims.sessionId } })
     expect(session).not.toBeNull()

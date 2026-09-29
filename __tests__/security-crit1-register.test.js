@@ -152,9 +152,11 @@ describe('CRIT-1 public registration hardening', () => {
     expect(res.status).toBe(200)
     expect(res.body?.token).toBeTruthy()
 
-    // JWT must still carry the user's real store claim
+    // P6: minimized JWT carries only {id, sessionId, iat, exp}; the user's
+    // real store stays in the DB row and the login response, never the token.
     const decoded = jwt.verify(res.body.token, JWT_SECRET)
-    expect(decoded.store).toBe(store1.id)
+    expect([...Object.keys(decoded)].sort()).toEqual(['exp', 'iat', 'id', 'sessionId'])
+    expect(res.body?.user?.store).toBe(store1.id)
 
     await db.user.destroy({ where: { id: created.id }, force: true })
   })
@@ -189,7 +191,9 @@ describe('CRIT-1 public registration hardening', () => {
 
     expect(login.status).toBe(200)
     const decoded = jwt.verify(login.body.token, JWT_SECRET)
-    expect(decoded.store).not.toBe(store2.id)
+    // P6: minimized JWT carries no store claim at all.
+    expect(decoded).not.toHaveProperty('store')
+    expect(login.body?.user?.store).toBeNull()
 
     // using that token with store2 spoofing must be rejected by store validation
     const probe = await request(app)
