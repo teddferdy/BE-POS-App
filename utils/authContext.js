@@ -113,9 +113,14 @@ const legacySuperAdminScopeOf = (account) => {
 // below runs inside it (same connection, sees its uncommitted writes). The
 // resolver never opens a transaction or takes locks itself; omitted, reads
 // run exactly as before.
+// `authenticatedAt` (optional, T-03B DR-03 Q8): the resolving session's
+// DB-clock authentication instant. A membership reactivated after it
+// (`reactivatedAt > authenticatedAt`) is NOT effective for that session: an
+// old session never regains authority from a reactivation alone. Omitted,
+// no freshness constraint applies (non-session callers keep their semantics).
 const resolveAuthorizationContext = async (
   db,
-  { userId, activeTenantId, activeStoreId, account: loadedAccount, transaction } = {}
+  { userId, activeTenantId, activeStoreId, account: loadedAccount, transaction, authenticatedAt } = {}
 ) => {
   const ctx = {
     accountId: toId(userId),
@@ -186,13 +191,24 @@ const resolveAuthorizationContext = async (
   // Validated field by field — never inferred from how the ORM join happens
   // to resolve a deleted tenant (null include) — and never trusting the
   // model's isIn validator (bulkCreate/raw writes skip it). Fail closed.
+  // With `authenticatedAt`, a membership reactivated after the session
+  // authenticated is excluded (an unparseable instant excludes every
+  // reactivated membership — fail closed). Both instants are microsecond DB
+  // timestamps that arrive here truncated to milliseconds, so an equal
+  // millisecond is treated as NOT fresh: a session authenticated strictly
+  // before a reactivation can never pass on truncation; the only cost is a
+  // sub-millisecond fail-closed window for a login in that same millisecond.
+  const authenticatedMs = authenticatedAt == null ? null : new Date(authenticatedAt).getTime()
+  const freshForSession = (m) =>
+    authenticatedMs == null || m.reactivatedAt == null || new Date(m.reactivatedAt).getTime() < authenticatedMs
   const effective = memberships.filter(
     (m) =>
       m.status === 'ACTIVE' &&
       TARGET_ROLES.includes(m.role) &&
       m.tenant != null &&
       m.tenant.deletedAt == null &&
-      m.tenant.status === 'active'
+      m.tenant.status === 'active' &&
+      freshForSession(m)
   )
   const effectiveTenantIds = new Set(effective.map((m) => m.tenantId))
   ctx.effectiveTenantIds = [...effectiveTenantIds]

@@ -19,6 +19,7 @@
 const crypto = require('crypto')
 const { resolveAuthorizationContext } = require('./authContext')
 const { credentialWindow } = require('./jwtConvert')
+const { lockUserMemberships, lockAssignment } = require('./membershipLocks')
 
 const toPositiveIntOrNull = (value) => {
   if (value == null || value === '') return null
@@ -51,6 +52,10 @@ async function createContextSession(
   const row = await db.authorizationContextSession.create(
     {
       sessionId: newSessionId(),
+      // T-03B (DR-03 Q8): the session's authentication instant comes from
+      // the database clock, the same source as tenant_membership.reactivatedAt,
+      // so the freshness comparison never mixes app-server clocks.
+      createdAt: db.sequelize.fn('NOW'),
       userId: uid,
       activeTenantId: toPositiveIntOrNull(activeTenantId),
       activeStoreId: toPositiveIntOrNull(activeStoreId),
@@ -106,87 +111,92 @@ async function revokeAllUserSessions(database, userId, { transaction } = {}) {
   return count
 }
 
-// Atomic tenant switch: validates the tenant as an effective membership via
-// the canonical resolver BEFORE persisting; failure leaves the row untouched.
-// Switching tenant always clears the store selection (stale store must never
-// survive a tenant change).
+// Locked-session ownership/liveness checks shared by both switches.
+const assertSwitchableSession = (row, userId) => {
+  if (!row || row.revokedAt != null) throw new Error('CONTEXT_SESSION_NOT_FOUND')
+  if (Number(row.userId) !== Number(userId)) throw new Error('CONTEXT_SESSION_NOT_FOUND')
+  if (row.expiresAt != null && new Date(row.expiresAt).getTime() <= Date.now()) {
+    throw new Error('CONTEXT_SESSION_EXPIRED')
+  }
+}
+
+// Atomic tenant switch. T-03B: validation and write are ONE transaction,
+// serialized with T-03A membership reductions by the shared lock order
+// (utils/membershipLocks): the user's membership set, then the session row.
+// The canonical resolver re-runs inside that transaction with the session's
+// authentication instant, so the membership authorizing the switch is still
+// effective — and fresh for this session — when the session row commits.
+// Failure leaves the row untouched. Switching tenant always clears the store
+// selection (stale store must never survive a tenant change).
 async function switchSessionTenant(database, sessionId, userId, tenantId) {
   const db = database || require('../db/models')
   const target = toPositiveIntOrNull(tenantId)
   if (target == null) throw new Error('CONTEXT_TENANT_INVALID')
-  const row = await db.authorizationContextSession.findOne({ where: { sessionId } })
-  if (!row || row.revokedAt != null) throw new Error('CONTEXT_SESSION_NOT_FOUND')
-  if (Number(row.userId) !== Number(userId)) throw new Error('CONTEXT_SESSION_NOT_FOUND')
-  if (row.expiresAt != null && new Date(row.expiresAt).getTime() <= Date.now()) {
-    throw new Error('CONTEXT_SESSION_EXPIRED')
-  }
-  // Dry-run through the canonical resolver: only an effective membership passes.
-  const probe = await resolveAuthorizationContext(db, { userId, activeTenantId: target })
-  if (probe.activeTenantId !== target) {
-    throw new Error(`CONTEXT_TENANT_FORBIDDEN:${probe.reason || 'foreign-or-inactive-tenant'}`)
-  }
-  const t = await db.sequelize.transaction()
-  try {
+  const uid = toPositiveIntOrNull(userId)
+  if (uid == null || typeof sessionId !== 'string' || !sessionId) throw new Error('CONTEXT_SESSION_NOT_FOUND')
+  return db.sequelize.transaction(async (t) => {
+    await lockUserMemberships(db, uid, t)
     const locked = await db.authorizationContextSession.findOne({
       where: { sessionId },
       transaction: t,
       lock: t.LOCK.UPDATE
     })
-    if (!locked || locked.revokedAt != null) throw new Error('CONTEXT_SESSION_NOT_FOUND')
+    assertSwitchableSession(locked, uid)
+    // Dry-run through the canonical resolver: only an effective membership passes.
+    const probe = await resolveAuthorizationContext(db, {
+      userId: uid,
+      activeTenantId: target,
+      transaction: t,
+      authenticatedAt: locked.createdAt
+    })
+    if (probe.activeTenantId !== target) {
+      throw new Error(`CONTEXT_TENANT_FORBIDDEN:${probe.reason || 'foreign-or-inactive-tenant'}`)
+    }
     locked.activeTenantId = target
     locked.activeStoreId = null
     locked.version = Number(locked.version || 1) + 1
     await locked.save({ transaction: t })
-    await t.commit()
     return locked
-  } catch (err) {
-    await t.rollback()
-    throw err
-  }
+  })
 }
 
 // Atomic store switch: the store must belong to the session's active tenant
-// AND satisfy assignment rules for the resolved role (resolver dry-run).
+// AND satisfy assignment rules for the resolved role. T-03B: one transaction
+// in the shared lock order — membership set, the target assignment row, then
+// the session row — so a concurrent membership reduction or assignment revoke
+// either lands before the re-run canonical resolver (switch denied) or after
+// the session row commits (and then revokes it).
 async function switchSessionStore(database, sessionId, userId, storeId) {
   const db = database || require('../db/models')
   const target = toPositiveIntOrNull(storeId)
   if (target == null) throw new Error('CONTEXT_STORE_INVALID')
-  const row = await db.authorizationContextSession.findOne({ where: { sessionId } })
-  if (!row || row.revokedAt != null) throw new Error('CONTEXT_SESSION_NOT_FOUND')
-  if (Number(row.userId) !== Number(userId)) throw new Error('CONTEXT_SESSION_NOT_FOUND')
-  if (row.expiresAt != null && new Date(row.expiresAt).getTime() <= Date.now()) {
-    throw new Error('CONTEXT_SESSION_EXPIRED')
-  }
-  if (row.activeTenantId == null) throw new Error('CONTEXT_TENANT_REQUIRED')
-  const probe = await resolveAuthorizationContext(db, {
-    userId,
-    activeTenantId: row.activeTenantId,
-    activeStoreId: target
-  })
-  if (probe.activeStoreId !== target) {
-    throw new Error(`CONTEXT_STORE_FORBIDDEN:${probe.reason || 'foreign-store'}`)
-  }
-  const t = await db.sequelize.transaction()
-  try {
+  const uid = toPositiveIntOrNull(userId)
+  if (uid == null || typeof sessionId !== 'string' || !sessionId) throw new Error('CONTEXT_SESSION_NOT_FOUND')
+  return db.sequelize.transaction(async (t) => {
+    await lockUserMemberships(db, uid, t)
+    await lockAssignment(db, uid, target, t)
     const locked = await db.authorizationContextSession.findOne({
       where: { sessionId },
       transaction: t,
       lock: t.LOCK.UPDATE
     })
-    if (!locked || locked.revokedAt != null) throw new Error('CONTEXT_SESSION_NOT_FOUND')
-    // Re-check tenant did not change under us.
-    if (Number(locked.activeTenantId) !== Number(row.activeTenantId)) {
-      throw new Error('CONTEXT_STALE')
+    assertSwitchableSession(locked, uid)
+    if (locked.activeTenantId == null) throw new Error('CONTEXT_TENANT_REQUIRED')
+    const probe = await resolveAuthorizationContext(db, {
+      userId: uid,
+      activeTenantId: locked.activeTenantId,
+      activeStoreId: target,
+      transaction: t,
+      authenticatedAt: locked.createdAt
+    })
+    if (probe.activeStoreId !== target) {
+      throw new Error(`CONTEXT_STORE_FORBIDDEN:${probe.reason || 'foreign-store'}`)
     }
     locked.activeStoreId = target
     locked.version = Number(locked.version || 1) + 1
     await locked.save({ transaction: t })
-    await t.commit()
     return locked
-  } catch (err) {
-    await t.rollback()
-    throw err
-  }
+  })
 }
 
 // AUTH-1 P2: runs after canonical `authorization`, which already verified the
@@ -206,7 +216,9 @@ const authorizationContextMiddleware = async (req, res, next) => {
       userId: req.user.id,
       activeTenantId: session.activeTenantId,
       activeStoreId: session.activeStoreId,
-      account: session.user
+      account: session.user,
+      // T-03B (DR-03 Q8): reactivation freshness for this session.
+      authenticatedAt: session.createdAt
     })
   } catch {
     return res.status(500).json({ message: 'Internal Server Error', code: 'AUTHORIZATION_ERROR' })

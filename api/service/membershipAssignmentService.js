@@ -53,6 +53,7 @@ const db = require('../../db/models')
 const { TARGET_ROLES, resolveAuthorizationContext } = require('../../utils/authContext')
 const { recordAudit } = require('../../utils/auditLog')
 const { revokeAllUserSessions, revokeContextSession } = require('../../utils/authorizationContextMiddleware')
+const locks = require('../../utils/membershipLocks')
 const { disconnectUser, disconnectSession } = require('./socket')
 
 const { Op } = db.Sequelize
@@ -78,6 +79,19 @@ const MEMBERSHIP_TRANSITIONS = Object.freeze({
   [DEACTIVATED]: Object.freeze([ACTIVE, RETIRED]),
   [RETIRED]: Object.freeze([])
 })
+
+// Canonical roles ranked strictly below `role` (unknown roles → none).
+const rolesBelow = (role) => TARGET_ROLES.filter((r) => ROLE_RANK[r] < ROLE_RANK[role])
+
+// Q8 grant ceiling — the single source for mutation-time authorization AND
+// the T-03B available-roles UX metadata: platform_admin grants every
+// canonical role; tenant_admin only roles strictly below tenant_admin;
+// nobody else grants membership roles.
+const grantableRoles = (actorRole) => {
+  if (actorRole === 'platform_admin') return [...TARGET_ROLES]
+  if (actorRole === 'tenant_admin') return rolesBelow('tenant_admin')
+  return []
+}
 
 const MEMBERSHIP_ADMIN_ROLES = Object.freeze(['platform_admin', 'tenant_admin'])
 const ASSIGNMENT_ADMIN_ROLES = Object.freeze(['platform_admin', 'tenant_admin', 'store_admin'])
@@ -186,7 +200,7 @@ const validateRole = (role) => {
 const assertMembershipScope = (act, tenantId, requestedRole) => {
   if (act.role === 'platform_admin') return
   if (act.tenantId == null || act.tenantId !== tenantId) throw notFound('tenantId')
-  if (requestedRole != null && ROLE_RANK[requestedRole] >= ROLE_RANK.tenant_admin) {
+  if (requestedRole != null && !grantableRoles(act.role).includes(requestedRole)) {
     throw fail('ROLE_CEILING', 'role', 'tenant_admin may not grant tenant_admin or platform_admin')
   }
 }
@@ -200,11 +214,23 @@ const assertMembershipTarget = (act, membership) => {
   }
 }
 
-// D14: store visibility. store_admin sees only its own store; tenant_admin
-// only stores of its tenant. Missing, foreign and tenant-less stores are
-// indistinguishable for scoped actors.
+// D14: store visibility. store_admin sees only the stores it is persistently
+// assigned to in its active tenant; tenant_admin only stores of its tenant.
+// Missing, foreign and tenant-less stores are indistinguishable for scoped
+// actors.
+//
+// T-03B: a store_admin's authority is its persisted assignment scope, not the
+// session's selected store — `act.storeId` is context only. The lookup is
+// keyed on the actor's own assignment row, so it reveals nothing about the
+// target; the tenant check below still binds the store to the actor tenant.
+const actorAssignedTo = async (act, storeId) =>
+  (await db.storeAssignment.findOne({
+    where: { userId: act.userId, storeId, tenantId: act.tenantId },
+    attributes: ['id']
+  })) != null
+
 const loadVisibleStore = async (act, storeId, field) => {
-  if (act.role === 'store_admin' && act.storeId !== storeId) throw notFound(field)
+  if (act.role === 'store_admin' && !(await actorAssignedTo(act, storeId))) throw notFound(field)
   const store = await db.location.findByPk(storeId, { attributes: ['id', 'tenantId'] })
   if (act.role === 'platform_admin') {
     if (!store) throw notFound(field)
@@ -241,24 +267,26 @@ const lockMembership = (userId, tenantId, transaction) =>
   db.tenantMembership.findOne({ where: { userId, tenantId }, transaction, lock: transaction.LOCK.UPDATE })
 
 // D5-B: every operation that can reduce a membership locks the user's WHOLE
-// membership set (soft-deleted rows excluded by the paranoid default scope)
-// in one statement, ascending tenantId, as its first and only membership
-// lock. Two reductions of different memberships of the same user therefore
-// serialize, and the later one's sole-effective-membership evaluation sees
-// the earlier one's committed result (no write skew). Taking the target row
-// first and the rest afterwards would invert the order and could deadlock.
-const lockUserMemberships = async (userId, transaction) => {
-  const rows = await db.tenantMembership.findAll({
-    where: { userId },
-    order: [['tenantId', 'ASC']],
-    transaction,
-    lock: transaction.LOCK.UPDATE
-  })
-  return new Map(rows.map((row) => [Number(row.tenantId), row]))
+// membership set (utils/membershipLocks), ascending tenantId, as its first
+// and only membership lock. Two reductions of different memberships of the
+// same user therefore serialize, and the later one's sole-effective-
+// membership evaluation sees the earlier one's committed result (no write
+// skew). Taking the target row first and the rest afterwards would invert
+// the order and could deadlock. The session switches take the same lock.
+const lockUserMemberships = (userId, transaction) => locks.lockUserMemberships(db, userId, transaction)
+
+// T-03B (DR-03 Q8): a DEACTIVATED → ACTIVE transition stamps reactivatedAt
+// from the database clock, the same source as the session's authentication
+// instant. Only reactivation sets it — never create, role change or
+// assignment changes. The row is reloaded so snapshots/audit carry the value.
+const markReactivated = async (row, transaction) => {
+  row.status = ACTIVE
+  row.reactivatedAt = db.sequelize.fn('NOW')
+  await row.save({ transaction })
+  await row.reload({ transaction })
 }
 
-const lockAssignment = (userId, storeId, transaction) =>
-  db.storeAssignment.findOne({ where: { userId, storeId }, transaction, lock: transaction.LOCK.UPDATE })
+const lockAssignment = (userId, storeId, transaction) => locks.lockAssignment(db, userId, storeId, transaction)
 
 // Runs `work` as one transaction. Unique races retry the whole unit once,
 // then normalize to a conflict; FK violations mean a referenced row
@@ -437,8 +465,7 @@ async function createMembership({ actor, targetUserId, tenantId, role, reason = 
       return { membership: snapshot(row), created: false, reactivated: false, noOp: true, auditId: null }
     }
     const before = snapshot(row)
-    row.status = ACTIVE
-    await row.save({ transaction: t })
+    await markReactivated(row, t)
     const auditRow = await auditIn(t, 'reactivate', before, snapshot(row), row.id)
     return { membership: snapshot(row), created: false, reactivated: true, noOp: false, auditId: auditRow.id }
   }, 'userId')
@@ -524,8 +551,7 @@ async function reactivateMembership({ actor, targetUserId, tenantId, reason = nu
       throw fail('TRANSITION_FORBIDDEN', 'status', 'retired membership cannot be reactivated')
     }
     const before = snapshot(row)
-    row.status = ACTIVE
-    await row.save({ transaction: t })
+    await markReactivated(row, t)
     const auditRow = await auditMutation({
       action: 'reactivate',
       actorUserId: act.userId,
@@ -673,8 +699,7 @@ async function moveMembership({ actor, targetUserId, fromTenantId, toTenantId, r
       created = true
     } else if (targetRow.status === DEACTIVATED) {
       const targetBefore = snapshot(targetRow)
-      targetRow.status = ACTIVE
-      await targetRow.save({ transaction: t })
+      await markReactivated(targetRow, t)
       auditIds.push((await auditIn(t, 'reactivate', toTid, targetBefore, snapshot(targetRow), targetRow.id)).id)
       reactivated = true
     }
@@ -891,6 +916,13 @@ async function moveAssignment({ actor, targetUserId, fromStoreId, toStoreId, rea
 module.exports = {
   ROLE_RANK,
   MEMBERSHIP_TRANSITIONS,
+  // T-03B: shared ceiling/visibility helpers and the canonical error shapes
+  // the HTTP layer reuses (one source; never re-derived per route).
+  grantableRoles,
+  rolesBelow,
+  toId,
+  notFound,
+  fail,
   createMembership,
   deactivateMembership,
   reactivateMembership,

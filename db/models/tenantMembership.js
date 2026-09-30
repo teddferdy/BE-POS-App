@@ -52,6 +52,13 @@ module.exports = (sequelize, DataTypes) => {
         validate: {
           isIn: [MEMBERSHIP_STATUS]
         }
+      },
+      // T-03B (DR-03 Q8): DB-clock instant of the most recent DEACTIVATED →
+      // ACTIVE transition. NULL = no reactivation freshness constraint.
+      reactivatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null
       }
     },
     {

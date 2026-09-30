@@ -289,7 +289,11 @@ module.exports = async () => {
     // state, separate from presence `status`. Same precedent as above:
     // provision idempotently here so fresh CI clones converge, no-op when
     // the migration already ran. NULL default = enabled for all rows.
-    ['user', 'disabledAt', 'TIMESTAMP']
+    ['user', 'disabledAt', 'TIMESTAMP'],
+    // T-03B (migration 20261011000001): tenant_membership.reactivatedAt
+    // reactivation freshness marker. Same precedent: idempotent here, no-op
+    // when the migration already ran. NULL = no freshness constraint.
+    ['tenant_membership', 'reactivatedAt', 'TIMESTAMP WITH TIME ZONE']
   ]
 
   // Phase 34: stock_opname_item's quantity columns are migration-owned
@@ -453,7 +457,7 @@ module.exports = async () => {
     // AUTH-1 foundation tables: every model column must exist, mirroring the
     // migration exactly (location.tenantId is covered by R4_COLUMNS above).
     tenant: ['id', 'code', 'name', 'status', 'createdAt', 'updatedAt', 'deletedAt'],
-    tenant_membership: ['id', 'userId', 'tenantId', 'role', 'status', 'createdAt', 'updatedAt', 'deletedAt'],
+    tenant_membership: ['id', 'userId', 'tenantId', 'role', 'status', 'createdAt', 'updatedAt', 'deletedAt', 'reactivatedAt'],
     store_assignment: ['id', 'userId', 'tenantId', 'storeId', 'createdAt', 'updatedAt'],
     authorization_context_session: ['id', 'sessionId', 'userId', 'activeTenantId', 'activeStoreId', 'version', 'expiresAt', 'revokedAt', 'createdAt', 'updatedAt']
   }
