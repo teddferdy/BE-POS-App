@@ -109,9 +109,13 @@ const legacySuperAdminScopeOf = (account) => {
 // `account` (optional): the caller's account row already loaded by canonical
 // authentication for this request; reused instead of a second read when it
 // is the same account.
+// `transaction` (optional): a caller's open Sequelize transaction; every read
+// below runs inside it (same connection, sees its uncommitted writes). The
+// resolver never opens a transaction or takes locks itself; omitted, reads
+// run exactly as before.
 const resolveAuthorizationContext = async (
   db,
-  { userId, activeTenantId, activeStoreId, account: loadedAccount } = {}
+  { userId, activeTenantId, activeStoreId, account: loadedAccount, transaction } = {}
 ) => {
   const ctx = {
     accountId: toId(userId),
@@ -140,7 +144,8 @@ const resolveAuthorizationContext = async (
     loadedAccount && Number(loadedAccount.id) === ctx.accountId
       ? loadedAccount
       : await db.user.findByPk(ctx.accountId, {
-          attributes: ['id', 'status', 'roleType', 'store', 'disabledAt', 'deletedAt']
+          attributes: ['id', 'status', 'roleType', 'store', 'disabledAt', 'deletedAt'],
+          transaction
         })
   if (!account) {
     ctx.reason = 'unknown-account'
@@ -167,7 +172,8 @@ const resolveAuthorizationContext = async (
         attributes: ['id', 'status', 'deletedAt'],
         required: false
       }
-    ]
+    ],
+    transaction
   })
   ctx.memberships = memberships.map((m) => ({
     tenantId: m.tenantId,
@@ -225,7 +231,8 @@ const resolveAuthorizationContext = async (
   if (ctx.activeTenantId != null) {
     const stores = await db.location.findAll({
       where: { tenantId: ctx.activeTenantId },
-      attributes: ['id']
+      attributes: ['id'],
+      transaction
     })
     ctx.tenantStoreIds = stores.map((s) => Number(s.id))
   }
@@ -239,7 +246,8 @@ const resolveAuthorizationContext = async (
   if (activeMembership) {
     const assignments = await db.storeAssignment.findAll({
       where: { userId: ctx.accountId, tenantId: ctx.activeTenantId },
-      attributes: ['storeId', 'tenantId']
+      attributes: ['storeId', 'tenantId'],
+      transaction
     })
     ctx.assignedStoreIds = assignments
       .map((a) => Number(a.storeId))
@@ -258,7 +266,7 @@ const resolveAuthorizationContext = async (
       return ctx
     }
     // Platform-wide selection still has to name a store that exists.
-    if (!inTenant && !(await db.location.findByPk(requestedStore, { attributes: ['id'] }))) {
+    if (!inTenant && !(await db.location.findByPk(requestedStore, { attributes: ['id'], transaction }))) {
       ctx.reason = 'foreign-store'
       return ctx
     }
