@@ -384,6 +384,29 @@ const normalizeLifecycleStatus = (value) => {
   return { provided: true, value: normalized, known: true }
 }
 
+// HB-2 R1: deterministic lifecycle-intent resolution for store edits.
+//
+// `status` is authoritative: when provided (including legacy booleans, which
+// the update schema historically accepted), it decides and `isActive` is
+// ignored entirely, so a stale/legacy boolean can never override it. When
+// `status` is absent, only an actual boolean `isActive` carries intent
+// (true → active, false → inactive, preserving the legacy contract); any
+// other value (notably the strings "true"/"false" produced by FormData
+// serialization) passes through untouched so normalizeLifecycleStatus
+// rejects it as unknown instead of JavaScript truthiness silently coercing
+// "false" to active. Absent/absent yields undefined: a config-only edit
+// requests no lifecycle transition.
+const resolveRequestedLifecycleStatus = ({ status, isActive } = {}) => {
+  if (status !== undefined) {
+    if (status === true) return 'active'
+    if (status === false) return 'draft'
+    return status
+  }
+  if (isActive === true) return 'active'
+  if (isActive === false) return 'inactive'
+  return isActive
+}
+
 const normalizeOptionalTenantId = (value) => {
   if (value === undefined || value === null || value === '') {
     return { provided: false, value: null, valid: true }
@@ -668,6 +691,7 @@ exports.OPERATIONAL_STORE_STATUSES = OPERATIONAL_STORE_STATUSES
 exports.NON_OPERATIONAL_STORE_STATUSES = NON_OPERATIONAL_STORE_STATUSES
 exports.IRREVERSIBLE_STORE_STATUSES = IRREVERSIBLE_STORE_STATUSES
 exports.assertOperationalStoreTenant = assertOperationalStoreTenant
+exports.resolveRequestedLifecycleStatus = resolveRequestedLifecycleStatus
 exports.assertSellableProductAssignment = assertSellableProductAssignment
 
 // ===================== Supplier =====================
