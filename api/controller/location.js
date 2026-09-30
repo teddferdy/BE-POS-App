@@ -37,7 +37,7 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { resolveAuthorizationContext } = require('../../utils/authContext')
-const { assertOperationalStoreTenant } = require('../validation/schemas')
+const { assertOperationalStoreTenant, resolveRequestedLifecycleStatus } = require('../validation/schemas')
 
 // Store ownership/lifecycle is decided from persisted authorization state
 // only. req.user.store, the JWT store claim, cookies, query params and the
@@ -553,18 +553,10 @@ exports.editLocationById = async (req, res) => {
     }
 
     const dataExist = location.dataValues
-    const requestedStatus =
-      isActive !== undefined
-        ? isActive
-          ? 'active'
-          : 'inactive'
-        : status !== undefined
-          ? status === true
-            ? 'active'
-            : status === false
-              ? 'draft'
-              : status
-          : undefined
+    // HB-2 R1: `status` is authoritative; a legacy `isActive` never overrides
+    // it, and only actual booleans carry legacy intent (strings pass through
+    // to be rejected as unknown, never coerced by truthiness).
+    const requestedStatus = resolveRequestedLifecycleStatus({ status, isActive })
 
     const lifecycleContext = await resolveStoreLifecycleContext(req)
     const lifecycle = assertOperationalStoreTenant(lifecycleContext, {
