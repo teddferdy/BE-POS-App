@@ -39,7 +39,7 @@
 
 const crypto = require('crypto')
 const db = require('../../db/models')
-const { TARGET_ROLES, MEMBERSHIP_STATUS, resolveAuthorizationContext } = require('../../utils/authContext')
+const { TARGET_ROLES, resolveAuthorizationContext } = require('../../utils/authContext')
 const { recordAudit } = require('../../utils/auditLog')
 const { revokeAllUserSessions, revokeContextSession } = require('../../utils/authorizationContextMiddleware')
 const { disconnectUser, disconnectSession } = require('./socket')
