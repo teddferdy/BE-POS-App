@@ -37,6 +37,9 @@ const userContext = require('../utils/userContext')
 const productRoutes = require('./routes/product')
 const authRoutes = require('./routes/auth')
 const authorizationContextRoutes = require('./routes/authorizationContext')
+const membershipRoutes = require('./routes/membership')
+const assignmentRoutes = require('./routes/assignment')
+const effectiveScopeRoutes = require('./routes/effectiveScope')
 const categoryRoutes = require('./routes/category')
 const locationRoutes = require('./routes/location')
 const memberRoutes = require('./routes/member')
@@ -195,6 +198,10 @@ app.use((req, res, next) => {
 const routes = [
   { path: '/auth', route: authRoutes },
   { path: '/auth', route: authorizationContextRoutes },
+  // T-03B canonical membership / assignment / effective-scope API.
+  { path: '/memberships', route: membershipRoutes },
+  { path: '/assignments', route: assignmentRoutes },
+  { path: '/effective-scope', route: effectiveScopeRoutes },
   { path: '/product', route: productRoutes },
   { path: '/category', route: categoryRoutes },
   { path: '/location', route: locationRoutes },

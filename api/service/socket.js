@@ -91,7 +91,9 @@ const canJoinStoreCanonical = async (socket, storeId) => {
     const ctx = await resolveAuthorizationContext(db, {
       userId: socket.user.id,
       activeTenantId: session.activeTenantId,
-      activeStoreId: session.activeStoreId
+      activeStoreId: session.activeStoreId,
+      // T-03B (DR-03 Q8): same reactivation freshness as HTTP.
+      authenticatedAt: session.createdAt
     })
     if (!ctx || ctx.eligible !== true) return false
     if (ctx.isPlatformAdmin && ctx.activeTenantId == null) return true
