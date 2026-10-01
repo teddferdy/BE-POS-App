@@ -31,6 +31,7 @@ let storeB = null
 let category = null
 let product = null
 let adminToken = null
+let tenant = null
 
 async function setSourceStock(qty) {
   await db.product_store_stock.destroy({
@@ -71,8 +72,21 @@ async function transferCount() {
 }
 
 beforeAll(async () => {
-  storeA = await db.location.create({ name: `TRAT_A_${Date.now()}`, status: 'active' })
-  storeB = await db.location.create({ name: `TRAT_B_${Date.now()}`, status: 'active' })
+  // K1/K2 (GAP-2): transfer send requires both stores to resolve to the same
+  // tenant for a store-bound (non-platform) admin, so these fixtures are
+  // tenant-bound. The serialization/rollback invariants under test are
+  // unchanged — only the store ownership context is.
+  tenant = await db.tenant.create({ code: `TRAT_TENANT_${Date.now()}`, name: 'TRAT Tenant' })
+  storeA = await db.location.create({
+    name: `TRAT_A_${Date.now()}`,
+    status: 'active',
+    tenantId: tenant.id
+  })
+  storeB = await db.location.create({
+    name: `TRAT_B_${Date.now()}`,
+    status: 'active',
+    tenantId: tenant.id
+  })
   category = await db.category.create({ name: `TRAT_CAT_${Date.now()}` })
   product = await db.product.create({
     nameProduct: `TRAT_PRODUCT_${Date.now()}`,
@@ -110,6 +124,7 @@ afterAll(async () => {
     where: { id: [storeA?.id, storeB?.id].filter(Boolean) },
     force: true
   })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true })
 })
 
 describe('F-STOCK-3 transfer-send oversell + rollback', () => {

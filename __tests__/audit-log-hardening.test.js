@@ -21,10 +21,24 @@ let cashierUser = null
 let adminToken = null
 let superAdminToken = null
 let cashierToken = null
+let tenant = null
 
 beforeAll(async () => {
-  store = await db.location.create({ name: 'AUDIT_HARDEN_STORE', status: 'active' })
-  storeOther = await db.location.create({ name: 'AUDIT_HARDEN_STORE_OTHER', status: 'active' })
+  // K1/K2 (GAP-2): the transfer audit cases below send between two stores as
+  // a store-bound (non-platform) admin, which the tenant lattice only allows
+  // within one tenant. Both fixtures are tenant-bound accordingly; the audit
+  // assertions are unchanged.
+  tenant = await db.tenant.create({ code: `AUDIT_TENANT_${Date.now()}`, name: 'AUDIT Tenant' })
+  store = await db.location.create({
+    name: 'AUDIT_HARDEN_STORE',
+    status: 'active',
+    tenantId: tenant.id
+  })
+  storeOther = await db.location.create({
+    name: 'AUDIT_HARDEN_STORE_OTHER',
+    status: 'active',
+    tenantId: tenant.id
+  })
   category = await db.category.create({ name: 'AUDIT_HARDEN_CATEGORY' })
 
   productAdjust = await db.product.create({
@@ -130,6 +144,7 @@ afterAll(async () => {
     force: true
   })
   await db.location.destroy({ where: { id: [store?.id, storeOther?.id] }, force: true })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true })
 })
 
 // A minimal fake request, shaped like what createAudit()/redactAndAudit()
