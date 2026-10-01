@@ -711,6 +711,65 @@ exports.updateLocationSchema = exports.createLocationSchema
   .passthrough()
   .extend({ status: statusEnumBase.optional() })
 
+// W3 store configuration: explicit allowlist, partial semantics, strict.
+// Unlike updateLocationSchema (partial + passthrough for the legacy
+// super_admin edit flow), W3 forbids every non-allowlist key: .strict()
+// turns immutable fields (store, tenantId, status, audit fields, ...) and
+// arbitrary unknown keys into 400s instead of persisting them. `id` is the
+// row selector only (loc-N); it is never written back.
+// Thresholds reuse the existing nullable string-to-number shape: valid
+// numerics accepted, null means built-in/default behavior, negatives and
+// malformed values are rejected.
+const locationIdSelector = z
+  .string()
+  .regex(/^loc-[1-9]\d*$/, 'must be a location id like loc-1')
+
+// W3-local JSON shape: same accept-set as jsonField (string/array/object,
+// '' → null), but a malformed JSON string is a validation issue (400), not
+// a thrown error (which escapes as 500 on the legacy create/edit paths).
+const w3JsonField = () =>
+  z.union([z.string(), z.array(z.any()), z.record(z.any())]).transform((v, ctx) => {
+    if (typeof v === 'string') {
+      if (v === '' || v === 'null' || v === 'undefined') return null
+      try {
+        return JSON.parse(v)
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid JSON' })
+        return z.NEVER
+      }
+    }
+    return v
+  })
+
+exports.storeConfigurationSchema = z
+  .object({
+    id: locationIdSelector,
+    name: z.string().min(1, 'Location name is required').optional(),
+    phoneNumber: z.string().optional().nullable(),
+    email: z.string().email().optional().or(z.literal('')),
+    address: z.string().optional().nullable(),
+    detailLocation: z.string().optional().nullable(),
+    city: z.string().optional().nullable(),
+    province: z.string().optional().nullable(),
+    district: z.string().optional().nullable(),
+    village: z.string().optional().nullable(),
+    postalCode: z.string().optional().nullable(),
+    description: z.string().optional().nullable(),
+    category: z.string().optional().nullable(),
+    managerName: z.string().optional().nullable(),
+    latitude: z.string().optional().nullable(),
+    longitude: z.string().optional().nullable(),
+    image: z.string().optional().nullable(),
+    openingHours: w3JsonField().optional().nullable(),
+    socialMedia: w3JsonField().optional().nullable(),
+    timezone: ianaTimezone().optional(),
+    mainBranch: z.union([z.boolean(), z.string()]).optional(),
+    dailyTarget: strToNumNullable().optional(),
+    maxActiveParkedCarts: strToNumNullable().optional(),
+    parkedCartTtlMinutes: strToNumNullable().optional()
+  })
+  .strict()
+
 exports.STORE_LIFECYCLE_STATUSES = STORE_LIFECYCLE_STATUSES
 exports.OPERATIONAL_STORE_STATUSES = OPERATIONAL_STORE_STATUSES
 exports.NON_OPERATIONAL_STORE_STATUSES = NON_OPERATIONAL_STORE_STATUSES
