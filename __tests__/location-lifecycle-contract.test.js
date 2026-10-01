@@ -219,13 +219,13 @@ describe('PUT /location/edit-location lifecycle contract (HTTP)', () => {
     expect((await db.location.findByPk(created.id)).name).toBe(`${created.name}-sql`)
   })
 
-  // Direct ORM fixtures mirror the application's max(id)+1 convention
-  // (api/controller/location.js create path): the HTTP path inserts explicit
-  // ids without advancing the sequence, so a bare nextval insert can collide
-  // with an earlier explicit id depending on test order. Computing max+1 here
-  // keeps fixture ids deterministic regardless of order.
-  const nextDirectLocationId = async () =>
-    ((await db.location.max('id', { paranoid: false })) || 0) + 1
+  // F1: fixture ids come from the sequence (never MAX+1). The production
+  // create path is sequence-authoritative, so a MAX+1 fixture can land
+  // exactly on the sequence's next value and collide with a later create.
+  const nextDirectLocationId = async () => {
+    const [rows] = await db.sequelize.query("SELECT nextval('location_id_seq') AS id")
+    return Number(rows?.[0]?.id)
+  }
 
   test('platform config-only edit on active tenantless store is rejected', async () => {
     const row = await db.location.create({
