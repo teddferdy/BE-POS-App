@@ -320,7 +320,6 @@ exports.addNewLocation = async (req, res) => {
     }
   }
   const {
-    locationId,
     name,
     phoneNumber,
     email,
@@ -382,32 +381,20 @@ exports.addNewLocation = async (req, res) => {
       })
     }
 
-    // If locationId is provided, use it; otherwise generate new ID
-    let nextId
-    let idConflict = false
-    if (locationId) {
-      nextId = parseInt(locationId.replace('loc-', ''))
-
-      // Check if location with this ID already exists (include soft-deleted)
-      const existingLocation = await Location.findOne({
-        where: { id: nextId },
-        paranoid: false,
-        attributes: ['id', 'deletedAt']
-      })
-      if (existingLocation) {
-        if (!existingLocation.deletedAt) {
-          return res
-            .status(403)
-            .json({ success: false, message: 'Location ID already exists' })
-        }
-        // Soft-deleted — can't force-delete due to FK constraints, so fall back
-        idConflict = true
-      }
-    }
-    if (!locationId || idConflict) {
-      // Generate new ID based on max id (include soft-deleted)
-      const maxId = await Location.max('id', { paranoid: false })
-      nextId = (maxId || 0) + 1
+    // F1: sequence-authoritative allocation. A supplied locationId is
+    // accepted but ignored (FE preview round-trip): the id always comes
+    // from location_id_seq, which is atomic under concurrency. pg returns
+    // nextval (bigint) as a string, hence the Number() conversion. The
+    // legacy store mirror is set to the same value in the same INSERT, so
+    // the id/store pair is atomic from readers' perspective.
+    const [seqRows] = await db.sequelize.query(
+      "SELECT nextval('location_id_seq') AS id"
+    )
+    const nextId = Number(seqRows?.[0]?.id)
+    if (!Number.isSafeInteger(nextId) || nextId <= 0) {
+      return res
+        .status(500)
+        .json({ success: false, message: 'Failed to allocate location id' })
     }
 
     // Check for duplicate name
