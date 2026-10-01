@@ -266,5 +266,8 @@ module.exports = {
   listAssignments,
   findVisibleTarget,
   buildSelfScope,
-  buildTargetScope
+  buildTargetScope,
+  // Canonical list pagination contract, shared with the W3 store reads.
+  page,
+  paginated
 }

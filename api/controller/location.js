@@ -37,6 +37,8 @@ const { createNotification } = require('../../utils/createNotification')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
 const { resolveAuthorizationContext } = require('../../utils/authContext')
+const { okPage } = require('../../utils/canonicalHttp')
+const { page: pageOf, paginated } = require('../service/scopeVisibilityService')
 const { assertOperationalStoreTenant, resolveRequestedLifecycleStatus } = require('../validation/schemas')
 
 // Store ownership/lifecycle is decided from persisted authorization state
@@ -806,7 +808,10 @@ const batchUpdateModels = async (id, updateFields) => {
 
 // Shared location-detail projection (GET detail + W3 response). Extraction
 // only: the exact fields and semantics built inline by getLocationById.
-const buildLocationDetailData = async (location) => {
+// `includeConfiguration` (read paths only) appends the persisted W3
+// configuration fields; without it the projection is exactly the original
+// one, so the locked W3 PUT response is unchanged.
+const buildLocationDetailData = async (location, { includeConfiguration = false } = {}) => {
   await enrichAuditFields(db, [location])
 
   const regionCodes = []
@@ -835,7 +840,7 @@ const buildLocationDetailData = async (location) => {
   const nameFor = (level, code) =>
     code ? regionNameMap[`${level}:${code}`] || code : null
 
-  return {
+  const data = {
     id: `loc-${String(location.id).padStart(3, '0')}`,
     storeId: `ST-${String(location.id).padStart(3, '0')}`,
     name: location.name,
@@ -878,6 +883,17 @@ const buildLocationDetailData = async (location) => {
     ],
     socialMedia: location.socialMedia || []
   }
+
+  if (includeConfiguration) {
+    // Persisted values as stored; a null parked-cart value means "use the
+    // built-in default" (see the location model), so it is not resolved here.
+    data.description = location.description ?? null
+    data.timezone = location.timezone ?? null
+    data.maxActiveParkedCarts = location.maxActiveParkedCarts ?? null
+    data.parkedCartTtlMinutes = location.parkedCartTtlMinutes ?? null
+  }
+
+  return data
 }
 
 exports.getLocationById = async (req, res) => {
@@ -916,7 +932,7 @@ exports.getLocationById = async (req, res) => {
         .json({ success: false, message: 'Location not found' })
     }
 
-    const data = await buildLocationDetailData(location)
+    const data = await buildLocationDetailData(location, { includeConfiguration: true })
 
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
     return res.status(200).json({ success: true, message: 'Success', data })
@@ -1111,3 +1127,114 @@ exports.updateStoreConfiguration = async (req, res) => {
 }
 
 exports.storeConfigurationScope = storeConfigurationScope
+
+// W3 read follow-up: canonical store-configuration reads. Same admission as
+// the W3 mutation (requireCanonicalPermission('store.manage')) and the same
+// ownership-only scope semantics, so a store is readable here exactly when it
+// is configurable there — except terminal stores, which are readable (only
+// their mutation is 422). Legacy req.storeId is never consulted.
+
+// Mirrors storeConfigurationScope for the path selector: missing, malformed
+// (incl. zero-padded), foreign and tenantless-for-non-platform targets all
+// resolve to the denying scope (uniform 403); an authorized soft-deleted row
+// carries no store pin so the handler answers 404.
+const storeConfigurationReadScope = async (req) => {
+  const match = /^loc-([1-9]\d*)$/.exec(String(req.params?.id ?? ''))
+  if (!match) return storeConfigurationDenyScope()
+  const row = await Location.findByPk(Number(match[1]), {
+    attributes: ['id', 'tenantId', 'deletedAt'],
+    paranoid: false
+  })
+  if (!row) return storeConfigurationDenyScope()
+  if (row.tenantId == null && req.authContext?.isPlatformAdmin !== true) {
+    return storeConfigurationDenyScope()
+  }
+  if (row.deletedAt != null) return { tenantId: row.tenantId }
+  return { tenantId: row.tenantId, storeId: row.id }
+}
+
+// Collection scope for the list: the server-resolved active tenant only
+// (never request input). canAccessResource then admits a tenant actor or a
+// platform actor inside that tenant, and — with no tenant — a platform actor
+// alone; a non-platform actor without an active tenant is denied.
+const storeConfigurationListScope = (req) => ({
+  tenantId: req.authContext?.activeTenantId ?? null
+})
+
+const forbidden = (res) =>
+  res.status(403).json({
+    message: 'Akses Ditolak - Anda tidak memiliki izin',
+    code: 'FORBIDDEN'
+  })
+
+exports.getStoreConfiguration = async (req, res) => {
+  const ctx = req.authContext
+  const dbId = parseInt(String(req.params.id).replace('loc-', ''), 10)
+
+  try {
+    const location = await Location.findByPk(dbId, { paranoid: false })
+    if (!location || location.deletedAt != null) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Location not found.' })
+    }
+
+    // Tenantless rows are platform-only (defense in depth; the permission
+    // gate already denies these for non-platform actors).
+    if (location.tenantId == null && ctx?.isPlatformAdmin !== true) {
+      return forbidden(res)
+    }
+
+    const data = await buildLocationDetailData(location, { includeConfiguration: true })
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    return res.status(200).json({ success: true, message: 'Success', data })
+  } catch (error) {
+    console.error('Error:', error)
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
+  }
+}
+
+// Readable set: with an active tenant (tenant_admin, or a platform actor that
+// selected a tenant) exactly the context's tenant store roster; a platform
+// actor without a tenant reads platform-wide, tenantless rows included.
+// Soft-deleted rows never appear (paranoid default). Pagination follows the
+// T-03B canonical list contract.
+exports.listStoreConfigurations = async (req, res) => {
+  const ctx = req.authContext
+
+  try {
+    let where = {}
+    if (ctx?.activeTenantId != null) {
+      where = { id: (ctx.tenantStoreIds || []).map(Number) }
+    } else if (ctx?.isPlatformAdmin !== true) {
+      return forbidden(res)
+    }
+
+    const paging = pageOf(req.query || {})
+    const { count, rows } = await Location.findAndCountAll({
+      where,
+      order: [['id', 'ASC']],
+      limit: paging.limit,
+      offset: paging.offset
+    })
+
+    const items = []
+    for (const row of rows) {
+      items.push(await buildLocationDetailData(row, { includeConfiguration: true }))
+    }
+
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    return okPage(res, paginated(items, paging, count))
+  } catch (error) {
+    console.error('Error:', error)
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal Server Error' })
+  }
+}
+
+exports.storeConfigurationReadScope = storeConfigurationReadScope
+exports.storeConfigurationListScope = storeConfigurationListScope
