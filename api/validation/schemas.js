@@ -527,6 +527,31 @@ const assertOperationalStoreTenant = (context, storeInput) => {
     )
   }
 
+  // GAP-1 (D1 Alt-3): an already-operational tenantless store is not a valid
+  // permanent product state. A platform request that keeps it operational
+  // without resolving a tenant is rejected here, before the target-tenant
+  // branch, so the persisted-state violation reports STORE_TENANT_REQUIRED
+  // while activation-without-target keeps TARGET_TENANT_REQUIRED.
+  // Requests that resolve the state (first assignment of an approved tenant,
+  // or a transition out of operational status) still pass, as do
+  // non-operational tenantless migration states. Non-platform null-context
+  // actors keep TENANT_SCOPE_REQUIRED below; ownership and terminal rules
+  // below are untouched.
+  const staysOperationalTenantless =
+    context.isPlatformAdmin === true &&
+    wasOperational &&
+    persistedTenantId.value === null &&
+    contextTenantId.value === null &&
+    requestedTenantId.value === null &&
+    (!requestedStatus.provided || requestsOperational)
+  if (staysOperationalTenantless) {
+    return lifecycleRejection(
+      'STORE_TENANT_REQUIRED',
+      'tenantId',
+      'an operational store requires an approved tenant'
+    )
+  }
+
   let tenantId = contextTenantId.value
   if (tenantId === null) {
     if (context.isPlatformAdmin !== true) {

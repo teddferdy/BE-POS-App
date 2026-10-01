@@ -104,6 +104,25 @@ const syncCategoryStores = async (categoryId, storeIds, transaction) => {
   }
 }
 
+// category_store IS the category's tenant boundary, mirroring product's
+// assertProductStoresAssignable. The persisted location.tenantId values
+// decide it — never a caller-supplied store id. Rejects a write that would
+// make a category's assignment set straddle two tenants, mix a
+// still-tenantless migration-state store with an owned one, or reference a
+// store that does not exist, BEFORE any row is written so the caller gets a
+// deterministic 400 instead of a hook-thrown 500.
+const assertCategoryStoresAssignable = async (categoryId, storeIds, transaction) => {
+  if (!(await hasCategoryStoreTable())) return null
+  if (!storeIds.length) return null
+  const result = await db.category_store.assertTenantConsistentAssignment({
+    category: categoryId,
+    storeIds,
+    options: { transaction }
+  })
+  if (result.ok) return null
+  return result
+}
+
 const getCategoryStoreSubQuery = (storeId) => {
   return db.sequelize.literal(
     `EXISTS (SELECT 1 FROM category_store WHERE category = "category".id AND store = ${Number(storeId)} AND "deletedAt" IS NULL)`
@@ -433,6 +452,22 @@ exports.addNewCategory = async (req, res) => {
       parsedStores = authz.stores
     }
 
+    // GAP-3: tenant-consistency pre-check mirrors product's
+    // assertProductStoresAssignable. Store confinement above is unchanged;
+    // this only rejects mixed-tenant / cross-tenant sets with a shaped 400.
+    const createAssignmentError = await assertCategoryStoresAssignable(
+      null,
+      parsedStores
+    )
+    if (createAssignmentError) {
+      return res.status(400).json({
+        success: false,
+        code: createAssignmentError.code,
+        field: 'stores',
+        message: createAssignmentError.message
+      })
+    }
+
     const createdCategory = await Category.create({
       name: body?.name,
       description: body?.description || null,
@@ -601,6 +636,20 @@ exports.editCategoryById = async (req, res) => {
           })
         }
         parsedStores = authz.stores
+      }
+      // GAP-3: same tenant-consistency pre-check as create; the C-2
+      // own-store confinement above is unchanged.
+      const editAssignmentError = await assertCategoryStoresAssignable(
+        Number(req.params.id),
+        parsedStores
+      )
+      if (editAssignmentError) {
+        return res.status(400).json({
+          success: false,
+          code: editAssignmentError.code,
+          field: 'stores',
+          message: editAssignmentError.message
+        })
       }
       await syncCategoryStores(Number(req.params.id), parsedStores)
     }
@@ -985,6 +1034,21 @@ exports.importCategory = async (req, res) => {
       ].includes(storeName.toLowerCase())
       const storeId = isAllStores ? null : storeByName[storeName] || null
 
+      // HIGH-7 (category parity with product import): tenant admin store
+      // boundary during import. A non-super_admin may only import into their
+      // own store; naming a foreign store is rejected exactly like the
+      // product import path instead of resolving tenant-blind.
+      let effectiveImportStoreId = storeId
+      if (req.user?.roleType !== 'super_admin') {
+        const callerStore = Number(req.storeId ?? req.user?.store)
+        if (storeName && !isAllStores && storeId && storeId !== callerStore) {
+          throw new Error(
+            `Anda tidak memiliki izin untuk mengimport kategori ke toko "${storeName}"`
+          )
+        }
+        effectiveImportStoreId = callerStore
+      }
+
       const isActiveCell = row.getCell(5).value
       let status = 'active'
       if (isActiveCell !== null && isActiveCell !== undefined) {
@@ -1007,7 +1071,7 @@ exports.importCategory = async (req, res) => {
       categories.push({
         name: nameStr,
         description,
-        storeId,
+        storeId: effectiveImportStoreId,
         status,
         createdBy: req.user?.id || null
       })

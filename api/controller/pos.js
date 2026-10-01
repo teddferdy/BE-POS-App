@@ -5,6 +5,7 @@ const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { assertDecimalQuantity } = require('../../utils/decimalQuantityGuard')
 const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
+const { IRREVERSIBLE_STORE_STATUSES } = require('../validation/schemas')
 const {
   getConnectionStatus,
   sendDocument,
@@ -147,6 +148,88 @@ const findTransferByIdempotencyKey = (fromStore, idempotencyKey, transaction) =>
     ...(transaction ? { transaction } : {})
   })
 
+// GAP-2: tenant/existence/terminal boundary for stock transfers, shared by
+// send and receive. Both stores are loaded from persistence —
+// Location.tenantId is authoritative; tenant is never inferred from JWT,
+// membership, assignment, product/category junctions, or transfer history.
+// Returns { ok: true, source, destination } or
+// { ok: false, status, code?, message } using existing vocabulary only.
+const assertTransferStoreBoundary = async ({ fromStore, toStore, isPlatformAdmin }) => {
+  const sourceId = Number(fromStore)
+  const destinationId = Number(toStore)
+  const ids = [sourceId, destinationId].filter(
+    (value) => Number.isSafeInteger(value) && value > 0
+  )
+  const stores = await db.location.findAll({
+    where: { id: ids },
+    attributes: ['id', 'tenantId', 'status']
+  })
+  const byId = new Map(stores.map((store) => [Number(store.id), store]))
+  const source = byId.get(sourceId)
+  const destination = byId.get(destinationId)
+  if (!source || !destination) {
+    return { ok: false, status: 404, message: 'Location not found.' }
+  }
+  if (IRREVERSIBLE_STORE_STATUSES.includes(destination.status)) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'STORE_STATUS_IRREVERSIBLE',
+      message: `a ${destination.status} store cannot receive stock transfers`
+    }
+  }
+  const sourceTenant = source.tenantId ?? null
+  const destinationTenant = destination.tenantId ?? null
+  if (isPlatformAdmin) {
+    // Platform lattice: NULL→NULL staging and X→X allowed; mixed and
+    // cross-tenant rejected. No generic cross-tenant bypass.
+    if (sourceTenant === null && destinationTenant === null) {
+      return { ok: true, source, destination }
+    }
+    if (sourceTenant !== null && sourceTenant === destinationTenant) {
+      return { ok: true, source, destination }
+    }
+    if (sourceTenant === null || destinationTenant === null) {
+      return {
+        ok: false,
+        status: 422,
+        code: 'STORE_TENANT_REQUIRED',
+        message: 'stock transfer requires tenant-bound source and destination stores'
+      }
+    }
+    return {
+      ok: false,
+      status: 422,
+      code: 'TENANT_SCOPE_MISMATCH',
+      message: 'stock transfer rejected: source and destination stores belong to different tenants'
+    }
+  }
+  if (sourceTenant === null || destinationTenant === null) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'STORE_TENANT_REQUIRED',
+      message: 'stock transfer requires tenant-bound source and destination stores'
+    }
+  }
+  if (sourceTenant !== destinationTenant) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'TENANT_SCOPE_MISMATCH',
+      message: 'stock transfer rejected: source and destination stores belong to different tenants'
+    }
+  }
+  return { ok: true, source, destination }
+}
+
+const transferBoundaryRejection = (res, boundary) =>
+  res.status(boundary.status).json(
+    boundary.code
+      ? { success: false, code: boundary.code, message: boundary.message }
+      : { success: false, message: boundary.message }
+  )
+
 const posController = {
   // Barcode lookup untuk POS scan
   async lookupBarcode(req, res) {
@@ -270,6 +353,17 @@ const posController = {
             data: existing
           })
         }
+      }
+
+      // GAP-2: tenant/existence/terminal boundary BEFORE any inventory
+      // mutation. A rejected transfer never partially mutates stock.
+      const sendBoundary = await assertTransferStoreBoundary({
+        fromStore,
+        toStore,
+        isPlatformAdmin: req.user?.roleType === 'super_admin'
+      })
+      if (!sendBoundary.ok) {
+        return transferBoundaryRejection(res, sendBoundary)
       }
 
       let result = null
@@ -504,6 +598,19 @@ const posController = {
       }
 
       const { toStore } = existing
+
+      // GAP-2: revalidate ownership at receive time from persistence — the
+      // destination tenant may have changed between send and receive. On
+      // failure the transfer stays 'sent': nothing is credited and no
+      // junction propagation runs.
+      const receiveBoundary = await assertTransferStoreBoundary({
+        fromStore: existing.fromStore,
+        toStore: existing.toStore,
+        isPlatformAdmin: req.user?.roleType === 'super_admin'
+      })
+      if (!receiveBoundary.ok) {
+        return transferBoundaryRejection(res, receiveBoundary)
+      }
 
       let transfer = null
 
