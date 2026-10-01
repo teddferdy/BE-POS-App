@@ -5,6 +5,30 @@ job removed a fake release gate; the real release flow is the Vercel Git
 integration below (`vercel.json` routes everything to the `@vercel/node`
 serverless entry `api/index.js`).
 
+## Production schema verification gate (W-01 — mandatory)
+
+Every production release MUST pass the read-only production-schema verifier
+before it proceeds:
+
+1. Run the verifier against the target production database:
+   `npm run check:production-schema`
+   (connects via the production configuration in `.env.production`; see
+   `scripts/check-production-schema.js`).
+2. The verifier MUST pass (exit `0`). It checks repository migration files
+   against `SequelizeMeta`, honours `db/migration-baseline.txt`, and verifies
+   the November auth/tenant/audit critical schema — all inside a single
+   `SET TRANSACTION READ ONLY` transaction.
+3. If the verifier fails (non-zero exit), the release STOPS. Do not merge,
+   do not deploy, and do not retry with different flags.
+4. The verifier NEVER applies migrations. **VERIFY** (this gate) is strictly
+   read-only; **APPLY MIGRATIONS** (`sequelize-cli db:migrate` against
+   production) remains an explicitly authorized operational action and is
+   never performed silently by the verifier.
+5. After any owner-approved production migration, rerun the verifier and
+   confirm it passes before continuing the release.
+6. Retain the verifier output (stdout/stderr + exit status) as release
+   evidence.
+
 ## Release flow
 
 1. **Push / open a PR** against `master`. CI (`.github/workflows/ci.yml`)
