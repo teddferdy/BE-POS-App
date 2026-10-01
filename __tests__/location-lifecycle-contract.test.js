@@ -161,4 +161,140 @@ describe('PUT /location/edit-location lifecycle contract (HTTP)', () => {
     expect(res.body.code).toBe('STORE_STATUS_IRREVERSIBLE')
     expect(await storedStatus(created.id)).toBe('retired')
   })
+
+  test('config-only edit preserves active store lifecycle state', async () => {
+    const created = await createStore()
+    const published = await editStore({ id: created.id, status: 'active', tenantId: tenant.id })
+    expect(published.status).toBe(200)
+    expect(await storedStatus(created.id)).toBe('active')
+    const renamed = `${created.name}-cfg`
+    const res = await editStore({
+      id: created.id,
+      name: renamed,
+      phoneNumber: '081999999999',
+      timezone: 'Asia/Jakarta'
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe('active')
+    const row = await db.location.findByPk(created.id)
+    expect(row.status).toBe('active')
+    expect(row.tenantId).toBe(tenant.id)
+    expect(row.name).toBe(renamed)
+    expect(row.phoneNumber).toBe('081999999999')
+    expect(row.timezone).toBe('Asia/Jakarta')
+  })
+
+  test('config-only edit does not mutate related model lifecycle state', async () => {
+    const created = await createStore()
+    await editStore({ id: created.id, status: 'active', tenantId: tenant.id })
+    const discount = await db.discount.create({
+      store: created.id,
+      name: `LOCLCC_DISC_${Date.now()}`,
+      type: 'percent',
+      value: 10,
+      status: 'paused'
+    })
+    const table = await db.table.create({
+      store: created.id,
+      name: `LOCLCC_TBL_${Date.now()}`,
+      status: 'occupied'
+    })
+    const res = await editStore({ id: created.id, name: `${created.name}-fanout` })
+    expect(res.status).toBe(200)
+    expect((await db.discount.findByPk(discount.id)).status).toBe('paused')
+    expect((await db.table.findByPk(table.id)).status).toBe('occupied')
+    await db.discount.destroy({ where: { id: discount.id }, force: true })
+    await db.table.destroy({ where: { id: table.id }, force: true })
+  })
+
+  test('Sequelize omits undefined status from generated UPDATE', async () => {
+    const created = await createStore()
+    const seen = []
+    await db.location.update(
+      { name: `${created.name}-sql`, status: undefined },
+      { where: { id: created.id }, logging: (sql) => seen.push(sql) }
+    )
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.join('\n')).not.toMatch(/"status"\s*=/)
+    expect((await db.location.findByPk(created.id)).name).toBe(`${created.name}-sql`)
+  })
+
+  // Direct ORM fixtures mirror the application's max(id)+1 convention
+  // (api/controller/location.js create path): the HTTP path inserts explicit
+  // ids without advancing the sequence, so a bare nextval insert can collide
+  // with an earlier explicit id depending on test order. Computing max+1 here
+  // keeps fixture ids deterministic regardless of order.
+  const nextDirectLocationId = async () =>
+    ((await db.location.max('id', { paranoid: false })) || 0) + 1
+
+  test('platform config-only edit on active tenantless store is rejected', async () => {
+    const row = await db.location.create({
+      id: await nextDirectLocationId(),
+      name: `LOCLCC_TENANTLESS_${Date.now()}`,
+      status: 'active',
+      phoneNumber: '081234567890',
+      email: `loclcc_tl_${Date.now()}@test.com`,
+      createdBy: superAdminUser.id
+    })
+    const res = await editStore({ id: row.id, name: `${row.name}-cfg` })
+    // GAP-1 (D1 Alt-3): keeping an operational tenantless store without
+    // resolving a tenant is rejected. Previously 200 pre-GAP-1.
+    expect(res.status).toBe(422)
+    expect(res.body.code).toBe('STORE_TENANT_REQUIRED')
+    const stored = await db.location.findByPk(row.id)
+    expect(stored.status).toBe('active')
+    expect(stored.tenantId).toBeNull()
+  })
+
+  test('explicit stay-active edit on active tenantless store is rejected', async () => {
+    const row = await db.location.create({
+      id: await nextDirectLocationId(),
+      name: `LOCLCC_STAYACTIVE_${Date.now()}`,
+      status: 'active',
+      phoneNumber: '081234567890',
+      email: `loclcc_sa_${Date.now()}@test.com`,
+      createdBy: superAdminUser.id
+    })
+    const res = await editStore({ id: row.id, status: 'active' })
+    expect(res.status).toBe(422)
+    expect(res.body.code).toBe('STORE_TENANT_REQUIRED')
+    const stored = await db.location.findByPk(row.id)
+    expect(stored.status).toBe('active')
+    expect(stored.tenantId).toBeNull()
+  })
+
+  test('first assignment publishes tenantless draft to active owned store', async () => {
+    const created = await createStore()
+    const res = await editStore({ id: created.id, status: 'active', tenantId: tenant.id })
+    expect(res.status).toBe(200)
+    const stored = await db.location.findByPk(created.id)
+    expect(stored.status).toBe('active')
+    expect(stored.tenantId).toBe(tenant.id)
+  })
+
+  test('deactivation-out of active tenantless store is allowed', async () => {
+    const row = await db.location.create({
+      id: await nextDirectLocationId(),
+      name: `LOCLCC_DEACT_${Date.now()}`,
+      status: 'active',
+      phoneNumber: '081234567890',
+      email: `loclcc_da_${Date.now()}@test.com`,
+      createdBy: superAdminUser.id
+    })
+    const res = await editStore({ id: row.id, status: 'inactive' })
+    expect(res.status).toBe(200)
+    const stored = await db.location.findByPk(row.id)
+    expect(stored.status).toBe('inactive')
+    expect(stored.tenantId).toBeNull()
+  })
+
+  test('detach attempt on owned active store preserves ownership', async () => {
+    const created = await createStore()
+    await editStore({ id: created.id, status: 'active', tenantId: tenant.id })
+    const res = await editStore({ id: created.id, name: `${created.name}-detach`, tenantId: null })
+    expect(res.status).toBe(200)
+    const stored = await db.location.findByPk(created.id)
+    expect(stored.status).toBe('active')
+    expect(stored.tenantId).toBe(tenant.id)
+  })
 })

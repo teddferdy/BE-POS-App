@@ -22,6 +22,7 @@ let product = null
 let product2 = null
 let adminTokenA = null
 let adminTokenB = null
+let tenant = null
 
 async function setSourceStock(prod, storeId, qty) {
   await db.product_store_stock.destroy({
@@ -55,8 +56,22 @@ async function sourceStock(prod, storeId) {
 }
 
 beforeAll(async () => {
-  storeA = await db.location.create({ name: `TRID_A_${SUFFIX}`, status: 'active' })
-  storeB = await db.location.create({ name: `TRID_B_${SUFFIX}`, status: 'active' })
+  // K1/K2 (GAP-2): the idempotency cases below send between two stores as
+  // store-bound (non-platform) admins, which the tenant lattice only allows
+  // within one tenant — adminA owns storeA, adminB owns storeB. Both stores
+  // are tenant-bound accordingly; the distinct-actor isolation proven by
+  // TEST 7 is unchanged.
+  tenant = await db.tenant.create({ code: `TRID_TENANT_${SUFFIX}`, name: 'TRID Tenant' })
+  storeA = await db.location.create({
+    name: `TRID_A_${SUFFIX}`,
+    status: 'active',
+    tenantId: tenant.id
+  })
+  storeB = await db.location.create({
+    name: `TRID_B_${SUFFIX}`,
+    status: 'active',
+    tenantId: tenant.id
+  })
   const category = await db.category.create({ name: `TRID_CAT_${SUFFIX}` })
   product = await db.product.create({
     nameProduct: `TRID_P1_${SUFFIX}`,
@@ -120,6 +135,7 @@ afterAll(async () => {
     where: { id: [storeA?.id, storeB?.id].filter(Boolean) },
     force: true
   })
+  await db.tenant.destroy({ where: { id: tenant?.id }, force: true })
 })
 
 describe('Phase 39 Batch 1 — transfer send idempotency + exact decimal qty', () => {
