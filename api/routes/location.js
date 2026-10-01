@@ -106,6 +106,33 @@ router.put(
   locationController.updateStoreConfiguration
 )
 
+// W3 read follow-up - canonical store-configuration reads, admitted exactly
+// like the W3 mutation (store.manage against persisted ownership). No legacy
+// requireRole/validateStoreAccess gate and no req.storeId pinning.
+router.get(
+  '/store-configuration',
+  authorization,
+  authorizationContextMiddleware,
+  (req, res, next) =>
+    requireCanonicalPermission(
+      'store.manage',
+      locationController.storeConfigurationListScope
+    )(req, res, next),
+  locationController.listStoreConfigurations
+)
+
+router.get(
+  '/store-configuration/:id',
+  authorization,
+  authorizationContextMiddleware,
+  (req, res, next) =>
+    requireCanonicalPermission(
+      'store.manage',
+      locationController.storeConfigurationReadScope
+    )(req, res, next),
+  locationController.getStoreConfiguration
+)
+
 // Delete location - Super Admin only
 router.delete(
   '/delete-location',
