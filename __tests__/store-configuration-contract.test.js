@@ -32,7 +32,11 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY || 'secret-key-user'
 //   (closed/retired/quarantined) are 422; soft-deleted rows are 404.
 
 const stamp = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+// W3 selector format is unpadded (^loc-[1-9]\d*$); the shared detail projector
+// zero-pads displayed identity to 3 digits. Keep both forms explicit.
 const locId = (id) => `loc-${id}`
+const projectedId = (id) => `loc-${String(id).padStart(3, '0')}`
+const projectedStoreId = (id) => `ST-${String(id).padStart(3, '0')}`
 
 const nextLocationId = async () => {
   const [rows] = await db.sequelize.query("SELECT nextval('location_id_seq') AS id")
@@ -372,8 +376,8 @@ describe('W3 explicit allowlist', () => {
   test('selector id is lookup-only: response identity matches the row', async () => {
     const res = await put(platformToken, { id: locId(storeA1.id), managerName: 'W3 Identity' })
     expect(res.status).toBe(200)
-    expect(res.body.data.id).toBe(locId(storeA1.id))
-    expect(res.body.data.storeId).toBe(`ST-${storeA1.id}`)
+    expect(res.body.data.id).toBe(projectedId(storeA1.id))
+    expect(res.body.data.storeId).toBe(projectedStoreId(storeA1.id))
     const row = await db.location.findByPk(storeA1.id)
     expect(row.id).toBe(storeA1.id)
   })
