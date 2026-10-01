@@ -804,6 +804,82 @@ const batchUpdateModels = async (id, updateFields) => {
   }
 }
 
+// Shared location-detail projection (GET detail + W3 response). Extraction
+// only: the exact fields and semantics built inline by getLocationById.
+const buildLocationDetailData = async (location) => {
+  await enrichAuditFields(db, [location])
+
+  const regionCodes = []
+  if (location.province) regionCodes.push(['province', location.province])
+  if (location.city) regionCodes.push(['city', location.city])
+  if (location.district) regionCodes.push(['district', location.district])
+  if (location.village) regionCodes.push(['village', location.village])
+
+  const regionNameMap = {}
+  if (regionCodes.length) {
+    try {
+      const regions = await Region.findAll({
+        where: {
+          [Op.or]: regionCodes.map(([level, code]) => ({ level, code }))
+        },
+        attributes: ['level', 'code', 'name'],
+        raw: true
+      })
+      for (const r of regions) {
+        regionNameMap[`${r.level}:${r.code}`] = r.name
+      }
+    } catch {
+      // region table may not exist yet — fall back to raw codes
+    }
+  }
+  const nameFor = (level, code) =>
+    code ? regionNameMap[`${level}:${code}`] || code : null
+
+  return {
+    id: `loc-${String(location.id).padStart(3, '0')}`,
+    storeId: `ST-${String(location.id).padStart(3, '0')}`,
+    name: location.name,
+    address: location.address,
+    detailLocation: location.detailLocation,
+    phoneNumber: location.phoneNumber,
+    email: location.email,
+    image: location.image,
+    isActive: location.status === 'active',
+    status: location.status,
+    city: location.city,
+    cityName: nameFor('city', location.city),
+    province: location.province,
+    provinceName: nameFor('province', location.province),
+    district: location.district,
+    districtName: nameFor('district', location.district),
+    village: location.village,
+    villageName: nameFor('village', location.village),
+    postalCode: location.postalCode,
+    category: location.category || 'Main Branch',
+    managerName: location.managerName,
+    latitude: location.latitude,
+    longitude: location.longitude,
+    mainBranch: location.mainBranch,
+    dailyTarget: location.dailyTarget,
+    createdAt: location.createdAt,
+    updatedAt: location.updatedAt,
+    createdBy: location.createdBy,
+    createdByUser: location.dataValues?.createdByUser || null,
+    modifiedBy: location.modifiedBy,
+    modifiedByUser: location.dataValues?.modifiedByUser || null,
+    openingHours: normalizeOpeningHours(location.openingHours) || [
+      { day: 'Monday', open: null, close: null, is24Hours: false },
+      { day: 'Tuesday', open: null, close: null, is24Hours: false },
+      { day: 'Wednesday', open: null, close: null, is24Hours: false },
+      { day: 'Thursday', open: null, close: null, is24Hours: false },
+      { day: 'Friday', open: null, close: null, is24Hours: false },
+      { day: 'Saturday', open: null, close: null, is24Hours: false },
+      { day: 'Sunday', open: null, close: null, is24Hours: false }
+    ],
+    socialMedia: location.socialMedia || []
+  }
+}
+
 exports.getLocationById = async (req, res) => {
   const { locationId } = req.params
 
@@ -840,77 +916,7 @@ exports.getLocationById = async (req, res) => {
         .json({ success: false, message: 'Location not found' })
     }
 
-    await enrichAuditFields(db, [location])
-
-    const regionCodes = []
-    if (location.province) regionCodes.push(['province', location.province])
-    if (location.city) regionCodes.push(['city', location.city])
-    if (location.district) regionCodes.push(['district', location.district])
-    if (location.village) regionCodes.push(['village', location.village])
-
-    const regionNameMap = {}
-    if (regionCodes.length) {
-      try {
-        const regions = await Region.findAll({
-          where: {
-            [Op.or]: regionCodes.map(([level, code]) => ({ level, code }))
-          },
-          attributes: ['level', 'code', 'name'],
-          raw: true
-        })
-        for (const r of regions) {
-          regionNameMap[`${r.level}:${r.code}`] = r.name
-        }
-      } catch {
-        // region table may not exist yet — fall back to raw codes
-      }
-    }
-    const nameFor = (level, code) =>
-      code ? regionNameMap[`${level}:${code}`] || code : null
-
-    const data = {
-      id: `loc-${String(location.id).padStart(3, '0')}`,
-      storeId: `ST-${String(location.id).padStart(3, '0')}`,
-      name: location.name,
-      address: location.address,
-      detailLocation: location.detailLocation,
-      phoneNumber: location.phoneNumber,
-      email: location.email,
-      image: location.image,
-      isActive: location.status === 'active',
-      status: location.status,
-      city: location.city,
-      cityName: nameFor('city', location.city),
-      province: location.province,
-      provinceName: nameFor('province', location.province),
-      district: location.district,
-      districtName: nameFor('district', location.district),
-      village: location.village,
-      villageName: nameFor('village', location.village),
-      postalCode: location.postalCode,
-      category: location.category || 'Main Branch',
-      managerName: location.managerName,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      mainBranch: location.mainBranch,
-      dailyTarget: location.dailyTarget,
-      createdAt: location.createdAt,
-      updatedAt: location.updatedAt,
-      createdBy: location.createdBy,
-      createdByUser: location.dataValues?.createdByUser || null,
-      modifiedBy: location.modifiedBy,
-      modifiedByUser: location.dataValues?.modifiedByUser || null,
-      openingHours: normalizeOpeningHours(location.openingHours) || [
-        { day: 'Monday', open: null, close: null, is24Hours: false },
-        { day: 'Tuesday', open: null, close: null, is24Hours: false },
-        { day: 'Wednesday', open: null, close: null, is24Hours: false },
-        { day: 'Thursday', open: null, close: null, is24Hours: false },
-        { day: 'Friday', open: null, close: null, is24Hours: false },
-        { day: 'Saturday', open: null, close: null, is24Hours: false },
-        { day: 'Sunday', open: null, close: null, is24Hours: false }
-      ],
-      socialMedia: location.socialMedia || []
-    }
+    const data = await buildLocationDetailData(location)
 
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
     return res.status(200).json({ success: true, message: 'Success', data })
@@ -921,3 +927,187 @@ exports.getLocationById = async (req, res) => {
       .json({ success: false, message: 'Internal Server Error' })
   }
 }
+
+// W3 store-configuration scope resolver for requireCanonicalPermission.
+// Loads the persisted target row (including soft-deleted, so the handler
+// itself can answer 404) and returns ONLY its ownership as scope — never
+// request input as authority. Missing/malformed selectors resolve to a
+// denying scope, so absent, foreign and malformed targets are uniformly
+// 403 (no existence revelation). Tenantless rows stay platform-only.
+const storeConfigurationDenyScope = () => ({
+  tenantId: 'w3-missing',
+  storeId: 'w3-missing'
+})
+
+const storeConfigurationScope = async (req) => {
+  let raw = req.body?.id
+  if (raw == null && typeof req.body?.data === 'string') {
+    try {
+      raw = JSON.parse(req.body.data)?.id
+    } catch {
+      raw = null
+    }
+  }
+  const match = /^loc-([1-9]\d*)$/.exec(String(raw ?? ''))
+  if (!match) return storeConfigurationDenyScope()
+  const row = await Location.findByPk(Number(match[1]), {
+    attributes: ['id', 'tenantId', 'deletedAt'],
+    paranoid: false
+  })
+  if (!row) return storeConfigurationDenyScope()
+  if (row.tenantId == null && req.authContext?.isPlatformAdmin !== true) {
+    return storeConfigurationDenyScope()
+  }
+  // A soft-deleted row carries no store pin: the permission gate passes for
+  // an otherwise-authorized actor and the handler below answers 404, so
+  // own-deleted rows 404 while foreign-deleted rows stay uniformly 403.
+  if (row.deletedAt != null) return { tenantId: row.tenantId }
+  return { tenantId: row.tenantId, storeId: row.id }
+}
+
+// W3 store configuration: explicit allowlist only. The persistence object
+// below names every written column; there is no ...rest. Lifecycle (status)
+// and ownership (id, store, tenantId) are untouched by construction: the
+// schema rejects those keys before this handler runs.
+const W3_TERMINAL_STORE_STATUSES = Object.freeze([
+  'closed',
+  'retired',
+  'quarantined'
+])
+
+const W3_CONFIG_FIELDS = Object.freeze([
+  'name',
+  'phoneNumber',
+  'email',
+  'address',
+  'detailLocation',
+  'province',
+  'city',
+  'district',
+  'village',
+  'postalCode',
+  'description',
+  'category',
+  'managerName',
+  'latitude',
+  'longitude',
+  'socialMedia',
+  'timezone',
+  'mainBranch',
+  'dailyTarget',
+  'maxActiveParkedCarts',
+  'parkedCartTtlMinutes'
+])
+
+exports.updateStoreConfiguration = async (req, res) => {
+  const ctx = req.authContext
+  const dbId = parseInt(String(req.body?.id).replace('loc-', ''), 10)
+
+  try {
+    const location = await Location.findByPk(dbId, { paranoid: false })
+    if (!location || location.deletedAt != null) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Location not found.' })
+    }
+
+    // W3 terminal policy (locked): configuration edits are blocked on
+    // closed/retired/quarantined stores.
+    if (W3_TERMINAL_STORE_STATUSES.includes(location.status)) {
+      return res.status(422).json({
+        success: false,
+        code: 'STORE_STATUS_IRREVERSIBLE',
+        field: 'currentStatus',
+        message: `${location.status} stores cannot be reconfigured by request`
+      })
+    }
+
+    // Tenantless rows are platform-only (defense in depth; the permission
+    // gate already denies these for non-platform actors).
+    if (location.tenantId == null && ctx?.isPlatformAdmin !== true) {
+      return res.status(403).json({
+        message: 'Akses Ditolak - Anda tidak memiliki izin',
+        code: 'FORBIDDEN'
+      })
+    }
+
+    const before = { ...location.dataValues }
+    const updates = {}
+    for (const field of W3_CONFIG_FIELDS) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field]
+    }
+
+    // Only touch openingHours when the caller actually sent it — omitting
+    // it must leave the stored schedule untouched.
+    if (req.body.openingHours !== undefined) {
+      updates.openingHours = normalizeOpeningHours(req.body.openingHours)
+    }
+
+    // Image: an uploaded file wins (existing Cloudinary flow); otherwise an
+    // explicit body image value (URL or null-clear) is honored; otherwise
+    // the stored image is retained.
+    if (req.file) {
+      const { url } = await uploadToCloudinaryWithDedup(
+        req.file.path,
+        'pos-app-locations'
+      )
+      const duplicate = await Location.findOne({
+        where: { image: url, id: { [Op.ne]: dbId } }
+      })
+      if (duplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'Gambar sudah digunakan oleh lokasi lain'
+        })
+      }
+      if (location.image && location.image !== url) {
+        await deleteFromCloudinary(location.image)
+      }
+      updates.image = url
+    } else if (req.body.image !== undefined) {
+      updates.image = req.body.image
+    }
+
+    if (Object.keys(updates).length > 0) {
+      updates.modifiedBy = req.user?.id
+      await Location.update(updates, { where: { id: dbId } })
+    }
+
+    const fresh = await Location.findByPk(dbId)
+    const data = await buildLocationDetailData(fresh)
+
+    if (Object.keys(updates).length > 0) {
+      createNotification({
+        type: 'location_updated',
+        store: dbId,
+        referenceId: dbId,
+        referenceType: 'location',
+        params: [fresh.name],
+        createdBy: req.user?.fullName || 'System'
+      }).catch(console.error)
+      createAudit(
+        req,
+        'update',
+        'location',
+        dbId,
+        `Updated store configuration: ${fresh.name}`,
+        before,
+        updates
+      )
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Store configuration updated successfully.',
+      data
+    })
+  } catch (error) {
+    console.error('Error:', error)
+    const message = error.http_code
+      ? `Gagal upload gambar: ${error.message}`
+      : error.message || 'Internal server error'
+    return res.status(500).json({ success: false, message })
+  }
+}
+
+exports.storeConfigurationScope = storeConfigurationScope

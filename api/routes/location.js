@@ -2,12 +2,16 @@ const express = require('express')
 const router = express.Router()
 const locationController = require('../controller/location')
 const authorization = require('../../utils/authorization')
-const { requireRole } = require('../../utils/authorization')
+const { requireRole, requireCanonicalPermission } = require('../../utils/authorization')
 const { validateStoreAccess } = require('../../utils/storeValidation')
+const {
+  authorizationContextMiddleware
+} = require('../../utils/authorizationContextMiddleware')
 const { validate } = require('../middleware/validate')
 const {
   createLocationSchema,
-  updateLocationSchema
+  updateLocationSchema,
+  storeConfigurationSchema
 } = require('../validation/schemas')
 const fs = require('fs')
 const multer = require('multer')
@@ -81,6 +85,25 @@ router.put(
   upload,
   validate(updateLocationSchema),
   locationController.editLocationById
+)
+
+// W3 store configuration - canonical tenant/store scope only. No legacy
+// requireRole/validateStoreAccess gate: admission is decided by
+// requireCanonicalPermission('store.manage') against the persisted target
+// row. upload precedes the permission gate so multipart bodies are parsed
+// for scope resolution; no mutation occurs before the gate.
+router.put(
+  '/store-configuration',
+  authorization,
+  authorizationContextMiddleware,
+  upload,
+  (req, res, next) =>
+    requireCanonicalPermission(
+      'store.manage',
+      locationController.storeConfigurationScope
+    )(req, res, next),
+  validate(storeConfigurationSchema),
+  locationController.updateStoreConfiguration
 )
 
 // Delete location - Super Admin only
