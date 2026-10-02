@@ -325,7 +325,7 @@ describe('W-01 production schema verifier', () => {
       expect(joined).toMatch(/controlled apply still pending \(3\)/)
     })
 
-    test('repository manifest, approved + fully stamped + controlled applies done → BLOCKED on exactly the 5 business decisions', () => {
+    test('repository manifest, approved + fully stamped + controlled applies done → BLOCKED on exactly the 3 remaining business decisions (D-05 resolved)', () => {
       const files = verifier.discoverMigrationFiles()
       const { manifest } = dispositions.readDispositionManifest()
       const simulated = {
@@ -350,9 +350,7 @@ describe('W-01 production schema verifier', () => {
       expect(result.blocked.map((b) => b.migration).sort()).toEqual([
         '20260616000002-fix-tax-config-audit-fields-type.js',
         '20260618000004-create-super-admin-users.js',
-        '20260620000004-add-unique-constraints-to-member.js',
-        '20260620000005-create-dev-user.js',
-        '20260913000001-member-name-store-scoped-uniqueness.js'
+        '20260620000005-create-dev-user.js'
       ])
     })
 

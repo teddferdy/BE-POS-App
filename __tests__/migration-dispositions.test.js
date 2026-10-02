@@ -152,17 +152,18 @@ describe('W-01.1 repository production manifest (locked W-02R.3R matrix v2)', ()
     expect(r.names).toHaveLength(197)
   })
 
-  test('disposition counts match the locked matrix (E1 177 + E3 5 + E4 6 + E5 4 + E6 5)', () => {
+  test('disposition counts match the locked matrix (E1 177 + E3 5 + E4 6 + E5 4 + E6 5, D-05 resolved)', () => {
     expect(r.byDisposition).toEqual({
       ATTESTED_PRESENT: 179, // 177 E1 + 2 E3 whose missing half is superseded
       CONTROLLED_APPLY_PENDING: 3, // 3 E3 needing a controlled apply
       EXCLUDED_UNSAFE: 6, // E4
       EXCLUDED_SUPERSEDED: 4, // E5
-      BLOCKED_DECISION: 5 // E6
+      BLOCKED_DECISION: 3, // E6 minus the 2 D-05 rows resolved to EXCLUDED_BY_DECISION
+      EXCLUDED_BY_DECISION: 2 // D-05: 20260620000004 + 20260913000001 superseded by the product-grade D-05 migration
     })
   })
 
-  test('the 12 E2 migrations are intentionally absent (they run through the runner)', () => {
+  test('the 13 E2 migrations are intentionally absent (they run through the runner)', () => {
     const e2 = [
       '20260613000003-insert-default-roles.js',
       '20260810000002-add-goods-request-menu-access.js',
@@ -175,7 +176,8 @@ describe('W-01.1 repository production manifest (locked W-02R.3R matrix v2)', ()
       '20261004000001-stock-opname-decimal.js',
       '20261006000001-stock-transfer-idempotency-decimal.js',
       '20261007000001-add-dr20-foundation-fields-to-audit-log.js',
-      '20261011000001-add-reactivated-at-to-tenant-membership.js'
+      '20261011000001-add-reactivated-at-to-tenant-membership.js',
+      '20261012000001-d05-member-identity-uniqueness.js'
     ]
     for (const name of e2) {
       expect(FILES).toContain(name)

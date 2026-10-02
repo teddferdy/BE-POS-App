@@ -6,6 +6,7 @@ const { assertDecimalQuantity } = require('../../utils/decimalQuantityGuard')
 const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
 const { IRREVERSIBLE_STORE_STATUSES } = require('../validation/schemas')
+const { canonicalPhone } = require('../../utils/memberIdentity')
 const {
   getConnectionStatus,
   sendDocument,
@@ -3091,9 +3092,20 @@ order: [['updatedAt', 'DESC']],
 
       // Look up member points
       let memberInfo = null
+      // D-05: identity comparison is canonical E.164 on both sides.
+      // order.customerPhone stays historical/raw (never rewritten); an
+      // unparseable historical value (including GUEST-*) never joins.
+      let canonicalCustomerPhone = null
       if (order.customerPhone) {
+        try {
+          canonicalCustomerPhone = canonicalPhone(order.customerPhone)
+        } catch {
+          canonicalCustomerPhone = null
+        }
+      }
+      if (canonicalCustomerPhone) {
         const member = await db.member.findOne({
-          where: { phoneNumber: order.customerPhone, store: order.store }
+          where: { phoneNumber: canonicalCustomerPhone, store: order.store }
         })
         if (member && member.totalPoints > 0) {
           let tierName = null

@@ -35,7 +35,8 @@ const KNOWN_E2 = [
   '20261004000001-stock-opname-decimal.js',
   '20261006000001-stock-transfer-idempotency-decimal.js',
   '20261007000001-add-dr20-foundation-fields-to-audit-log.js',
-  '20261011000001-add-reactivated-at-to-tenant-membership.js'
+  '20261011000001-add-reactivated-at-to-tenant-membership.js',
+  '20261012000001-d05-member-identity-uniqueness.js'
 ]
 
 describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
@@ -60,7 +61,7 @@ describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
     expect(production.environment).toBe('production')
   })
 
-  test('derived E2 set equals the locked 12 and partitions 235 = 197 + 26 + 12', () => {
+  test('derived E2 set equals the locked 13 and partitions 236 = 197 + 26 + 13', () => {
     const staging = STAGING_MANIFEST()
     const ledger = harness.fixtureLedgerNames(FILES)
     expect(ledger).toHaveLength(26)
@@ -121,7 +122,7 @@ describe('W-02R.4 target isolation (no database)', () => {
     const metaNames = [...FILES]
     const strict = preflight.evaluatePreflight({ env: 'staging', targetHost: '127.0.0.1', dispositions: staging, files: FILES, metaNames })
     expect(strict.ok).toBe(false)
-    expect(strict.blocked).toHaveLength(5)
+    expect(strict.blocked).toHaveLength(3)
     const applied = {
       ...staging,
       migrations: staging.migrations.map((r) =>
@@ -137,7 +138,7 @@ describe('W-02R.4 target isolation (no database)', () => {
       isolateBlockedDecisions: true
     })
     expect(gate.ok).toBe(true)
-    expect(gate.blocked).toHaveLength(5)
+    expect(gate.blocked).toHaveLength(3)
   })
 
   test('preflight selects the manifest strictly by environment', () => {
@@ -449,14 +450,22 @@ describe('W-02R.4 full rehearsal integration (disposable database)', () => {
     expect(ev.result).toBe('rehearsal-pass-blocked')
     expect(ev.target).toBe('staging')
     expect(ev.stagingDb).toBe(DB)
-    expect(ev.steps.plan.e2Candidates).toHaveLength(12)
+    expect(ev.steps.plan.e2Candidates).toHaveLength(13)
     expect(ev.steps.stamp.inserted).toHaveLength(197)
-    expect(ev.steps.e2.executed).toHaveLength(12)
+    expect(ev.steps.e2.executed).toHaveLength(13)
     expect(ev.steps.e2.missingAfterRun).toEqual([])
-    expect(ev.steps.verify.metaCount).toBe(235)
+    // D-05: the snapshot's target indexes are dropped before E2 (production
+    // has member_pkey only), so the D-05 migration genuinely creates them.
+    expect(ev.steps.fixture.driftDownD05Indexes.sort()).toEqual([...harness.D05_MEMBER_INDEXES].sort())
+    expect(ev.steps.e2.executed).toContainEqual(
+      expect.objectContaining({ migration: '20261012000001-d05-member-identity-uniqueness.js', status: 0 })
+    )
+    expect(ev.steps.d05Indexes.present.sort()).toEqual([...harness.D05_MEMBER_INDEXES].sort())
+    expect(ev.steps.d05Indexes.missing).toEqual([])
+    expect(ev.steps.verify.metaCount).toBe(236)
     expect(ev.steps.verify.failures).toEqual([])
     expect(ev.steps.verify.status).toBe('BLOCKED')
-    expect(ev.steps.verify.blocked).toHaveLength(5)
+    expect(ev.steps.verify.blocked).toHaveLength(3)
     expect(ev.steps.verify.data.splitBillNullStatus).toBe(0)
     expect(ev.steps.verify.data.metaDuplicates).toBe(0)
     expect(ev.steps.verify.data.metaOrphans).toEqual([])

@@ -26,6 +26,22 @@ const DB_PASS = process.env.DB_DEV_PASSWORD
 const SRC_DB = process.env.DB_DEV_DATABASE || 'cashier_app'
 const TEST_DB = process.env.DB_TEST_DATABASE || 'cashier_app_test'
 
+// D-05: the four product-grade member uniqueness indexes (migration
+// 20261012000001) and the obsolete historical constraints they replace
+// (20260620000004 raw global uniques; 20260913000001 C13 composite).
+const D05_MEMBER_INDEXES = [
+  'uq_member_store_name_ci',
+  'uq_member_global_name_ci',
+  'uq_member_phone_e164',
+  'uq_member_email_ci'
+]
+const D05_OBSOLETE_MEMBER_CONSTRAINTS = [
+  'uq_member_name',
+  'uq_member_phoneNumber',
+  'uq_member_email',
+  'uq_member_store_name'
+]
+
 const run = (cmd, args, opts = {}) => {
   const res = spawnSync(cmd, args, {
     env: { ...process.env, PGPASSWORD: DB_PASS },
@@ -95,41 +111,48 @@ module.exports = async () => {
     })
   }
 
-  // 3. Ensure store-scoped member constraints exist even when dev-schema.sql is stale.
-  // CI clones the dev DB from a committed dev-schema.sql snapshot; if that snapshot
-  // predates C13 (20260913000001), the test DB would otherwise miss uq_member_store_name
-  // and uq_member_global_name, causing the DB-level C13 test to pass locally (where the
-  // developer's test DB was already migrated) but fail in a fresh CI clone.
-  // The explicit SQL below idempotently guarantees the two C13 objects.
-  // The old global constraint uq_member_name (20260620000004) is removed if present to
-  // match the migration's intended final state; the new composite and partial index are
-  // created if missing. All statements are guarded so re-runs are safe.
-  try {
+  // 3. D-05 product-grade member identity objects. CI clones the dev DB from
+  // a committed dev-schema.sql snapshot; the explicit SQL below idempotently
+  // guarantees the four D-05 target objects regardless of snapshot age.
+  // Obsolete predecessors (global uq_member_name/phoneNumber/email from
+  // 20260620000004; composite uq_member_store_name and partial
+  // uq_member_global_name from C13/20260913000001) are removed if present so
+  // the test DB never enforces stale raw/global semantics alongside the new
+  // canonical objects. All statements are guarded so re-runs are safe, and
+  // none of them swallows errors: a D-05 object that cannot be provisioned
+  // fails setup loudly (step 3c re-verifies the result from the catalogs).
+  // Leftover member rows from a previous run are cleared first (step 4
+  // truncates every table anyway) so stale fixtures can never block the
+  // unique index builds.
+  run('psql', [
+    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+    '-c', 'TRUNCATE TABLE "member" CASCADE'
+  ])
+  for (const obsolete of D05_OBSOLETE_MEMBER_CONSTRAINTS) {
     run('psql', [
       '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
       '-c', `DO $$ BEGIN
-        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_member_name' AND conrelid = 'public.member'::regclass) THEN
-          ALTER TABLE "member" DROP CONSTRAINT uq_member_name;
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${obsolete}' AND conrelid = 'public.member'::regclass) THEN
+          ALTER TABLE "member" DROP CONSTRAINT "${obsolete}";
         END IF;
-      EXCEPTION WHEN OTHERS THEN NULL; END $$;`
+      END $$;`
     ])
-  } catch {}
-  try {
+  }
+  run('psql', [
+    '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+    '-c', `DROP INDEX IF EXISTS uq_member_global_name`
+  ])
+  for (const ddl of [
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_member_store_name_ci ON "member" (store, (LOWER(TRIM(name)))) WHERE store IS NOT NULL AND "deletedAt" IS NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_member_global_name_ci ON "member" ((LOWER(TRIM(name)))) WHERE store IS NULL AND "deletedAt" IS NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_member_phone_e164 ON "member" ("phoneNumber") WHERE "deletedAt" IS NULL AND "phoneNumber" NOT LIKE 'GUEST-%'`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_member_email_ci ON "member" ((LOWER(TRIM(email)))) WHERE "deletedAt" IS NULL AND email IS NOT NULL`
+  ]) {
     run('psql', [
       '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
-      '-c', `DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_member_store_name' AND conrelid = 'public.member'::regclass) THEN
-          ALTER TABLE "member" ADD CONSTRAINT uq_member_store_name UNIQUE (store, name);
-        END IF;
-      EXCEPTION WHEN duplicate_table THEN NULL; WHEN duplicate_object THEN NULL; WHEN OTHERS THEN NULL; END $$;`
+      '-c', ddl
     ])
-  } catch {}
-  try {
-    run('psql', [
-      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
-      '-c', `CREATE UNIQUE INDEX IF NOT EXISTS uq_member_global_name ON "member" (name) WHERE store IS NULL`
-    ])
-  } catch {}
+  }
 
   // 3b. Phase 33 R-4: explicitly provision every schema object previously
   // owned only by the runtime afterConnect auto-patch (db/models/index.js),
@@ -256,8 +279,8 @@ module.exports = async () => {
     ['product_review', 'deviceId', 'VARCHAR(64)'],
     // goods_receipt.idempotencyKey is migration-owned (20261001000003) but the
     // committed dev-schema.sql snapshot predates that migration for this table,
-    // so a fresh CI clone is missing it. Following the C13 precedent
-    // (uq_member_store_name/global above), provision it idempotently here and
+    // so a fresh CI clone is missing it. Following the member-uniqueness
+    // precedent (step 3 above, now the D-05 indexes), provision it idempotently here and
     // include it in the catalog contract so the post-R-5 test DB stays
     // self-sufficient without the retired runtime auto-patch.
     ['goods_receipt', 'idempotencyKey', 'VARCHAR(255)'],
@@ -515,6 +538,25 @@ module.exports = async () => {
     ]).trim()
     if (c !== '1') missingIndexes.push(idx)
   }
+  // D-05 member identity indexes (migration 20261012000001): present, and
+  // every obsolete predecessor absent (no stale raw/global enforcement).
+  for (const idx of D05_MEMBER_INDEXES) {
+    const c = run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-t', '-A', '-c',
+      `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'member' AND indexname = '${idx}'`
+    ]).trim()
+    if (c !== '1') missingIndexes.push(idx)
+  }
+  const obsoleteObjects = []
+  for (const name of [...D05_OBSOLETE_MEMBER_CONSTRAINTS, 'uq_member_global_name']) {
+    const c = run('psql', [
+      '-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, '-d', TEST_DB,
+      '-t', '-A', '-c',
+      `SELECT (SELECT count(*) FROM pg_constraint WHERE conname = '${name}' AND conrelid = 'public.member'::regclass) + (SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = '${name}')`
+    ]).trim()
+    if (c !== '0') obsoleteObjects.push(name)
+  }
   const wrongTypes = []
   for (const [table, column] of R4_TYPE_CHANGES.map(([t, c]) => [t, c])) {
     const out = run('psql', [
@@ -524,7 +566,7 @@ module.exports = async () => {
     ]).trim()
     if (out !== 'numeric') wrongTypes.push(`${table}.${column} (${out || 'missing'})`)
   }
-  const problems = [...missingTables.map((t) => `table ${t}`), ...missingColumns.map((c) => `column ${c}`), ...missingIndexes.map((i) => `index ${i}`), ...wrongTypes.map((w) => `type ${w}`)]
+  const problems = [...missingTables.map((t) => `table ${t}`), ...missingColumns.map((c) => `column ${c}`), ...missingIndexes.map((i) => `index ${i}`), ...obsoleteObjects.map((o) => `obsolete member uniqueness object ${o} still present`), ...wrongTypes.map((w) => `type ${w}`)]
   if (problems.length > 0) {
     throw new Error(
       `[setup-test-db] R-4 schema contract FAILED — test DB ${TEST_DB} is missing required schema and must not run tests: ${problems.join(', ')}. ` +
