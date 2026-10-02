@@ -1,4 +1,4 @@
-# Migration disposition manifests (W-01.1)
+# Migration disposition manifests (W-01.1 / W-02R.4)
 
 ## What SequelizeMeta means (D-02, Model D)
 
@@ -94,3 +94,23 @@ A production backup taken **before** stamping restores a ledger without the
 dispositions. The verifier then FAILs ("manifest rows not recorded") and the
 preflight refuses to run migrations. Re-run the stamper (it is idempotent)
 before any migration is executed.
+
+## Staging rehearsal manifest (W-02R.4)
+
+`staging.json` is the rehearsal-only counterpart of `production.json`: same
+schema (`schemaVersion: 1`), same validation rules, same 197-row rehearsal
+contract — but `"environment": "staging"`, its own whole-file approval, and
+its own SHA authorization. It never authorizes production and production
+approval never authorizes staging (the environment-mismatch check fails
+either crossover closed).
+
+- Staging reads only `STAGING_DB_*` variables, never `POSTGRES_*`.
+- Staging stamping uses the same INSERT-only transactional core:
+  `node scripts/apply-migration-dispositions.js --target=staging [--apply
+  --authorize-manifest-sha256=<sha256 of staging.json>]`.
+- The ephemeral rehearsal harness (`scripts/rehearse-staging.js`, see
+  `RELEASING.md`) drives the full lifecycle — disposable database, drift
+  fixture, stamping, controlled applies, E2 runner, verification, evidence,
+  teardown — and never touches production.
+- A successful rehearsal does NOT approve `production.json`, stamp
+  production, or authorize any production migration.

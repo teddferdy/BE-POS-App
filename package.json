@@ -16,6 +16,7 @@
     "guard:force-sync": "node scripts/check-no-force-sync.js",
     "check:production-schema": "node scripts/check-production-schema.js",
     "check:migration-preflight": "node scripts/check-migration-preflight.js",
+    "rehearse:staging": "node scripts/rehearse-staging.js",
     "test": "node scripts/run-tests-sharded.js",
     "test:isolation": "node --experimental-vm-modules node_modules/.bin/jest __tests__/ingredient-isolation.test.js --forceExit --detectOpenHandles"
   },

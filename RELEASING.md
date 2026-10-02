@@ -103,6 +103,50 @@ dispositions. The verifier then FAILs and the preflight refuses, so nothing
 silently passes. Re-run the stamper (it is idempotent) before any migration
 runs, then re-verify.
 
+## Staging rehearsal (W-02R.4 — ephemeral, never production)
+
+Before any production remediation, the migration plan is rehearsed against a
+**disposable local PostgreSQL database**. The rehearsal proves the
+disposition contract converges (stamping, controlled applies, the 12 E2
+runner candidates, final verification) while open business decisions stay
+isolated. A successful rehearsal does NOT approve the production manifest,
+stamp production, authorize production migration, or pass G-02.
+
+### Lifecycle
+
+1. **Approve the staging manifest** (`db/migration-dispositions/staging.json`)
+   in your working copy by setting `approvedBy`/`approvedAt` after review.
+   Production approval is separate and untouched; staging approval never
+   authorizes production.
+2. **Dry run** (no database touched):
+   `node scripts/rehearse-staging.js --staging-db=cashier_app_staging_rehearsal`
+   Validates the manifest, approval state, and 235 = 197 + 26 + 12
+   accounting, then prints the plan.
+3. **Rehearse** (creates, uses, and drops the ephemeral database):
+   ```
+   node scripts/rehearse-staging.js --staging-db=cashier_app_staging_rehearsal --apply \
+     --authorize-manifest-sha256=$(shasum -a 256 db/migration-dispositions/staging.json | cut -d' ' -f1)
+   ```
+   Stages: create → identity guard → baseline → snapshot + synthetic drift
+   fixture → disposition stamping → controlled applies (missing effects
+   only) → 12 E2 through the real runner (timed per migration) →
+   verification → evidence bundle → teardown.
+   The rehearsal database name must match
+   `cashier_app_staging_rehearsal*` on a local host or the harness refuses
+   before any mutation. Staging uses only `STAGING_DB_*` variables; it
+   never reads `POSTGRES_*` or `.env.production`.
+4. **Evidence** is written to `docs/superpowers/evidence/` (no secrets) and
+   the expected terminal state is success-with-decisions-isolated
+   (D-05/D-06/D-08 remain `BLOCKED_DECISION` by design).
+5. Add `--keep-on-failure` to retain a failed rehearsal database for
+   debugging; it is dropped explicitly afterwards, never left behind
+   silently.
+
+Rollback inside rehearsal is restore/teardown-based: controlled index
+operations roll back via `DROP INDEX`, the split_bill `NOT NULL` via
+`DROP NOT NULL`, and table-dropping migration `down()` methods are never
+used as rollback. Teardown (`DROP DATABASE`) is the final boundary.
+
 ## Release flow
 
 1. **Push / open a PR** against `master`. CI (`.github/workflows/ci.yml`)
