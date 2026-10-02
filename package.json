@@ -11,10 +11,11 @@
     "sync:inventory": "node scripts/migrate-inventory.js",
     "reset-data": "node scripts/reset-data.js",
     "seed:regions": "node scripts/seed-regions.js",
-    "migrate": "npx sequelize-cli db:migrate",
-    "migrate:create": "npx sequelize-cli migration:generate",
+    "migrate": "node scripts/run-migrations.js",
+    "migrate:create": "sequelize-cli migration:generate",
     "guard:force-sync": "node scripts/check-no-force-sync.js",
     "check:production-schema": "node scripts/check-production-schema.js",
+    "check:migration-preflight": "node scripts/check-migration-preflight.js",
     "test": "node scripts/run-tests-sharded.js",
     "test:isolation": "node --experimental-vm-modules node_modules/.bin/jest __tests__/ingredient-isolation.test.js --forceExit --detectOpenHandles"
   },
@@ -54,6 +55,7 @@
   "devDependencies": {
     "jest": "^30.4.2",
     "nodemon": "^3.1.3",
+    "sequelize-cli": "6.6.5",
     "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2"
   },

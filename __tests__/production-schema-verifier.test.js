@@ -17,16 +17,39 @@ describe('W-01 production schema verifier', () => {
     verifier = require(VERIFIER_PATH)
   })
 
+  // W-01.1: an approved disposition manifest is a required verifier input.
+  function approvedDispositions(files, rows) {
+    return {
+      schemaVersion: 1,
+      environment: 'production',
+      evidenceCapturedAt: '2026-10-01T17:08:46Z',
+      approvedBy: 'reviewer@example.test',
+      approvedAt: '2026-10-02T00:00:00Z',
+      migrations: rows || [
+        { migration: files[0], disposition: 'ATTESTED_PRESENT', evidenceRef: 'fixture evidence' },
+        { migration: files[1], disposition: 'EXCLUDED_UNSAFE', evidenceRef: 'fixture evidence' }
+      ]
+    }
+  }
+
   function completeState() {
     const files = verifier.discoverMigrationFiles()
     const manifest = verifier.readMigrationManifest()
-    return { files, manifest, metaNames: [...files], schema: verifier.completeTestSchema() }
+    return {
+      files,
+      manifest,
+      metaNames: [...files],
+      schema: verifier.completeTestSchema(),
+      dispositions: approvedDispositions(files)
+    }
   }
 
   test('Test A — pass: schema matching expected migration/critical-column state passes', () => {
     const state = completeState()
     const result = verifier.verifyFromState(state)
     expect(result.ok).toBe(true)
+    expect(result.status).toBe('PASS')
+    expect(result.exitCode).toBe(0)
     expect(result.failures).toEqual([])
   })
 
@@ -42,6 +65,8 @@ describe('W-01 production schema verifier', () => {
     expect(joined).toContain(removed)
     // Non-zero exit mapping: CLI exits 1 when ok === false.
     expect(result.ok ? 0 : 1).toBe(1)
+    expect(result.status).toBe('FAIL')
+    expect(result.exitCode).toBe(1)
   })
 
   test('Test C — missing critical column: verifier detects absent column and fails', () => {
@@ -151,5 +176,213 @@ describe('W-01 production schema verifier', () => {
     for (const col of ['actorType', 'tenantId', 'result', 'requestId', 'reason', 'source', 'metadata']) {
       expect([...state.schema['auditLog']]).toContain(col)
     }
+  })
+
+  describe('W-01.1 disposition contract (PASS / FAIL / BLOCKED)', () => {
+    const dispositions = require('../scripts/migration-dispositions')
+
+    function withRows(state, rows) {
+      return { ...state, dispositions: approvedDispositions(state.files, rows) }
+    }
+
+    test('dispositions are a required input (no silent skip of the manifest)', () => {
+      const { dispositions: _omit, ...state } = completeState()
+      expect(() => verifier.verifyFromState(state)).toThrow(/requires dispositions/)
+    })
+
+    test('BLOCKED: structurally sound with an open decision → exit 2, decision listed, never PASS', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState(
+        withRows(state, [
+          { migration: state.files[0], disposition: 'ATTESTED_PRESENT', evidenceRef: 'e' },
+          { migration: state.files[1], disposition: 'BLOCKED_DECISION', evidenceRef: 'e', decisionRef: 'D-05 test' }
+        ])
+      )
+      expect(result.status).toBe('BLOCKED')
+      expect(result.exitCode).toBe(2)
+      expect(result.ok).toBe(false)
+      expect(result.failures).toEqual([])
+      expect(result.blocked).toEqual([{ migration: state.files[1], decisionRef: 'D-05 test' }])
+    })
+
+    test('FAIL dominates BLOCKED (a structural failure is never reported as BLOCKED)', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState({
+        ...withRows(state, [
+          { migration: state.files[1], disposition: 'BLOCKED_DECISION', evidenceRef: 'e', decisionRef: 'D-05 test' }
+        ]),
+        metaNames: state.metaNames.filter((n) => n !== state.files[2])
+      })
+      expect(result.status).toBe('FAIL')
+      expect(result.exitCode).toBe(1)
+    })
+
+    test('controlled apply pending → FAIL', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState(
+        withRows(state, [{ migration: state.files[0], disposition: 'CONTROLLED_APPLY_PENDING', evidenceRef: 'e' }])
+      )
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/controlled apply still pending/)
+    })
+
+    test('controlled applied (with applyRef) is PASS-eligible', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState(
+        withRows(state, [{ migration: state.files[0], disposition: 'CONTROLLED_APPLIED', evidenceRef: 'e', applyRef: 'apply-record-1' }])
+      )
+      expect(result.status).toBe('PASS')
+    })
+
+    test('manifest row not recorded in SequelizeMeta → FAIL', () => {
+      const state = completeState()
+      const target = state.files[1]
+      const result = verifier.verifyFromState({ ...state, metaNames: state.metaNames.filter((n) => n !== target) })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/disposition manifest rows not recorded in SequelizeMeta \(1\)/)
+    })
+
+    test('unapproved manifest → FAIL (dispositions cannot be asserted without approval)', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState({
+        ...state,
+        dispositions: { ...state.dispositions, approvedBy: null, approvedAt: null }
+      })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/not approved/)
+    })
+
+    test('invalid manifest (unknown migration) → FAIL', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState(
+        withRows(state, [{ migration: '20990101000000-not-a-file.js', disposition: 'ATTESTED_PRESENT', evidenceRef: 'e' }])
+      )
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/unknown migration/)
+    })
+
+    test('malformed manifest JSON (read error) → FAIL', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState({
+        ...state,
+        dispositions: null,
+        dispositionErrors: ['disposition manifest is malformed JSON: Unexpected token']
+      })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/malformed JSON/)
+    })
+
+    test('orphan SequelizeMeta row → FAIL', () => {
+      const state = completeState()
+      const result = verifier.verifyFromState({ ...state, metaNames: [...state.metaNames, '29991231000000-orphan.js'] })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/no migration file/)
+    })
+
+    test('duplicate SequelizeMeta row → FAIL', () => {
+      const state = completeState()
+      const metaNames = [state.metaNames[0], ...state.metaNames]
+      const result = verifier.verifyFromState({ ...state, metaNames })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/duplicate SequelizeMeta entries/)
+    })
+
+    test('SequelizeMeta ordering inconsistency → FAIL', () => {
+      const state = completeState()
+      const metaNames = [...state.metaNames]
+      ;[metaNames[0], metaNames[1]] = [metaNames[1], metaNames[0]]
+      const result = verifier.verifyFromState({ ...state, metaNames })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/ordering/)
+    })
+
+    test('critical schema failure still FAILs with a valid manifest', () => {
+      const state = completeState()
+      const schema = { ...state.schema, auditLog: new Set(['id']) }
+      const result = verifier.verifyFromState({ ...state, schema })
+      expect(result.status).toBe('FAIL')
+      expect(result.failures.join('\n')).toMatch(/auditLog/)
+    })
+
+    test('repository manifest against the W-02 production evidence (26 Meta rows) → FAIL, never PASS', () => {
+      // Restore/pre-stamp semantics: a ledger without the stamped dispositions
+      // must not silently pass. 26 = production SequelizeMeta size recorded by W-02.
+      const files = verifier.discoverMigrationFiles()
+      const { manifest } = dispositions.readDispositionManifest()
+      const prodMeta = files.filter((f) => f < '20260601000000' || /^20261008|^20261009|^20261010/.test(f))
+      expect(prodMeta).toHaveLength(26)
+      const result = verifier.verifyFromState({
+        files,
+        manifest: verifier.readMigrationManifest(),
+        metaNames: prodMeta,
+        schema: verifier.completeTestSchema(),
+        dispositions: manifest
+      })
+      expect(result.status).toBe('FAIL')
+      const joined = result.failures.join('\n')
+      expect(joined).toMatch(/not approved/)
+      expect(joined).toMatch(/disposition manifest rows not recorded in SequelizeMeta \(197\)/)
+      expect(joined).toMatch(/controlled apply still pending \(3\)/)
+    })
+
+    test('repository manifest, approved + fully stamped + controlled applies done → BLOCKED on exactly the 5 business decisions', () => {
+      const files = verifier.discoverMigrationFiles()
+      const { manifest } = dispositions.readDispositionManifest()
+      const simulated = {
+        ...manifest,
+        approvedBy: 'reviewer@example.test',
+        approvedAt: '2026-10-02T00:00:00Z',
+        migrations: manifest.migrations.map((r) =>
+          r.disposition === 'CONTROLLED_APPLY_PENDING'
+            ? { ...r, disposition: 'CONTROLLED_APPLIED', applyRef: 'simulated apply record' }
+            : r
+        )
+      }
+      const result = verifier.verifyFromState({
+        files,
+        manifest: verifier.readMigrationManifest(),
+        metaNames: [...files],
+        schema: verifier.completeTestSchema(),
+        dispositions: simulated
+      })
+      expect(result.status).toBe('BLOCKED')
+      expect(result.exitCode).toBe(2)
+      expect(result.blocked.map((b) => b.migration).sort()).toEqual([
+        '20260616000002-fix-tax-config-audit-fields-type.js',
+        '20260618000004-create-super-admin-users.js',
+        '20260620000004-add-unique-constraints-to-member.js',
+        '20260620000005-create-dev-user.js',
+        '20260913000001-member-name-store-scoped-uniqueness.js'
+      ])
+    })
+
+    test('end to end against the TEST database (read-only): repository manifest → FAIL, exit 1, never PASS', async () => {
+      const db = require('../db/models')
+      const [{ name }] = await db.sequelize.query('SELECT current_database() AS name', { type: db.sequelize.QueryTypes.SELECT })
+      expect(name).toMatch(/_test$/)
+      const result = await verifier.verifyProductionSchema(db.sequelize)
+      expect(result.status).toBe('FAIL')
+      expect(result.exitCode).toBe(1)
+      expect(result.failures.join('\n')).toMatch(/disposition manifest is not approved/)
+    }, 30000)
+
+    test('report wording: recorded state only — never claims the population was executed/applied', () => {
+      const state = completeState()
+      const pass = verifier.formatReport(verifier.verifyFromState(state))
+      const text = [...pass.out, ...pass.err].join('\n')
+      expect(pass.exitCode).toBe(0)
+      expect(text).toMatch(/recorded in SequelizeMeta/)
+      expect(text).toMatch(/execution provenance not asserted for pre-W-01\.1 rows/)
+      expect(text).not.toMatch(/\bexecuted\b/i)
+      expect(text).not.toMatch(/\ball (?:\d+ )?migrations (?:were |have been )?(?:applied|executed)/i)
+
+      const blocked = verifier.formatReport(
+        verifier.verifyFromState(
+          withRows(state, [{ migration: state.files[0], disposition: 'BLOCKED_DECISION', evidenceRef: 'e', decisionRef: 'D-08 test' }])
+        )
+      )
+      expect(blocked.exitCode).toBe(2)
+      expect(blocked.err.join('\n')).toMatch(/BLOCKED[\s\S]*D-08 test/)
+    })
   })
 })

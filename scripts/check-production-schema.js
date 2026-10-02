@@ -18,6 +18,14 @@
  *   4. Verifies November auth/tenant/audit critical schema objects/columns
  *      (user.disabledAt, authorization_context_session, tenant tables,
  *      tenant_membership.reactivatedAt, DR-20 auditLog columns).
+ *   5. (W-01.1) Validates the production disposition manifest
+ *      (db/migration-dispositions/production.json) and relates it to
+ *      SequelizeMeta: every manifest row must be recorded, no controlled apply
+ *      may be pending, and open business decisions surface as BLOCKED.
+ *
+ * SequelizeMeta semantics (D-02, Model D): a recorded name is one the runner
+ * must never execute again. The verifier reports RECORDED state and never
+ * asserts that the recorded population was executed or applied.
  *
  * What it NEVER does (no APPLY):
  *   INSERT, UPDATE, DELETE, ALTER, CREATE, DROP, migrations, or any write to
@@ -26,11 +34,13 @@
  *   BEGIN, so Postgres itself rejects any write with
  *   25006 "cannot execute ... in a read-only transaction".
  *
- * Exit status (CLI): 0 when verification passes, non-zero when it fails.
+ * Exit status (CLI): 0 PASS, 1 FAIL, 2 BLOCKED (structurally sound, but at
+ * least one BLOCKED_DECISION remains — the release STOPs).
  */
 
 const fs = require('fs')
 const path = require('path')
+const dispositionRules = require('./migration-dispositions')
 
 const ROOT = path.join(__dirname, '..')
 const MIGRATIONS_DIR = path.join(ROOT, 'db', 'migrations')
@@ -104,7 +114,7 @@ function compareMigrationState({ files, manifest, metaNames }) {
   const missingInDb = files.filter((f) => !metaNames.includes(f))
   if (missingInDb.length > 0) {
     failures.push(
-      `missing/unapplied migrations (${missingInDb.length}): ${missingInDb.join(', ')}`
+      `repository migrations missing from SequelizeMeta (not recorded) (${missingInDb.length}): ${missingInDb.join(', ')}`
     )
   }
   const orphanInDb = metaNames.filter((m) => !fileSet.has(m))
@@ -153,7 +163,50 @@ function compareSchemaState(schema) {
   return { ok: failures.length === 0, failures }
 }
 
-function verifyFromState({ files, manifest, metaNames, schema }) {
+const STATUS = Object.freeze({ PASS: 'PASS', FAIL: 'FAIL', BLOCKED: 'BLOCKED' })
+const EXIT_CODES = Object.freeze({ PASS: 0, FAIL: 1, BLOCKED: 2 })
+
+// W-01.1: relates the production disposition manifest to SequelizeMeta.
+// `dispositions` is the parsed manifest object; `dispositionErrors` carries
+// read/parse errors (e.g. malformed JSON) so they fail closed here.
+function compareDispositionState({ files, metaNames, dispositions, dispositionErrors = [] }) {
+  const failures = dispositionErrors.map((e) => `disposition manifest: ${e}`)
+  if (failures.length > 0 || dispositions == null) {
+    if (failures.length === 0) failures.push('disposition manifest: missing')
+    return { failures, blocked: [], validation: null, evaluation: null }
+  }
+  const validation = dispositionRules.validateDispositionManifest(dispositions, {
+    files,
+    environment: 'production'
+  })
+  if (!validation.ok) {
+    return {
+      failures: validation.errors.map((e) => `disposition manifest: ${e}`),
+      blocked: [],
+      validation,
+      evaluation: null
+    }
+  }
+  if (!validation.approved) {
+    failures.push('disposition manifest is not approved (approvedBy/approvedAt pending review)')
+  }
+  const evaluation = dispositionRules.evaluateDispositions({ validation, files, metaNames })
+  if (evaluation.notRecorded.length > 0) {
+    failures.push(
+      `disposition manifest rows not recorded in SequelizeMeta (${evaluation.notRecorded.length}): ${evaluation.notRecorded.join(', ')}`
+    )
+  }
+  if (evaluation.controlledPending.length > 0) {
+    failures.push(
+      `controlled apply still pending (${evaluation.controlledPending.length}): ${evaluation.controlledPending
+        .map((p) => (p.decisionRef ? `${p.migration} [${p.decisionRef}]` : p.migration))
+        .join(', ')}`
+    )
+  }
+  return { failures, blocked: evaluation.blocked, validation, evaluation }
+}
+
+function verifyFromState({ files, manifest, metaNames, schema, dispositions, dispositionErrors }) {
   const resolvedFiles = files || discoverMigrationFiles()
   const resolvedManifest = manifest || readMigrationManifest()
   if (!metaNames) {
@@ -162,14 +215,38 @@ function verifyFromState({ files, manifest, metaNames, schema }) {
   if (!schema) {
     throw new Error('verifyFromState requires schema (map of table -> Set(columns))')
   }
+  if (dispositions === undefined && !dispositionErrors) {
+    throw new Error('verifyFromState requires dispositions (parsed production disposition manifest)')
+  }
   const migration = compareMigrationState({
     files: resolvedFiles,
     manifest: resolvedManifest,
     metaNames
   })
   const schemaCheck = compareSchemaState(schema)
-  const failures = [...migration.failures, ...schemaCheck.failures]
-  return { ok: failures.length === 0, failures, migration, schemaCheck }
+  const dispositionCheck = compareDispositionState({
+    files: resolvedFiles,
+    metaNames,
+    dispositions,
+    dispositionErrors
+  })
+  const failures = [...migration.failures, ...schemaCheck.failures, ...dispositionCheck.failures]
+  const blocked = failures.length === 0 ? dispositionCheck.blocked : []
+  // FAIL dominates; BLOCKED only when structurally sound with open decisions.
+  const status = failures.length > 0 ? STATUS.FAIL : blocked.length > 0 ? STATUS.BLOCKED : STATUS.PASS
+  return {
+    status,
+    exitCode: EXIT_CODES[status],
+    ok: status === STATUS.PASS,
+    failures,
+    blocked: dispositionCheck.blocked,
+    migration,
+    schemaCheck,
+    dispositionCheck,
+    summary: dispositionCheck.evaluation
+      ? dispositionRules.describeRecordedState(dispositionCheck.evaluation.counts)
+      : null
+  }
 }
 
 // Test helper: a schema map that satisfies every critical check (pure, no DB).
@@ -199,9 +276,18 @@ async function withReadOnlyTransaction(sequelize, fn) {
   }
 }
 
-async function verifyProductionSchema(sequelize, { migrationsDir = MIGRATIONS_DIR, manifestPath = MANIFEST_PATH } = {}) {
+async function verifyProductionSchema(
+  sequelize,
+  {
+    migrationsDir = MIGRATIONS_DIR,
+    manifestPath = MANIFEST_PATH,
+    dispositionsPath = dispositionRules.PRODUCTION_DISPOSITIONS_PATH
+  } = {}
+) {
   const files = discoverMigrationFiles(migrationsDir)
   const manifest = readMigrationManifest(manifestPath)
+  const { manifest: dispositions, errors: dispositionErrors } =
+    dispositionRules.readDispositionManifest(dispositionsPath)
   return withReadOnlyTransaction(sequelize, async (transaction) => {
     const QueryTypes = sequelize.QueryTypes || require('sequelize').QueryTypes
     let metaNames
@@ -214,10 +300,15 @@ async function verifyProductionSchema(sequelize, { migrationsDir = MIGRATIONS_DI
     } catch (err) {
       if (err && (err.original?.code === '42P01' || /does not exist|undefined table/i.test(err.message || ''))) {
         return {
+          status: STATUS.FAIL,
+          exitCode: EXIT_CODES.FAIL,
           ok: false,
           failures: ['missing table "SequelizeMeta" (migration history unreadable)'],
+          blocked: [],
           migration: null,
-          schemaCheck: null
+          schemaCheck: null,
+          dispositionCheck: null,
+          summary: null
         }
       }
       throw err
@@ -236,7 +327,7 @@ async function verifyProductionSchema(sequelize, { migrationsDir = MIGRATIONS_DI
     }
     // Tables with zero columns are absent from information_schema; mark only
     // present ones. Missing tables are reported by compareSchemaState.
-    const result = verifyFromState({ files, manifest, metaNames, schema })
+    const result = verifyFromState({ files, manifest, metaNames, schema, dispositions, dispositionErrors })
     return {
       ...result,
       details: {
@@ -269,26 +360,43 @@ function buildProductionSequelize() {
   })
 }
 
+// Pure: turns a verification result into report lines + exit code. Wording
+// reports what is RECORDED; it never claims the population was executed.
+function formatReport(result) {
+  const out = []
+  const err = []
+  if (result.details) {
+    out.push(
+      `[schema-verifier] files=${result.details.files} baseline=${result.details.baselineCount} meta=${result.details.metaCount}`
+    )
+  }
+  if (result.summary) out.push(`[schema-verifier] ${result.summary}`)
+  if (result.status === STATUS.PASS) {
+    out.push(
+      '[schema-verifier] PASS: every repository migration has an authoritative record (runner-recorded or dispositioned) and the critical schema is present.'
+    )
+  } else if (result.status === STATUS.BLOCKED) {
+    err.push('[schema-verifier] BLOCKED: structurally sound, but business decisions remain open:')
+    for (const b of result.blocked) err.push(`  - ${b.migration} [${b.decisionRef}]`)
+    err.push('[schema-verifier] Release STOPs until each decision is recorded in the disposition manifest.')
+  } else {
+    err.push('[schema-verifier] FAIL: production migration state does not satisfy the W-01.1 contract.')
+    for (const f of result.failures) err.push(`  - ${f}`)
+    err.push(
+      '[schema-verifier] Release STOPs. Stamping dispositions and applying migrations are explicitly authorized operational actions and are NOT performed by this verifier.'
+    )
+  }
+  return { out, err, exitCode: EXIT_CODES[result.status] ?? EXIT_CODES.FAIL }
+}
+
 async function main() {
   const sequelize = buildProductionSequelize()
   try {
     const result = await verifyProductionSchema(sequelize)
-    if (result.details) {
-      console.log(
-        `[schema-verifier] files=${result.details.files} baseline=${result.details.baselineCount} pending=${result.details.pendingCount} meta=${result.details.metaCount}`
-      )
-    }
-    if (result.ok) {
-      console.log('[schema-verifier] PASS: migration state and critical schema match the November baseline.')
-      process.exitCode = 0
-    } else {
-      console.error('[schema-verifier] FAIL: production schema does not match the November baseline.')
-      for (const f of result.failures) {
-        console.error(`  - ${f}`)
-      }
-      console.error('[schema-verifier] Release STOPs. Applying migrations is an explicitly authorized operational action and is NOT performed by this verifier.')
-      process.exitCode = 1
-    }
+    const report = formatReport(result)
+    for (const line of report.out) console.log(line)
+    for (const line of report.err) console.error(line)
+    process.exitCode = report.exitCode
   } catch (err) {
     console.error(`[schema-verifier] ERROR: ${err.message}`)
     process.exitCode = 1
@@ -308,11 +416,15 @@ module.exports = {
   MANIFEST_PATH,
   CRITICAL_TABLES,
   CRITICAL_COLUMNS,
+  STATUS,
+  EXIT_CODES,
   readMigrationManifest,
   discoverMigrationFiles,
   compareMigrationState,
   compareSchemaState,
+  compareDispositionState,
   verifyFromState,
+  formatReport,
   completeTestSchema,
   withReadOnlyTransaction,
   verifyProductionSchema
