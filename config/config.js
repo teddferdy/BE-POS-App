@@ -69,5 +69,26 @@ module.exports = {
       }
     },
     timezone: '+07:00'
+  },
+  // W-02R.4 staging rehearsal target. Disjoint variable namespace from
+  // production on purpose: staging can never read POSTGRES_* and production
+  // can never read STAGING_DB_*. No secrets live here — values come from
+  // the operator's environment only. The ephemeral rehearsal harness sets
+  // STAGING_DB_DATABASE to the created rehearsal database name.
+  staging: {
+    username: process.env.STAGING_DB_USER || 'postgres',
+    password: process.env.STAGING_DB_PASSWORD,
+    database: process.env.STAGING_DB_DATABASE,
+    host: process.env.STAGING_DB_HOST || '127.0.0.1',
+    port: process.env.STAGING_DB_PORT || 5432,
+    dialect: 'postgres',
+    logging: false,
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    },
+    timezone: '+07:00'
   }
 }

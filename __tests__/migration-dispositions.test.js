@@ -207,8 +207,12 @@ describe('W-01.1 stamper CLI argument contract (no database)', () => {
   test('no target → refused (no default)', () => {
     expect(() => stamper.parseArgs([])).toThrow(/--target=<environment> is required/)
   })
-  test('ambiguous/unknown target → refused', () => {
-    expect(() => stamper.parseArgs(['--target=staging'])).toThrow(/no disposition manifest exists for target "staging"/)
+  test('ambiguous/unknown target → refused (W-02R.4: staging is now a valid target)', () => {
+    expect(() => stamper.parseArgs(['--target=bogus'])).toThrow(/no disposition manifest exists for target "bogus"/)
+    expect(() => stamper.parseArgs(['--target=stagingg'])).toThrow(/no disposition manifest exists/)
+    // Staging is an explicit, disjoint target — accepted, dry-run by default.
+    expect(stamper.parseArgs(['--target=staging'])).toEqual({ target: 'staging', apply: false, authorizeSha256: null })
+    expect(stamper.MANIFEST_BY_TARGET.production).not.toBe(stamper.MANIFEST_BY_TARGET.staging)
   })
   test('default invocation for production is a dry run', () => {
     expect(stamper.parseArgs(['--target=production'])).toEqual({ target: 'production', apply: false, authorizeSha256: null })

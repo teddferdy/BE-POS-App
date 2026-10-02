@@ -167,9 +167,12 @@ const STATUS = Object.freeze({ PASS: 'PASS', FAIL: 'FAIL', BLOCKED: 'BLOCKED' })
 const EXIT_CODES = Object.freeze({ PASS: 0, FAIL: 1, BLOCKED: 2 })
 
 // W-01.1: relates the production disposition manifest to SequelizeMeta.
+// W-02R.4: `environment` selects the manifest contract (default
+// 'production', preserving production behavior exactly); staging rehearsal
+// passes environment 'staging' with the staging manifest.
 // `dispositions` is the parsed manifest object; `dispositionErrors` carries
 // read/parse errors (e.g. malformed JSON) so they fail closed here.
-function compareDispositionState({ files, metaNames, dispositions, dispositionErrors = [] }) {
+function compareDispositionState({ files, metaNames, dispositions, dispositionErrors = [], environment = 'production' }) {
   const failures = dispositionErrors.map((e) => `disposition manifest: ${e}`)
   if (failures.length > 0 || dispositions == null) {
     if (failures.length === 0) failures.push('disposition manifest: missing')
@@ -177,7 +180,7 @@ function compareDispositionState({ files, metaNames, dispositions, dispositionEr
   }
   const validation = dispositionRules.validateDispositionManifest(dispositions, {
     files,
-    environment: 'production'
+    environment
   })
   if (!validation.ok) {
     return {
@@ -206,7 +209,7 @@ function compareDispositionState({ files, metaNames, dispositions, dispositionEr
   return { failures, blocked: evaluation.blocked, validation, evaluation }
 }
 
-function verifyFromState({ files, manifest, metaNames, schema, dispositions, dispositionErrors }) {
+function verifyFromState({ files, manifest, metaNames, schema, dispositions, dispositionErrors, environment = 'production' }) {
   const resolvedFiles = files || discoverMigrationFiles()
   const resolvedManifest = manifest || readMigrationManifest()
   if (!metaNames) {
@@ -228,7 +231,8 @@ function verifyFromState({ files, manifest, metaNames, schema, dispositions, dis
     files: resolvedFiles,
     metaNames,
     dispositions,
-    dispositionErrors
+    dispositionErrors,
+    environment
   })
   const failures = [...migration.failures, ...schemaCheck.failures, ...dispositionCheck.failures]
   const blocked = failures.length === 0 ? dispositionCheck.blocked : []
@@ -281,7 +285,8 @@ async function verifyProductionSchema(
   {
     migrationsDir = MIGRATIONS_DIR,
     manifestPath = MANIFEST_PATH,
-    dispositionsPath = dispositionRules.PRODUCTION_DISPOSITIONS_PATH
+    dispositionsPath = dispositionRules.PRODUCTION_DISPOSITIONS_PATH,
+    environment = 'production'
   } = {}
 ) {
   const files = discoverMigrationFiles(migrationsDir)
@@ -327,7 +332,7 @@ async function verifyProductionSchema(
     }
     // Tables with zero columns are absent from information_schema; mark only
     // present ones. Missing tables are reported by compareSchemaState.
-    const result = verifyFromState({ files, manifest, metaNames, schema, dispositions, dispositionErrors })
+    const result = verifyFromState({ files, manifest, metaNames, schema, dispositions, dispositionErrors, environment })
     return {
       ...result,
       details: {

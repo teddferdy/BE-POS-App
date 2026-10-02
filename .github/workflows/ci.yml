@@ -60,6 +60,12 @@ jobs:
           DB_DEV_PASSWORD: postgres
           DB_DEV_DATABASE: cashier_app
           DB_TEST_DATABASE: cashier_app_test
+          # W-02R.4 rehearsal tests create/drop disposable databases via the
+          # STAGING_DB_* namespace (never DB_DEV_* / POSTGRES_*).
+          STAGING_DB_HOST: localhost
+          STAGING_DB_PORT: 5432
+          STAGING_DB_USER: postgres
+          STAGING_DB_PASSWORD: postgres
           JWT_SECRET_KEY: test-secret-key
           JWT_EXPIRED_IN: 1h
 

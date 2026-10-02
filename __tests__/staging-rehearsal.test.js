@@ -1,0 +1,485 @@
+process.env.NODE_ENV = 'test'
+process.env.VERCEL = 'true'
+
+// W-02R.4 — staging rehearsal contract tests.
+//
+// Pure isolation tests run without a database. Anything touching tables uses
+// either disposable probe tables on the isolated test database (pid-suffixed,
+// dropped afterwards — never shared tables) or a dedicated disposable
+// database that the suite creates and drops. Production and staging-shared
+// infrastructure are never contacted.
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { spawnSync } = require('child_process')
+
+const rules = require('../scripts/migration-dispositions')
+const stamper = require('../scripts/apply-migration-dispositions')
+const preflight = require('../scripts/check-migration-preflight')
+const harness = require('../scripts/rehearse-staging')
+const { discoverMigrationFiles } = require('../scripts/check-production-schema')
+
+const FILES = discoverMigrationFiles()
+const STAGING_MANIFEST = () => rules.readDispositionManifest(rules.STAGING_DISPOSITIONS_PATH).manifest
+const PRODUCTION_MANIFEST = () => rules.readDispositionManifest(rules.PRODUCTION_DISPOSITIONS_PATH).manifest
+
+const KNOWN_E2 = [
+  '20260613000003-insert-default-roles.js',
+  '20260810000002-add-goods-request-menu-access.js',
+  '20260827000004-add-my-shift-access-menu.js',
+  '20260902000002-add-business-trip-menu-access.js',
+  '20261001000001-purchase-monetary-bigint.js',
+  '20261001000002-goods-receipt-item-qty-decimal.js',
+  '20261001000003-goods-receipt-idempotency.js',
+  '20261002000001-fractional-stock-decimal.js',
+  '20261004000001-stock-opname-decimal.js',
+  '20261006000001-stock-transfer-idempotency-decimal.js',
+  '20261007000001-add-dr20-foundation-fields-to-audit-log.js',
+  '20261011000001-add-reactivated-at-to-tenant-membership.js'
+]
+
+describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
+  test('staging manifest is valid, unapproved, 197 rows, zero D-07', () => {
+    const { manifest, errors } = rules.readDispositionManifest(rules.STAGING_DISPOSITIONS_PATH)
+    expect(errors).toEqual([])
+    const r = rules.validateDispositionManifest(manifest, { files: FILES, environment: 'staging' })
+    expect(r.errors).toEqual([])
+    expect(r.ok).toBe(true)
+    expect(r.approved).toBe(false)
+    expect(manifest.approvedBy).toBeNull()
+    expect(manifest.approvedAt).toBeNull()
+    expect(r.names).toHaveLength(197)
+    expect(JSON.stringify(manifest)).not.toMatch(/D-07/)
+  })
+
+  test('staging rows are byte-identical to production rows (environment only differs)', () => {
+    const staging = STAGING_MANIFEST()
+    const production = PRODUCTION_MANIFEST()
+    expect(staging.migrations).toEqual(production.migrations)
+    expect(staging.environment).toBe('staging')
+    expect(production.environment).toBe('production')
+  })
+
+  test('derived E2 set equals the locked 12 and partitions 235 = 197 + 26 + 12', () => {
+    const staging = STAGING_MANIFEST()
+    const ledger = harness.fixtureLedgerNames(FILES)
+    expect(ledger).toHaveLength(26)
+    const { e2 } = harness.deriveRehearsalSets({
+      files: FILES,
+      manifestNames: staging.migrations.map((r) => r.migration),
+      fixtureLedgerNames: ledger
+    })
+    expect(e2).toEqual(KNOWN_E2)
+  })
+
+  test('accounting derivation fails closed on drift', () => {
+    const staging = STAGING_MANIFEST()
+    const ledger = harness.fixtureLedgerNames(FILES)
+    const names = staging.migrations.map((r) => r.migration)
+    expect(() =>
+      harness.deriveRehearsalSets({ files: [...FILES, '29991231000000-new.js'], manifestNames: names, fixtureLedgerNames: ledger })
+    ).toThrow(/review the manifest/)
+    expect(() =>
+      harness.deriveRehearsalSets({ files: FILES, manifestNames: names.slice(1), fixtureLedgerNames: ledger })
+    ).toThrow(/manifest rows/)
+  })
+})
+
+describe('W-02R.4 target isolation (no database)', () => {
+  test('unknown targets are refused everywhere', () => {
+    expect(() => stamper.parseArgs(['--target=bogus'])).toThrow(/no disposition manifest exists/)
+    expect(() => stamper.parseArgs(['--target=stagingg', '--apply', '--authorize-manifest-sha256=' + 'a'.repeat(64)])).toThrow(
+      /no disposition manifest exists/
+    )
+    // Harness value shape is accepted by the parser; the rehearsal-name
+    // pattern itself is enforced by assertRehearsalTarget in main(), before
+    // any mutation (layered refusal, covered below).
+    expect(harness.parseArgs(['--staging-db=bogus']).stagingDb).toBe('bogus')
+    expect(() => harness.parseArgs([])).toThrow(/--staging-db/)
+    expect(() => harness.parseArgs(['--staging-db=x', '--wat'])).toThrow(/unknown argument/)
+  })
+
+  test('target -> manifest mapping is explicit and disjoint', () => {
+    expect(stamper.MANIFEST_BY_TARGET.production).toBe(rules.PRODUCTION_DISPOSITIONS_PATH)
+    expect(stamper.MANIFEST_BY_TARGET.staging).toBe(rules.STAGING_DISPOSITIONS_PATH)
+    expect(stamper.MANIFEST_BY_TARGET.production).not.toBe(stamper.MANIFEST_BY_TARGET.staging)
+    expect(preflight.MANIFEST_BY_ENV.production).toBe(rules.PRODUCTION_DISPOSITIONS_PATH)
+    expect(preflight.MANIFEST_BY_ENV.staging).toBe(rules.STAGING_DISPOSITIONS_PATH)
+  })
+
+  test('production manifest is refused as staging and vice versa', () => {
+    const prod = PRODUCTION_MANIFEST()
+    const staging = STAGING_MANIFEST()
+    expect(rules.validateDispositionManifest(prod, { files: FILES, environment: 'staging' }).ok).toBe(false)
+    expect(rules.validateDispositionManifest(staging, { files: FILES, environment: 'production' }).ok).toBe(false)
+    expect(rules.validateDispositionManifest(prod, { files: FILES, environment: 'production' }).ok).toBe(true)
+    expect(rules.validateDispositionManifest(staging, { files: FILES, environment: 'staging' }).ok).toBe(true)
+  })
+
+  test('blocked isolation mode reports but does not fail (rehearsal E2 gate)', () => {
+    const staging = { ...STAGING_MANIFEST(), approvedBy: 't', approvedAt: '2026-10-03T00:00:00Z' }
+    const metaNames = [...FILES]
+    const strict = preflight.evaluatePreflight({ env: 'staging', targetHost: '127.0.0.1', dispositions: staging, files: FILES, metaNames })
+    expect(strict.ok).toBe(false)
+    expect(strict.blocked).toHaveLength(5)
+    const applied = {
+      ...staging,
+      migrations: staging.migrations.map((r) =>
+        r.disposition === 'CONTROLLED_APPLY_PENDING' ? { ...r, disposition: 'CONTROLLED_APPLIED', applyRef: 'test' } : r
+      )
+    }
+    const gate = preflight.evaluatePreflight({
+      env: 'staging',
+      targetHost: '127.0.0.1',
+      dispositions: applied,
+      files: FILES,
+      metaNames,
+      isolateBlockedDecisions: true
+    })
+    expect(gate.ok).toBe(true)
+    expect(gate.blocked).toHaveLength(5)
+  })
+
+  test('preflight selects the manifest strictly by environment', () => {
+    const staging = { ...STAGING_MANIFEST(), approvedBy: 't', approvedAt: '2026-10-03T00:00:00Z' }
+    const metaNames = [...FILES]
+    const asStaging = preflight.evaluatePreflight({ env: 'staging', targetHost: '127.0.0.1', dispositions: staging, files: FILES, metaNames })
+    // Controlled-pending rows remain, so this refuses on pending — but it
+    // must get PAST manifest selection (no environment-mismatch error).
+    expect(asStaging.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains/)
+    expect(asStaging.reasons.join('\n')).not.toMatch(/does not match target/)
+    const crossed = preflight.evaluatePreflight({
+      env: 'staging',
+      targetHost: '127.0.0.1',
+      dispositions: PRODUCTION_MANIFEST(),
+      files: FILES,
+      metaNames
+    })
+    expect(crossed.ok).toBe(false)
+    expect(crossed.reasons.join('\n')).toMatch(/does not match target/)
+  })
+})
+
+describe('W-02R.4 approval + SHA isolation (no database)', () => {
+  test('staging approval is all-or-nothing and independent of production', () => {
+    const staging = STAGING_MANIFEST()
+    const half = { ...staging, approvedBy: 'someone@example.test', approvedAt: null }
+    expect(rules.validateDispositionManifest(half, { files: FILES, environment: 'staging' }).ok).toBe(false)
+    const approvedStaging = { ...staging, approvedBy: 'someone@example.test', approvedAt: '2026-10-03T00:00:00Z' }
+    const r = rules.validateDispositionManifest(approvedStaging, { files: FILES, environment: 'staging' })
+    expect(r.ok).toBe(true)
+    expect(r.approved).toBe(true)
+    // Production approval (same identity, production file) cannot validate a
+    // staging action: environment binding is independent of who approved.
+    const prod = PRODUCTION_MANIFEST()
+    expect(rules.validateDispositionManifest({ ...prod, approvedBy: 'someone@example.test', approvedAt: '2026-10-03T00:00:00Z' }, { files: FILES, environment: 'staging' }).ok).toBe(false)
+  })
+
+  test('SHA binds exact bytes: production SHA never authorizes staging', () => {
+    const prodSha = rules.sha256OfFile(rules.PRODUCTION_DISPOSITIONS_PATH)
+    const stagingSha = rules.sha256OfFile(rules.STAGING_DISPOSITIONS_PATH)
+    expect(prodSha).toMatch(/^[0-9a-f]{64}$/)
+    expect(stagingSha).toMatch(/^[0-9a-f]{64}$/)
+    expect(prodSha).not.toBe(stagingSha)
+    const tmp = path.join(os.tmpdir(), `w02r4-sha-${process.pid}.json`)
+    fs.copyFileSync(rules.STAGING_DISPOSITIONS_PATH, tmp)
+    try {
+      fs.appendFileSync(tmp, '\n')
+      expect(rules.sha256OfFile(tmp)).not.toBe(stagingSha)
+    } finally {
+      fs.unlinkSync(tmp)
+    }
+    expect(() => stamper.parseArgs(['--target=staging', '--apply', '--authorize-manifest-sha256=zzz'])).toThrow(
+      /requires --authorize-manifest-sha256/
+    )
+  })
+})
+
+describe('W-02R.4 database identity guard (pure, no database)', () => {
+  const good = { database: 'cashier_app_staging_rehearsal', host: '127.0.0.1', prodDatabase: 'cashier_app_prod' }
+  test('accepts a rehearsal-pattern local database', () => {
+    expect(harness.assertRehearsalTarget(good)).toEqual({ database: good.database, host: good.host })
+    expect(harness.assertRehearsalTarget({ ...good, database: 'cashier_app_staging_rehearsal_x1', host: 'localhost' })).toBeTruthy()
+  })
+  test('rejects non-rehearsal names', () => {
+    for (const database of ['cashier_app', 'cashier_app_test', 'staging', '', 'cashier_app_staging_rehearsal-x', 'Cashier_App_Staging_Rehearsal']) {
+      expect(() => harness.assertRehearsalTarget({ ...good, database })).toThrow(/ephemeral pattern/)
+    }
+  })
+  test('rejects production crossover and non-local hosts', () => {
+    expect(() => harness.assertRehearsalTarget({ ...good, prodDatabase: good.database })).toThrow(/crossover/)
+    expect(() => harness.assertRehearsalTarget({ ...good, host: 'ep-prod.example.neon.tech' })).toThrow(/not local/)
+    expect(() => harness.assertRehearsalTarget({ ...good, host: '' })).toThrow(/not local/)
+  })
+  test('staging builder refuses missing vars and production crossover', () => {
+    const saved = { ...process.env }
+    try {
+      delete process.env.STAGING_DB_USER
+      delete process.env.STAGING_DB_DATABASE
+      delete process.env.STAGING_DB_HOST
+      expect(() => stamper.buildStagingSequelize()).toThrow(/is not set for target staging/)
+      process.env.STAGING_DB_USER = 'u'
+      process.env.STAGING_DB_DATABASE = 'same_db'
+      process.env.STAGING_DB_HOST = '127.0.0.1'
+      process.env.POSTGRES_DATABASE = 'same_db'
+      expect(() => stamper.buildStagingSequelize()).toThrow(/crossover/)
+    } finally {
+      process.env = saved
+    }
+  })
+})
+
+describe('W-02R.4 staging stamper on disposable probe tables (test DB)', () => {
+  const db = require('../db/models')
+  const TABLE = `w02r4_meta_probe_${process.pid}`
+  const approvedStaging = () => ({ ...STAGING_MANIFEST(), approvedBy: 'w02r4-test', approvedAt: '2026-10-03T00:00:00Z' })
+  const stamp = (manifest, apply) =>
+    stamper.stampDispositions({ sequelize: db.sequelize, manifest, files: FILES, environment: 'staging', apply, metaTable: TABLE })
+
+  beforeAll(async () => {
+    await db.sequelize.query(`CREATE TABLE "${TABLE}" (name VARCHAR(255) NOT NULL PRIMARY KEY)`)
+  })
+  afterAll(async () => {
+    await db.sequelize.query(`DROP TABLE IF EXISTS "${TABLE}"`)
+  })
+
+  test('unapproved staging manifest: mutation refused', async () => {
+    await expect(stamp(STAGING_MANIFEST(), true)).rejects.toThrow(/not approved/)
+  })
+
+  test('approved staging manifest stamps INSERT-only and is idempotent', async () => {
+    const first = await stamp(approvedStaging(), true)
+    expect(first.mode).toBe('apply')
+    expect(first.inserted).toHaveLength(197)
+    const second = await stamp(approvedStaging(), true)
+    expect(second.inserted).toHaveLength(0)
+  })
+
+  test('pre-existing rows are never rewritten', async () => {
+    const first = approvedStaging().migrations[0].migration
+    await db.sequelize.query(`TRUNCATE "${TABLE}"`)
+    await db.sequelize.query(`INSERT INTO "${TABLE}" (name) VALUES ($1)`, { bind: [first] })
+    const result = await stamp(approvedStaging(), true)
+    expect(result.alreadyRecorded).toBe(1)
+    const rows = await db.sequelize.query(`SELECT name FROM "${TABLE}" ORDER BY name`, { type: db.sequelize.QueryTypes.SELECT })
+    expect(rows.map((r) => r.name)).toContain(first)
+    expect(rows).toHaveLength(197)
+  })
+
+  test('orphan and duplicate ledger rows are refused', async () => {
+    await db.sequelize.query(`TRUNCATE "${TABLE}"`)
+    await db.sequelize.query(`INSERT INTO "${TABLE}" (name) VALUES ('29991231000000-orphan.js')`)
+    await expect(stamp(approvedStaging(), true)).rejects.toThrow(/no migration file/)
+    await db.sequelize.query(`TRUNCATE "${TABLE}"`)
+  })
+})
+
+describe('W-02R.4 controlled applies on a disposable database', () => {
+  const DB = `cashier_app_staging_rehearsal_ctl_${process.pid}`
+  const cfg = () => harness.stagingConnection({ database: DB })
+  let sequelize = null
+
+  beforeAll(async () => {
+    process.env.STAGING_DB_DATABASE = DB
+    const admin = harness.stagingConnection({ database: DB })
+    await harness.createDatabase(admin, DB)
+    sequelize = harness.newSequelize(cfg())
+    await sequelize.query('CREATE TABLE region (id SERIAL PRIMARY KEY, code VARCHAR(20), level VARCHAR(10), "parentCode" VARCHAR(20))')
+    await sequelize.query('CREATE TABLE product_review (id SERIAL PRIMARY KEY, "productId" INTEGER, store INTEGER)')
+    await sequelize.query(
+      'CREATE TABLE split_bill (id SERIAL PRIMARY KEY, "order" INTEGER, status VARCHAR(20), "idempotencyKey" VARCHAR(255))'
+    )
+    await sequelize.query('CREATE INDEX split_bill_order_idempotencykey ON split_bill ("order", "idempotencyKey")')
+  }, 120000)
+
+  afterAll(async () => {
+    if (sequelize) await sequelize.close().catch(() => {})
+    const admin = harness.stagingConnection({ database: DB })
+    await harness.dropDatabase(admin, DB).catch(() => {})
+    delete process.env.STAGING_DB_DATABASE
+  })
+
+  test('region indexes converge from absent and rerun is idempotent', async () => {
+    const first = await harness.applyRegionIndexes(sequelize)
+    expect(first.applied.sort()).toEqual(['region_code_unique', 'region_level_idx', 'region_parent_code_idx'].sort())
+    const second = await harness.applyRegionIndexes(sequelize)
+    expect(second.applied).toEqual([])
+  })
+
+  test('product_review indexes converge from absent', async () => {
+    const result = await harness.applyProductReviewIndexes(sequelize)
+    expect(result.applied.sort()).toEqual(['product_review_product_store', 'product_review_store'].sort())
+  })
+
+  test('split_bill refuses NULL status and converges when clean', async () => {
+    await sequelize.query(`INSERT INTO split_bill ("order", status, "idempotencyKey") VALUES (1, NULL, 'k1')`)
+    await expect(harness.applySplitBillNotNull(sequelize)).rejects.toThrow(/NULL status/)
+    await sequelize.query(`DELETE FROM split_bill WHERE "idempotencyKey" = 'k1'`)
+    const result = await harness.applySplitBillNotNull(sequelize)
+    expect(result.applied).toEqual(['split_bill.status SET NOT NULL'])
+    await sequelize.query('ALTER TABLE split_bill ALTER COLUMN status DROP NOT NULL')
+  })
+
+  test('controlled apply refuses a missing table instead of creating it', async () => {
+    await sequelize.query('DROP TABLE region')
+    await expect(harness.applyRegionIndexes(sequelize)).rejects.toThrow(/absent/)
+    await sequelize.query('CREATE TABLE region (id SERIAL PRIMARY KEY, code VARCHAR(20), level VARCHAR(10), "parentCode" VARCHAR(20))')
+    await harness.applyRegionIndexes(sequelize)
+  })
+})
+
+describe('W-02R.4 E2 data-migration idempotency (disposable database)', () => {
+  const DB = `cashier_app_staging_rehearsal_e2id_${process.pid}`
+  let sequelize = null
+  const qi = () => sequelize.getQueryInterface()
+  const runUp = (name) => require(`../db/migrations/${name}`).up(qi(), require('sequelize'))
+
+  beforeAll(async () => {
+    const admin = harness.stagingConnection({ database: DB })
+    await harness.createDatabase(admin, DB)
+    sequelize = harness.newSequelize({ ...admin, database: DB })
+    await sequelize.query(
+      'CREATE TABLE role (id SERIAL PRIMARY KEY, name VARCHAR(255), "roleType" VARCHAR(30), store INTEGER, "accessMenu" JSONB NOT NULL, status VARCHAR(20), "createdBy" INTEGER, "createdAt" TIMESTAMPTZ NOT NULL, "updatedAt" TIMESTAMPTZ)'
+    )
+    await sequelize.query('CREATE TABLE "user" (id SERIAL PRIMARY KEY, "accessMenu" JSONB, "updatedAt" TIMESTAMPTZ)')
+  }, 120000)
+
+  afterAll(async () => {
+    if (sequelize) await sequelize.close().catch(() => {})
+    await harness.dropDatabase(harness.stagingConnection({ database: DB }), DB).catch(() => {})
+  })
+
+  test('menu appends converge exactly once across reruns', async () => {
+    await sequelize.query(`INSERT INTO role (name, "roleType", "accessMenu", "createdAt") VALUES ('SA', 'super_admin', '[]', NOW()), ('A', 'admin', '[]', NOW())`)
+    await runUp('20260810000002-add-goods-request-menu-access.js')
+    await runUp('20260810000002-add-goods-request-menu-access.js')
+    const rows = await sequelize.query('SELECT "roleType", "accessMenu" FROM role ORDER BY "roleType"', {
+      type: sequelize.QueryTypes.SELECT
+    })
+    for (const r of rows) {
+      const count = r.accessMenu.filter((m) => m.menu === 'goods-request').length
+      expect(count).toBe(1)
+    }
+  })
+
+  test('default-roles seed skips pre-existing roles without duplicates', async () => {
+    await sequelize.query(`TRUNCATE role`)
+    for (const t of ['super_admin', 'admin', 'kasir', 'user']) {
+      await sequelize.query(`INSERT INTO role (name, "roleType", "accessMenu", "createdAt") VALUES ($1, $2, '[]', NOW())`, { bind: [`P-${t}`, t] })
+    }
+    await runUp('20260613000003-insert-default-roles.js')
+    const rows = await sequelize.query('SELECT COUNT(*) AS n FROM role', { type: sequelize.QueryTypes.SELECT })
+    expect(Number(rows[0].n)).toBe(4)
+  })
+
+  test('default-roles seed documents its empty-table hazard (createdBy literal vs integer column)', async () => {
+    await sequelize.query(`TRUNCATE role`)
+    await expect(runUp('20260613000003-insert-default-roles.js')).rejects.toThrow(/invalid input syntax for type integer/)
+    // Rehearsal consequence locked in: the fixture MUST pre-seed roles so
+    // this insert path is never taken (production is safe only because its
+    // roles pre-exist and the guard skips).
+  })
+})
+
+describe('W-02R.4 runner rerun convergence (disposable database)', () => {
+  const DB = `cashier_app_staging_rehearsal_rerun_${process.pid}`
+  test('db:migrate with a complete ledger executes nothing', async () => {
+    const saved = process.env.STAGING_DB_DATABASE
+    process.env.STAGING_DB_DATABASE = DB
+    const admin = harness.stagingConnection({ database: DB })
+    let sequelize = null
+    try {
+      await harness.createDatabase(admin, DB)
+      sequelize = harness.newSequelize({ ...admin, database: DB })
+      await sequelize.query('CREATE TABLE "SequelizeMeta" (name VARCHAR(255) NOT NULL PRIMARY KEY)')
+      const values = FILES.map((_, i) => `($${i + 1})`).join(', ')
+      await sequelize.query(`INSERT INTO "SequelizeMeta" (name) VALUES ${values}`, { bind: [...FILES] })
+      await sequelize.close()
+      sequelize = null
+      const cli = require.resolve('sequelize-cli/lib/sequelize')
+      const child = spawnSync(process.execPath, [cli, 'db:migrate', '--env', 'staging'], {
+        cwd: path.join(__dirname, '..'),
+        encoding: 'utf8',
+        env: { ...process.env, NODE_ENV: 'staging' }
+      })
+      expect(child.status).toBe(0)
+      expect(child.stdout).not.toMatch(/== .* : migrating/)
+    } finally {
+      if (sequelize) await sequelize.close().catch(() => {})
+      await harness.dropDatabase(admin, DB).catch(() => {})
+      if (saved === undefined) delete process.env.STAGING_DB_DATABASE
+      else process.env.STAGING_DB_DATABASE = saved
+    }
+  }, 180000)
+})
+
+describe('W-02R.4 full rehearsal integration (disposable database)', () => {
+  const DB = `cashier_app_staging_rehearsal_e2e_${process.pid}`.replace(/-/g, '_')
+  let evidenceDir = null
+  let manifestPath = null
+  let sha = null
+
+  beforeAll(() => {
+    const psql = spawnSync('psql', ['--version'], { encoding: 'utf8' })
+    if (psql.status !== 0) throw new Error('psql is required for the rehearsal integration test')
+    evidenceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'w02r4-evidence-'))
+    manifestPath = path.join(evidenceDir, 'staging.approved.json')
+    const approved = { ...STAGING_MANIFEST(), approvedBy: 'w02r4-integration-test', approvedAt: '2026-10-03T00:00:00Z' }
+    fs.writeFileSync(manifestPath, JSON.stringify(approved, null, 2))
+    sha = rules.sha256OfFile(manifestPath)
+  }, 60000)
+
+  test('dry-run validates without touching any database', async () => {
+    const code = await harness.main([`--staging-db=cashier_app_staging_rehearsal_dryrun_${process.pid}`, `--manifest=${manifestPath}`])
+    expect(code).toBe(0)
+  })
+
+  test('full lifecycle passes with decisions isolated (expected-BLOCKED)', async () => {
+    const code = await harness.main([
+      `--staging-db=${DB}`,
+      `--manifest=${manifestPath}`,
+      '--apply',
+      `--authorize-manifest-sha256=${sha}`,
+      `--evidence-dir=${evidenceDir}`
+    ])
+    expect(code).toBe(0)
+    const files = fs.readdirSync(evidenceDir).filter((f) => f.startsWith('w02r4-rehearsal-') && f.endsWith('.json'))
+    expect(files).toHaveLength(1)
+    const ev = JSON.parse(fs.readFileSync(path.join(evidenceDir, files[0]), 'utf8'))
+    expect(ev.result).toBe('rehearsal-pass-blocked')
+    expect(ev.target).toBe('staging')
+    expect(ev.stagingDb).toBe(DB)
+    expect(ev.steps.plan.e2Candidates).toHaveLength(12)
+    expect(ev.steps.stamp.inserted).toHaveLength(197)
+    expect(ev.steps.e2.executed).toHaveLength(12)
+    expect(ev.steps.e2.missingAfterRun).toEqual([])
+    expect(ev.steps.verify.metaCount).toBe(235)
+    expect(ev.steps.verify.failures).toEqual([])
+    expect(ev.steps.verify.status).toBe('BLOCKED')
+    expect(ev.steps.verify.blocked).toHaveLength(5)
+    expect(ev.steps.verify.data.splitBillNullStatus).toBe(0)
+    expect(ev.steps.verify.data.metaDuplicates).toBe(0)
+    expect(ev.steps.verify.data.metaOrphans).toEqual([])
+    expect(ev.steps.e2.nonExecutionProofs.showLogoPresent).toBe(true)
+    expect(ev.steps.e2.nonExecutionProofs.expenseCategoryDefaultIntact).toBe(true)
+    expect(ev.steps.e2.nonExecutionProofs.e2MenuAppendsPresent).toBe(true)
+    expect(ev.steps.e2.nonExecutionProofs.probeUserMyShift).toBe(true)
+    expect(JSON.stringify(ev)).not.toMatch(/PGPASSWORD|password/i)
+  }, 300000)
+
+  test('rehearsal database was dropped by cleanup', async () => {
+    const { Sequelize } = require('sequelize')
+    const admin = new Sequelize('postgres', process.env.STAGING_DB_USER || 'postgres', process.env.STAGING_DB_PASSWORD, {
+      host: process.env.STAGING_DB_HOST || '127.0.0.1',
+      port: process.env.STAGING_DB_PORT || 5432,
+      dialect: 'postgres',
+      logging: false
+    })
+    try {
+      const rows = await admin.query(`SELECT 1 FROM pg_database WHERE datname = '${DB}'`, { type: admin.QueryTypes.SELECT })
+      expect(rows).toHaveLength(0)
+    } finally {
+      await admin.close().catch(() => {})
+    }
+  })
+})

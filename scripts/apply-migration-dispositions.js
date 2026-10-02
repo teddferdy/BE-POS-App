@@ -26,6 +26,13 @@
  *
  * This script is NEVER run by CI and is never invoked by the migration
  * runner. Production stamping is a separately authorized operational action.
+ *
+ * W-02R.4: the same contract serves a second, fully independent target,
+ * staging rehearsal (`--target=staging`, manifest
+ * db/migration-dispositions/staging.json). Target -> manifest ->
+ * connection -> approval mappings are disjoint: staging reads only
+ * STAGING_DB_* variables and never POSTGRES_*, production reads only
+ * POSTGRES_*. Any crossover combination fails closed.
  */
 
 const path = require('path')
@@ -35,7 +42,10 @@ const ROOT = path.join(__dirname, '..')
 const MIGRATIONS_DIR = path.join(ROOT, 'db', 'migrations')
 const META_TABLE = 'SequelizeMeta'
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
-const MANIFEST_BY_TARGET = Object.freeze({ production: rules.PRODUCTION_DISPOSITIONS_PATH })
+const MANIFEST_BY_TARGET = Object.freeze({
+  production: rules.PRODUCTION_DISPOSITIONS_PATH,
+  staging: rules.STAGING_DISPOSITIONS_PATH
+})
 
 class RefusedError extends Error {
   constructor(message) {
@@ -161,6 +171,7 @@ async function stampDispositions({
 
 function buildProductionSequelize() {
   // Same connection shape as scripts/check-production-schema.js.
+  // PRODUCTION-ONLY variables. This builder is unchanged by W-02R.4.
   require('dotenv').config({ path: `${process.cwd()}/.env.production` })
   const { Sequelize } = require('sequelize')
   const pg = require('pg')
@@ -179,6 +190,41 @@ function buildProductionSequelize() {
     dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
     logging: false
   })
+}
+
+// W-02R.4 staging builder. Reads ONLY STAGING_DB_* — never POSTGRES_* and
+// never .env.production. Refuses when the configured staging database is
+// the configured production database (explicit anti-crossover), and when
+// no staging database is configured at all.
+function buildStagingSequelize() {
+  const { Sequelize } = require('sequelize')
+  for (const v of ['STAGING_DB_USER', 'STAGING_DB_DATABASE', 'STAGING_DB_HOST']) {
+    if (!process.env[v]) throw new RefusedError(`${v} is not set for target staging`)
+  }
+  if (process.env.POSTGRES_DATABASE && process.env.STAGING_DB_DATABASE === process.env.POSTGRES_DATABASE) {
+    throw new RefusedError('staging database must not be the production database (STAGING_DB_DATABASE crossover refused)')
+  }
+  return new Sequelize({
+    username: process.env.STAGING_DB_USER,
+    password: process.env.STAGING_DB_PASSWORD,
+    database: process.env.STAGING_DB_DATABASE,
+    host: process.env.STAGING_DB_HOST,
+    port: process.env.STAGING_DB_PORT || 5432,
+    dialect: 'postgres',
+    logging: false
+  })
+}
+
+function expectedDatabaseForTarget(target) {
+  if (target === 'production') return process.env.POSTGRES_DATABASE
+  if (target === 'staging') return process.env.STAGING_DB_DATABASE
+  throw new RefusedError(`unknown target "${target}"`)
+}
+
+function buildSequelizeForTarget(target) {
+  if (target === 'production') return buildProductionSequelize()
+  if (target === 'staging') return buildStagingSequelize()
+  throw new RefusedError(`unknown target "${target}"`)
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -202,11 +248,12 @@ async function main(argv = process.argv.slice(2)) {
     if (opts.apply && !validation.approved) {
       throw new RefusedError('manifest is not approved (approvedBy/approvedAt pending); mutation refused')
     }
-    sequelize = buildProductionSequelize()
+    sequelize = buildSequelizeForTarget(opts.target)
+    const expectedDatabase = expectedDatabaseForTarget(opts.target)
     const [{ db }] = await sequelize.query('SELECT current_database() AS db', {
       type: (sequelize.QueryTypes || require('sequelize').QueryTypes).SELECT
     })
-    if (db !== process.env.POSTGRES_DATABASE) {
+    if (db !== expectedDatabase) {
       throw new RefusedError(`connected database "${db}" does not match configured target database`)
     }
     const result = await stampDispositions({
@@ -222,7 +269,11 @@ async function main(argv = process.argv.slice(2)) {
       for (const n of result.toInsert) console.log(`  + ${n}`)
     } else {
       console.log(`[dispositions] APPLIED: recorded ${result.inserted.length} migration(s); ledger ${result.metaBefore} -> ${result.metaAfter}.`)
-      console.log('[dispositions] Re-run `npm run check:production-schema` and retain both outputs as evidence.')
+      if (opts.target === 'production') {
+        console.log('[dispositions] Re-run `npm run check:production-schema` and retain both outputs as evidence.')
+      } else {
+        console.log('[dispositions] Re-verify the rehearsal state and retain all outputs as evidence.')
+      }
     }
     process.exitCode = 0
   } catch (err) {
@@ -241,4 +292,15 @@ if (require.main === module) {
   main()
 }
 
-module.exports = { RefusedError, META_TABLE, parseArgs, stampDispositions, discoverMigrationFiles, main }
+module.exports = {
+  RefusedError,
+  META_TABLE,
+  MANIFEST_BY_TARGET,
+  parseArgs,
+  stampDispositions,
+  discoverMigrationFiles,
+  buildSequelizeForTarget,
+  buildStagingSequelize,
+  expectedDatabaseForTarget,
+  main
+}

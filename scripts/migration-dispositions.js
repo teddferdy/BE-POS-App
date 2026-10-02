@@ -1,7 +1,7 @@
 'use strict'
 
 /**
- * W-01.1 — production migration disposition contract (shared rules).
+ * W-01.1 / W-02R.4 — migration disposition contract (shared rules).
  *
  * D-02 (Model D): SequelizeMeta is the migration runner's DO-NOT-EXECUTE
  * ledger — a name recorded there must never be executed again by
@@ -11,6 +11,14 @@
  * A reviewed repository manifest (db/migration-dispositions/<env>.json)
  * records WHY a migration is recorded without being executed by the runner.
  * Migrations intended to run normally (E2) are deliberately absent from it.
+ *
+ * W-02R.4 adds a second, fully independent target: staging rehearsal uses
+ * db/migration-dispositions/staging.json under the identical schema and
+ * validation rules. Target -> manifest -> connection -> approval mappings
+ * are disjoint by construction; a staging manifest can never authorize a
+ * production action and vice versa (see the environment-mismatch refusal
+ * in validateDispositionManifest plus per-target SHA and DB-identity
+ * guards in the callers).
  *
  * This module is the single implementation of the manifest rules. The
  * verifier (check-production-schema.js), the stamper
@@ -26,9 +34,12 @@ const crypto = require('crypto')
 const ROOT = path.join(__dirname, '..')
 const DISPOSITIONS_DIR = path.join(ROOT, 'db', 'migration-dispositions')
 const PRODUCTION_DISPOSITIONS_PATH = path.join(DISPOSITIONS_DIR, 'production.json')
+const STAGING_DISPOSITIONS_PATH = path.join(DISPOSITIONS_DIR, 'staging.json')
 
 const SCHEMA_VERSION = 1
-const SUPPORTED_ENVIRONMENTS = Object.freeze(['production'])
+// W-02R.4: staging is a second independent target. Every caller maps
+// target -> manifest -> connection -> approval explicitly; no fallback.
+const SUPPORTED_ENVIRONMENTS = Object.freeze(['production', 'staging'])
 
 const DISPOSITIONS = Object.freeze({
   ATTESTED_PRESENT: 'ATTESTED_PRESENT',
@@ -259,6 +270,7 @@ function describeRecordedState(counts) {
 module.exports = {
   DISPOSITIONS_DIR,
   PRODUCTION_DISPOSITIONS_PATH,
+  STAGING_DISPOSITIONS_PATH,
   SCHEMA_VERSION,
   SUPPORTED_ENVIRONMENTS,
   DISPOSITIONS,
