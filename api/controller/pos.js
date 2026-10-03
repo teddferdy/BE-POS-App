@@ -2923,12 +2923,13 @@ order: [['updatedAt', 'DESC']],
       // not the caller's own store is rejected before any write.
       //
       // C-11: the 'base' sentinel writes the SHARED product.price, which is the
-      // authoritative checkout price for EVERY store that sells the product
-      // (getServerItemPrice reads prod.price; product_store_price rows are not
-      // consulted at checkout). A tenant admin therefore must NOT be able to
-      // rewrite it — that silently re-prices products at other stores. Restrict
-      // base-price writes to super_admin (global scope); tenant admins may only
-      // update their own store's product_store_price rows.
+      // fallback checkout price for every store without its own outlet row
+      // (W3-1/DR-11: a configured product_store_price row wins at checkout;
+      // base applies only when no outlet row exists). A tenant admin
+      // therefore must NOT be able to rewrite it — that silently re-prices
+      // products at other stores. Restrict base-price writes to super_admin
+      // (global scope); tenant admins may only update their own store's
+      // product_store_price rows.
       if (!isSuperAdmin(req)) {
         const own = Number(req.storeId)
         const hasBase = storePrices.some((sp) => sp.storeId === 'base')

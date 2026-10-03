@@ -3,9 +3,9 @@ process.env.VERCEL = 'true'
 
 // C-11 regression — updatePriceByStore 'base' sentinel cross-tenant price influence.
 //
-// `product.price` (the "base" price) is the authoritative unit price used at
-// CHECKOUT for every store that sells the product (getServerItemPrice reads
-// prod.price; product_store_price rows are never consulted at checkout).
+// `product.price` (the "base" price) is the fallback unit price used at
+// CHECKOUT for stores without their own outlet row (W3-1/DR-11: a configured
+// product_store_price row wins at checkout; base applies only when absent).
 // Previously a store A admin could call updatePriceByStore with
 // storePrices:[{storeId:'base', price:...}] against a product loaded by an
 // UNscoped findByPk(productId) and rewrite product.price — mutating the price
@@ -14,7 +14,7 @@ process.env.VERCEL = 'true'
 //
 // Remediation: `product.price` is a global/shared attribute. Only super_admin
 // may write it. A tenant admin may only touch their own store's
-// product_store_price rows (which are non-authoritative at checkout and carry
+// product_store_price rows (which apply at their own checkout and carry
 // no cross-tenant effect), never the shared base price.
 
 const request = require('supertest')
