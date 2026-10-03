@@ -39,10 +39,20 @@ beforeAll(async () => {
     { id: 7101, userName: 'cashier_ord_cancel', roleType: 'kasir', store: location.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these cancel-flow assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'ORD_CANCEL_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [7101] }, force: true })
+  await db.taxConfig.destroy({ where: { store: location.id }, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })

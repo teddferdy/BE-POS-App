@@ -18,6 +18,14 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
 
   beforeAll(async () => {
     location = await db.location.create({ name: 'RACE_STORE', status: 'active' })
+    // W3-3 (DR-17): PPN is explicit setup, never a fallback.
+    await db.taxConfig.create({
+      name: `RACE_PPN_${location.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: location.id
+    })
     category = await db.category.create({ name: 'RACE_CATEGORY' })
     product = await db.product.create({
       nameProduct: 'RACE_PRODUCT_LAST_UNIT',
@@ -98,6 +106,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     await db.category.destroy({ where: { id: category.id }, force: true })
     // Release the per-describe store assignment (user.store FK) before deleting it.
     await db.user.update({ store: null }, { where: { store: location.id } })
+    await db.taxConfig.destroy({ where: { store: location.id }, force: true })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -137,6 +146,14 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
 
   beforeAll(async () => {
     location = await db.location.create({ name: 'RACE_STATUS_STORE', status: 'active' })
+    // W3-3 (DR-17): PPN is explicit setup, never a fallback.
+    await db.taxConfig.create({
+      name: `RACE_PPN_${location.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: location.id
+    })
     category = await db.category.create({ name: 'RACE_STATUS_CATEGORY' })
     product = await db.product.create({
       nameProduct: 'RACE_STATUS_PRODUCT',
@@ -184,6 +201,7 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
     await db.category.destroy({ where: { id: category.id }, force: true })
     // Release the per-describe store assignment (user.store FK) before deleting it.
     await db.user.update({ store: null }, { where: { store: location.id } })
+    await db.taxConfig.destroy({ where: { store: location.id }, force: true })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -214,6 +232,14 @@ describe('Concurrent PO receiving — lost update on product.stock (purchaseOrde
 
   beforeAll(async () => {
     location = await db.location.create({ name: 'RACE_PO_STORE', status: 'active' })
+    // W3-3 (DR-17): PPN is explicit setup, never a fallback.
+    await db.taxConfig.create({
+      name: `RACE_PPN_${location.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: location.id
+    })
     category = await db.category.create({ name: 'RACE_PO_CATEGORY' })
     product = await db.product.create({
       nameProduct: 'RACE_PO_PRODUCT',
@@ -257,6 +283,7 @@ describe('Concurrent PO receiving — lost update on product.stock (purchaseOrde
     await db.category.destroy({ where: { id: category.id }, force: true })
     // Release the per-describe store assignment (user.store FK) before deleting it.
     await db.user.update({ store: null }, { where: { store: location.id } })
+    await db.taxConfig.destroy({ where: { store: location.id }, force: true })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -288,6 +315,14 @@ describe('Concurrent duplicate submit — idempotency key (order.js createOrder)
 
   beforeAll(async () => {
     location = await db.location.create({ name: 'RACE_IDEMPOTENCY_STORE', status: 'active' })
+    // W3-3 (DR-17): PPN is explicit setup, never a fallback.
+    await db.taxConfig.create({
+      name: `RACE_PPN_${location.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: location.id
+    })
     category = await db.category.create({ name: 'RACE_IDEMPOTENCY_CATEGORY' })
     product = await db.product.create({
       nameProduct: 'RACE_IDEMPOTENCY_PRODUCT',
@@ -324,6 +359,7 @@ describe('Concurrent duplicate submit — idempotency key (order.js createOrder)
     await db.category.destroy({ where: { id: category.id }, force: true })
     // Release the per-describe store assignment (user.store FK) before deleting it.
     await db.user.update({ store: null }, { where: { store: location.id } })
+    await db.taxConfig.destroy({ where: { store: location.id }, force: true })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -392,6 +428,14 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
 
   beforeAll(async () => {
     location = await db.location.create({ name: 'RACE_CUSTNUM_STORE', status: 'active' })
+    // W3-3 (DR-17): PPN is explicit setup, never a fallback.
+    await db.taxConfig.create({
+      name: `RACE_PPN_${location.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: location.id
+    })
     category = await db.category.create({ name: 'RACE_CUSTNUM_CATEGORY' })
     product = await db.product.create({
       nameProduct: 'RACE_CUSTNUM_PRODUCT',
@@ -428,6 +472,7 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
     await db.category.destroy({ where: { id: category.id }, force: true })
     // Release the per-describe store assignment (user.store FK) before deleting it.
     await db.user.update({ store: null }, { where: { store: location.id } })
+    await db.taxConfig.destroy({ where: { store: location.id }, force: true })
     await db.location.destroy({ where: { id: location.id }, force: true })
   }, 30000)
 

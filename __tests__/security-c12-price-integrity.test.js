@@ -29,9 +29,19 @@ beforeAll(async () => {
     stock: 100
   })
   await db.product_store.create({ product: product.id, store: store.id })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these price-integrity assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'C12_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.order_item.destroy({ where: { product: product?.id }, force: true })
   await db.order.destroy({ where: { store: store?.id }, force: true })
   await db.product_store.destroy(

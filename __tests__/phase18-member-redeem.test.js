@@ -63,9 +63,24 @@ beforeAll(async () => {
     { id: 9902, userName: 'redeem_cashier_b', roleType: 'kasir', store: locationB.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so these redeem assertions exercise configured tax.
+  for (const s of [locationA, locationB]) {
+    await db.taxConfig.create({
+      name: `REDEEM_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({
+    where: { store: [locationA?.id, locationB?.id].filter(Boolean) },
+    force: true
+  })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })

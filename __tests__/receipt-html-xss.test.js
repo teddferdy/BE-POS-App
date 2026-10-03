@@ -89,9 +89,19 @@ beforeAll(async () => {
   })
   await db.product_store.create({ product: product.id, store: store.id })
   table = await db.table.create({ store: store.id, name: 'RECEIPT_XSS_TABLE' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these receipt assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'RECEIPT_XSS_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   for (const orderId of createdOrderIds) {
     await db.order_item.destroy({ where: { order: orderId }, force: true })
     await db.order.destroy({ where: { id: orderId }, force: true })

@@ -25,6 +25,15 @@ beforeAll(async () => {
     stock: 100
   })
   await db.product_store_stock.create({ product: product.id, store: location.id, stock: 100 })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these discount-cap assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'INFO03_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 
   // Fixed discount 1000
   discountFixed = await db.discount.create({
@@ -68,6 +77,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [9801] }, force: true })
+  await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })

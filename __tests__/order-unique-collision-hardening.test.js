@@ -57,9 +57,19 @@ beforeAll(async () => {
     stock: product.stock
   })
   table = await db.table.create({ store: store.id, name: 'F04_COLLISION_TABLE' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these collision assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'F04_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   const seeded = await db.order.findAll({ where: { store: store.id } })
   for (const o of seeded) {
     await db.order_item.destroy({ where: { order: o.id }, force: true })

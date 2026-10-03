@@ -88,9 +88,19 @@ beforeAll(async () => {
     { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: store.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these approval assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'RACE_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.stock_history.destroy({ where: { store: store?.id }, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.sales_return_item.destroy({ where: {}, force: true })

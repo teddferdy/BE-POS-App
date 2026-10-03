@@ -13,9 +13,19 @@ let category = null
 beforeAll(async () => {
   location = await db.location.create({ name: 'STOCKMUT_STORE', status: 'active' })
   category = await db.category.create({ name: 'STOCKMUT_CATEGORY' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // for sale-style decrements in this suite.
+  await db.taxConfig.create({
+    name: 'STOCKMUT_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.stock_history.destroy({ where: {}, force: true })
   await db.product_store_stock.destroy({ where: { store: location.id }, force: true })
   await db.product.destroy({ where: { category: category.id }, force: true })

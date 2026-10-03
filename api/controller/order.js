@@ -367,33 +367,47 @@ const generateCustomerNumber = async (store, t) => {
 // applied globally instead of to one specific store. Mirror the same
 // store-or-global match here so both sides resolve the same active rows.
 const getActiveTaxRate = async (store) => {
+  // W3-3 (DR-17): missing PPN configuration is an explicit setup error and
+  // read failures propagate — never a silent numeric fallback. A 0 sum from
+  // explicitly configured rows is valid and returned as 0.
+  let taxConfigs
   try {
-    const taxConfigs = await db.taxConfig.findAll({
+    taxConfigs = await db.taxConfig.findAll({
       where: { [Op.or]: [{ store }, { store: null }], type: 'ppn', status: 'active' },
       attributes: ['rate']
     })
-    if (taxConfigs.length > 0) {
-      return taxConfigs.reduce((sum, t) => sum + Number(t.rate), 0)
-    }
   } catch (e) {
     console.error('Error fetching tax config:', e.message)
+    throw e
   }
-  return 11 // fallback default
+  if (taxConfigs.length === 0) {
+    const e = new Error(
+      `PPN tax configuration is missing for this outlet (store ${store}); configure an active PPN rate before selling`
+    )
+    e.statusCode = 400
+    throw e
+  }
+  return taxConfigs.reduce((sum, t) => sum + Number(t.rate), 0)
 }
 
 const getServiceChargeRate = async (store) => {
+  // W3-3 (DR-17): no configured service-charge rows means 0 (valid business
+  // behavior, unchanged). A read failure is NOT converted into 0 — it
+  // propagates to the existing 500 handling.
+  let configs
   try {
-    const configs = await db.taxConfig.findAll({
+    configs = await db.taxConfig.findAll({
       where: { [Op.or]: [{ store }, { store: null }], type: 'service_charge', status: 'active' },
       attributes: ['rate']
     })
-    if (configs.length > 0) {
-      return configs.reduce((sum, t) => sum + Number(t.rate), 0)
-    }
   } catch (e) {
     console.error('Error fetching service charge config:', e.message)
+    throw e
   }
-  return 0
+  if (configs.length === 0) {
+    return 0
+  }
+  return configs.reduce((sum, t) => sum + Number(t.rate), 0)
 }
 
 const evaluatePromoCampaign = async (items, store, customerId, subtotal) => {
@@ -4412,16 +4426,34 @@ exports.getReceiptHTML = async (req, res) => {
 }
 
 exports.getCustomerTaxRate = async (req, res) => {
-  const { store } = req.query
+  const { store, channel } = req.query
   if (!store) {
     return res.status(400).json({ message: 'store is required' })
   }
+  // W3-3 (DR-17): channel-aware rate resolution. An omitted channel keeps
+  // the historical default (counter) shape; only an explicit qr channel
+  // suppresses the service-charge signal. Anything else is refused rather
+  // than guessed about.
+  const resolvedChannel = channel === undefined || channel === null || channel === '' ? 'counter' : channel
+  if (resolvedChannel !== 'counter' && resolvedChannel !== 'qr') {
+    return res.status(400).json({ message: 'channel must be counter or qr' })
+  }
   try {
     const rate = await getActiveTaxRate(Number(store))
+    if (resolvedChannel === 'qr') {
+      // QR never charges service charge, so it must not be communicated
+      // as applicable. null (not 0) marks non-applicability explicitly.
+      return res.status(200).json({ data: { rate, serviceChargeRate: null } })
+    }
     const serviceChargeRate = await getServiceChargeRate(Number(store))
     return res.status(200).json({ data: { rate, serviceChargeRate } })
   } catch (error) {
     console.error('Error fetching customer tax rate:', error)
+    // Surface explicitly-tagged errors (e.g. missing PPN setup → 400);
+    // genuine read failures stay 500 through the existing handling.
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message })
+    }
     return res.status(500).json({ error: 'Internal Server Error' })
   }
 }

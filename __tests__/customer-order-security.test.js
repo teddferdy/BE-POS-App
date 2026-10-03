@@ -68,6 +68,17 @@ const deepKeys = (value, acc = []) => {
 beforeAll(async () => {
   store1 = await db.location.create({ name: 'SEC_STORE_1', status: 'active' })
   store2 = await db.location.create({ name: 'SEC_STORE_2', status: 'active' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so QR setup assertions exercise configured tax.
+  for (const s of [store1, store2]) {
+    await db.taxConfig.create({
+      name: `SEC_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
   // P1-4: central gate denies unknown caller identities; these rows
   // satisfy the identity invariant. Assertions below are unchanged.
   await db.user.create({
@@ -223,6 +234,10 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [9402] }, force: true })
+  await db.taxConfig.destroy({
+    where: { store: [store1?.id, store2?.id].filter(Boolean) },
+    force: true
+  })
   // Sweep every order belonging to the two test stores — including any
   // orders tests intentionally failed before creating (RED-phase
   // artifacts) — so cleanup never trips over FK leftovers.
