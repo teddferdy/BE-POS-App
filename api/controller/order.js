@@ -248,6 +248,13 @@ const getEffectiveStockMap = async (products, store) => {
   return map
 }
 
+// W3-1 (DR-11): batched per-store effective catalog price lives in
+// utils/outletPricing (single authoritative rule shared with checkout).
+const {
+  resolveCatalogBase,
+  getEffectivePriceMap
+} = require('../../utils/outletPricing')
+
 // AUD-2 (security): store-tenancy guards for the public customer-order
 // mutation surface. A product is orderable through a store when it is
 // explicitly assigned to that store (product_store row) OR it has no
@@ -290,8 +297,13 @@ const isBundleOrderableAtStore = (bundle, store) => {
 // price plus any selected option/modifier markup. The FE only sends the chosen
 // option/modifier names; prices are always re-derived from the product's stored
 // data so the server never trusts client-sent amounts.
-const getServerItemPrice = (prod, item) => {
-  const base = Number(prod.price) || 0
+// W3-1 (DR-11): the catalog base is the outlet-resolved price — the outlet
+// product_store_price row wins when present, otherwise product.price. Option/
+// variant markup applies on top exactly as before. Callers may pass a
+// pre-resolved catalogBase (from resolveCatalogBase) to avoid a second
+// lookup; otherwise it is resolved here.
+const getServerItemPrice = async (prod, item, store, catalogBase) => {
+  const base = catalogBase !== undefined ? catalogBase : await resolveCatalogBase(prod, store)
   let extra = 0
 
   const optNames = (item.options || []).map((o) => o && o.name).filter(Boolean)
@@ -911,6 +923,9 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
     productById.set(prod.id, prod)
 
     let serverPrice
+    // W3-1 (DR-11): authoritative catalog price is outlet-resolved; the same
+    // value feeds basePrice, the override audit baseline, and the final price.
+    const catalogPrice = await resolveCatalogBase(prod, store)
     if (hasPriceOverride) {
       if (!isAdminRoleForOrder(user)) {
         return { ok: false, statusCode: 403, message: `Price override requires admin privileges` }
@@ -921,12 +936,12 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
       }
       serverPrice = overridePrice
       item._priceOverridden = true
-      item._originalCatalogPrice = Number(prod.price) || 0
+      item._originalCatalogPrice = catalogPrice
     } else {
-      serverPrice = getServerItemPrice(prod, item)
+      serverPrice = await getServerItemPrice(prod, item, store, catalogPrice)
       item._priceOverridden = false
     }
-    item.basePrice = Number(prod.price) || 0
+    item.basePrice = catalogPrice
     item.price = serverPrice
     item.unitPrice = serverPrice
     item.subtotal = serverPrice * qty
@@ -3172,6 +3187,15 @@ exports.getCustomerMenu = async (req, res) => {
       dto.effectiveStock = effectiveStockById.get(String(dto.id)) ?? null
     }
 
+    // W3-1 (DR-11): expose the effective catalog price with the SAME
+    // resolution rule as checkout (outlet row wins, otherwise base price),
+    // batched in a single query so the public menu avoids an N+1. Raw
+    // `price` stays backward-compatible.
+    const effectivePriceById = await getEffectivePriceMap(products, storeId)
+    for (const dto of customerProducts) {
+      dto.effectivePrice = effectivePriceById.get(String(dto.id)) ?? null
+    }
+
     const customerCategories = categories.map((c) => {
       const plain = c.get({ plain: true })
       const dto = {}
@@ -3368,8 +3392,11 @@ exports.createCustomerOrder = async (req, res) => {
             message: `Product not found: ${item.productName || item.productId}`
           })
         }
-        const serverPrice = getServerItemPrice(prod, item)
-        item.basePrice = Number(prod.price) || 0
+        // W3-1 (DR-11): same outlet-resolved catalog price as the counter
+        // path; override stays prohibited here.
+        const catalogPrice = await resolveCatalogBase(prod, store)
+        const serverPrice = await getServerItemPrice(prod, item, store, catalogPrice)
+        item.basePrice = catalogPrice
         item.price = serverPrice
         item.subtotal = serverPrice * Number(item.quantity)
       }

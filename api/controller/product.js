@@ -18,6 +18,9 @@ const {
 } = require('../../utils/excelTemplate')
 const { isSuperAdmin } = require('../../utils/tenantScope')
 const { assertSellableProductAssignment } = require('../validation/schemas')
+// W3-1 (DR-11): shared authoritative outlet-price resolution (checkout +
+// display use one rule).
+const { getEffectivePriceMap } = require('../../utils/outletPricing')
 
 const normalizeStores = (stores) => {
   if (!Array.isArray(stores)) return []
@@ -400,9 +403,17 @@ exports.getAllProduct = async (req, res) => {
       include: includeOpts
     })
 
+    // W3-1 (DR-11): expose the effective catalog price with the SAME
+    // resolution rule as checkout (outlet row wins, otherwise base price),
+    // batched in a single query. Raw `price` stays backward-compatible.
+    const effectivePriceById = store
+      ? await getEffectivePriceMap(getAllProduct, Number(store))
+      : new Map()
+
     const resolvedCategories = getAllProduct.map((items) => ({
       ...items.dataValues,
       stock: items.storeStocks?.[0]?.stock ?? items.stock,
+      effectivePrice: effectivePriceById.get(String(items.id)) ?? null,
       nameCategory: items.categoryData
         ? items.categoryData.value || items.categoryData.name
         : null
