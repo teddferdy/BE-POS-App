@@ -47,7 +47,7 @@ recorded before W-01.1 have no verified execution provenance. The verifier
 reports **recorded** state only, for example:
 
 ```
-235/235 recorded in SequelizeMeta: runner-recorded N (execution provenance not asserted for pre-W-01.1 rows), attested X, excluded Y, controlled-applied Z, controlled-pending P, blocked B
+236/236 recorded in SequelizeMeta: runner-recorded N (execution provenance not asserted for pre-W-01.1 rows), attested X, excluded Y, controlled-applied Z, controlled-pending P, blocked B
 ```
 
 It never reports that "all migrations were executed/applied".
@@ -107,7 +107,7 @@ runs, then re-verify.
 
 Before any production remediation, the migration plan is rehearsed against a
 **disposable local PostgreSQL database**. The rehearsal proves the
-disposition contract converges (stamping, controlled applies, the 12 E2
+disposition contract converges (stamping, controlled applies, the 13 E2
 runner candidates, final verification) while open business decisions stay
 isolated. A successful rehearsal does NOT approve the production manifest,
 stamp production, authorize production migration, or pass G-02.
@@ -120,7 +120,7 @@ stamp production, authorize production migration, or pass G-02.
    authorizes production.
 2. **Dry run** (no database touched):
    `node scripts/rehearse-staging.js --staging-db=cashier_app_staging_rehearsal`
-   Validates the manifest, approval state, and 235 = 197 + 26 + 12
+   Validates the manifest, approval state, and 236 = 197 + 26 + 13
    accounting, then prints the plan.
 3. **Rehearse** (creates, uses, and drops the ephemeral database):
    ```
@@ -129,7 +129,7 @@ stamp production, authorize production migration, or pass G-02.
    ```
    Stages: create → identity guard → baseline → snapshot + synthetic drift
    fixture → disposition stamping → controlled applies (missing effects
-   only) → 12 E2 through the real runner (timed per migration) →
+   only) → 13 E2 through the real runner (timed per migration) →
    verification → evidence bundle → teardown.
    The rehearsal database name must match
    `cashier_app_staging_rehearsal*` on a local host or the harness refuses
@@ -137,7 +137,8 @@ stamp production, authorize production migration, or pass G-02.
    never reads `POSTGRES_*` or `.env.production`.
 4. **Evidence** is written to `docs/superpowers/evidence/` (no secrets) and
    the expected terminal state is success-with-decisions-isolated
-   (D-05/D-06/D-08 remain `BLOCKED_DECISION` by design).
+   (D-06/D-08 remain `BLOCKED_DECISION` by design; D-05 is resolved as
+   `EXCLUDED_BY_DECISION` and its product-grade migration runs as E2).
 5. Add `--keep-on-failure` to retain a failed rehearsal database for
    debugging; it is dropped explicitly afterwards, never left behind
    silently.

@@ -66,10 +66,10 @@ const MAINTENANCE_DB = 'postgres'
 
 // Locked accounting model (W-02R.4 discovery): any repository growth forces
 // a manifest review instead of silently changing the rehearsal.
-const EXPECTED_REPO_MIGRATIONS = 235
+const EXPECTED_REPO_MIGRATIONS = 236
 const EXPECTED_MANIFEST_ROWS = 197
 const EXPECTED_LEDGER_ROWS = 26
-const EXPECTED_E2_COUNT = 12
+const EXPECTED_E2_COUNT = 13
 
 // November foundation migrations (part of the 26 production ledger rows).
 // SCHEMA ONLY, additive, safe to execute against the snapshot baseline via
@@ -303,6 +303,43 @@ async function driftDownNumericColumns(sequelize) {
     reverted.push(`${table}.${column}`)
   }
   return reverted
+}
+
+// D-05 product-grade member identity indexes, owned by the E2 migration
+// 20261012000001-d05-member-identity-uniqueness.js.
+const D05_MEMBER_INDEXES = [
+  'uq_member_store_name_ci',
+  'uq_member_global_name_ci',
+  'uq_member_phone_e164',
+  'uq_member_email_ci'
+]
+
+// S1d: production carries member_pkey only (W-02R.3R E6). The snapshot
+// already embodies the D-05 target indexes, which would turn the D-05 E2
+// migration into an IF NOT EXISTS no-op; drop them so the real runner must
+// genuinely create them. Staging rehearsal database only.
+async function driftDownD05MemberIndexes(sequelize) {
+  const dropped = []
+  for (const idx of D05_MEMBER_INDEXES) {
+    if (await indexExists(sequelize, idx)) {
+      await sequelize.query(`DROP INDEX "${idx}"`)
+      dropped.push(idx)
+    }
+  }
+  for (const idx of D05_MEMBER_INDEXES) {
+    if (await indexExists(sequelize, idx)) throw new Error(`fixture failed: D-05 index ${idx} still present before E2`)
+  }
+  return dropped
+}
+
+async function verifyD05MemberIndexes(sequelize) {
+  const present = []
+  const missing = []
+  for (const idx of D05_MEMBER_INDEXES) {
+    if (await indexExists(sequelize, idx)) present.push(idx)
+    else missing.push(idx)
+  }
+  return { present, missing }
 }
 
 // S1c: minimal synthetic data — just enough for the E2 data migrations to
@@ -574,10 +611,11 @@ async function main(argv = process.argv.slice(2)) {
     evidence.steps.fixture = await time('fixture', async () => {
       const november = await runNovemberFoundations(sequelize)
       const reverted = await driftDownNumericColumns(sequelize)
+      const d05Dropped = await driftDownD05MemberIndexes(sequelize)
       const seeded = await seedSyntheticData(sequelize)
       await insertLedgerNames(sequelize, ledger)
       const meta = await queryAll(sequelize, 'SELECT name FROM "SequelizeMeta" ORDER BY name')
-      return { novemberFoundations: november, driftDownIntegers: reverted, syntheticData: seeded, ledgerInserted: meta.length }
+      return { novemberFoundations: november, driftDownIntegers: reverted, driftDownD05Indexes: d05Dropped, syntheticData: seeded, ledgerInserted: meta.length }
     })
 
     // ---- S2 disposition stamping (INSERT-only core, same as production). ----
@@ -609,9 +647,10 @@ async function main(argv = process.argv.slice(2)) {
     for (const name of e2) {
       // Rehearsal E2 gate: identical to the production gate except blocked
       // decisions are ISOLATED (reported, asserted, never executed) instead
-      // of refusing — D-05/D-06/D-08 remain unresolved by design. Approval,
-      // stamping, controlled-pending, orphan, and readability checks are
-      // unchanged and still fail closed.
+      // of refusing — D-06/D-08 remain unresolved by design (D-05 resolved
+      // via EXCLUDED_BY_DECISION + the product-grade D-05 migration, which
+      // runs here as E2). Approval, stamping, controlled-pending, orphan,
+      // and readability checks are unchanged and still fail closed.
       const gate = preflight.evaluatePreflight({
         env: 'staging',
         targetHost: adminCfg.host,
@@ -621,8 +660,8 @@ async function main(argv = process.argv.slice(2)) {
         isolateBlockedDecisions: true
       })
       if (!gate.ok) throw new RehearsalRefusedError(`staging preflight refused before E2 ${name}: ${gate.reasons.join('; ')}`)
-      if (gate.blocked.length !== 5) {
-        throw new RehearsalRefusedError(`expected 5 isolated blocked decisions before E2 ${name}, got ${gate.blocked.length}`)
+      if (gate.blocked.length !== 3) {
+        throw new RehearsalRefusedError(`expected 3 isolated blocked decisions before E2 ${name}, got ${gate.blocked.length}`)
       }
       const t0 = Date.now()
       const child = spawnSync(process.execPath, [cli, 'db:migrate', '--env', 'staging', '--to', name], {
@@ -638,6 +677,11 @@ async function main(argv = process.argv.slice(2)) {
     }
     evidence.steps.e2 = await collectE2Evidence(sequelize, e2, e2Results)
     evidence.steps.e2.phaseDurationMs = Date.now() - e2PhaseStart
+    // D-05: the E2 migration must have genuinely created all four indexes.
+    evidence.steps.d05Indexes = await verifyD05MemberIndexes(sequelize)
+    if (evidence.steps.d05Indexes.missing.length > 0) {
+      throw new Error(`D-05 E2 did not create: ${evidence.steps.d05Indexes.missing.join(', ')}`)
+    }
 
     // ---- S5/S6 final verification. ----
     evidence.steps.verify = await time('verify', async () => {
@@ -669,7 +713,7 @@ async function main(argv = process.argv.slice(2)) {
     }
 
     evidence.timingsMs = timings
-    evidence.result = evidence.steps.verify.status === 'BLOCKED' && evidence.steps.verify.blocked.length === 5 ? 'rehearsal-pass-blocked' : 'rehearsal-unexpected-state'
+    evidence.result = evidence.steps.verify.status === 'BLOCKED' && evidence.steps.verify.blocked.length === 3 ? 'rehearsal-pass-blocked' : 'rehearsal-unexpected-state'
     if (evidence.result !== 'rehearsal-pass-blocked') {
       throw new Error(`unexpected terminal state: ${evidence.steps.verify.status} (blocked=${evidence.steps.verify.blocked.length})`)
     }
@@ -816,6 +860,7 @@ module.exports = {
   EXPECTED_E2_COUNT,
   NOVEMBER_FOUNDATION_MIGRATIONS,
   DRIFT_INTEGER_TARGETS,
+  D05_MEMBER_INDEXES,
   parseArgs,
   assertRehearsalTarget,
   deriveRehearsalSets,

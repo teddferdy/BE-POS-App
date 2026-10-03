@@ -44,7 +44,7 @@ describe('W-01.1 migration preflight (production)', () => {
     const dispositions = approvedRepositoryManifest((r) => (r.disposition === 'CONTROLLED_APPLY_PENDING' ? resolveAll(r) : r))
     const result = evaluate({ dispositions, metaNames: allDispositionsStamped(dispositions) })
     expect(result.ok).toBe(false)
-    expect(result.reasons.join('\n')).toMatch(/BLOCKED_DECISION remains \(5\)/)
+    expect(result.reasons.join('\n')).toMatch(/BLOCKED_DECISION remains \(3\)/)
   })
 
   test('CONTROLLED_APPLY_PENDING remaining → refused', () => {
@@ -114,8 +114,8 @@ describe('W-01.1 migration preflight (non-production environments)', () => {
     const metaNames = approved.migrations.map((r) => r.migration)
     const strict = preflight.evaluatePreflight({ env: 'production', targetHost: 'db', dispositions: approved, files: FILES, metaNames })
     expect(strict.ok).toBe(false)
-    expect(strict.reasons.join('\n')).toMatch(/BLOCKED_DECISION remains \(5\)/)
-    expect(strict.blocked).toHaveLength(5)
+    expect(strict.reasons.join('\n')).toMatch(/BLOCKED_DECISION remains \(3\)/)
+    expect(strict.blocked).toHaveLength(3)
     const isolated = preflight.evaluatePreflight({
       env: 'production',
       targetHost: 'db',
@@ -127,7 +127,7 @@ describe('W-01.1 migration preflight (non-production environments)', () => {
     // Controlled-pending rows still fail the gate; only BLOCKED is isolated.
     expect(isolated.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains \(3\)/)
     expect(isolated.reasons.join('\n')).not.toMatch(/BLOCKED_DECISION remains/)
-    expect(isolated.blocked).toHaveLength(5)
+    expect(isolated.blocked).toHaveLength(3)
   })
   test('non-production environment pointing at a non-local host → refused', () => {
     const result = preflight.evaluatePreflight({ env: 'development', targetHost: 'ep-prod.example.neon.tech', files: FILES })

@@ -1,5 +1,28 @@
 const { z } = require('zod')
 const { isValidTimezone } = require('../../utils/businessDate')
+const { parsePhoneInput } = require('../../utils/memberIdentity')
+
+// D-05: member phone must be parseable to canonical E.164. Missing/empty/
+// whitespace-only values take the server-side guest path in the controller.
+// GUEST-* identifiers are server-generated only: never accepted on create;
+// on update the controller accepts one only when it equals the member's
+// current value (allowGuest defers that check to the controller).
+const memberPhoneNumber = ({ allowGuest = false } = {}) =>
+  z
+    .string()
+    .optional()
+    .nullable()
+    .refine(
+      (v) => {
+        try {
+          const parsed = parsePhoneInput(v)
+          return parsed.kind !== 'guest' || allowGuest
+        } catch {
+          return false
+        }
+      },
+      { message: 'Nomor telepon tidak valid' }
+    )
 
 // --- Helpers ---
 const ianaTimezone = () =>
@@ -1247,7 +1270,7 @@ exports.markExpensePaidSchema = z
 exports.createMemberSchema = z.object({
   store: strToNum().optional().nullable(),
   nameMember: z.string().min(1, 'Member name is required'),
-  phoneNumber: z.string().optional().nullable(),
+  phoneNumber: memberPhoneNumber(),
   email: z.string().email().optional().or(z.literal('')),
   point: strToNum().optional().default(0),
   tier: strToNum().optional().nullable(),
@@ -1258,7 +1281,9 @@ exports.createMemberSchema = z.object({
   status: z.string().optional().default('active')
 })
 
-exports.updateMemberSchema = exports.createMemberSchema.partial()
+exports.updateMemberSchema = exports.createMemberSchema.partial().extend({
+  phoneNumber: memberPhoneNumber({ allowGuest: true })
+})
 
 // ===================== Goods Receipt =====================
 const grItemSchema = z.object({

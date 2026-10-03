@@ -6746,11 +6746,24 @@ ALTER TABLE ONLY public.member
 
 
 --
--- Name: member uq_member_store_name; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: uq_member_store_name_ci; Type: INDEX; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.member
-    ADD CONSTRAINT uq_member_store_name UNIQUE (store, name);
+CREATE UNIQUE INDEX uq_member_store_name_ci ON public.member USING btree (store, (LOWER(TRIM(name)))) WHERE ((store IS NOT NULL) AND ("deletedAt" IS NULL));
+
+
+--
+-- Name: uq_member_phone_e164; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_member_phone_e164 ON public.member USING btree ("phoneNumber") WHERE (("deletedAt" IS NULL) AND ("phoneNumber" NOT LIKE 'GUEST-%'));
+
+
+--
+-- Name: uq_member_email_ci; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_member_email_ci ON public.member USING btree ((LOWER(TRIM(email)))) WHERE (("deletedAt" IS NULL) AND (email IS NOT NULL));
 
 
 --
@@ -8266,10 +8279,10 @@ CREATE INDEX waiter_request_store ON public.waiter_request USING gin (store) WHE
 
 
 --
--- Name: uq_member_global_name; Type: INDEX; Schema: public; Owner: -
+-- Name: uq_member_global_name_ci; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_member_global_name ON public.member USING btree (name) WHERE (store IS NULL);
+CREATE UNIQUE INDEX uq_member_global_name_ci ON public.member USING btree ((LOWER(TRIM(name)))) WHERE ((store IS NULL) AND ("deletedAt" IS NULL));
 
 
 --

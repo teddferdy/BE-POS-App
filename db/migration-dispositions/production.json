@@ -311,8 +311,8 @@
     },
     {
       "migration": "20260620000004-add-unique-constraints-to-member.js",
-      "disposition": "BLOCKED_DECISION",
-      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): uq_member_name/phoneNumber/email absent (member has only member_pkey, w02r_constraints/w02r_indexes); no dupes (w02r1_dataonly.member_*_dupes = 0); replay: APPLIES_MISSING_ONLY",
+      "disposition": "EXCLUDED_BY_DECISION",
+      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): uq_member_name/phoneNumber/email absent (member has only member_pkey, w02r_constraints/w02r_indexes); no dupes (w02r1_dataonly.member_*_dupes = 0); replay: APPLIES_MISSING_ONLY; D-05 decision/contract: docs/superpowers/evidence/d05-member-identity-contract.md",
       "decisionRef": "D-05 member uniqueness"
     },
     {
@@ -950,8 +950,8 @@
     },
     {
       "migration": "20260913000001-member-name-store-scoped-uniqueness.js",
-      "disposition": "BLOCKED_DECISION",
-      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): uq_member_store_name and uq_member_global_name absent (w02r_constraints/w02r_indexes); no store/name dupes (w02r1_dataonly); replay: ABORTS_AT_FIRST_STATEMENT",
+      "disposition": "EXCLUDED_BY_DECISION",
+      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): uq_member_store_name and uq_member_global_name absent (w02r_constraints/w02r_indexes); no store/name dupes (w02r1_dataonly); replay: ABORTS_AT_FIRST_STATEMENT; D-05 decision/contract: docs/superpowers/evidence/d05-member-identity-contract.md",
       "decisionRef": "D-05 member uniqueness"
     },
     {

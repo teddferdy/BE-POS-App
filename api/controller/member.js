@@ -3,6 +3,54 @@ const Member = db.member
 const { Op } = require('sequelize')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const {
+  canonicalPhone,
+  isGuestPhone,
+  newGuestPhone,
+  parsePhoneInput,
+  phoneSearchPrefix
+} = require('../../utils/memberIdentity')
+
+// D-05: name/email prechecks evaluate BOTH sides with the unique-index
+// expression LOWER(TRIM(...)), so the precheck identity is exactly the DB
+// index identity (PostgreSQL TRIM/LOWER semantics, no JS/SQL whitespace
+// divergence). The DB index remains the final arbiter; this is UX/error
+// messaging only.
+const lowerTrim = (value) =>
+  db.sequelize.fn('LOWER', db.sequelize.fn('TRIM', value))
+const sameIdentity = (column, input) =>
+  db.sequelize.where(lowerTrim(db.sequelize.col(column)), lowerTrim(input))
+
+// D-05: DB unique violations (precheck/write race) map to the existing member
+// vocabulary by index name. The parsed field path is unusable for expression
+// indexes (it yields 'store' or 'lower(TRIM(BOTH FROM email))').
+const MEMBER_UNIQUE_MESSAGES = {
+  uq_member_store_name_ci: 'Nama member sudah terdaftar',
+  uq_member_global_name_ci: 'Nama member sudah terdaftar',
+  uq_member_phone_e164: 'Nomor telepon sudah terdaftar',
+  uq_member_email_ci: 'Email sudah terdaftar'
+}
+
+const INVALID_PHONE_MESSAGE = 'Nomor telepon tidak valid'
+
+// Shared create/update error mapping. Returns the sent response, or null when
+// the error is not a known client/uniqueness error.
+const respondMemberWriteError = (res, error) => {
+  if (error.statusCode) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message
+    })
+  }
+  if (error.name === 'SequelizeUniqueConstraintError') {
+    const constraint = error.parent?.constraint || error.original?.constraint
+    const message =
+      MEMBER_UNIQUE_MESSAGES[constraint] ||
+      `${error.errors?.[0]?.path || 'field'} sudah digunakan`
+    return res.status(409).json({ success: false, message })
+  }
+  return null
+}
 
 exports.getAllMember = async (req, res) => {
   try {
@@ -31,9 +79,18 @@ exports.getAllMember = async (req, res) => {
     }
 
     if (phoneNumber) {
-      filters.phoneNumber = {
-        [Op.like]: `%${phoneNumber}%`
-      }
+      // D-05: member phones are stored as E.164, so national-form input
+      // ('0812...') must also match the library-derived canonical prefix
+      // ('+62812...'). The raw substring match is preserved as-is.
+      const canonicalPrefix = phoneSearchPrefix(phoneNumber)
+      filters.phoneNumber = canonicalPrefix
+        ? {
+            [Op.or]: [
+              { [Op.like]: `%${phoneNumber}%` },
+              { [Op.like]: `${canonicalPrefix}%` }
+            ]
+          }
+        : { [Op.like]: `%${phoneNumber}%` }
     }
 
     if (tier != null) {
@@ -187,11 +244,22 @@ exports.addNewMember = async (req, res) => {
         ? body.store || null
         : req.user?.store || null
 
+    // D-05: missing/empty/whitespace-only phone -> server-generated guest;
+    // a client can never supply a GUEST-* identity on create.
+    const phoneInput = parsePhoneInput(body.phoneNumber)
+    if (phoneInput.kind === 'guest') {
+      return res
+        .status(400)
+        .json({ success: false, message: INVALID_PHONE_MESSAGE })
+    }
+
     if (body?.nameMember) {
       const nameExists = await Member.findOne({
         where: {
-          name: body.nameMember,
-          ...(store !== null ? { store } : { store: null })
+          [Op.and]: [
+            sameIdentity('name', body.nameMember),
+            store !== null ? { store } : { store: null }
+          ]
         },
         raw: true
       })
@@ -201,12 +269,10 @@ exports.addNewMember = async (req, res) => {
           .json({ success: false, message: 'Nama member sudah terdaftar' })
       }
     }
-    if (body?.phoneNumber) {
+    // D-05: phone identity is global (no store bucket) on canonical E.164.
+    if (phoneInput.kind === 'phone') {
       const phoneExists = await Member.findOne({
-        where: {
-          phoneNumber: body.phoneNumber,
-          ...(store !== null ? { store } : { store: null })
-        },
+        where: { phoneNumber: phoneInput.value },
         raw: true
       })
       if (phoneExists) {
@@ -215,11 +281,14 @@ exports.addNewMember = async (req, res) => {
           .json({ success: false, message: 'Nomor telepon sudah terdaftar' })
       }
     }
+    // D-05: email identity is global (no store bucket).
     if (body?.email) {
       const emailExists = await Member.findOne({
         where: {
-          email: body.email,
-          ...(store !== null ? { store } : { store: null })
+          [Op.and]: [
+            sameIdentity('email', body.email),
+            { email: { [Op.ne]: null } }
+          ]
         },
         raw: true
       })
@@ -230,10 +299,11 @@ exports.addNewMember = async (req, res) => {
       }
     }
 
+    // D-05: supplied phones are stored canonical (E.164); a missing phone
+    // gets a server-generated guest identifier (exempt from phone
+    // uniqueness). Names/emails are stored as-input (expression indexes).
     const phoneNumber =
-      body.phoneNumber && body.phoneNumber.trim() !== ''
-        ? body.phoneNumber
-        : `GUEST-${Date.now()}`
+      phoneInput.kind === 'phone' ? phoneInput.value : newGuestPhone()
 
     const createdMember = await Member.create({
       store,
@@ -272,13 +342,7 @@ exports.addNewMember = async (req, res) => {
     }
   } catch (error) {
     console.error('Error =>', error)
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      const field = error.errors?.[0]?.path || 'field'
-      return res.status(409).json({
-        success: false,
-        message: `${field} sudah digunakan`
-      })
-    }
+    if (respondMemberWriteError(res, error)) return
     return res.status(500).json({
       success: false,
       message: 'Terjadi Kesalahan Internal Server'
@@ -326,12 +390,24 @@ exports.editMember = async (req, res) => {
       })
     }
 
+    // D-05: missing/empty/whitespace-only phone leaves the phone unchanged.
+    // A GUEST-* value is accepted only as the member's own current value
+    // (no-op); a client can never assign an arbitrary guest identity.
+    const phoneInput = parsePhoneInput(phoneNumber)
+    if (phoneInput.kind === 'guest' && phoneInput.value !== member.phoneNumber) {
+      return res
+        .status(400)
+        .json({ success: false, message: INVALID_PHONE_MESSAGE })
+    }
+
     if (nameMember) {
       const nameExists = await Member.findOne({
         where: {
-          name: nameMember,
-          id: { [Op.ne]: id },
-          ...(member.store ? { store: member.store } : { store: null })
+          [Op.and]: [
+            sameIdentity('name', nameMember),
+            { id: { [Op.ne]: id } },
+            member.store ? { store: member.store } : { store: null }
+          ]
         },
         raw: true
       })
@@ -341,12 +417,12 @@ exports.editMember = async (req, res) => {
           .json({ success: false, message: 'Nama member sudah terdaftar' })
       }
     }
-    if (phoneNumber) {
+    // D-05: phone/email identity is global (no store bucket).
+    if (phoneInput.kind === 'phone') {
       const phoneExists = await Member.findOne({
         where: {
-          phoneNumber,
-          id: { [Op.ne]: id },
-          ...(member.store ? { store: member.store } : { store: null })
+          phoneNumber: phoneInput.value,
+          id: { [Op.ne]: id }
         },
         raw: true
       })
@@ -359,9 +435,11 @@ exports.editMember = async (req, res) => {
     if (email) {
       const emailExists = await Member.findOne({
         where: {
-          email,
-          id: { [Op.ne]: id },
-          ...(member.store ? { store: member.store } : { store: null })
+          [Op.and]: [
+            sameIdentity('email', email),
+            { id: { [Op.ne]: id } },
+            { email: { [Op.ne]: null } }
+          ]
         },
         raw: true
       })
@@ -374,7 +452,9 @@ exports.editMember = async (req, res) => {
 
     const updateData = {}
     if (nameMember) updateData.name = nameMember
-    if (phoneNumber) updateData.phoneNumber = phoneNumber
+    // D-05: store canonical E.164 (a guest member's own unchanged GUEST-*
+    // value is a no-op and is not rewritten).
+    if (phoneInput.kind === 'phone') updateData.phoneNumber = phoneInput.value
     if (email !== undefined) updateData.email = email || null
     if (birthDate !== undefined) updateData.dateOfBirth = birthDate
     if (gender !== undefined) updateData.gender = gender
@@ -405,6 +485,10 @@ exports.editMember = async (req, res) => {
     })
   } catch (error) {
     console.error('Error =>', error)
+
+    // D-05: DB uniqueness violations (race between precheck and update) map
+    // to 409 with the existing member vocabulary, matching addNewMember.
+    if (respondMemberWriteError(res, error)) return
 
     return res.status(500).json({
       success: false,
@@ -465,15 +549,32 @@ exports.editMemberById = async (req, res) => {
         ? req.storeId || null
         : req.user?.store || null
 
-    const getMember = await Member.findOne({
-      where: {
-        [Op.or]: [
-          { phoneNumber },
-          ...(Number(phoneNumber) > 0 ? [{ id: Number(phoneNumber) }] : [])
-        ],
-        ...(store ? { store } : {})
+    // D-05: phone identity is canonical E.164. A server-generated GUEST-*
+    // value matches exactly; any other unparseable input never matches by
+    // phone (the numeric-ID lookup is unchanged); a miss stays 403.
+    let phoneLookup = null
+    if (isGuestPhone(phoneNumber)) {
+      phoneLookup = phoneNumber
+    } else {
+      try {
+        phoneLookup = canonicalPhone(phoneNumber)
+      } catch {
+        phoneLookup = null
       }
-    })
+    }
+    const lookups = [
+      ...(phoneLookup ? [{ phoneNumber: phoneLookup }] : []),
+      ...(Number(phoneNumber) > 0 ? [{ id: Number(phoneNumber) }] : [])
+    ]
+    const getMember =
+      lookups.length > 0
+        ? await Member.findOne({
+            where: {
+              [Op.or]: lookups,
+              ...(store ? { store } : {})
+            }
+          })
+        : null
 
     if (getMember) {
       const addedPoints = Number(body.points) || 0
