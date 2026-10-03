@@ -60,6 +60,15 @@ beforeAll(async () => {
     store: store.id,
     stock: 10
   })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so this order setup exercises configured tax.
+  await db.taxConfig.create({
+    name: 'ARPAY_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
   const orderRes = await request(app)
     .post('/order/create')
     .set('Authorization', `Bearer ${adminToken}`)
@@ -83,6 +92,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.ar_payment.destroy({ where: {}, force: true })
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.accounts_receivable.destroy({ where: { store: store?.id }, force: true })
   await db.order_item.destroy({ where: { order: order?.id }, force: true })
   await db.transaction.destroy({ where: { order: order?.id }, force: true })

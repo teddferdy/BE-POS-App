@@ -88,10 +88,20 @@ beforeAll(async () => {
     { id: 7001, userName: 'cashier_ord_flow', roleType: 'kasir', store: location.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // these flow assertions were written against so totals are unchanged.
+  await db.taxConfig.create({
+    name: 'ORD_FLOW_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [7001] }, force: true })
+  await db.taxConfig.destroy({ where: { store: location.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
@@ -135,8 +145,8 @@ describe('POST /order/create — core sale flow', () => {
     expect(Number(res.body.data.items[0].quantity)).toBe(3)
     // Server re-derives price from the DB — never trusts a client-sent amount.
     expect(Number(res.body.data.items[0].price)).toBe(15000)
-    // No taxConfig/service-charge rows exist for this freshly created store,
-    // so the documented defaults apply: 11% tax, 0% service charge.
+    // An explicit store PPN row (seeded in beforeAll) prices the order:
+    // 11% tax, 0% service charge (no service-charge rows configured).
     expect(Number(res.body.data.subTotal)).toBe(45000)
     expect(Number(res.body.data.taxAmount)).toBe(4950)
     expect(Number(res.body.data.totalPrice)).toBe(49950)

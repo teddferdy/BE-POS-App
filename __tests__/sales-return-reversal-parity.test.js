@@ -120,6 +120,15 @@ async function returnHistoryChanges(retId, productId) {
 beforeAll(async () => {
   store = await db.location.create({ name: `PARITY_STORE_${SUFFIX}`, status: 'active' })
   category = await db.category.create({ name: `PARITY_CAT_${SUFFIX}` })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these reversal assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: `PARITY_PPN_${SUFFIX}`,
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 
   fgA = await makeProduct(`PARITY_FG_${SUFFIX}`)
   modeP = await makeProduct(`PARITY_MODE_${SUFFIX}`)
@@ -173,6 +182,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.stock_history.destroy({ where: { store: store?.id }, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.sales_return_item.destroy({ where: {}, force: true })

@@ -148,10 +148,25 @@ beforeAll(async () => {
     { id: 7101, userName: 'cashier_ownership', roleType: 'kasir', store: storeA.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so these orderability assertions exercise configured tax.
+  for (const s of [storeA, storeB]) {
+    await db.taxConfig.create({
+      name: `OWN_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [7101] }, force: true })
+  await db.taxConfig.destroy({
+    where: { store: [storeA?.id, storeB?.id].filter(Boolean) },
+    force: true
+  })
   const productIds = [foreignProduct?.id, globalProduct?.id, localProduct?.id].filter(Boolean)
   const bundleIds = [foreignBundle?.id, globalBundle?.id, localBundle?.id].filter(Boolean)
   await db.order_item.destroy({ where: {}, force: true })

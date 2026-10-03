@@ -58,10 +58,20 @@ beforeAll(async () => {
     { id: ADMIN_ID, userName: 'admin_void_reason', roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these void-reason assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'VOID_REASON_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [KASIR_ID, ADMIN_ID] }, force: true })
+  await db.taxConfig.destroy({ where: { store: location.id }, force: true })
   await db.auditLog.destroy({ where: { store: location.id }, force: true, __auditMaintenance: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })

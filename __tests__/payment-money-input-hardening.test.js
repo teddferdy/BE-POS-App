@@ -89,6 +89,15 @@ beforeAll(async () => {
     { id: 7602, userName: 'admin_mon', roleType: 'admin', store: store.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these money-input assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'MON_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
   supplier = await db.supplier.create({
     name: `MON_SUP_${Date.now()}`,
     phone: '0800000002'
@@ -111,6 +120,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [7601, 7602] }, force: true })
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.split_bill.destroy({ where: {}, force: true })
   await db.ar_payment.destroy({ where: {}, force: true })
   await db.accounts_receivable.destroy({ where: { store: store?.id }, force: true })

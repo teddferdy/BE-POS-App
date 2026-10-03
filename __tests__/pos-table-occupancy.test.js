@@ -127,11 +127,26 @@ beforeAll(async () => {
     { id: 9711, userName: 'pos_occ_cashier', roleType: 'kasir', store: store.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these occupancy assertions exercise configured tax.
+  for (const s of [store, otherStore]) {
+    await db.taxConfig.create({
+      name: `POS_OCC_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
 })
 
 afterAll(async () => {
   jest.restoreAllMocks()
   await db.user.destroy({ where: { id: [9711] }, force: true })
+  await db.taxConfig.destroy({
+    where: { store: [store?.id, otherStore?.id].filter(Boolean) },
+    force: true
+  })
   const orders = await db.order.findAll({
     where: { store: [store?.id, otherStore?.id].filter(Boolean) },
     attributes: ['id']

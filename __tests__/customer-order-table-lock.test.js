@@ -78,10 +78,20 @@ beforeAll(async () => {
     { id: 9406, userName: 'f05_admin', roleType: 'admin', store: store.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these table-lock assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'F05_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [9406] }, force: true })
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   const orders = await db.order.findAll({ where: { store: store.id } })
   for (const o of orders) {
     await db.order_item.destroy({ where: { order: o.id }, force: true })

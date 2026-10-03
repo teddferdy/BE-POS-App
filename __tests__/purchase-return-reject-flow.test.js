@@ -58,9 +58,19 @@ beforeAll(async () => {
     { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these reject-flow assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'PR_REJECT_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.product_batch_stock.destroy({ where: {}, force: true })
   await db.product_batch.destroy({ where: { product: product?.id }, force: true })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })

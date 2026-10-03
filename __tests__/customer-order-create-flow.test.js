@@ -53,6 +53,15 @@ beforeAll(async () => {
     stock: product.stock
   })
   table = await db.table.create({ store: location.id, name: 'CUST_ORD_TABLE' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these QR flow assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'CUST_ORD_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 // Phase 39 — a successful QR order now occupies its table. This file's tests
@@ -68,6 +77,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [9403] }, force: true })
+  await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })

@@ -116,9 +116,24 @@ beforeAll(async () => {
   })
   tables[store1.id] = await db.table.create({ store: store1.id, name: 'FND002_TABLE_1' })
   tables[store2.id] = await db.table.create({ store: store2.id, name: 'FND002_TABLE_2' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so QR setup assertions exercise configured tax.
+  for (const s of [store1, store2]) {
+    await db.taxConfig.create({
+      name: `FND002_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({
+    where: { store: [store1?.id, store2?.id].filter(Boolean) },
+    force: true
+  })
   for (const id of createdOrderIds) {
     await db.order_item.destroy({ where: { order: id }, force: true })
     await db.order_status.destroy({ where: { order: id }, force: true })

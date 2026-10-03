@@ -124,10 +124,25 @@ beforeAll(async () => {
   })
   // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
   tokenA = await signSessionToken({ id: 9401, userName: 'f7_admin_a', roleType: 'admin', store: storeA.id }, JWT_SECRET)
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so these deduction assertions exercise configured tax.
+  for (const s of [storeA, storeB]) {
+    await db.taxConfig.create({
+      name: `F7_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [9401] }, force: true })
+  await db.taxConfig.destroy({
+    where: { store: [storeA?.id, storeB?.id].filter(Boolean) },
+    force: true
+  })
   await db.stock_history.destroy({ where: {}, force: true })
   await db.bom_line.destroy({ where: {}, force: true })
   await db.bom_header.destroy({ where: {}, force: true })

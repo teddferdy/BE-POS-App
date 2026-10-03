@@ -67,10 +67,20 @@ beforeAll(async () => {
   superAdminToken = await signSessionToken({ id: 9802, userName: 'override_super', roleType: 'super_admin', store: store.id }, JWT_SECRET)
   kasirToken = await signSessionToken({ id: 9803, userName: 'override_kasir', roleType: 'kasir', store: store.id }, JWT_SECRET)
   userToken = await signSessionToken({ id: 9804, userName: 'override_user', roleType: 'user', store: store.id }, JWT_SECRET)
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // these override assertions were written against so totals are unchanged.
+  await db.taxConfig.create({
+    name: 'OVERRIDE_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [9801, 9802, 9803, 9804] }, force: true })
+  await db.taxConfig.destroy({ where: { store: store.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
@@ -268,7 +278,7 @@ describe('Price override — money flow', () => {
       .send(orderPayload([{ product: product.id, quantity: 1, priceOverride: 8000 }]))
     expect(res.status).toBe(201)
     const order = res.body.data
-    // Default tax 11% for this store (no store tax config) → 8000*0.11=880
+    // Explicit store PPN (seeded in beforeAll): 8000*0.11=880
     expect(Number(order.taxAmount)).toBe(Math.round(8000 * 0.11))
   })
 

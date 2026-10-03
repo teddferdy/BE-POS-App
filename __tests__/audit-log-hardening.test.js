@@ -102,9 +102,24 @@ beforeAll(async () => {
     { id: cashierUser.id, userName: cashierUser.userName, roleType: 'kasir', store: store.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so these audit assertions exercise configured tax.
+  for (const s of [store, storeOther]) {
+    await db.taxConfig.create({
+      name: `AUDIT_HARDEN_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({
+    where: { store: [store?.id, storeOther?.id].filter(Boolean) },
+    force: true
+  })
   await db.auditLog.destroy({
     where: { store: [store?.id, storeOther?.id] },
     force: true,

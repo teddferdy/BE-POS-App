@@ -26,6 +26,17 @@ beforeAll(async () => {
   storeB = await db.location.create({ name: 'N5_STORE_B', status: 'active' })
   tableA = await db.table.create({ store: storeA.id, name: 'N5_TABLE_A' })
   tableB = await db.table.create({ store: storeB.id, name: 'N5_TABLE_B' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed rates for
+  // both stores so these isolation assertions exercise configured tax.
+  for (const s of [storeA, storeB]) {
+    await db.taxConfig.create({
+      name: `N5_PPN_${s.id}`,
+      rate: 11,
+      type: 'ppn',
+      status: 'active',
+      store: s.id
+    })
+  }
   category = await db.category.create({ name: 'N5_CATEGORY', status: 'active' })
   product = await db.product.create({
     nameProduct: 'N5_Product',
@@ -37,6 +48,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.order_item.destroy({ where: {}, force: true })
+  await db.taxConfig.destroy({
+    where: { store: [storeA?.id, storeB?.id].filter(Boolean) },
+    force: true
+  })
   await db.order.destroy({ where: { store: [storeA?.id, storeB?.id].filter(Boolean) }, force: true })
   await db.waiter_request.destroy({ where: {}, force: true })
   await db.table.destroy({ where: { id: [tableA?.id, tableB?.id].filter(Boolean) }, force: true })

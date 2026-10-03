@@ -39,10 +39,20 @@ beforeAll(async () => {
     { id: 7401, userName: 'admin_opname_flow', roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these opname assertions exercise configured tax.
+  await db.taxConfig.create({
+    name: 'OPNAME_FLOW_PPN',
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: location.id
+  })
 })
 
 afterAll(async () => {
   await db.user.destroy({ where: { id: [7401] }, force: true })
+  await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
   await db.transaction.destroy({ where: {}, force: true })
