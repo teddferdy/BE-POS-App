@@ -176,6 +176,34 @@ const isOrderReplayRelevantUniqueError = (error) =>
 // silently replaying a different order. No schema change required.
 const IDEMPOTENCY_MISMATCH_MESSAGE =
   'idempotencyKey already used with a different payload'
+
+// W3-2: client/server price-mismatch contract. items[].expectedPrice is an
+// optional client echo of the final charged unit price for that line
+// (outlet/base catalog + server-derived option/variant/modifier markup,
+// before quantity/discount/tax/service). It is comparison-only: the server
+// re-resolves every line and, when any supplied expectation differs, answers
+// 409 BEFORE totals or any write so the client can show the fresh price and
+// resubmit. Omission skips enforcement (legacy clients unaffected).
+const PRICE_CHANGED_CODE = 'PRICE_CHANGED'
+const PRICE_CHANGED_MESSAGE =
+  'One or more item prices changed. Please review the updated prices and resubmit.'
+const buildPriceMismatchBody = (mismatches) => ({
+  code: PRICE_CHANGED_CODE,
+  message: PRICE_CHANGED_MESSAGE,
+  items: mismatches
+})
+
+// Normalizes a supplied expectedPrice: absent (undefined/null/'') means the
+// line is not enrolled in mismatch enforcement. Present values must be
+// finite integers >= 0 — anything else is a 400, never a 409.
+const parseExpectedPrice = (value) => {
+  if (value === undefined || value === null || value === '') return { present: false }
+  const n = Number(value)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    return { present: true, valid: false }
+  }
+  return { present: true, valid: true, value: n }
+}
 const canonicalOrderItemKey = (item) => {
   const qty = Number(item.quantity)
   if (item.bundleId !== null && item.bundleId !== undefined) {
@@ -822,8 +850,12 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
 
   const bundleMap = {}
   const productById = new Map()
+  // W3-2: every line is resolved (never fail-fast) so one 409 can carry all
+  // mismatches in original request order. Index identifies duplicate lines.
+  const priceMismatches = []
 
-  for (const item of items) {
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index]
     const qty = Number(item.quantity)
     if (!Number.isFinite(qty) || qty <= 0) {
       return { ok: false, message: `Quantity must be greater than 0` }
@@ -869,6 +901,20 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
       item.basePrice = bundlePrice
       item.unitPrice = bundlePrice
       item.subtotal = bundlePrice * qty
+      // W3-2: bundles compare against bundlePrice (never outlet pricing);
+      // identified by bundleId, never productId.
+      const bundleExpected = parseExpectedPrice(item.expectedPrice)
+      if (bundleExpected.present && !bundleExpected.valid) {
+        return { ok: false, statusCode: 400, message: `expectedPrice must be an integer >= 0` }
+      }
+      if (bundleExpected.present && bundleExpected.value !== bundlePrice) {
+        priceMismatches.push({
+          index,
+          bundleId: item.bundleId,
+          expectedPrice: bundleExpected.value,
+          currentPrice: bundlePrice
+        })
+      }
 
       const bundleQty = qty
       for (const bi of bundle.items) {
@@ -937,9 +983,25 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
       serverPrice = overridePrice
       item._priceOverridden = true
       item._originalCatalogPrice = catalogPrice
+      // W3-2: an applied admin override is exempt from expectedPrice
+      // comparison — the override itself is server-controlled and audited.
     } else {
       serverPrice = await getServerItemPrice(prod, item, store, catalogPrice)
       item._priceOverridden = false
+      // W3-2: compare the optional client echo against the exact value that
+      // would become order_item.price (catalog + option markup).
+      const expected = parseExpectedPrice(item.expectedPrice)
+      if (expected.present && !expected.valid) {
+        return { ok: false, statusCode: 400, message: `expectedPrice must be an integer >= 0` }
+      }
+      if (expected.present && expected.value !== serverPrice) {
+        priceMismatches.push({
+          index,
+          productId: item.product || item.productId,
+          expectedPrice: expected.value,
+          currentPrice: serverPrice
+        })
+      }
     }
     item.basePrice = catalogPrice
     item.price = serverPrice
@@ -952,6 +1014,18 @@ const loadAndPriceOrderItems = async (items, store, user = null) => {
         ok: false,
         message: `Stok "${prod.nameProduct}" tidak mencukupi. Tersedia: ${avail}, diminta: ${item.quantity}`
       }
+    }
+  }
+
+  // W3-2: pre-transaction gate — every line already resolved above, so one
+  // 409 carries all mismatches and no write can follow a stale expectation.
+  if (priceMismatches.length) {
+    return {
+      ok: false,
+      statusCode: 409,
+      code: PRICE_CHANGED_CODE,
+      message: PRICE_CHANGED_MESSAGE,
+      mismatches: priceMismatches
     }
   }
 
@@ -1157,6 +1231,11 @@ exports.createOrder = async (req, res) => {
 
     const pricing = await loadAndPriceOrderItems(items, store, req.user)
     if (!pricing.ok) {
+      // W3-2: the price-mismatch conflict keeps its exact locked body and
+      // must never collapse into the generic error shape below.
+      if (pricing.statusCode === 409 && pricing.mismatches) {
+        return res.status(409).json(buildPriceMismatchBody(pricing.mismatches))
+      }
       return res.status(pricing.statusCode || 400).json({ message: pricing.message })
     }
     const { bundleMap, productById } = pricing
@@ -3369,15 +3448,32 @@ exports.createCustomerOrder = async (req, res) => {
     // Re-calculate all prices from DB. Never trust FE-sent prices.
     // Price override is never allowed on the public, unauthenticated
     // customer ordering path — it is an admin-only POS capability.
-    for (const item of items) {
+    // W3-2: optional per-line expectedPrice is compared against the exact
+    // server-resolved unit price; every line resolves so one 409 carries all
+    // mismatches in original request order, before any write below.
+    const priceMismatches = []
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]
       if (item.priceOverride !== undefined && item.priceOverride !== null) {
         return res.status(403).json({ message: 'Price override not allowed for customer orders' })
+      }
+      const expected = parseExpectedPrice(item.expectedPrice)
+      if (expected.present && !expected.valid) {
+        return res.status(400).json({ message: 'expectedPrice must be an integer >= 0' })
       }
       if (item.bundleId && bundleMap[item.bundleId]) {
         const bundle = bundleMap[item.bundleId]
         const serverPrice = Number(bundle.bundlePrice) || 0
         item.price = serverPrice
         item.subtotal = serverPrice * Number(item.quantity)
+        if (expected.present && expected.value !== serverPrice) {
+          priceMismatches.push({
+            index,
+            bundleId: item.bundleId,
+            expectedPrice: expected.value,
+            currentPrice: serverPrice
+          })
+        }
       } else if (item.productId) {
         const prod = await Product.findByPk(item.productId)
         if (
@@ -3399,7 +3495,21 @@ exports.createCustomerOrder = async (req, res) => {
         item.basePrice = catalogPrice
         item.price = serverPrice
         item.subtotal = serverPrice * Number(item.quantity)
+        if (expected.present && expected.value !== serverPrice) {
+          priceMismatches.push({
+            index,
+            productId: item.productId,
+            expectedPrice: expected.value,
+            currentPrice: serverPrice
+          })
+        }
       }
+    }
+
+    // W3-2: pre-transaction gate — no stock check, total, or write below may
+    // run on a stale client expectation.
+    if (priceMismatches.length) {
+      return res.status(409).json(buildPriceMismatchBody(priceMismatches))
     }
 
     // Validate bundle component stock
