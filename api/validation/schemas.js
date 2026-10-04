@@ -227,6 +227,23 @@ const orderItemSchema = z
     productName: z.string().optional(),
     quantity: strToNum(),
     price: strToNum().optional().default(0),
+    // W3-2: optional client echo of the final charged unit price for
+    // mismatch detection (comparison-only, never persisted). Absent/null/''
+    // means the line is not enrolled; a present value must be an integer
+    // >= 0 or the request fails closed with 400 (never a 409).
+    expectedPrice: z
+      .any()
+      .optional()
+      .transform((v) => {
+        if (v === undefined || v === null || v === '') return undefined
+        return Number(v)
+      })
+      .refine((v) => v === undefined || (typeof v === 'number' && Number.isFinite(v)), {
+        message: 'expectedPrice must be a finite number'
+      })
+      .refine((v) => v === undefined || (Number.isInteger(v) && v >= 0), {
+        message: 'expectedPrice must be an integer >= 0'
+      }),
     priceOverride: z
       .any()
       .optional()
