@@ -272,10 +272,20 @@ exports.getProductByLocationSuperAdmin = async (req, res) => {
       offset
     })
     const hasMore = rows.length > limit
-    const getAllProduct = rows.slice(0, limit).map((items) => {
+    const pageRows = rows.slice(0, limit)
+    // W3-4 K1 (DR-11): expose the outlet-authoritative catalog price with the
+    // same batched W3-1 rule as checkout (outlet row wins, otherwise base
+    // price), resolved for the returned page only. Raw `price` is unchanged;
+    // null when no valid store is pinned.
+    const effectivePriceById =
+      store && !isNaN(Number(store))
+        ? await getEffectivePriceMap(pageRows, Number(store))
+        : new Map()
+    const getAllProduct = pageRows.map((items) => {
       const getData = {
         ...items.dataValues,
-        stock: items.storeStocks?.[0]?.stock ?? items.stock
+        stock: items.storeStocks?.[0]?.stock ?? items.stock,
+        effectivePrice: effectivePriceById.get(String(items.id)) ?? null
       }
       delete getData.storeStocks
       return getData

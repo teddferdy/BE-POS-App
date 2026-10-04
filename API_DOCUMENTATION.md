@@ -301,7 +301,7 @@ Auth required.
 
 **Query:** `page`, `limit`, `search`, `store`.
 
-**Response:** Same as above with pagination.
+**Response:** Same as above with pagination. Each product also carries `effectivePrice` (integer): the outlet price for the resolved store when one exists, otherwise the base `price`; `null` when no store is resolved. `price` stays the base price.
 
 ---
 
