@@ -154,6 +154,16 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
       status: 'active',
       store: location.id
     })
+    // DR-04: settling via update-status requires drawer attribution — seed
+    // the open register the paid transitions resolve at payment time.
+    await db.cashRegister.destroy({ where: { store: location.id, status: 'open' }, force: true })
+    await db.cashRegister.create({
+      store: location.id,
+      user: 8803,
+      status: 'open',
+      openingBalance: 0,
+      openedAt: new Date()
+    })
     category = await db.category.create({ name: 'RACE_STATUS_CATEGORY' })
     product = await db.product.create({
       nameProduct: 'RACE_STATUS_PRODUCT',
@@ -194,6 +204,7 @@ describe('Concurrent status update — double stock deduction (order.js updateOr
     await db.transaction.destroy({ where: { order: order.id }, force: true })
     await db.order_status.destroy({ where: { order: order.id }, force: true })
     await db.order.destroy({ where: { id: order.id }, force: true })
+    await db.cashRegister.destroy({ where: { store: location.id }, force: true })
     await db.best_selling.destroy({ where: { productId: product.id }, force: true })
     await db.stock_history.destroy({ where: { product: product.id }, force: true })
     await db.product_store_stock.destroy({ where: { product: product.id }, force: true })

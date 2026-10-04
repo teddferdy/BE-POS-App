@@ -96,6 +96,17 @@ beforeAll(async () => {
     { id: 9402, userName: 'sec_admin_s1', roleType: 'admin', store: store1.id },
     JWT_SECRET
   )
+  // DR-04: settling via update-status requires drawer attribution — seed
+  // the open register the paid transitions resolve at payment time.
+  // (Placed after the opener user row: cashRegister.user is FK-enforced.)
+  await db.cashRegister.destroy({ where: { store: store1.id, status: 'open' }, force: true })
+  await db.cashRegister.create({
+    store: store1.id,
+    user: 9402,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 
   table1 = await db.table.create({ store: store1.id, name: 'SEC_TABLE_1' })
   table2 = await db.table.create({ store: store1.id, name: 'SEC_TABLE_2' })
@@ -233,7 +244,6 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
-  await db.user.destroy({ where: { id: [9402] }, force: true })
   await db.taxConfig.destroy({
     where: { store: [store1?.id, store2?.id].filter(Boolean) },
     force: true
@@ -258,6 +268,9 @@ afterAll(async () => {
     await db.order_status.destroy({ where: { order: allOrderIds }, force: true })
     await db.order.destroy({ where: { id: allOrderIds }, force: true })
   }
+  await db.cashRegister.destroy({ where: { store: [store1?.id, store2?.id].filter(Boolean) }, force: true })
+  // Users last: open-register rows reference the opener (FK).
+  await db.user.destroy({ where: { id: [9402] }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })

@@ -352,6 +352,30 @@ exports.updateOrderStatusSchema = z.object({
   changedBy: strToNum().optional().nullable(),
   changedByName: z.string().optional().nullable(),
   notes: z.string().optional().default(''),
+  // DR-04: tender fields for settling an order to paid via update-status.
+  // Optional so non-paid transitions keep their existing shape; when
+  // status is 'paid' the controller requires a complete tender (method,
+  // cash detail when cash) and resolves register attribution server-side.
+  // cashAmount/changeAmount use the same bare coercion as order create —
+  // semantic checks live in validateCashTender (422), never here (400).
+  paymentMethod: z
+    .enum([
+      'cash',
+      'qris',
+      'debit',
+      'credit',
+      'other',
+      'points',
+      'transfer',
+      'e-wallet'
+    ])
+    .optional(),
+  cashAmount: z.any().transform((v) =>
+    v === '' || v === null || v === undefined ? null : Number(v)
+  ).optional(),
+  changeAmount: z.any().transform((v) =>
+    v === '' || v === null || v === undefined ? null : Number(v)
+  ).optional(),
   // Phase 31 Batch 1: required (non-empty after trim) when cancelling a
   // paid order — enforced in updateOrderStatus, which alone knows the
   // locked oldPaymentStatus. Optional here so unrelated transitions keep
