@@ -90,6 +90,9 @@ const makeUnpaidOrderWithItem = async ({ store, product, quantity, price = 20000
     subTotal: price * quantity,
     totalQuantity: quantity,
     totalPrice: price * quantity,
+    // DR-04: settling via update-status requires a tender method — cash
+    // here, so the paid-transition tests exercise the stocked-method path.
+    paymentMethod: 'cash',
     source: 'pos'
   })
   const item = await db.order_item.create({
@@ -135,10 +138,19 @@ beforeAll(async () => {
       store: s.id
     })
   }
+  // DR-04: settling via update-status requires drawer attribution — seed
+  // the open register the paid transitions resolve at payment time.
+  await db.cashRegister.destroy({ where: { store: storeA.id, status: 'open' }, force: true })
+  await db.cashRegister.create({
+    store: storeA.id,
+    user: 9401,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 })
 
 afterAll(async () => {
-  await db.user.destroy({ where: { id: [9401] }, force: true })
   await db.taxConfig.destroy({
     where: { store: [storeA?.id, storeB?.id].filter(Boolean) },
     force: true
@@ -150,6 +162,9 @@ afterAll(async () => {
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
+  await db.cashRegister.destroy({ where: { store: [storeA.id, storeB.id] }, force: true })
+  // Users last: open-register rows reference the opener (FK).
+  await db.user.destroy({ where: { id: [9401] }, force: true })
   await db.table.destroy({ where: { id: tableA?.id }, force: true })
   await db.product_store_stock.destroy({ where: {}, force: true })
   await db.best_selling.destroy({ where: {}, force: true })

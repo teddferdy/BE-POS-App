@@ -98,10 +98,20 @@ beforeAll(async () => {
       store: s.id
     })
   }
+  // DR-04: settling via update-status requires drawer attribution — seed
+  // the open register the paid transition resolves at payment time.
+  // (Placed after the opener user row: cashRegister.user is FK-enforced.)
+  await db.cashRegister.destroy({ where: { store: store1.id, status: 'open' }, force: true })
+  await db.cashRegister.create({
+    store: store1.id,
+    user: 9405,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 })
 
 afterAll(async () => {
-  await db.user.destroy({ where: { id: [9405] }, force: true })
   await db.taxConfig.destroy({
     where: { store: [store1?.id, store2?.id].filter(Boolean) },
     force: true
@@ -114,6 +124,9 @@ afterAll(async () => {
     await db.transaction.destroy({ where: { order: o.id }, force: true })
     await db.order.destroy({ where: { id: o.id }, force: true })
   }
+  await db.cashRegister.destroy({ where: { store: [store1?.id, store2?.id].filter(Boolean) }, force: true })
+  // Users last: open-register rows reference the opener (FK).
+  await db.user.destroy({ where: { id: [9405] }, force: true })
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
@@ -174,7 +187,13 @@ describe('SEC-004 — concurrent customer-create idempotency (POST /order/custom
 
     // Optional exact-once paid-transition assertion: marking the single winning
     // order paid must deduct stock and write the ledger exactly once.
-    const paid = await markOrderPaid(adminToken, { id: winningOrder.id, status: 'paid' })
+    // DR-04: the transition settles with an explicit cash tender against
+    // the seeded open register.
+    const paid = await markOrderPaid(adminToken, {
+      id: winningOrder.id,
+      status: 'paid',
+      paymentMethod: 'cash'
+    })
     expect(paid.status).toBe(200)
     expect(Number((await db.product.findByPk(product.id)).stock)).toBe(49) // 50 - 1
     expect(

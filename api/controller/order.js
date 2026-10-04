@@ -1966,6 +1966,55 @@ const recordOrderPayment = async (
   )
 }
 
+// DR-04: builds the complete settlement tender for an update-status paid
+// transition. The request must carry a payment method when the order does
+// not already hold one (QR orders are created method-less); cash detail is
+// validated with the same server-side validateCashTender as order create;
+// drawer attribution reuses an existing server-set register link, else
+// resolves the currently open register. Any failure throws 4xx inside the
+// caller's transaction, so the order is never left paid-but-unattributed.
+const resolvePaidSettlement = async ({
+  bodyMethod,
+  cashAmount,
+  changeAmount,
+  lockedOrder,
+  effectiveStore,
+  t
+}) => {
+  const method = bodyMethod || lockedOrder.paymentMethod || null
+  if (!method) {
+    const err = new Error('paymentMethod is required to settle an order to paid')
+    err.statusCode = 422
+    throw err
+  }
+  const amountDue = Number(lockedOrder.totalPrice) || 0
+  const { cashReceived, changeGiven } = validateCashTender({
+    paymentMethod: method,
+    cashAmount: cashAmount ?? null,
+    changeAmount: changeAmount ?? null,
+    amountDue
+  })
+  let registerId = lockedOrder.cashRegisterId || null
+  if (!registerId) {
+    if (!effectiveStore) {
+      const err = new Error('No store context to resolve an open cash register for settlement')
+      err.statusCode = 422
+      throw err
+    }
+    const openRegister = await db.cashRegister.findOne({
+      where: { store: effectiveStore, status: 'open' },
+      transaction: t
+    })
+    if (!openRegister) {
+      const err = new Error('No open cash register for this store; open a register before settling')
+      err.statusCode = 422
+      throw err
+    }
+    registerId = openRegister.id
+  }
+  return { method, cashReceived, changeGiven, registerId, amountDue }
+}
+
 const createInitialOrderStatus = async (
   order,
   cashierName,
@@ -2823,11 +2872,40 @@ exports.updateOrderStatus = async (req, res) => {
         throw err
       }
 
+      // DR-04: a paid transition settles only with a complete tender —
+      // method (from the request or the order), server-validated cash
+      // detail when cash, and drawer attribution (existing server-set link
+      // or the currently open register). Any failure throws 4xx before
+      // any mutation, so the order is never left paid-but-unattributed.
+      // Skipped when a settlement row already exists: split-bill and
+      // duplicate flows keep their existing behavior untouched.
+      let paidTender = null
+      let paidSettlementExists = false
+      if (status === 'paid' && oldStatus !== 'paid') {
+        paidSettlementExists = !!(await db.transaction.findOne({
+          where: { order: id },
+          transaction: t
+        }))
+        if (!paidSettlementExists) {
+          paidTender = await resolvePaidSettlement({
+            bodyMethod: req.body.paymentMethod,
+            cashAmount: req.body.cashAmount,
+            changeAmount: req.body.changeAmount,
+            lockedOrder,
+            effectiveStore,
+            t
+          })
+        }
+      }
+
       await order.update(
         {
           status,
           ...(status === 'paid' ? { paymentStatus: 'paid' } : {}),
-          ...(willBeRefunded ? { paymentStatus: 'refunded' } : {})
+          ...(willBeRefunded ? { paymentStatus: 'refunded' } : {}),
+          ...(paidTender
+            ? { paymentMethod: paidTender.method, cashRegisterId: paidTender.registerId }
+            : {})
         },
         { transaction: t }
       )
@@ -2860,19 +2938,20 @@ exports.updateOrderStatus = async (req, res) => {
 
       // If transitioning to paid, record payment & reduce stock exactly once
       if (status === 'paid' && oldStatus !== 'paid') {
-        const existingTxn = await db.transaction.findOne({
-          where: { order: id },
-          transaction: t
-        })
-        if (!existingTxn) {
-          await db.transaction.create(
-            {
-              order: id,
-              typePayment: order.paymentMethod || 'cash',
-              amount: Number(order.totalPrice) || 0,
-              createdBy: changedBy || req.user?.id
-            },
-            { transaction: t }
+        // DR-04: paidTender was resolved (or the pre-existing settlement
+        // detected) before the order update above — same condition, no
+        // second lookup. The settlement row carries the complete tender:
+        // actual method, due amount, and server-validated cash detail, so
+        // expected cash never falls back to amount-only math.
+        if (!paidSettlementExists) {
+          await recordOrderPayment(
+            lockedOrder,
+            paidTender.method,
+            Number(lockedOrder.totalPrice) || 0,
+            changedBy || req.user?.id,
+            t,
+            paidTender.cashReceived,
+            paidTender.changeGiven
           )
         }
 

@@ -149,6 +149,16 @@ beforeAll(async () => {
     status: 'active',
     store: store.id
   })
+  // DR-04: settling via update-status requires drawer attribution — seed
+  // the open register the paid transition resolves at payment time.
+  await db.cashRegister.destroy({ where: { store: store.id, status: 'open' }, force: true })
+  await db.cashRegister.create({
+    store: store.id,
+    user: adminUser.id,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 })
 
 afterAll(async () => {
@@ -160,6 +170,7 @@ afterAll(async () => {
   await db.order_item.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: store?.id }, force: true })
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.best_selling.destroy({ where: { store: store?.id }, force: true })
   await db.accounting_outbox.destroy({ where: { store: store?.id }, force: true })
   const journals = await db.journal_entry.findAll({ where: { store: store?.id } })
@@ -263,6 +274,8 @@ describe('E1-E cancellation consistency', () => {
       subTotal: 15000,
       totalQuantity: 1,
       totalPrice: 15000,
+      // DR-04: settling via update-status requires a tender method.
+      paymentMethod: 'cash',
       source: 'qr'
     })
     await db.order_item.create({

@@ -67,16 +67,28 @@ beforeAll(async () => {
     status: 'active',
     store: location.id
   })
+  // DR-04: settling via update-status requires drawer attribution — seed
+  // the open register the paid transition resolves at payment time.
+  await db.cashRegister.destroy({ where: { store: location.id, status: 'open' }, force: true })
+  await db.cashRegister.create({
+    store: location.id,
+    user: ADMIN_ID,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 })
 
 afterAll(async () => {
-  await db.user.destroy({ where: { id: [KASIR_ID, ADMIN_ID] }, force: true })
   await db.taxConfig.destroy({ where: { store: location.id }, force: true })
   await db.auditLog.destroy({ where: { store: location.id }, force: true, __auditMaintenance: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: location.id }, force: true })
+  await db.cashRegister.destroy({ where: { store: location.id }, force: true })
+  // Users last: open-register rows reference the opener (FK).
+  await db.user.destroy({ where: { id: [KASIR_ID, ADMIN_ID] }, force: true })
   for (const pid of createdProductIds) {
     await db.best_selling.destroy({ where: { productId: pid }, force: true })
     await db.stock_history.destroy({ where: { product: pid }, force: true })

@@ -62,6 +62,16 @@ beforeAll(async () => {
     status: 'active',
     store: location.id
   })
+  // DR-04: settling via update-status requires drawer attribution — seed
+  // the open register the paid transition resolves at payment time.
+  await db.cashRegister.destroy({ where: { store: location.id, status: 'open' }, force: true })
+  await db.cashRegister.create({
+    store: location.id,
+    user: 9403,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 })
 
 // Phase 39 — a successful QR order now occupies its table. This file's tests
@@ -76,12 +86,14 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
-  await db.user.destroy({ where: { id: [9403] }, force: true })
   await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: location.id }, force: true })
+  await db.cashRegister.destroy({ where: { store: location.id }, force: true })
+  // Users last: open-register rows reference the opener (FK).
+  await db.user.destroy({ where: { id: [9403] }, force: true })
   await db.table.destroy({ where: { id: table?.id }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
   await db.stock_history.destroy({ where: { product: product?.id }, force: true })
@@ -126,6 +138,14 @@ describe('POST /order/customer-create — QR paid only via trusted cashier trans
     })
     expect(ledgerRows.length).toBe(1)
     expect(Number(ledgerRows[0].amount)).toBe(Number(res.body.data.totalPrice))
+    // DR-04: the trusted transition settles with a complete tender —
+    // cash intent, exact-tender detail, and the open register attribution.
+    expect(ledgerRows[0].typePayment).toBe('cash')
+    expect(Number(ledgerRows[0].cashReceived)).toBe(Number(res.body.data.totalPrice))
+    expect(Number(ledgerRows[0].changeGiven)).toBe(0)
+    const settledOrder = await db.order.findByPk(res.body.data.id)
+    expect(settledOrder.paymentMethod).toBe('cash')
+    expect(settledOrder.cashRegisterId).not.toBeNull()
   })
 })
 
