@@ -79,6 +79,16 @@ async function ingStock(ingredientId) {
 
 beforeAll(async () => {
   store = await db.location.create({ name: `RET_STORE_${Date.now()}`, status: 'active' })
+  // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
+  // so these restoration assertions exercise configured tax.
+  await db.taxConfig.destroy({ where: { store: store.id }, force: true })
+  await db.taxConfig.create({
+    name: `RET_STORE_PPN_${store.id}`,
+    rate: 11,
+    type: 'ppn',
+    status: 'active',
+    store: store.id
+  })
   category = await db.category.create({ name: `RET_CAT_${Date.now()}` })
 
   fgProduct = await makeProduct(`RET_FG_${Date.now()}`)
@@ -123,6 +133,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.stock_history.destroy({ where: { store: store?.id }, force: true })
   await db.transaction.destroy({ where: {}, force: true })
   await db.sales_return_item.destroy({ where: {}, force: true })
