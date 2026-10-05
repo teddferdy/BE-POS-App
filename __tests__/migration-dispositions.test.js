@@ -152,15 +152,21 @@ describe('W-01.1 repository production manifest (locked W-02R.3R matrix v2)', ()
     expect(r.names).toHaveLength(197)
   })
 
-  test('disposition counts match the locked matrix (E1 177 + E3 5 + E4 6 + E5 4 + E6 5, D-05 resolved)', () => {
+  test('disposition counts match the locked matrix (E1 177 + E3 5 + E4 6 + E5 4 + E6 5, all E6 decisions recorded)', () => {
     expect(r.byDisposition).toEqual({
       ATTESTED_PRESENT: 179, // 177 E1 + 2 E3 whose missing half is superseded
       CONTROLLED_APPLY_PENDING: 3, // 3 E3 needing a controlled apply
       EXCLUDED_UNSAFE: 6, // E4
       EXCLUDED_SUPERSEDED: 4, // E5
-      BLOCKED_DECISION: 3, // E6 minus the 2 D-05 rows resolved to EXCLUDED_BY_DECISION
-      EXCLUDED_BY_DECISION: 2 // D-05: 20260620000004 + 20260913000001 superseded by the product-grade D-05 migration
+      // E6 fully decided: D-05 (20260620000004 + 20260913000001, superseded by
+      // the product-grade D-05 migration), DR-21 (tax_config audit type kept
+      // INTEGER) and DR-06 (seed accounts prohibited: 20260618000004 +
+      // 20260620000005). No BLOCKED_DECISION row remains (validator omits zero
+      // counts); BLOCKED gate behaviour is covered by synthetic fixtures.
+      EXCLUDED_BY_DECISION: 5
     })
+    expect(r.byDisposition.BLOCKED_DECISION).toBeUndefined()
+    expect(manifest.migrations.filter((m) => m.disposition === 'BLOCKED_DECISION')).toEqual([])
   })
 
   test('the 13 E2 migrations are intentionally absent (they run through the runner)', () => {
@@ -189,11 +195,23 @@ describe('W-01.1 repository production manifest (locked W-02R.3R matrix v2)', ()
     const by = Object.fromEntries(manifest.migrations.map((m) => [m.migration, m]))
     expect(by['20260601000001-change-product-store-to-jsonb.js'].supersededBy).toBe('20260718000001-create-product-store.js')
     expect(by['20260827000001-change-shift-store-to-jsonb.js'].supersededBy).toBe('20260827000002-revert-shift-store-to-integer.js')
-    expect(by['20260616000002-fix-tax-config-audit-fields-type.js'].decisionRef).toMatch(/^D-06/)
+    expect(by['20260616000002-fix-tax-config-audit-fields-type.js'].decisionRef).toMatch(/^DR-21\b/)
     expect(by['20260620000004-add-unique-constraints-to-member.js'].decisionRef).toMatch(/^D-05/)
     expect(by['20260913000001-member-name-store-scoped-uniqueness.js'].decisionRef).toMatch(/^D-05/)
-    expect(by['20260618000004-create-super-admin-users.js'].decisionRef).toMatch(/^D-08\/DR-06/)
-    expect(by['20260620000005-create-dev-user.js'].decisionRef).toMatch(/^D-08\/DR-06/)
+    expect(by['20260618000004-create-super-admin-users.js'].decisionRef).toMatch(/^DR-06\b/)
+    expect(by['20260620000005-create-dev-user.js'].decisionRef).toMatch(/^DR-06\b/)
+    // The three former BLOCKED rows are excluded by recorded decisions, and
+    // none of them is described as a safe no-op: each would mutate production
+    // if executed (seed rows would create privileged accounts).
+    for (const name of [
+      '20260616000002-fix-tax-config-audit-fields-type.js',
+      '20260618000004-create-super-admin-users.js',
+      '20260620000005-create-dev-user.js'
+    ]) {
+      expect(by[name].disposition).toBe('EXCLUDED_BY_DECISION')
+      expect(by[name].evidenceRef).not.toMatch(/SAFE_NOOP/)
+      expect(by[name].evidenceRef).toMatch(/NOT a safe no-op/)
+    }
     // Timestamp collision: the twin of the tax file is attested, not blocked.
     expect(by['20260616000002-add-ingredient-to-goods-receipt-item.js'].disposition).toBe('ATTESTED_PRESENT')
     // DOC 2 correction: replay would drop the live showLogo column.

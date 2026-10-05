@@ -28,6 +28,22 @@ const resolveAll = (r) => {
 }
 const allDispositionsStamped = (manifest) => manifest.migrations.map((r) => r.migration).sort()
 
+// Synthetic BLOCKED fixture. The repository manifest no longer holds any
+// BLOCKED_DECISION row (every E6 decision is recorded: D-05, DR-21, DR-06), so
+// the BLOCKED gate is exercised by forcing these rows to BLOCKED_DECISION
+// whatever their real disposition. The gate tests stay independent of the
+// manifest's current state.
+const SYNTHETIC_BLOCKED = [
+  '20260616000002-fix-tax-config-audit-fields-type.js',
+  '20260618000004-create-super-admin-users.js',
+  '20260620000005-create-dev-user.js'
+]
+const SYNTHETIC_DECISION_REF = 'DR-99 synthetic blocked fixture'
+const withSyntheticBlocked = (r) =>
+  SYNTHETIC_BLOCKED.includes(r.migration)
+    ? { migration: r.migration, disposition: 'BLOCKED_DECISION', evidenceRef: 'synthetic test fixture', decisionRef: SYNTHETIC_DECISION_REF }
+    : r
+
 describe('W-01.1 migration preflight (production)', () => {
   const evaluate = (state) => preflight.evaluatePreflight({ env: 'production', targetHost: 'db.example.test', files: FILES, ...state })
 
@@ -40,11 +56,25 @@ describe('W-01.1 migration preflight (production)', () => {
     expect(result.applicable).toBe(true)
   })
 
-  test('BLOCKED_DECISION remaining → refused', () => {
-    const dispositions = approvedRepositoryManifest((r) => (r.disposition === 'CONTROLLED_APPLY_PENDING' ? resolveAll(r) : r))
+  test('BLOCKED_DECISION remaining → refused (synthetic fixture)', () => {
+    const dispositions = approvedRepositoryManifest((r) =>
+      withSyntheticBlocked(r.disposition === 'CONTROLLED_APPLY_PENDING' ? resolveAll(r) : r)
+    )
     const result = evaluate({ dispositions, metaNames: allDispositionsStamped(dispositions) })
     expect(result.ok).toBe(false)
-    expect(result.reasons.join('\n')).toMatch(/BLOCKED_DECISION remains \(3\)/)
+    const joined = result.reasons.join('\n')
+    expect(joined).toMatch(/BLOCKED_DECISION remains \(3\)/)
+    for (const name of SYNTHETIC_BLOCKED) expect(joined).toContain(`${name} [${SYNTHETIC_DECISION_REF}]`)
+    expect(result.blocked.map((b) => b.migration).sort()).toEqual([...SYNTHETIC_BLOCKED].sort())
+  })
+
+  test('repository manifest holds no BLOCKED_DECISION: approved + stamped + controlled applies done → allowed', () => {
+    const dispositions = approvedRepositoryManifest((r) => (r.disposition === 'CONTROLLED_APPLY_PENDING' ? resolveAll(r) : r))
+    expect(dispositions.migrations.filter((r) => r.disposition === 'BLOCKED_DECISION')).toEqual([])
+    const result = evaluate({ dispositions, metaNames: allDispositionsStamped(dispositions) })
+    expect(result.reasons).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.blocked).toEqual([])
   })
 
   test('CONTROLLED_APPLY_PENDING remaining → refused', () => {
@@ -110,7 +140,12 @@ describe('W-01.1 migration preflight (non-production environments)', () => {
 
   test('blocked isolation is opt-in and off by default (production behavior unchanged)', () => {
     const dispositions = { ...require('../scripts/migration-dispositions').readDispositionManifest().manifest }
-    const approved = { ...dispositions, approvedBy: 't', approvedAt: '2026-10-02T00:00:00Z' }
+    const approved = {
+      ...dispositions,
+      approvedBy: 't',
+      approvedAt: '2026-10-02T00:00:00Z',
+      migrations: dispositions.migrations.map(withSyntheticBlocked)
+    }
     const metaNames = approved.migrations.map((r) => r.migration)
     const strict = preflight.evaluatePreflight({ env: 'production', targetHost: 'db', dispositions: approved, files: FILES, metaNames })
     expect(strict.ok).toBe(false)
