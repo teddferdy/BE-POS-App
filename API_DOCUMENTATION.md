@@ -885,7 +885,7 @@ Auth required.
   "cashierId": "number (optional)",
   "cashierName": "string (optional)",
   "shiftId": "number (optional)",
-  "paymentMethod": "cash | qris | debit | credit | other | points | transfer (optional)"
+  "paymentMethod": "cash | qris | debit | credit | transfer | e-wallet | points | other (optional)"
 }
 ```
 
@@ -994,15 +994,57 @@ Auth required.
 ```json
 {
   "id": "number (required)",
+  "store": "number (optional, store scope)",
   "status": "pending | confirmed | preparing | ready | served | paid | cancelled | void (required)",
-  "notes": "string (default: '')"
+  "changedBy": "number (optional)",
+  "changedByName": "string (optional)",
+  "notes": "string (default: '')",
+  "paymentMethod": "cash | qris | debit | credit | transfer | e-wallet | points | other (settlement, see below)",
+  "cashAmount": "number (cash settlement only)",
+  "changeAmount": "number (cash settlement only)",
+  "reason": "string (required when cancelling a paid order)"
 }
 ```
+
+**Paid settlement (DR-04):** when `status` is `paid`, the transition settles
+with a complete tender. The settlement reuses the order's existing payment
+method when one is already stored (e.g. a QR order created with a method);
+otherwise `paymentMethod` is required in the request and must be one of the
+canonical 8 values above. `cashAmount`/`changeAmount` are accepted only for
+`cash`: omitting both means exact tender (`cashReceived` = amount due,
+`changeGiven` = 0); supplying one requires the other, both must be integer
+rupiah, `cashAmount` must cover the amount due, and
+`cashAmount - changeAmount` must exactly equal the amount due. Supplying cash
+detail for a non-cash method is rejected. The order's register attribution is
+reused when already set; otherwise the server resolves the store's currently
+open register. If no valid register is available, settlement fails closed.
+Tender validation runs inside the same database transaction as the paid
+transition (order update, payment row, status history, stock deduction), so a
+failed settlement leaves the order unpaid with no partial payment row or
+drawer attribution. When a payment row already exists for the order
+(e.g. split-bill flows), the existing settlement behavior is kept and no new
+tender is required. The stored/validated value is `e-wallet` (hyphenated);
+`points` is a legitimate method used when loyalty points cover the total.
 
 **Response:**
 ```json
 { "success": true, "message": "Status updated" }
 ```
+
+**Errors:** unknown `paymentMethod` values and malformed bodies fail request
+validation with `400`. Business validation failures return `422`, including a
+missing paid-settlement tender
+(`paymentMethod is required to settle an order to paid`), invalid cash tender
+(`cashAmount/changeAmount are only valid for cash payments`,
+`Both cashAmount and changeAmount are required when either is supplied`,
+`cashAmount/changeAmount must be numeric`,
+`cashAmount/changeAmount must be integer rupiah amounts`,
+`changeGiven cannot be negative`,
+`cashAmount is less than the amount due`,
+`cashAmount minus changeAmount must exactly equal the amount due`), and
+missing register attribution
+(`No store context to resolve an open cash register for settlement`,
+`No open cash register for this store; open a register before settling`).
 
 ---
 
