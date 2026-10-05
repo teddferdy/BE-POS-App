@@ -167,8 +167,11 @@ module.exports = {
   },
 
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.bulkDelete('role', {
-      roleType: ['super_admin', 'admin', 'kasir', 'user']
-    })
+    // Intentional no-op: this seed is forward-only in deployed environments
+    // (E2-ROLE-MIGRATION-DOWN-SAFETY). up() inserts only the roleTypes that
+    // are missing and does not record which rows it created, so a delete by
+    // roleType would also remove pre-existing and tenant-created roles, and
+    // user.roleId is ON DELETE CASCADE, so it would also delete their users.
+    // Recover deployed databases by backup restore, never by migration undo.
   }
 }
