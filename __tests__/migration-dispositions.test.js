@@ -142,13 +142,16 @@ describe('W-01.1 repository production manifest (locked W-02R.3R matrix v2)', ()
   const { manifest, errors } = rules.readDispositionManifest()
   const r = rules.validateDispositionManifest(manifest, { files: FILES, environment: 'production' })
 
-  test('is valid, pending approval, and holds exactly 197 rows', () => {
+  test('is valid, approved as a whole, and holds exactly 197 rows', () => {
     expect(errors).toEqual([])
     expect(r.errors).toEqual([])
     expect(r.ok).toBe(true)
-    expect(r.approved).toBe(false)
-    expect(manifest.approvedBy).toBeNull()
-    expect(manifest.approvedAt).toBeNull()
+    // Formal production manifest approval (PR review sets approvedBy/approvedAt).
+    expect(r.approved).toBe(true)
+    expect(manifest.approvedBy).toBe('teddy-ferdian')
+    expect(manifest.approvedAt).toBe('2026-10-05T16:57:23Z')
+    expect(manifest.evidenceCapturedAt).toBe('2026-10-01T17:08:46Z')
+    expect(Date.parse(manifest.approvedAt) >= Date.parse(manifest.evidenceCapturedAt)).toBe(true)
     expect(r.names).toHaveLength(197)
   })
 

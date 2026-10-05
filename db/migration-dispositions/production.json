@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "environment": "production",
   "evidenceCapturedAt": "2026-10-01T17:08:46Z",
-  "approvedBy": null,
-  "approvedAt": null,
+  "approvedBy": "teddy-ferdian",
+  "approvedAt": "2026-10-05T16:57:23Z",
   "migrations": [
     {
       "migration": "20260601000001-change-product-store-to-jsonb.js",

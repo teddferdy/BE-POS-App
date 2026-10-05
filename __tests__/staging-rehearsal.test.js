@@ -69,9 +69,12 @@ const sortBlocked = (list) =>
     .sort((a, b) => a.migration.localeCompare(b.migration))
 
 // Returns every violation of the divergence contract (empty = compliant):
-// identical migration inventory and order, identical top-level fields other
-// than environment, byte-identical rows outside the allowlist, and the
-// allowlisted rows in exactly their locked staging/production shapes.
+// identical migration inventory and order, identical shared top-level fields
+// (schemaVersion, evidenceCapturedAt), byte-identical rows outside the
+// allowlist, and the allowlisted rows in exactly their locked
+// staging/production shapes. approvedBy/approvedAt are deliberately NOT
+// compared: each manifest has its own whole-file approval, and approving one
+// environment never authorizes the other (db/migration-dispositions/README.md).
 const stagingDivergenceViolations = (staging, production) => {
   const out = []
   const sNames = staging.migrations.map((r) => r.migration)
@@ -79,7 +82,7 @@ const stagingDivergenceViolations = (staging, production) => {
   if (JSON.stringify(sNames) !== JSON.stringify(pNames)) out.push('migration inventory/order differs between staging and production')
   if (new Set(sNames).size !== sNames.length) out.push('staging migration inventory has duplicates')
   if (new Set(pNames).size !== pNames.length) out.push('production migration inventory has duplicates')
-  for (const key of ['schemaVersion', 'evidenceCapturedAt', 'approvedBy', 'approvedAt']) {
+  for (const key of ['schemaVersion', 'evidenceCapturedAt']) {
     if (JSON.stringify(staging[key]) !== JSON.stringify(production[key])) out.push(`top-level ${key} differs`)
   }
   const pBy = new Map(production.migrations.map((r) => [r.migration, r]))
@@ -178,6 +181,32 @@ describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
     expect(check((s) => { s.schemaVersion = 2 }).join('\n')).toMatch(/schemaVersion/)
     // Untouched pair is clean.
     expect(check(() => {})).toEqual([])
+  })
+
+  test('approval is environment-specific: production approval alone is not a staging divergence', () => {
+    const staging = STAGING_MANIFEST()
+    const production = PRODUCTION_MANIFEST()
+    const clone = (m) => JSON.parse(JSON.stringify(m))
+    // Staging stays independently unapproved while production is approved.
+    expect(staging.approvedBy).toBeNull()
+    expect(staging.approvedAt).toBeNull()
+    const approvedProd = { ...clone(production), approvedBy: 'approver@example.test', approvedAt: '2026-10-06T00:00:00Z' }
+    const unapprovedProd = { ...clone(production), approvedBy: null, approvedAt: null }
+    expect(stagingDivergenceViolations(clone(staging), approvedProd)).toEqual([])
+    expect(stagingDivergenceViolations(clone(staging), unapprovedProd)).toEqual([])
+    // Shared fields and row/inventory drift still fail closed.
+    expect(stagingDivergenceViolations({ ...clone(staging), evidenceCapturedAt: '2026-10-06T00:00:00Z' }, approvedProd).join('\n')).toMatch(/evidenceCapturedAt/)
+    expect(stagingDivergenceViolations({ ...clone(staging), schemaVersion: 2 }, approvedProd).join('\n')).toMatch(/schemaVersion/)
+    const reordered = clone(staging)
+    reordered.migrations.reverse()
+    expect(stagingDivergenceViolations(reordered, approvedProd).join('\n')).toMatch(/inventory/)
+    const drifted = clone(staging)
+    drifted.migrations.find((r) => r.migration === '20260616000002-add-ingredient-to-goods-receipt-item.js').evidenceRef += ' edited'
+    expect(stagingDivergenceViolations(drifted, approvedProd).join('\n')).toMatch(/unexpected divergence/)
+    // Production approval never authorizes staging: the staging manifest still validates as unapproved.
+    const r = rules.validateDispositionManifest(clone(staging), { files: FILES, environment: 'staging' })
+    expect(r.ok).toBe(true)
+    expect(r.approved).toBe(false)
   })
 
   test('derived E2 set equals the locked 13 and partitions 236 = 197 + 26 + 13', () => {
