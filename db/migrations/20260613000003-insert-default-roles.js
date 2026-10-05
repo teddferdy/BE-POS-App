@@ -57,7 +57,7 @@ module.exports = {
           { menu: 'settings', create: true, read: true, update: true, delete: true, download: true, upload: true }
         ]),
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: now,
         updatedAt: now
       },
@@ -112,7 +112,7 @@ module.exports = {
           { menu: "reservation", read: true }
         ]),
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: now,
         updatedAt: now
       },
@@ -127,7 +127,7 @@ module.exports = {
           { menu: 'member', create: true, read: true, update: true, delete: false, download: false, upload: false }
         ]),
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: now,
         updatedAt: now
       },
@@ -142,11 +142,18 @@ module.exports = {
           { menu: 'best-selling', read: true }
         ]),
         status: 'active',
-        createdBy: 'system',
+        createdBy: null,
         createdAt: now,
         updatedAt: now
       }
     ]
+
+    // System roles carry createdBy NULL (role.createdBy is an INTEGER User.id
+    // reference; there is no system actor id) and, once the column exists
+    // (20260725000001), isSystem = true so they get the same deletion
+    // protection as the other system roles. On older chains the column does
+    // not exist yet and 20260725000001 backfills it from createdBy IS NULL.
+    const { isSystem: hasIsSystem } = await queryInterface.describeTable('role')
 
     for (const role of defaultRoles) {
       const [existing] = await queryInterface.sequelize.query(
@@ -154,7 +161,7 @@ module.exports = {
         { replacements: { roleType: role.roleType }, type: Sequelize.QueryTypes.SELECT }
       )
       if (!existing) {
-        await queryInterface.bulkInsert('role', [role])
+        await queryInterface.bulkInsert('role', [hasIsSystem ? { ...role, isSystem: true } : role])
       }
     }
   },

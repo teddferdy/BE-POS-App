@@ -498,12 +498,66 @@ describe('W-02R.4 E2 data-migration idempotency (disposable database)', () => {
     expect(Number(rows[0].n)).toBe(4)
   })
 
-  test('default-roles seed documents its empty-table hazard (createdBy literal vs integer column)', async () => {
+  // E2-ROLE-CREATEDBY-NULL-SYSTEM: system roles carry createdBy NULL
+  // (role.createdBy is an INTEGER User.id reference) and isSystem = true when
+  // that column exists. The former 'system' literal failed with "invalid
+  // input syntax for type integer" whenever the INSERT path was reached.
+  test('default-roles seed inserts all four roles into an empty table with createdBy NULL', async () => {
     await sequelize.query(`TRUNCATE role`)
-    await expect(runUp('20260613000003-insert-default-roles.js')).rejects.toThrow(/invalid input syntax for type integer/)
-    // Rehearsal consequence locked in: the fixture MUST pre-seed roles so
-    // this insert path is never taken (production is safe only because its
-    // roles pre-exist and the guard skips).
+    await runUp('20260613000003-insert-default-roles.js')
+    const rows = await sequelize.query('SELECT "roleType", "createdBy" FROM role ORDER BY "roleType"', {
+      type: sequelize.QueryTypes.SELECT
+    })
+    expect(rows.map((r) => r.roleType)).toEqual(['admin', 'kasir', 'super_admin', 'user'])
+    expect(rows.every((r) => r.createdBy === null)).toBe(true)
+  })
+
+  test('default-roles seed on the production shape (Phase 27.6) inserts exactly kasir as a system role', async () => {
+    await sequelize.query(`TRUNCATE role`)
+    await sequelize.query('ALTER TABLE role ADD COLUMN "isSystem" BOOLEAN NOT NULL DEFAULT false')
+    try {
+      // Production 2026-10-05: three system roles (createdBy NULL, isSystem
+      // true), one tenant-created role (numeric createdBy, isSystem false),
+      // and no kasir role.
+      const seed = [
+        ['Super Admin', 'super_admin', null, true],
+        ['Admin Toko', 'admin', null, true],
+        ['Staff/Karyawan', 'user', null, true],
+        ['Finance', 'user', 7, false]
+      ]
+      for (const [name, roleType, createdBy, isSystem] of seed) {
+        await sequelize.query(
+          `INSERT INTO role (name, "roleType", "accessMenu", status, "createdBy", "isSystem", "createdAt", "updatedAt")
+           VALUES ($1, $2, '[]', 'active', $3, $4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+          { bind: [name, roleType, createdBy, isSystem] }
+        )
+      }
+      const snapshot = async () =>
+        sequelize.query('SELECT * FROM role ORDER BY id', { type: sequelize.QueryTypes.SELECT })
+      const before = await snapshot()
+
+      await runUp('20260613000003-insert-default-roles.js')
+      const after = await snapshot()
+      expect(after).toHaveLength(5)
+      expect(after.slice(0, 4)).toEqual(before)
+      const inserted = after[4]
+      expect(inserted.roleType).toBe('kasir')
+      expect(inserted.name).toBe('Kasir')
+      expect(inserted.createdBy).toBeNull()
+      expect(inserted.isSystem).toBe(true)
+      expect(inserted.status).toBe('active')
+
+      await runUp('20260613000003-insert-default-roles.js')
+      expect(await snapshot()).toEqual(after)
+    } finally {
+      await sequelize.query('ALTER TABLE role DROP COLUMN IF EXISTS "isSystem"')
+    }
+  })
+
+  test('default-roles seed carries no string actor in createdBy', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../db/migrations/20260613000003-insert-default-roles.js'), 'utf8')
+    expect(source).not.toMatch(/createdBy\s*:\s*['"`]/)
+    expect((source.match(/createdBy: null,/g) || []).length).toBe(4)
   })
 })
 
