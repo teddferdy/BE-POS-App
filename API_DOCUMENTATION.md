@@ -1026,6 +1026,28 @@ drawer attribution. When a payment row already exists for the order
 tender is required. The stored/validated value is `e-wallet` (hyphenated);
 `points` is a legitimate method used when loyalty points cover the total.
 
+**Points settlement (DR-04 P2-1):** `paymentMethod: points` is a valid
+paid-settlement method (also when it is the order's stored method and the
+request omits one). It redeems the order's final payable `totalPrice` in full
+from the member attached to the order — 1 point = Rp1, no partial redemption,
+no recomputation of tax/service/discount. The member is resolved server-side
+from the order's own `customerId` only: the request carries just
+`paymentMethod: "points"`, and any client-supplied `customerId`, `memberId` or
+`redeemedPoints` is ignored. Guest (no-member) orders cannot settle with
+points. Inside the settlement transaction the member row is locked, its store
+is checked against the settlement store (a member with no store is accepted),
+and the balance is checked under that lock before exactly `-totalPrice` is
+deducted; when `totalPrice` > 0, one `member_point_history` row is written
+(`pointsChange` = `-totalPrice`, `transactionId` = order id), while a
+zero-total order settles with no point movement and no history row. The
+deduction, point history,
+payment row (`typePayment: points`, `cashReceived: null`, `changeGiven: 0`),
+register attribution and order settlement commit or roll back together, so a
+failure leaves the order unpaid with no payment row, no deduction and no point
+history. A replay of an already-settled order (an existing payment row, or an
+order already `paid`) does not deduct points again. Settlement never awards
+earned points. Create-order `redeemedPoints` semantics are unchanged.
+
 **Response:**
 ```json
 { "success": true, "message": "Status updated" }
@@ -1044,7 +1066,11 @@ missing paid-settlement tender
 `cashAmount minus changeAmount must exactly equal the amount due`), and
 missing register attribution
 (`No store context to resolve an open cash register for settlement`,
-`No open cash register for this store; open a register before settling`).
+`No open cash register for this store; open a register before settling`), and
+points settlement failures (`Order has no attached member; points settlement requires a member`
+for a guest order or a missing member,
+`Member does not belong to this store`,
+`Insufficient point balance`).
 
 ---
 
