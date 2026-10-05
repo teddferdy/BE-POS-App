@@ -559,6 +559,112 @@ describe('W-02R.4 E2 data-migration idempotency (disposable database)', () => {
     expect(source).not.toMatch(/createdBy\s*:\s*['"`]/)
     expect((source.match(/createdBy: null,/g) || []).length).toBe(4)
   })
+
+  // E2-ROLE-MIGRATION-DOWN-SAFETY: the seed is forward-only. down() must never
+  // delete roles. A roleType predicate is broader than what up() inserted, and
+  // user.roleId is ON DELETE CASCADE (production and dev schema), so a
+  // destructive down() would also delete users.
+  const DEFAULT_ROLES = '20260613000003-insert-default-roles.js'
+  const seedRepresentativeRoles = async () => {
+    await sequelize.query(`TRUNCATE role`)
+    const roles = [
+      ['Super Admin', 'super_admin', null],
+      ['Admin Toko', 'admin', null],
+      ['Kasir', 'kasir', null],
+      ['Staff/Karyawan', 'user', null],
+      ['Finance', 'user', 7] // tenant-created role sharing a seeded roleType
+    ]
+    for (const [name, roleType, createdBy] of roles) {
+      await sequelize.query(
+        `INSERT INTO role (name, "roleType", "accessMenu", status, "createdBy", "createdAt", "updatedAt")
+         VALUES ($1, $2, '[]', 'active', $3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+        { bind: [name, roleType, createdBy] }
+      )
+    }
+    // Production-shaped reference: user.roleId -> role(id) ON DELETE CASCADE.
+    await sequelize.query('ALTER TABLE "user" ADD COLUMN "roleId" INTEGER REFERENCES role(id) ON DELETE CASCADE')
+    await sequelize.query(
+      `INSERT INTO "user" ("roleId", "updatedAt")
+       SELECT id, '2026-01-01T00:00:00Z' FROM role WHERE name IN ('Super Admin', 'Finance')`
+    )
+  }
+  const cleanupRepresentativeRoles = async () => {
+    await sequelize.query('ALTER TABLE "user" DROP COLUMN IF EXISTS "roleId"')
+    await sequelize.query(`DELETE FROM "user" WHERE "updatedAt" = '2026-01-01T00:00:00Z'`)
+    await sequelize.query(`TRUNCATE role`)
+  }
+  const roleState = () => sequelize.query('SELECT * FROM role ORDER BY id', { type: sequelize.QueryTypes.SELECT })
+  const userRefs = () =>
+    sequelize.query('SELECT id, "roleId" FROM "user" WHERE "roleId" IS NOT NULL ORDER BY id', {
+      type: sequelize.QueryTypes.SELECT
+    })
+  // Records every queryInterface / sequelize.query call made through it.
+  const recordingQi = (calls) => {
+    const base = qi()
+    const seq = new Proxy(base.sequelize, {
+      get(target, prop) {
+        const value = target[prop]
+        if (prop === 'query') return (...args) => (calls.push(`sequelize.query: ${String(args[0]).slice(0, 80)}`), value.apply(target, args))
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+    })
+    return new Proxy(base, {
+      get(target, prop) {
+        if (prop === 'sequelize') return seq
+        const value = target[prop]
+        if (typeof value === 'function') return (...args) => (calls.push(`queryInterface.${String(prop)}`), value.apply(target, args))
+        return value
+      }
+    })
+  }
+
+  test('default-roles down() is non-destructive: no role or referencing user is deleted, no query is issued', async () => {
+    await seedRepresentativeRoles()
+    try {
+      const rolesBefore = await roleState()
+      const usersBefore = await userRefs()
+      expect(rolesBefore).toHaveLength(5)
+      expect(usersBefore).toHaveLength(2)
+
+      const calls = []
+      await require(`../db/migrations/${DEFAULT_ROLES}`).down(recordingQi(calls), require('sequelize'))
+
+      expect(calls).toEqual([])
+      expect(await roleState()).toEqual(rolesBefore)
+      expect(await userRefs()).toEqual(usersBefore)
+    } finally {
+      await cleanupRepresentativeRoles()
+    }
+  })
+
+  test('default-roles down() then up() leaves seeded-role state intact and inserts no duplicate', async () => {
+    await seedRepresentativeRoles()
+    try {
+      const rolesBefore = await roleState()
+      const usersBefore = await userRefs()
+
+      await require(`../db/migrations/${DEFAULT_ROLES}`).down(qi(), require('sequelize'))
+      expect(await roleState()).toEqual(rolesBefore)
+
+      await runUp(DEFAULT_ROLES)
+      const rolesAfter = await roleState()
+      expect(rolesAfter).toEqual(rolesBefore)
+      const seeded = rolesAfter.filter((r) => r.createdBy === null).map((r) => r.roleType)
+      expect(seeded.sort()).toEqual(['admin', 'kasir', 'super_admin', 'user'])
+      expect(await userRefs()).toEqual(usersBefore)
+    } finally {
+      await cleanupRepresentativeRoles()
+    }
+  })
+
+  test('default-roles down() contains no destructive statement', () => {
+    const downSource = require(`../db/migrations/${DEFAULT_ROLES}`).down.toString()
+    // Executable code only (line comments explain the no-op and may name the hazard).
+    const code = downSource.replace(/\/\/[^\n]*/g, '')
+    expect(code).not.toMatch(/bulkDelete|destroy|\bDELETE\b|TRUNCATE|DROP\b|roleType|queryInterface\./i)
+    // The function body is comments only: no executable statement remains.
+    expect(code.slice(code.indexOf('{') + 1, code.lastIndexOf('}')).trim()).toBe('')
+  })
 })
 
 describe('W-02R.4 runner rerun convergence (disposable database)', () => {
