@@ -39,6 +39,76 @@ const KNOWN_E2 = [
   '20261012000001-d05-member-identity-uniqueness.js'
 ]
 
+// Locked intentional staging/production divergence (D-06 manifest
+// correction). Production records the decisions (DR-21, DR-06) as
+// EXCLUDED_BY_DECISION; staging deliberately keeps these exact three rows as
+// BLOCKED_DECISION so the rehearsal keeps proving that blocked rows stop
+// execution (rehearsal-pass-blocked, 3 blocked). No other row may differ.
+const STAGING_DIVERGENCE = Object.freeze({
+  '20260616000002-fix-tax-config-audit-fields-type.js': {
+    staging: { disposition: 'BLOCKED_DECISION', decisionRef: 'D-06 tax_config audit-field type' },
+    productionDecisionRef: /^DR-21\b/
+  },
+  '20260618000004-create-super-admin-users.js': {
+    staging: { disposition: 'BLOCKED_DECISION', decisionRef: 'D-08/DR-06 production seed-account roster' },
+    productionDecisionRef: /^DR-06\b/
+  },
+  '20260620000005-create-dev-user.js': {
+    staging: { disposition: 'BLOCKED_DECISION', decisionRef: 'D-08/DR-06 production seed-account roster' },
+    productionDecisionRef: /^DR-06\b/
+  }
+})
+
+// The rehearsal's blocked set is exactly the allowlisted staging rows.
+const EXPECTED_STAGING_BLOCKED = Object.entries(STAGING_DIVERGENCE)
+  .map(([migration, { staging }]) => ({ migration, decisionRef: staging.decisionRef }))
+  .sort((a, b) => a.migration.localeCompare(b.migration))
+const sortBlocked = (list) =>
+  list
+    .map((b) => ({ migration: b.migration, decisionRef: b.decisionRef }))
+    .sort((a, b) => a.migration.localeCompare(b.migration))
+
+// Returns every violation of the divergence contract (empty = compliant):
+// identical migration inventory and order, identical top-level fields other
+// than environment, byte-identical rows outside the allowlist, and the
+// allowlisted rows in exactly their locked staging/production shapes.
+const stagingDivergenceViolations = (staging, production) => {
+  const out = []
+  const sNames = staging.migrations.map((r) => r.migration)
+  const pNames = production.migrations.map((r) => r.migration)
+  if (JSON.stringify(sNames) !== JSON.stringify(pNames)) out.push('migration inventory/order differs between staging and production')
+  if (new Set(sNames).size !== sNames.length) out.push('staging migration inventory has duplicates')
+  if (new Set(pNames).size !== pNames.length) out.push('production migration inventory has duplicates')
+  for (const key of ['schemaVersion', 'evidenceCapturedAt', 'approvedBy', 'approvedAt']) {
+    if (JSON.stringify(staging[key]) !== JSON.stringify(production[key])) out.push(`top-level ${key} differs`)
+  }
+  const pBy = new Map(production.migrations.map((r) => [r.migration, r]))
+  for (const s of staging.migrations) {
+    const p = pBy.get(s.migration)
+    if (!p) continue
+    const locked = STAGING_DIVERGENCE[s.migration]
+    if (!locked) {
+      if (JSON.stringify(s) !== JSON.stringify(p)) out.push(`unexpected divergence: ${s.migration}`)
+      continue
+    }
+    const sKeys = Object.keys(s).sort().join(',')
+    if (
+      s.disposition !== locked.staging.disposition ||
+      s.decisionRef !== locked.staging.decisionRef ||
+      sKeys !== 'decisionRef,disposition,evidenceRef,migration' ||
+      typeof s.evidenceRef !== 'string' ||
+      s.evidenceRef.length === 0
+    ) {
+      out.push(`staging row for ${s.migration} no longer matches the locked BLOCKED_DECISION contract`)
+    }
+    if (p.disposition !== 'EXCLUDED_BY_DECISION' || !locked.productionDecisionRef.test(p.decisionRef || '') || 'supersededBy' in p) {
+      out.push(`production row for ${s.migration} no longer matches the locked EXCLUDED_BY_DECISION contract`)
+    }
+    if (JSON.stringify(s) === JSON.stringify(p)) out.push(`allowlisted row ${s.migration} no longer diverges`)
+  }
+  return out
+}
+
 describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
   test('staging manifest is valid, unapproved, 197 rows, zero D-07', () => {
     const { manifest, errors } = rules.readDispositionManifest(rules.STAGING_DISPOSITIONS_PATH)
@@ -53,12 +123,61 @@ describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
     expect(JSON.stringify(manifest)).not.toMatch(/D-07/)
   })
 
-  test('staging rows are byte-identical to production rows (environment only differs)', () => {
+  test('staging rows equal production rows except the locked intentional-divergence allowlist', () => {
     const staging = STAGING_MANIFEST()
     const production = PRODUCTION_MANIFEST()
-    expect(staging.migrations).toEqual(production.migrations)
+    expect(stagingDivergenceViolations(staging, production)).toEqual([])
     expect(staging.environment).toBe('staging')
     expect(production.environment).toBe('production')
+  })
+
+  test('the allowlisted rows diverge exactly as locked (staging BLOCKED, production EXCLUDED_BY_DECISION)', () => {
+    const staging = Object.fromEntries(STAGING_MANIFEST().migrations.map((r) => [r.migration, r]))
+    const production = Object.fromEntries(PRODUCTION_MANIFEST().migrations.map((r) => [r.migration, r]))
+    for (const [name, expected] of Object.entries(STAGING_DIVERGENCE)) {
+      expect(staging[name]).toStrictEqual({ migration: name, ...expected.staging, evidenceRef: staging[name].evidenceRef })
+      expect(staging[name].evidenceRef).toMatch(/^W-02R\.3R matrix v2 E6 \(HIGH\): /)
+      expect(production[name].disposition).toBe('EXCLUDED_BY_DECISION')
+      expect(production[name].decisionRef).toMatch(expected.productionDecisionRef)
+      expect(Object.keys(production[name]).sort()).toEqual(['decisionRef', 'disposition', 'evidenceRef', 'migration'])
+    }
+  })
+
+  test('divergence contract fails closed on any drift beyond the allowlist', () => {
+    const staging = STAGING_MANIFEST()
+    const production = PRODUCTION_MANIFEST()
+    const clone = (m) => JSON.parse(JSON.stringify(m))
+    const at = (m, name) => m.migrations.find((r) => r.migration === name)
+    const ATTESTED = '20260616000002-add-ingredient-to-goods-receipt-item.js'
+    const check = (mutate) => {
+      const s = clone(staging)
+      const p = clone(production)
+      mutate(s, p)
+      return stagingDivergenceViolations(s, p)
+    }
+
+    // A fourth divergent row (any field, including evidence/decision text).
+    expect(check((s) => { at(s, ATTESTED).evidenceRef += ' edited' }).join('\n')).toMatch(/unexpected divergence: 20260616000002-add-ingredient/)
+    expect(check((s) => { at(s, ATTESTED).decisionRef = 'DR-99' }).join('\n')).toMatch(/unexpected divergence/)
+    expect(check((s) => { delete at(s, ATTESTED).evidenceRef }).join('\n')).toMatch(/unexpected divergence/)
+    // Inventory drift: removal, addition, reorder, duplicate.
+    expect(check((s) => { s.migrations.pop() }).join('\n')).toMatch(/inventory/)
+    expect(check((s, p) => { p.migrations.push({ migration: '29991231000000-new.js', disposition: 'ATTESTED_PRESENT', evidenceRef: 'x' }) }).join('\n')).toMatch(/inventory/)
+    expect(check((s) => { s.migrations.reverse() }).join('\n')).toMatch(/inventory/)
+    expect(check((s) => { s.migrations[1] = clone(s.migrations[0]) }).join('\n')).toMatch(/inventory/)
+    // An allowlisted row converging or changing on either side.
+    const TAX = '20260616000002-fix-tax-config-audit-fields-type.js'
+    const synced = check((s, p) => { Object.assign(at(s, TAX), at(p, TAX)) }).join('\n')
+    expect(synced).toMatch(/staging row for 20260616000002-fix-tax-config/)
+    expect(synced).toMatch(/allowlisted row 20260616000002-fix-tax-config.* no longer diverges/)
+    expect(check((s) => { at(s, '20260620000005-create-dev-user.js').decisionRef = 'DR-06' }).join('\n')).toMatch(/staging row for 20260620000005/)
+    expect(check((s, p) => { at(p, '20260618000004-create-super-admin-users.js').disposition = 'BLOCKED_DECISION' }).join('\n')).toMatch(/production row for 20260618000004/)
+    expect(check((s, p) => { at(p, '20260618000004-create-super-admin-users.js').decisionRef = 'D-08/DR-06 production seed-account roster' }).join('\n')).toMatch(/production row for 20260618000004/)
+    // Top-level drift other than environment / approval.
+    expect(check((s) => { s.evidenceCapturedAt = '2026-10-05T00:00:00Z' }).join('\n')).toMatch(/evidenceCapturedAt/)
+    expect(check((s) => { s.schemaVersion = 2 }).join('\n')).toMatch(/schemaVersion/)
+    // Untouched pair is clean.
+    expect(check(() => {})).toEqual([])
   })
 
   test('derived E2 set equals the locked 13 and partitions 236 = 197 + 26 + 13', () => {
@@ -123,6 +242,11 @@ describe('W-02R.4 target isolation (no database)', () => {
     const strict = preflight.evaluatePreflight({ env: 'staging', targetHost: '127.0.0.1', dispositions: staging, files: FILES, metaNames })
     expect(strict.ok).toBe(false)
     expect(strict.blocked).toHaveLength(3)
+    // Each blocked migration is identified with its decision reference.
+    expect(sortBlocked(strict.blocked)).toEqual(EXPECTED_STAGING_BLOCKED)
+    const reasons = strict.reasons.join('\n')
+    expect(reasons).toMatch(/BLOCKED_DECISION remains \(3\)/)
+    for (const b of EXPECTED_STAGING_BLOCKED) expect(reasons).toContain(`${b.migration} [${b.decisionRef}]`)
     const applied = {
       ...staging,
       migrations: staging.migrations.map((r) =>
@@ -139,6 +263,7 @@ describe('W-02R.4 target isolation (no database)', () => {
     })
     expect(gate.ok).toBe(true)
     expect(gate.blocked).toHaveLength(3)
+    expect(sortBlocked(gate.blocked)).toEqual(EXPECTED_STAGING_BLOCKED)
   })
 
   test('preflight selects the manifest strictly by environment', () => {
@@ -466,6 +591,7 @@ describe('W-02R.4 full rehearsal integration (disposable database)', () => {
     expect(ev.steps.verify.failures).toEqual([])
     expect(ev.steps.verify.status).toBe('BLOCKED')
     expect(ev.steps.verify.blocked).toHaveLength(3)
+    expect(sortBlocked(ev.steps.verify.blocked)).toEqual(EXPECTED_STAGING_BLOCKED)
     expect(ev.steps.verify.data.splitBillNullStatus).toBe(0)
     expect(ev.steps.verify.data.metaDuplicates).toBe(0)
     expect(ev.steps.verify.data.metaOrphans).toEqual([])

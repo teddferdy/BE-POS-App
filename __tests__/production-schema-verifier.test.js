@@ -325,7 +325,7 @@ describe('W-01 production schema verifier', () => {
       expect(joined).toMatch(/controlled apply still pending \(3\)/)
     })
 
-    test('repository manifest, approved + fully stamped + controlled applies done → BLOCKED on exactly the 3 remaining business decisions (D-05 resolved)', () => {
+    test('repository manifest, approved + fully stamped + controlled applies done → PASS (every E6 decision recorded: D-05, DR-21, DR-06)', () => {
       const files = verifier.discoverMigrationFiles()
       const { manifest } = dispositions.readDispositionManifest()
       const simulated = {
@@ -345,13 +345,14 @@ describe('W-01 production schema verifier', () => {
         schema: verifier.completeTestSchema(),
         dispositions: simulated
       })
-      expect(result.status).toBe('BLOCKED')
-      expect(result.exitCode).toBe(2)
-      expect(result.blocked.map((b) => b.migration).sort()).toEqual([
-        '20260616000002-fix-tax-config-audit-fields-type.js',
-        '20260618000004-create-super-admin-users.js',
-        '20260620000005-create-dev-user.js'
-      ])
+      // No BLOCKED_DECISION row remains in the repository manifest; the
+      // BLOCKED contract itself is covered by the synthetic-fixture tests in
+      // the disposition-contract block above and in formatReport below.
+      expect(simulated.migrations.filter((r) => r.disposition === 'BLOCKED_DECISION')).toEqual([])
+      expect(result.failures).toEqual([])
+      expect(result.blocked).toEqual([])
+      expect(result.status).toBe('PASS')
+      expect(result.exitCode).toBe(0)
     })
 
     test('end to end against the TEST database (read-only): repository manifest → FAIL, exit 1, never PASS', async () => {

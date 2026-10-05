@@ -253,9 +253,9 @@
     },
     {
       "migration": "20260616000002-fix-tax-config-audit-fields-type.js",
-      "disposition": "BLOCKED_DECISION",
-      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): tax_config.createdBy/modifiedBy int4; migration targets VARCHAR; db/models/taxConfig.js declares INTEGER (w02r_columns + model source); replay: APPLIES_MISSING_ONLY",
-      "decisionRef": "D-06 tax_config audit-field type"
+      "disposition": "EXCLUDED_BY_DECISION",
+      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): production tax_config.createdBy/modifiedBy are int4 (w02r_columns); db/models/taxConfig.js declares INTEGER; api/controller/taxConfig.js writes req.user?.id, so both columns hold the numeric User.id audit actor. The VARCHAR conversion is abandoned historical intent (added in a162642, model reverted to INTEGER in 8a47ac7). Applying it would create schema/model drift and its down() is destructive (USING NULL). replay: APPLIES_MISSING_ONLY, so this is NOT a safe no-op: it is excluded by decision DR-21 (TAX-CONFIG-KEEP-INTEGER, BA §35.8) and must never run in production. Record: docs/superpowers/evidence/dr21-tax-config-audit-field-type-record.md",
+      "decisionRef": "DR-21 tax_config audit-field type (keep INTEGER)"
     },
     {
       "migration": "20260616000003-add-created-by-to-notification.js",
@@ -284,9 +284,9 @@
     },
     {
       "migration": "20260618000004-create-super-admin-users.js",
-      "disposition": "BLOCKED_DECISION",
-      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): w02r1_dataonly.seed_users.super_admin_seeds = 2 (query definition not retained); migration seeds password literals (BA DR-06 OPEN); replay: SAFE_NOOP (all guarded)",
-      "decisionRef": "D-08/DR-06 production seed-account roster"
+      "disposition": "EXCLUDED_BY_DECISION",
+      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): w02r1_dataonly.seed_users.super_admin_seeds = 2 (query definition not retained; W-02R.3R report §5: 2 of the 3 seeded usernames present, 1 absent; super_admin role present). The migration's only guards are role existence and per-userName existence, so a replay would INSERT the absent account as an active, global super_admin with a static credential committed in source. This is NOT a safe no-op (it corrects the earlier no-op claim). Excluded by decision DR-06 (BA §35.7): no known/default credentials in deployed environments, and privileged production identities come only from the explicit operational roster/bootstrap path. Must never run in production.",
+      "decisionRef": "DR-06 seeded default accounts (production seed prohibited)"
     },
     {
       "migration": "20260619000001-change-category-store-to-jsonb.js",
@@ -317,9 +317,9 @@
     },
     {
       "migration": "20260620000005-create-dev-user.js",
-      "disposition": "BLOCKED_DECISION",
-      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): w02r1_dataonly.seed_users.dev_seed = 0 (absent); replay: SAFE_NOOP (all guarded)",
-      "decisionRef": "D-08/DR-06 production seed-account roster"
+      "disposition": "EXCLUDED_BY_DECISION",
+      "evidenceRef": "W-02R.3R matrix v2 E6 (HIGH): w02r1_dataonly.seed_users.dev_seed = 0 (absent; super_admin role present). The migration's only guards are role existence and userName existence, so a replay would INSERT a global super_admin development account with a static credential committed in source. This is NOT a safe no-op (it corrects the earlier no-op claim). Production has no need for a development account, and DR-06 (BA §35.7) prohibits known/default credentials in deployed environments, so it is excluded by decision. Must never run in production.",
+      "decisionRef": "DR-06 seeded default accounts (production dev user prohibited)"
     },
     {
       "migration": "20260621000001-add-status-to-bom-header.js",
