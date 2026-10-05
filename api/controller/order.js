@@ -2015,6 +2015,46 @@ const resolvePaidSettlement = async ({
   return { method, cashReceived, changeGiven, registerId, amountDue }
 }
 
+// DR-04 P2-1: a `points` settlement redeems the order's full payable total
+// (1 point = Rp1) from the member already attached to the order — never a
+// client-supplied member or amount. Runs inside the caller's transaction,
+// after the existing-settlement skip and before any settlement mutation: the
+// member row is locked first and sufficiency is checked under that lock, so
+// two settlements racing on one balance cannot both pass, and a shortfall
+// fails (422) instead of being clamped to zero by adjustMemberPoints.
+const redeemSettlementPoints = async ({ lockedOrder, effectiveStore, userId, t }) => {
+  const pointsRequired = Number(lockedOrder.totalPrice) || 0
+  const member = lockedOrder.customerId
+    ? await db.member.findByPk(lockedOrder.customerId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      })
+    : null
+  if (!member) {
+    const err = new Error('Order has no attached member; points settlement requires a member')
+    err.statusCode = 422
+    throw err
+  }
+  if (member.store !== null && Number(member.store) !== Number(effectiveStore)) {
+    const err = new Error('Member does not belong to this store')
+    err.statusCode = 422
+    throw err
+  }
+  if ((Number(member.totalPoints) || 0) < pointsRequired) {
+    const err = new Error('Insufficient point balance')
+    err.statusCode = 422
+    throw err
+  }
+  await adjustMemberPoints({
+    memberId: member.id,
+    deltaPoints: -pointsRequired,
+    referenceId: lockedOrder.id,
+    notes: `Redeemed ${pointsRequired} points to settle order ${lockedOrder.orderNumber}`,
+    createdBy: userId || null,
+    transaction: t
+  })
+}
+
 const createInitialOrderStatus = async (
   order,
   cashierName,
@@ -2895,6 +2935,17 @@ exports.updateOrderStatus = async (req, res) => {
             effectiveStore,
             t
           })
+          // DR-04 P2-1: points redemption is part of the same settlement
+          // unit — skipped with the rest of the tender when a settlement
+          // row already exists, so a replay never deducts twice.
+          if (paidTender.method === 'points') {
+            await redeemSettlementPoints({
+              lockedOrder,
+              effectiveStore,
+              userId: changedBy || req.user?.id,
+              t
+            })
+          }
         }
       }
 
