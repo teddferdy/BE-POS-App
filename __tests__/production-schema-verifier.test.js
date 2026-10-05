@@ -320,7 +320,10 @@ describe('W-01 production schema verifier', () => {
       })
       expect(result.status).toBe('FAIL')
       const joined = result.failures.join('\n')
-      expect(joined).toMatch(/not approved/)
+      // The repository manifest is approved; it still FAILs because nothing is
+      // stamped and the controlled applies are pending (approval is only the
+      // first step: approve → stamp → controlled apply → verify → runner).
+      expect(joined).not.toMatch(/not approved/)
       expect(joined).toMatch(/disposition manifest rows not recorded in SequelizeMeta \(197\)/)
       expect(joined).toMatch(/controlled apply still pending \(3\)/)
     })
@@ -362,7 +365,9 @@ describe('W-01 production schema verifier', () => {
       const result = await verifier.verifyProductionSchema(db.sequelize)
       expect(result.status).toBe('FAIL')
       expect(result.exitCode).toBe(1)
-      expect(result.failures.join('\n')).toMatch(/disposition manifest is not approved/)
+      // Approved manifest: the failure is the missing ledger, not approval.
+      expect(result.failures.join('\n')).not.toMatch(/not approved/)
+      expect(result.failures.join('\n')).toMatch(/not recorded in SequelizeMeta/)
     }, 30000)
 
     test('report wording: recorded state only — never claims the population was executed/applied', () => {

@@ -93,11 +93,25 @@ describe('W-01.1 migration preflight (production)', () => {
     expect(result.reasons.join('\n')).toMatch(/not stamped in SequelizeMeta[\s\S]*20260610000000/)
   })
 
-  test('the W-02 production ledger as captured (26 rows, nothing stamped) → refused', () => {
-    const metaNames = FILES.filter((f) => f < '20260601000000' || /^20261008|^20261009|^20261010/.test(f))
+  const W02_LEDGER = () => FILES.filter((f) => f < '20260601000000' || /^20261008|^20261009|^20261010/.test(f))
+
+  test('the W-02 production ledger as captured (26 rows, nothing stamped) → refused (approved repository manifest)', () => {
+    const metaNames = W02_LEDGER()
     expect(metaNames).toHaveLength(26)
     const { manifest } = rules.readDispositionManifest()
+    expect(manifest.approvedBy).toBe('teddy-ferdian')
     const result = evaluate({ dispositions: manifest, metaNames })
+    expect(result.ok).toBe(false)
+    const joined = result.reasons.join('\n')
+    // Refused because nothing is stamped, not because of approval.
+    expect(joined).not.toMatch(/not approved/)
+    expect(joined).toMatch(/not stamped in SequelizeMeta[^\n]*\(197\)/)
+  })
+
+  test('the W-02 production ledger with an unapproved manifest (synthetic) → refused as not approved', () => {
+    const { manifest } = rules.readDispositionManifest()
+    const unapproved = { ...manifest, approvedBy: null, approvedAt: null }
+    const result = evaluate({ dispositions: unapproved, metaNames: W02_LEDGER() })
     expect(result.ok).toBe(false)
     const joined = result.reasons.join('\n')
     expect(joined).toMatch(/not approved/)
