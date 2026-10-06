@@ -122,8 +122,20 @@ describe('Reconciliation: sales revenue vs accounting journal', () => {
     expect(Number(revenueRows[0].sum)).toBe(45000)
   })
 
-  test('cancelled order is excluded from reporting and has reversal journal', async () => {
+  test('voided order is excluded from reporting and has reversal journal', async () => {
+    // DR-23 (BA §35.10): a paid order must carry its settlement on the
+    // ledger (a cached 'paid' with no ledger row is unreconciled legacy data
+    // and is never reversed automatically), and reversing a PAID order is an
+    // elevated void whose cash refund is attributed to the open register.
+    const register = await db.cashRegister.create({
+      store: store.id,
+      user: 98020,
+      status: 'open',
+      openingBalance: 0,
+      openedAt: new Date(Date.now() - 1000)
+    })
     const order = await makeOrder({ subTotal: 50000, discountAmount: 0, totalPrice: 50000, status: 'paid', paymentStatus: 'paid' })
+    await db.transaction.create({ order: order.id, typePayment: 'cash', amount: 50000, cashReceived: 50000, changeGiven: 0, createdBy: 98020 })
     // Post original journals
     await postOrderJournal({
       store: store.id,
@@ -144,18 +156,20 @@ describe('Reconciliation: sales revenue vs accounting journal', () => {
       date: new Date(),
       createdBy: 98020
     })
-    // Cancel via controller (which sets paymentStatus to refunded and creates reversal)
+    // Void via controller (refunds the collected 50,000, sets paymentStatus
+    // refunded and enqueues the reversal journals)
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${token}`)
-      .send({ id: order.id, status: 'cancelled', reason: 'Reporting test void reason' })
+      .send({ id: order.id, status: 'void', reason: 'Reporting test void reason' })
     expect(cancelRes.status).toBe(200)
 
     const updated = await db.order.findByPk(order.id)
-    expect(updated.status).toBe('cancelled')
+    expect(updated.status).toBe('void')
     expect(updated.paymentStatus).toBe('refunded')
+    expect(updated.cashRegisterId).toBe(register.id)
 
-    // Reporting should exclude cancelled
+    // Reporting should exclude voided
     const rangeStart = new Date(Date.now() - 86400000).toISOString().slice(0,10)
     const rangeEnd = new Date(Date.now() + 86400000).toISOString().slice(0,10)
     const res = await request(app)
@@ -172,6 +186,10 @@ describe('Reconciliation: sales revenue vs accounting journal', () => {
     expect(reversals.length).toBe(1)
     const cogsReversals = await db.journal_entry.findAll({ where: { store: store.id, sourceType: 'cogs_reversal' } })
     expect(cogsReversals.length).toBe(1)
+
+    await db.transaction.destroy({ where: { order: order.id }, force: true })
+    await db.order.update({ cashRegisterId: null }, { where: { id: order.id } })
+    await db.cashRegister.destroy({ where: { id: register.id }, force: true })
   })
 })
 

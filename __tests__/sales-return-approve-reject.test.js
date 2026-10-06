@@ -79,6 +79,15 @@ beforeAll(async () => {
     { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // DR-23: a void's cash refund is attributed to the open register; sales
+  // made while it is open belong to it.
+  await db.cashRegister.create({
+    store: location.id,
+    user: adminUser.id,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
   // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
   // so these approve/reject assertions exercise configured tax.
   await db.taxConfig.create({
@@ -103,6 +112,7 @@ afterAll(async () => {
   await db.product_store_stock.destroy({ where: { product: product?.id }, force: true })
   await db.product.destroy({ where: { id: product?.id }, force: true })
   await db.category.destroy({ where: { id: category?.id }, force: true })
+  await db.cashRegister.destroy({ where: { store: location?.id }, force: true })
   await db.user.destroy({ where: { id: adminUser?.id }, force: true })
   await db.location.destroy({ where: { id: location?.id }, force: true })
 })
@@ -283,22 +293,21 @@ describe('PATCH /sales-return/approve and /reject', () => {
     await db.product.destroy({ where: { id: otherProduct.id }, force: true })
   })
 
-  test('cancelling the order racing approval of its pending return: stock is restored exactly once, never twice', async () => {
-    // Cross-endpoint version of the double-restore race — order-cancel
-    // (updateOrderStatus) and return-approve (salesReturn.approve) both
-    // restore the same items' stock, and previously had no coordination
-    // with each other at all (approve() didn't even lock or check the
-    // order). Both now lock the same order row, so exactly one of them
-    // must win and the other must observe the consequence and refuse.
+  test('voiding the order racing approval of its pending return: stock is restored exactly once, never twice', async () => {
+    // Cross-endpoint double-restore race. DR-23 (BA §35.10 G): reversing a
+    // PAID order is an elevated void (a plain cancel is refused while money
+    // is collected), so the reversal racing the return approval is a void.
+    // Both lock the same order row, so exactly one wins and the other
+    // observes the consequence and refuses.
     const order = await makeOrder(10)
     const beforeStock = await db.product.findByPk(product.id)
     const ret = await makeReturn({ order, qty: 3, refundAmount: 30000 })
 
-    const [cancelRes, approveRes] = await Promise.all([
+    const [voidRes, approveRes] = await Promise.all([
       request(app)
         .put('/order/update-status')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ id: order.id, status: 'cancelled', store: location.id, reason: 'Race test void reason' }),
+        .send({ id: order.id, status: 'void', store: location.id, reason: 'Race test void reason' }),
       request(app)
         .patch(`/sales-return/approve/${ret.id}`)
         .set('Authorization', `Bearer ${adminToken}`)
@@ -310,27 +319,31 @@ describe('PATCH /sales-return/approve and /reject', () => {
     const afterStock = await db.product.findByPk(product.id)
     const refundTxns = await db.transaction.findAll({ where: { salesReturnId: ret.id } })
 
-    if (finalOrder.status === 'cancelled') {
-      // Cancel won: the full order quantity (10) is restored by
-      // reverseOrderStock; approve() must have seen the cancelled order
-      // and refused — the return's own 3-unit restore must NOT also
+    if (finalOrder.status === 'void') {
+      // Void won: the full order quantity (10) is restored and the full
+      // collected amount refunded; approve() must have seen the voided
+      // order and refused — the return's own 3-unit restore must NOT also
       // have applied on top.
-      expect(cancelRes.status).toBe(200)
+      expect(voidRes.status).toBe(200)
       expect(approveRes.status).toBe(409)
       expect(finalReturn.status).toBe('pending')
       expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 10)
       expect(refundTxns.length).toBe(0)
     } else {
-      // Approve won: only the return's 3 units are restored; cancel must
-      // have seen the now-approved return and refused via the existing
-      // "approved return blocks cancel" guard — the order stays paid,
-      // and the other 7 units (never returned) are not restored.
+      // Approve won: only the return's 3 units are restored; the order is
+      // now PARTIALLY_REFUNDED, which cannot be voided in v1 — the order
+      // stays paid and the other 7 units (never returned) are not restored.
       expect(approveRes.status).toBe(200)
-      expect(cancelRes.status).toBe(400)
+      expect(voidRes.status).toBe(409)
+      expect(voidRes.body.code).toBe('VOID_NOT_APPLICABLE')
       expect(finalReturn.status).toBe('approved')
       expect(finalOrder.status).toBe('paid')
       expect(Number(afterStock.stock)).toBe(Number(beforeStock.stock) + 3)
       expect(refundTxns.length).toBe(1)
     }
+    const ledger = await db.transaction.findAll({ where: { order: order.id } })
+    const collected = ledger.filter((t) => Number(t.amount) > 0).reduce((sum, t) => sum + Number(t.amount), 0)
+    const refunded = ledger.filter((t) => Number(t.amount) < 0).reduce((sum, t) => sum - Number(t.amount), 0)
+    expect(refunded).toBeLessThanOrEqual(collected)
   })
 })

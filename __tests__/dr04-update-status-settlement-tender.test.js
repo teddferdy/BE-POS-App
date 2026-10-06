@@ -321,8 +321,12 @@ describe('DR-04 update-status settlement tender', () => {
     expect(createRes.status).toBe(201)
     const orderId = createRes.body.data.id
 
+    // DR-23 (BA §35.10 K): a repeated settlement is refused on the fresh
+    // state (outstanding is 0) instead of a 200 no-op that hides the
+    // duplicate; the single settlement row stays untouched either way.
     const res = await settlePaid({ id: orderId, store: store.id, status: 'paid', paymentMethod: 'cash' })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('OUTSTANDING_CHANGED')
 
     const rows = await txnRows(orderId)
     expect(rows).toHaveLength(1)

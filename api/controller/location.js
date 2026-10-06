@@ -713,6 +713,31 @@ exports.deleteLocationById = async (req, res) => {
         .json({ success: false, message: 'Location not found' })
     }
 
+    // DR-23 (BA §35.10 G) / DR-05: the cascade below sets every order of
+    // this store to 'cancelled' without any refund. An order that still
+    // holds net-collected money must never be cancelled that way (money
+    // would remain on a cancelled order), and DR-05 forbids rewriting
+    // financial history on closure — refuse instead.
+    const [collected] = await db.sequelize.query(
+      `SELECT o.id
+         FROM "order" o
+         JOIN "transaction" t ON t."order" = o.id AND t."deletedAt" IS NULL
+        WHERE o.store = :store
+          AND o."deletedAt" IS NULL
+          AND o.status NOT IN ('cancelled', 'void')
+        GROUP BY o.id
+       HAVING SUM(t.amount) > 0
+        LIMIT 1`,
+      { replacements: { store: dbId }, type: db.sequelize.QueryTypes.SELECT }
+    )
+    if (collected) {
+      return res.status(409).json({
+        success: false,
+        code: 'STORE_HAS_COLLECTED_ORDERS',
+        message: 'This location has orders holding collected payments; it cannot be deleted (retire it instead)'
+      })
+    }
+
     const entries = getLocationDeleteUpdates()
 
     for (const { model, update, action } of entries) {

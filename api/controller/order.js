@@ -23,6 +23,18 @@ const {
   resolveBomIngredientRequirements
 } = require('../service/stockMutationService')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
+const {
+  FINANCIAL_STATES,
+  TERMINAL_FULFILMENT,
+  computeOrderFinancials,
+  legacyPaymentStatusFor,
+  financialError,
+  retirePendingSplits
+} = require('../service/orderFinancials')
+
+// DR-23 interim compatibility mapping for the elevated `order.void`
+// capability (DR-12 memberships are not wired yet): legacy admin roles only.
+const VOID_CAPABLE_ROLES = Object.freeze(['admin', 'super_admin'])
 // An order created by createCustomerOrder (QR/BISA-MAKAN): it always writes
 // source 'qr' and never sets createdBy, while createOrder (POS) always
 // records the authenticated creator — and accepts a client-supplied source,
@@ -1973,12 +1985,15 @@ const recordOrderPayment = async (
 // drawer attribution reuses an existing server-set register link, else
 // resolves the currently open register. Any failure throws 4xx inside the
 // caller's transaction, so the order is never left paid-but-unattributed.
+// DR-23 (BA §35.10): amountDue is the CURRENT outstanding amount recomputed
+// from the ledger under the order lock — never the order's gross total.
 const resolvePaidSettlement = async ({
   bodyMethod,
   cashAmount,
   changeAmount,
   lockedOrder,
   effectiveStore,
+  amountDue,
   t
 }) => {
   const method = bodyMethod || lockedOrder.paymentMethod || null
@@ -1987,7 +2002,6 @@ const resolvePaidSettlement = async ({
     err.statusCode = 422
     throw err
   }
-  const amountDue = Number(lockedOrder.totalPrice) || 0
   const { cashReceived, changeGiven } = validateCashTender({
     paymentMethod: method,
     cashAmount: cashAmount ?? null,
@@ -2022,8 +2036,10 @@ const resolvePaidSettlement = async ({
 // member row is locked first and sufficiency is checked under that lock, so
 // two settlements racing on one balance cannot both pass, and a shortfall
 // fails (422) instead of being clamped to zero by adjustMemberPoints.
-const redeemSettlementPoints = async ({ lockedOrder, effectiveStore, userId, t }) => {
-  const pointsRequired = Number(lockedOrder.totalPrice) || 0
+const redeemSettlementPoints = async ({ lockedOrder, effectiveStore, userId, amount, t }) => {
+  // DR-23: the points tender covers the settlement amount (current
+  // outstanding), not the order's gross total.
+  const pointsRequired = Number(amount) || 0
   const member = lockedOrder.customerId
     ? await db.member.findByPk(lockedOrder.customerId, {
         transaction: t,
@@ -2643,6 +2659,28 @@ exports.updateOrderStatus = async (req, res) => {
       ? req.storeId || req.body.store || null
       : req.storeId || req.user?.store || null
 
+  // DR-23 / DR-08: void is a financial reversal requiring an elevated
+  // capability (interim compatibility mapping: legacy admin/super_admin).
+  // Refused before any read or mutation; the denial is audited (DR-20),
+  // outside any transaction.
+  if (status === 'void' && !VOID_CAPABLE_ROLES.includes(req.user?.roleType)) {
+    await redactAndAudit(req, {
+      action: AUDIT_ACTIONS.VOID,
+      entity: 'order',
+      entityId: id,
+      description: `Void of order ${id} denied: elevated capability (order.void) required`,
+      newValues: { result: 'DENIED', roleType: req.user?.roleType || null }
+    })
+    return res.status(403).json({
+      error: 'Voiding an order requires an elevated capability (order.void)',
+      code: 'FORBIDDEN'
+    })
+  }
+
+  // Split rows retired by this transition; audited after commit.
+  let retiredSplits = []
+  let retiredSplitReason = null
+
   try {
     const statusAttrs = await getOrderAttributes()
     const order = await Order.findOne({
@@ -2852,6 +2890,8 @@ exports.updateOrderStatus = async (req, res) => {
     // callback from scratch is safe.
     await withDeadlockRetry(() =>
       db.sequelize.transaction(async (t) => {
+      retiredSplits = []
+      retiredSplitReason = null
       // Re-read the order under a row lock and derive oldStatus/
       // oldPaymentStatus from THIS fresh read, shadowing the stale
       // pre-transaction values above. Two concurrent status-change requests
@@ -2867,84 +2907,248 @@ exports.updateOrderStatus = async (req, res) => {
       })
       const oldStatus = lockedOrder.status
       const oldPaymentStatus = lockedOrder.paymentStatus
-      // F-03: a cancelled/voided/refunded order is terminal for revenue — its
-      // stock was restored and a refund was already recorded. Re-marking it
-      // 'paid' would silently re-deduct stock on top of the refund (the
-      // oldPaymentStatus skip-guard only protects *orders that were still
-      // paid*, never one that was refunded back) and present the order as
-      // newly paid. Reject before any mutation — the whole transaction rolls
-      // back, so no stock, ledger, status-history or journal row is touched.
+      // DR-23 (BA §35.10): every financial decision below is taken on the
+      // aggregates recomputed from the ledger under THIS order lock — never
+      // on a pre-lock read, a cached paymentStatus, or the order's gross
+      // total.
+      const fin = await computeOrderFinancials(lockedOrder, t)
+      const isSettlement = status === 'paid'
+      const wasTerminal = TERMINAL_FULFILMENT.includes(oldStatus)
+
+      // F-03 (preserved) + DR-23: a cancelled/voided order, or one whose
+      // money was (partly) refunded, is never settleable again — re-marking
+      // it paid would re-deduct stock on top of the reversal. Rejected
+      // before any mutation; the whole transaction rolls back.
       if (
-        status === 'paid' &&
-        (['cancelled', 'void'].includes(oldStatus) ||
-          oldPaymentStatus === 'refunded')
+        isSettlement &&
+        (wasTerminal ||
+          [
+            FINANCIAL_STATES.REFUNDED,
+            FINANCIAL_STATES.PARTIALLY_REFUNDED,
+            FINANCIAL_STATES.INVALID
+          ].includes(fin.state))
       ) {
-        const err = new Error(
+        throw financialError(
+          409,
+          'ORDER_NOT_SETTLEABLE',
           'Cannot re-mark a cancelled, voided or refunded order as paid. Create a new order to sell again.'
         )
-        err.statusCode = 409
-        throw err
       }
-      const isCancelling =
-        ['cancelled', 'void'].includes(status) &&
-        !['cancelled', 'void'].includes(oldStatus)
-      // A paid order being cancelled must not stay paymentStatus:'paid' —
-      // that left status:'cancelled' + paymentStatus:'paid' as a permanent,
-      // contradictory state with no refund record, AND made re-marking the
-      // order 'paid' again skip re-deducting stock (the only signal for
-      // "stock is currently out" was paymentStatus === 'paid', and it was
-      // never reset here even though reverseOrderStock below had already
-      // put the stock back). 'refunded' makes that skip-check below
-      // correctly see stock as no longer deducted.
-      const willBeRefunded = isCancelling && oldPaymentStatus === 'paid'
 
-      // Phase 31 Batch 1 (RBAC-1 compensating control): cancelling a paid
-      // order is allowed for kasir by design, but requires a meaningful
-      // reason. Validated here — after the locked read establishes
-      // oldPaymentStatus, before any mutation (throw rolls the txn back).
-      // Repeat cancels are no-ops (isCancelling false) and stay reason-free.
-      const cancelReason = typeof reason === 'string' ? reason.trim() : ''
-      if (willBeRefunded && !cancelReason) {
-        const err = new Error(
-          'Cancelling a paid order requires a reason. Provide a non-empty reason (max 255 characters).'
+      // BA §35.10 / DR-23 terminal guard (P0 terminal-state bypass close,
+      // second path): a terminal fulfilment state never leaves via ordinary
+      // status update. Settlement-of-terminal is refused above (preserved
+      // ORDER_NOT_SETTLEABLE); cancel/void idempotence and cross-terminal
+      // refusal are handled below. Any other backward move
+      // (cancelled/void → pending/confirmed/preparing/ready/served) is
+      // refused here — terminal wins. Paid progression is untouched.
+      if (
+        wasTerminal &&
+        ['pending', 'confirmed', 'preparing', 'ready', 'served'].includes(status)
+      ) {
+        throw financialError(
+          409,
+          'INVALID_TRANSITION',
+          `Order is already ${oldStatus}; it cannot become ${status}`
         )
-        err.statusCode = 422
-        throw err
       }
 
-      // DR-04: a paid transition settles only with a complete tender —
-      // method (from the request or the order), server-validated cash
-      // detail when cash, and drawer attribution (existing server-set link
-      // or the currently open register). Any failure throws 4xx before
-      // any mutation, so the order is never left paid-but-unattributed.
-      // Skipped when a settlement row already exists: split-bill and
-      // duplicate flows keep their existing behavior untouched.
+      // DR-23 P0-1: a settlement settles exactly the CURRENT outstanding
+      // amount. A request without an explicit amount is a legacy client
+      // claiming the order's full total (G); once anything was collected
+      // (O < G) that claim is stale and refused. Never derive "paid" from
+      // the mere existence of a ledger row.
       let paidTender = null
-      let paidSettlementExists = false
-      if (status === 'paid' && oldStatus !== 'paid') {
-        paidSettlementExists = !!(await db.transaction.findOne({
-          where: { order: id },
-          transaction: t
-        }))
-        if (!paidSettlementExists) {
+      let settleAmount = 0
+      let zeroPayableCompletion = false
+      if (isSettlement) {
+        let requested = fin.G
+        const rawAmount = req.body.amount
+        if (rawAmount !== undefined && rawAmount !== null && rawAmount !== '') {
+          requested = Number(rawAmount)
+          if (!Number.isInteger(requested) || requested <= 0) {
+            throw financialError(422, 'INVALID_AMOUNT', 'amount must be a positive integer rupiah amount')
+          }
+        }
+        if (
+          fin.G === 0 &&
+          fin.C === 0 &&
+          fin.state === FINANCIAL_STATES.PAID &&
+          oldPaymentStatus !== 'paid'
+        ) {
+          // Zero-payable order: completes without a tender (INV-PAY-09).
+          zeroPayableCompletion = true
+        } else if (fin.O <= 0 || requested !== fin.O) {
+          throw financialError(
+            409,
+            'OUTSTANDING_CHANGED',
+            `Settlement amount ${requested} does not equal the current outstanding amount ${fin.O}`,
+            { outstanding: fin.O }
+          )
+        }
+        if (!zeroPayableCompletion) {
+          settleAmount = fin.O
+          // DR-04: complete tender — method, server-validated cash detail
+          // against the outstanding amount, and drawer attribution.
           paidTender = await resolvePaidSettlement({
             bodyMethod: req.body.paymentMethod,
             cashAmount: req.body.cashAmount,
             changeAmount: req.body.changeAmount,
             lockedOrder,
             effectiveStore,
+            amountDue: settleAmount,
             t
           })
           // DR-04 P2-1: points redemption is part of the same settlement
-          // unit — skipped with the rest of the tender when a settlement
-          // row already exists, so a replay never deducts twice.
+          // unit and covers exactly the settlement amount.
           if (paidTender.method === 'points') {
             await redeemSettlementPoints({
               lockedOrder,
               effectiveStore,
               userId: changedBy || req.user?.id,
+              amount: settleAmount,
               t
             })
+          }
+        }
+      }
+
+      // DR-23 P0-3 / DR-08: cancel ends an order before payment; void ends a
+      // (part-)paid order with a full, traceable refund. Repeating the same
+      // terminal command stays a no-op; switching between terminal states
+      // is refused.
+      let isCancelling = false
+      if (['cancelled', 'void'].includes(status)) {
+        if (!wasTerminal && fin.state === FINANCIAL_STATES.INVALID) {
+          // Unreconciled legacy money state (BA §35.10 I): never reversed
+          // automatically; requires manual reconciliation first.
+          throw financialError(
+            409,
+            'ORDER_UNRECONCILED',
+            'This order has an unreconciled payment record; it requires manual reconciliation before it can be cancelled or voided'
+          )
+        }
+        if (wasTerminal) {
+          if (oldStatus !== status) {
+            throw financialError(
+              409,
+              'INVALID_TRANSITION',
+              `Order is already ${oldStatus}; it cannot become ${status}`
+            )
+          }
+        } else if (status === 'cancelled') {
+          if (fin.N > 0) {
+            throw financialError(
+              409,
+              'CANCEL_REQUIRES_VOID',
+              'This order has collected money; void it (with a refund) instead of cancelling it'
+            )
+          }
+          isCancelling = true
+        } else {
+          if (
+            fin.N <= 0 ||
+            ![FINANCIAL_STATES.PAID, FINANCIAL_STATES.PARTIALLY_PAID].includes(fin.state)
+          ) {
+            throw financialError(
+              409,
+              'VOID_NOT_APPLICABLE',
+              fin.N <= 0
+                ? 'Nothing was collected on this order; cancel it instead of voiding it'
+                : 'A partially refunded order cannot be voided; return the remaining lines instead'
+            )
+          }
+          isCancelling = true
+        }
+      }
+      const isVoiding = isCancelling && status === 'void'
+
+      // Void always requires a meaningful reason (Phase 31 RBAC-1 control,
+      // now on the elevated void path). Validated before any mutation.
+      const cancelReason = typeof reason === 'string' ? reason.trim() : ''
+      if (isVoiding && !cancelReason) {
+        throw financialError(
+          422,
+          'REASON_REQUIRED',
+          'Voiding an order requires a reason. Provide a non-empty reason (max 255 characters).'
+        )
+      }
+
+      // DR-23 P0-3 void refund plan: refund exactly what was collected
+      // (R = C here; void is only allowed from PAID/PARTIALLY_PAID with no
+      // prior refund), allocated LIFO against the original settlements,
+      // each refunded in its original tender. Every precondition is checked
+      // before the first write.
+      let voidPlan = []
+      let refundRegisterId = null
+      if (isVoiding) {
+        voidPlan = [...fin.settlements].reverse().map((row) => ({
+          row,
+          amount: Number(row.amount),
+          method: row.typePayment
+        }))
+        const cashParts = voidPlan.filter((p) => p.method === 'cash')
+        const externalParts = voidPlan.filter((p) => !['cash', 'points'].includes(p.method))
+        const pointParts = voidPlan.filter((p) => p.method === 'points')
+        const refundReference =
+          typeof req.body.refundReference === 'string' ? req.body.refundReference.trim() : ''
+        if (externalParts.length && !refundReference) {
+          throw financialError(
+            422,
+            'REFERENCE_REQUIRED',
+            'A refund reference is required for the non-cash portion of this void'
+          )
+        }
+        voidPlan.forEach((p) => {
+          p.reference = ['cash', 'points'].includes(p.method) ? null : refundReference
+        })
+        if (pointParts.length && !lockedOrder.customerId) {
+          throw financialError(
+            409,
+            'POINTS_REFUND_UNAVAILABLE',
+            'The points portion cannot be restored: the order has no attached member'
+          )
+        }
+        if (cashParts.length) {
+          // The register performing the refund: the store's open register,
+          // share-locked so a concurrent close() serializes against this
+          // refund (DR-13).
+          const openRegister = await db.cashRegister.findOne({
+            where: { store: lockedOrder.store, status: 'open' },
+            lock: t.LOCK.SHARE,
+            transaction: t
+          })
+          if (!openRegister) {
+            throw financialError(
+              422,
+              'REGISTER_REQUIRED',
+              'A cash refund requires an open cash register for this store'
+            )
+          }
+          // Interim, until per-record register attribution exists
+          // (migration contract MC-4): drawer attribution is order-level,
+          // so the refund is allowed only when that attribution is the
+          // refunding register — either already, or because every cash
+          // collection happened inside this register's open window (one
+          // open register per store, DB-enforced). Never move cash out of
+          // a closed/original register.
+          if (lockedOrder.cashRegisterId == null) {
+            const openedAt = new Date(openRegister.openedAt || openRegister.createdAt)
+            const insideWindow = cashParts.every((p) => new Date(p.row.createdAt) >= openedAt)
+            if (!insideWindow) {
+              throw financialError(
+                409,
+                'REFUND_REGISTER_ATTRIBUTION_UNAVAILABLE',
+                'This cash refund cannot be attributed to the refunding register yet; the collection predates the open register'
+              )
+            }
+            refundRegisterId = openRegister.id
+          } else if (Number(lockedOrder.cashRegisterId) !== Number(openRegister.id)) {
+            throw financialError(
+              409,
+              'REFUND_REGISTER_ATTRIBUTION_UNAVAILABLE',
+              'This cash refund cannot be attributed to the refunding register: the sale belongs to another (closed) register'
+            )
           }
         }
       }
@@ -2952,11 +3156,10 @@ exports.updateOrderStatus = async (req, res) => {
       await order.update(
         {
           status,
-          ...(status === 'paid' ? { paymentStatus: 'paid' } : {}),
-          ...(willBeRefunded ? { paymentStatus: 'refunded' } : {}),
           ...(paidTender
             ? { paymentMethod: paidTender.method, cashRegisterId: paidTender.registerId }
-            : {})
+            : {}),
+          ...(refundRegisterId ? { cashRegisterId: refundRegisterId } : {})
         },
         { transaction: t }
       )
@@ -2966,11 +3169,14 @@ exports.updateOrderStatus = async (req, res) => {
           action: AUDIT_ACTIONS.VOID,
           entity: 'order',
           entityId: id,
-          description: `Order ${order.orderNumber || id} voided/cancelled (was ${oldStatus})${cancelReason ? `. Reason: ${cancelReason}` : ''}`,
+          description: `Order ${order.orderNumber || id} ${status} (was ${oldStatus})${cancelReason ? `. Reason: ${cancelReason}` : ''}`,
           oldValues: { status: oldStatus, paymentStatus: oldPaymentStatus },
           newValues: {
             status,
-            paymentStatus: willBeRefunded ? 'refunded' : oldPaymentStatus,
+            // Derived end state (BA §35.10 C): void → REFUNDED, cancel
+            // (nothing net-collected) → UNPAID.
+            paymentStatus: isVoiding ? 'refunded' : 'unpaid',
+            refunded: isVoiding ? fin.N : 0,
             reason: cancelReason || null
           },
           transaction: t
@@ -2987,32 +3193,31 @@ exports.updateOrderStatus = async (req, res) => {
         { transaction: t }
       )
 
-      // If transitioning to paid, record payment & reduce stock exactly once
-      if (status === 'paid' && oldStatus !== 'paid') {
-        // DR-04: paidTender was resolved (or the pre-existing settlement
-        // detected) before the order update above — same condition, no
-        // second lookup. The settlement row carries the complete tender:
-        // actual method, due amount, and server-validated cash detail, so
-        // expected cash never falls back to amount-only math.
-        if (!paidSettlementExists) {
+      // Settlement: record exactly the outstanding amount, retire every
+      // pending split (it can no longer be a collection opportunity), and
+      // deduct stock exactly once on the transition to PAID.
+      if (isSettlement) {
+        if (paidTender) {
           await recordOrderPayment(
             lockedOrder,
             paidTender.method,
-            Number(lockedOrder.totalPrice) || 0,
+            settleAmount,
             changedBy || req.user?.id,
             t,
             paidTender.cashReceived,
             paidTender.changeGiven
           )
         }
+        retiredSplits = await retirePendingSplits(id, t)
+        retiredSplitReason = 'SUPERSEDED'
 
-        // Skip deduction for orders already paid & deducted at creation
+        // Stock is deducted only when the order first reaches PAID
+        // (counter orders were deducted at creation).
         if (oldPaymentStatus !== 'paid') {
           await deductPaidOrderStock(t)
         }
       }
 
-      // If transitioning to cancelled/void, reverse stock
       if (isCancelling) {
         const approvedReturn = await db.sales_return.findOne({
           where: { order: id, status: 'approved' },
@@ -3025,36 +3230,64 @@ exports.updateOrderStatus = async (req, res) => {
           err.statusCode = 400
           throw err
         }
-        // Only reverse stock if it was actually deducted for this order.
-        // Every path that deducts stock (POS createOrder, QR
-        // createCustomerOrder, and this function's own paid-transition
-        // branch above) does so exactly when paymentStatus becomes
-        // 'paid' — so oldPaymentStatus === 'paid' (willBeRefunded) is a
-        // reliable proxy for "there is deducted stock to give back".
-        // Previously this ran unconditionally: cancelling a pending/
-        // unpaid order (e.g. a QR order awaiting split-bill payment,
-        // whose stock was never deducted in the first place) would
-        // still ADD stock back, inflating it above the real count.
-        if (willBeRefunded) {
+        // Only reverse stock that was actually deducted: every deduction
+        // path deducts exactly when the order reaches PAID, so a never-
+        // fully-paid order (e.g. PARTIALLY_PAID) has nothing to give back.
+        if (oldPaymentStatus === 'paid') {
           await reverseOrderStock(t)
         }
 
-        // A paid order's money has to be accounted for somewhere when the
-        // order is cancelled — record it as a refund on the payment ledger
-        // (mirrors sales_return.approve's refund transaction) instead of
-        // silently leaving deducted revenue with no offsetting entry.
-        if (willBeRefunded) {
-          await db.transaction.create(
-            {
-              order: id,
-              typePayment: order.paymentMethod || 'cash',
-              amount: -Math.abs(Number(order.totalPrice) || 0),
-              notes: `Refund for cancelled order: ${order.orderNumber}`,
-              createdBy: changedBy || req.user?.id
-            },
-            { transaction: t }
+        // DR-23 void refund: one refund row per original settlement (LIFO),
+        // in its original tender, attributed to the executing actor.
+        if (isVoiding) {
+          for (const part of voidPlan) {
+            await db.transaction.create(
+              {
+                order: id,
+                typePayment: part.method,
+                amount: -Math.abs(part.amount),
+                referenceNumber: part.reference,
+                notes: `Void refund of settlement #${part.row.id} for order ${order.orderNumber}`,
+                createdBy: req.user?.id || null
+              },
+              { transaction: t }
+            )
+            if (part.method === 'points') {
+              await adjustMemberPoints({
+                memberId: lockedOrder.customerId,
+                deltaPoints: part.amount,
+                referenceId: id,
+                notes: `Restored ${part.amount} points: void of order ${order.orderNumber}`,
+                createdBy: req.user?.id || null,
+                transaction: t
+              })
+            }
+          }
+        }
+
+        retiredSplits = await retirePendingSplits(id, t)
+        retiredSplitReason = isVoiding ? 'VOIDED' : 'CANCELLED'
+      }
+
+      // DR-23 state derivation: after a financial mutation the cached
+      // paymentStatus is re-derived from the ledger, and the invariants
+      // (C ≤ G, R ≤ C, O ≥ 0) are re-checked before commit.
+      if (isSettlement || isCancelling) {
+        const finalFin = await computeOrderFinancials(
+          { id, totalPrice: lockedOrder.totalPrice, status },
+          t
+        )
+        if (finalFin.state === FINANCIAL_STATES.INVALID || finalFin.C > finalFin.G) {
+          throw financialError(
+            409,
+            'FINANCIAL_INVARIANT_VIOLATION',
+            'This transition would leave the order in an invalid financial state'
           )
         }
+        await order.update(
+          { paymentStatus: legacyPaymentStatusFor(finalFin.state) },
+          { transaction: t }
+        )
       }
 
       // QR orders only: a POS dine-in visit holds its table until staff
@@ -3072,8 +3305,9 @@ exports.updateOrderStatus = async (req, res) => {
       }
 
       // Durable inside this same transaction — a posting failure after
-      // commit below is retried, not silently discarded.
-      if (status === 'paid' && oldStatus !== 'paid') {
+      // commit below is retried, not silently discarded. Enqueued only by
+      // the settlement that brings the order to PAID (exactly once).
+      if (isSettlement) {
         const journalDate = new Date().toISOString()
         orderJournalJob = await enqueueAccountingJob({
           jobType: 'order_journal',
@@ -3151,6 +3385,19 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     await createAudit(req, 'update', 'order', id, `Updated order status to ${status}`)
+    // DR-23: terminal reason of each retired split, recorded after commit
+    // (best effort — never inside the financial transaction).
+    for (const split of retiredSplits) {
+      await createAudit(
+        req,
+        'update',
+        'split_bill',
+        split.id,
+        `Split ${split.splitNumber} ${retiredSplitReason} by order ${order.orderNumber || id} transition to ${status}`,
+        { status: 'pending' },
+        { status: retiredSplitReason, amount: split.amount }
+      )
+    }
 
     return res.status(200).json({
       message: 'Order status updated',
@@ -3159,7 +3406,8 @@ exports.updateOrderStatus = async (req, res) => {
   } catch (error) {
     console.error('Error:', error)
     return res.status(error.statusCode || 500).json({
-      error: error.message || 'Internal Server Error'
+      error: error.message || 'Internal Server Error',
+      ...(error.statusCode && error.code ? { code: error.code, ...(error.extra || {}) } : {})
     })
   }
 }
@@ -3217,14 +3465,32 @@ exports.updateOrderItemStatus = async (req, res) => {
     const allItems = await OrderItem.findAll({ where: { order: id } })
     const allSameStatus = allItems.every((i) => i.status === itemStatus)
 
-    if (allSameStatus) {
+    // BA §35.10 / DR-23 terminal guard (P0 terminal-state bypass close):
+    // once fulfilment is terminal (cancelled/void), ordinary kitchen cascade
+    // never resurrects it. Terminal wins — header update is a no-op.
+    // The WHERE ... NOT IN guard is atomic: it also covers the race where
+    // cancel/void commits between our reads and this write, without
+    // introducing a new locking model. Paid progression is untouched.
+    if (allSameStatus && !TERMINAL_FULFILMENT.includes(parentOrder.status)) {
       const statusMap = {
         pending: 'pending',
         preparing: 'preparing',
         ready: 'ready',
         served: 'served'
       }
-      await Order.update({ status: statusMap[itemStatus] }, { where: { id } })
+      const nextStatus = statusMap[itemStatus]
+      if (nextStatus) {
+        // Re-check the fresh header read (post-item-update) before writing;
+        // the conditional WHERE makes terminal-wins atomic even if
+        // cancel/void landed after this read.
+        const freshStatus = order?.status ?? parentOrder.status
+        if (!TERMINAL_FULFILMENT.includes(freshStatus)) {
+          await Order.update(
+            { status: nextStatus },
+            { where: { id, status: { [Op.notIn]: [...TERMINAL_FULFILMENT] } } }
+          )
+        }
+      }
     }
 
     return res.status(200).json({

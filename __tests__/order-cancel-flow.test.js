@@ -12,6 +12,7 @@ let location = null
 let category = null
 let product = null
 let cashierToken = null
+let adminToken = null
 
 beforeAll(async () => {
   location = await db.location.create({ name: 'ORD_CANCEL_STORE', status: 'active' })
@@ -34,11 +35,34 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'cashier_ord_cancel'
   })
+  await db.user.create({
+    id: 7102,
+    userName: 'admin_ord_cancel',
+    email: 'p14-7102-order-cancel-flow@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: location.id,
+    status: 'active',
+    fullName: 'admin_ord_cancel'
+  })
   // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
   cashierToken = await signSessionToken(
     { id: 7101, userName: 'cashier_ord_cancel', roleType: 'kasir', store: location.id },
     JWT_SECRET
   )
+  adminToken = await signSessionToken(
+    { id: 7102, userName: 'admin_ord_cancel', roleType: 'admin', store: location.id },
+    JWT_SECRET
+  )
+  // DR-23: reversing a paid order is an elevated void whose cash refund is
+  // attributed to the open register performing it.
+  await db.cashRegister.create({
+    store: location.id,
+    user: 7102,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
   // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
   // so these cancel-flow assertions exercise configured tax.
   await db.taxConfig.create({
@@ -51,7 +75,8 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await db.user.destroy({ where: { id: [7101] }, force: true })
+  await db.cashRegister.destroy({ where: { store: location.id }, force: true })
+  await db.user.destroy({ where: { id: [7101, 7102] }, force: true })
   await db.taxConfig.destroy({ where: { store: location.id }, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
@@ -81,6 +106,8 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     const afterCreate = await db.product.findByPk(product.id)
     expect(Number(afterCreate.stock)).toBe(15)
 
+    // DR-23 (BA §35.10 G): a PAID order is reversed by an elevated void;
+    // a plain cancel is refused while money is collected.
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${cashierToken}`)
@@ -88,20 +115,26 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
         id: createRes.body.data.id,
         status: 'cancelled',
         store: location.id,
-        // Phase 31 Batch 1: paid cancel requires a reason.
         reason: 'Test void reason'
       })
+    expect(cancelRes.status).toBe(409)
+    expect(cancelRes.body.code).toBe('CANCEL_REQUIRES_VOID')
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(15)
 
-    expect(cancelRes.status).toBe(200)
+    const voidRes = await request(app)
+      .put('/order/update-status')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: createRes.body.data.id, status: 'void', store: location.id, reason: 'Test void reason' })
+    expect(voidRes.status).toBe(200)
 
     const afterCancel = await db.product.findByPk(product.id)
     expect(Number(afterCancel.stock)).toBe(20)
 
     const order = await db.order.findByPk(createRes.body.data.id)
-    expect(order.status).toBe('cancelled')
+    expect(order.status).toBe('void')
   })
 
-  test('cancelling a paid order sets paymentStatus refunded and a refund; re-marking it paid is rejected (F-03)', async () => {
+  test('voiding a paid order sets paymentStatus refunded and a refund; re-marking it paid is rejected (F-03)', async () => {
     // Original regression intent: cancel used to leave paymentStatus stuck at
     // 'paid', so re-marking the order paid afterwards saw oldPaymentStatus ===
     // 'paid' and skipped re-deducting stock — even though cancellation had
@@ -127,11 +160,11 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     const afterCreate = await db.product.findByPk(product.id)
     expect(Number(afterCreate.stock)).toBe(15)
 
+    // DR-23: the paid-order reversal is an elevated void (cancel → 409).
     const cancelRes = await request(app)
       .put('/order/update-status')
-      .set('Authorization', `Bearer ${cashierToken}`)
-      // Phase 31 Batch 1: paid cancel requires a reason.
-      .send({ id: orderId, status: 'cancelled', store: location.id, reason: 'Test void reason' })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: orderId, status: 'void', store: location.id, reason: 'Test void reason' })
     expect(cancelRes.status).toBe(200)
 
     const afterCancel = await db.product.findByPk(product.id)
@@ -161,7 +194,7 @@ describe('PUT /order/update-status — cancel restores stock (reverseOrderStock)
     expect(Number(afterRePaid.stock)).toBe(20) // untouched by the rejected transition
 
     const still = await db.order.findByPk(orderId)
-    expect(still.status).toBe('cancelled')
+    expect(still.status).toBe('void')
     expect(still.paymentStatus).toBe('refunded')
   })
 

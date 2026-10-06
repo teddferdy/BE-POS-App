@@ -572,7 +572,16 @@ describe('POS controllers — transactional audit calls', () => {
 })
 
 describe('Order void — additive to the existing generic status-update audit', () => {
-  test('cancelling a previously-paid order produces both a generic update entry and a specific void entry', async () => {
+  test('voiding a previously-paid order produces both a generic update entry and a specific void entry', async () => {
+    // DR-23 (BA §35.10 G): a PAID order is reversed by an elevated void whose
+    // cash refund is attributed to the open register (sale made inside it).
+    const register = await db.cashRegister.create({
+      store: store.id,
+      user: adminUser.id,
+      status: 'open',
+      openingBalance: 0,
+      openedAt: new Date()
+    })
     const createRes = await request(app)
       .post('/order/create')
       .set('Authorization', `Bearer ${cashierToken}`)
@@ -587,8 +596,8 @@ describe('Order void — additive to the existing generic status-update audit', 
 
     const cancelRes = await request(app)
       .put('/order/update-status')
-      .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ id: orderId, status: 'cancelled', store: store.id, reason: 'Audit test void reason' })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: orderId, status: 'void', store: store.id, reason: 'Audit test void reason' })
     expect(cancelRes.status).toBe(200)
 
     const genericRow = await db.auditLog.findOne({
@@ -602,6 +611,9 @@ describe('Order void — additive to the existing generic status-update audit', 
     expect(voidRow).not.toBeNull()
     expect(voidRow.newValues.paymentStatus).toBe('refunded')
     expect(voidRow.oldValues.status).toBe('paid')
+
+    await db.order.update({ cashRegisterId: null }, { where: { id: orderId } })
+    await db.cashRegister.destroy({ where: { id: register.id }, force: true })
   })
 
   test('a non-cancelling status transition (e.g. confirmed) does not create a void entry', async () => {

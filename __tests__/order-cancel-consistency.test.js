@@ -72,6 +72,24 @@ async function cancelOrder(orderId, body = {}) {
     })
 }
 
+// DR-23 (BA §35.10 G, DR-08): reversing a PAID order is a VOID (elevated,
+// with reason); cancel is only for orders with nothing collected. The
+// reversal guarantees below (exactly-once stock restore, single refund row,
+// single reversal job, atomic rollback, serialized races) are unchanged and
+// are now asserted on the void path.
+async function voidOrder(orderId, body = {}) {
+  return request(app)
+    .put('/order/update-status')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({
+      id: orderId,
+      status: 'void',
+      store: store.id,
+      reason: 'customer changed mind',
+      ...body
+    })
+}
+
 async function fgStock(productId) {
   return Number((await db.product.findByPk(productId)).stock)
 }
@@ -196,16 +214,16 @@ afterAll(async () => {
 })
 
 describe('E1-E cancellation consistency', () => {
-  test('Test A — normal paid cancel: terminal state, exact stock restore, single refund + reversal job', async () => {
+  test('Test A — normal paid void: terminal state, exact stock restore, single refund + reversal job', async () => {
     const baseline = await fgStock(stockedProduct.id)
     const order = await sell([{ product: stockedProduct.id, quantity: 3, productName: 'a' }])
     expect(await fgStock(stockedProduct.id)).toBe(baseline - 3)
 
-    const res = await cancelOrder(order.id)
+    const res = await voidOrder(order.id)
     expect([200, 201]).toContain(res.status)
 
     const fresh = await db.order.findByPk(order.id)
-    expect(fresh.status).toBe('cancelled')
+    expect(fresh.status).toBe('void')
     expect(fresh.paymentStatus).toBe('refunded')
     expect(await fgStock(stockedProduct.id)).toBe(baseline)
 
@@ -214,14 +232,14 @@ describe('E1-E cancellation consistency', () => {
     expect(await reversalJobs(order.id)).toHaveLength(1)
   })
 
-  test('Test B — repeated cancel: no second reversal, no duplicate refund or job', async () => {
+  test('Test B — repeated void: no second reversal, no duplicate refund or job', async () => {
     const baseline = await fgStock(stockedProduct.id)
     const order = await sell([{ product: stockedProduct.id, quantity: 2, productName: 'b' }])
-    const first = await cancelOrder(order.id)
+    const first = await voidOrder(order.id)
     expect([200, 201]).toContain(first.status)
     expect(await fgStock(stockedProduct.id)).toBe(baseline)
 
-    const second = await cancelOrder(order.id)
+    const second = await voidOrder(order.id)
     expect(second.status).not.toBe(500)
     expect(await fgStock(stockedProduct.id)).toBe(baseline)
     const txns = await refundTxns(order.id)
@@ -229,7 +247,7 @@ describe('E1-E cancellation consistency', () => {
     expect(await reversalJobs(order.id)).toHaveLength(1)
   })
 
-  test('Test C — injected mid-cancel failure rolls everything back', async () => {
+  test('Test C — injected mid-void failure rolls everything back', async () => {
     const baseline = await fgStock(stockedProduct.id)
     const order = await sell([{ product: stockedProduct.id, quantity: 2, productName: 'c' }])
 
@@ -237,7 +255,7 @@ describe('E1-E cancellation consistency', () => {
     const spy = jest
       .spyOn(db.transaction, 'create')
       .mockRejectedValueOnce(new Error('injected E1-E failure'))
-    const res = await cancelOrder(order.id)
+    const res = await voidOrder(order.id)
     spy.mockRestore()
 
     expect(res.status).toBe(500)
@@ -249,15 +267,15 @@ describe('E1-E cancellation consistency', () => {
     expect(await reversalJobs(order.id)).toHaveLength(0)
   })
 
-  test('Test D — concurrent cancels: exactly one logical cancellation', async () => {
+  test('Test D — concurrent voids: exactly one logical reversal', async () => {
     const baseline = await fgStock(stockedProduct.id)
     const order = await sell([{ product: stockedProduct.id, quantity: 2, productName: 'd' }])
 
-    const [r1, r2] = await Promise.all([cancelOrder(order.id), cancelOrder(order.id)])
+    const [r1, r2] = await Promise.all([voidOrder(order.id), voidOrder(order.id)])
     for (const r of [r1, r2]) expect(r.status).not.toBe(500)
 
     const fresh = await db.order.findByPk(order.id)
-    expect(fresh.status).toBe('cancelled')
+    expect(fresh.status).toBe('void')
     expect(await fgStock(stockedProduct.id)).toBe(baseline)
     const txns = await refundTxns(order.id)
     expect(txns.filter((t) => Number(t.amount) < 0).length).toBe(1)
@@ -316,14 +334,14 @@ describe('E1-E cancellation consistency', () => {
     }
   })
 
-  test('Test F — BOM cancel: ingredient restored exactly, FG untouched for make_to_order', async () => {
+  test('Test F — BOM void: ingredient restored exactly, FG untouched for make_to_order', async () => {
     const baseline = await ingStock(ingredient.id)
     const fgBefore = await fgStock(mtoProduct.id)
     const order = await sell([{ product: mtoProduct.id, quantity: 2, productName: 'f' }])
     expect(await ingStock(ingredient.id)).toBe(baseline - 100)
     expect(await fgStock(mtoProduct.id)).toBe(fgBefore)
 
-    const res = await cancelOrder(order.id)
+    const res = await voidOrder(order.id)
     expect([200, 201]).toContain(res.status)
     expect(await ingStock(ingredient.id)).toBe(baseline)
     expect(await fgStock(mtoProduct.id)).toBe(fgBefore)
@@ -345,7 +363,7 @@ describe('E1-E cancellation consistency', () => {
     expect(await fgStock(bundleCompA.id)).toBe(baseA - 1)
     expect(await fgStock(bundleCompB.id)).toBe(baseB - 2)
 
-    const res = await cancelOrder(order.id)
+    const res = await voidOrder(order.id)
     expect([200, 201]).toContain(res.status)
     expect(await fgStock(stockedProduct.id)).toBe(baseS)
     expect(await ingStock(ingredient.id)).toBe(baseI)
