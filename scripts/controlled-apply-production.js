@@ -142,17 +142,25 @@ const REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{5,120}$/
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 
 class RefusedError extends Error {
-  constructor(message) {
+  constructor(message, reasonCode = 'INFRA_ERROR') {
     super(`[controlled-apply] REFUSED: ${message}`)
     this.name = 'RefusedError'
+    this.reasonCode = reasonCode
   }
 }
 
 class ApplyError extends Error {
-  constructor(message) {
+  constructor(message, reasonCode = 'INFRA_ERROR') {
     super(`[controlled-apply] FAILED: ${message}`)
     this.name = 'ApplyError'
+    this.reasonCode = reasonCode
   }
+}
+
+function humanErrorMessage(err) {
+  if (err instanceof RefusedError || err instanceof ApplyError) return err.message
+  const detail = err instanceof Error ? err.message : String(err)
+  return `[controlled-apply] ERROR: ${detail}`
 }
 
 // CLI parsing. Unknown flags are refused (fail closed).
@@ -182,38 +190,38 @@ function parseArgs(argv) {
     // Manifest-path injection exists ONLY below the CLI boundary, as an
     // explicit runControlledApply() parameter for unit tests.
     else if (arg.startsWith('--evidence-out=')) opts.evidenceOut = arg.slice('--evidence-out='.length)
-    else throw new RefusedError(`unknown argument "${arg}"`)
+    else throw new RefusedError(`unknown argument "${arg}"`, 'INVALID_INPUT')
   }
   // Gate 1 — exact production target, no default.
-  if (!opts.target) throw new RefusedError('--target=<environment> is required (no default)')
+  if (!opts.target) throw new RefusedError('--target=<environment> is required (no default)', 'INVALID_INPUT')
   if (opts.target !== 'production') {
-    throw new RefusedError(`target "${opts.target}" is not production; controlled apply refuses non-production targets`)
+    throw new RefusedError(`target "${opts.target}" is not production; controlled apply refuses non-production targets`, 'INVALID_INPUT')
   }
-  if (!opts.migration) throw new RefusedError('--migration=<exact filename> is required (no default)')
+  if (!opts.migration) throw new RefusedError('--migration=<exact filename> is required (no default)', 'INVALID_INPUT')
   // Gate 5 — allowlist membership is checked before any connection is opened.
   if (!Object.prototype.hasOwnProperty.call(ALLOWLIST, opts.migration)) {
-    throw new RefusedError(`migration "${opts.migration}" is not on the controlled-apply allowlist (arbitrary migrations refused)`)
+    throw new RefusedError(`migration "${opts.migration}" is not on the controlled-apply allowlist (arbitrary migrations refused)`, 'INVALID_INPUT')
   }
   if (!opts.authorizationRef || !REF_PATTERN.test(opts.authorizationRef)) {
-    throw new RefusedError('--authorization-ref=<change/approval reference> is required (manifest approval never implies apply authorization)')
+    throw new RefusedError('--authorization-ref=<change/approval reference> is required (manifest approval never implies apply authorization)', 'INVALID_INPUT')
   }
   if (!opts.operator || !REF_PATTERN.test(opts.operator)) {
-    throw new RefusedError('--operator=<operator id> is required (auditable execution record)')
+    throw new RefusedError('--operator=<operator id> is required (auditable execution record)', 'INVALID_INPUT')
   }
-  if (!opts.backupEvidence) throw new RefusedError('--backup-evidence=<path to Gate-7 JSON> is required')
+  if (!opts.backupEvidence) throw new RefusedError('--backup-evidence=<path to Gate-7 JSON> is required', 'INVALID_INPUT')
   if (opts.apply) {
     if (!/^[0-9a-f]{64}$/.test(opts.authorizeSha256 || '')) {
-      throw new RefusedError('--apply requires --authorize-manifest-sha256=<64-hex sha256 of the manifest file>')
+      throw new RefusedError('--apply requires --authorize-manifest-sha256=<64-hex sha256 of the manifest file>', 'INVALID_INPUT')
     }
     // Gate 9 — explicit typed confirmation: the exact migration filename.
     if (opts.confirm !== opts.migration) {
-      throw new RefusedError('--apply requires --confirm=<exact migration filename> (typed confirmation)')
+      throw new RefusedError('--apply requires --confirm=<exact migration filename> (typed confirmation)', 'INVALID_INPUT')
     }
   } else if (opts.confirm) {
-    throw new RefusedError('--confirm is only meaningful with --apply')
+    throw new RefusedError('--confirm is only meaningful with --apply', 'INVALID_INPUT')
   }
   if (!opts.apply && opts.authorizeSha256 && !/^[0-9a-f]{64}$/.test(opts.authorizeSha256)) {
-    throw new RefusedError('--authorize-manifest-sha256 must be a 64-hex sha256 when provided')
+    throw new RefusedError('--authorize-manifest-sha256 must be a 64-hex sha256 when provided', 'INVALID_INPUT')
   }
   return opts
 }
@@ -318,14 +326,208 @@ function validateApplyEvidence(evidence) {
 }
 
 // Evidence persistence validates first: malformed/fabricated evidence is
-// never written. (Outcome separation for persistence failure itself is a
-// later CAP-004 increment; a validation failure here throws loudly.)
+// never written. A validation failure here throws loudly (EVIDENCE_CONTRACT);
+// post-known-outcome audit separation (exit 2) is decided by
+// finalizeEvidence, which calls this function.
 function writeEvidenceOut(evidenceOut, evidence) {
   const validation = validateApplyEvidence(evidence)
   if (!validation.ok) {
-    throw new ApplyError(`evidence failed contract validation — ${validation.errors.join('; ')} (nothing was persisted)`)
+    throw new ApplyError(`evidence failed contract validation — ${validation.errors.join('; ')} (nothing was persisted)`, 'EVIDENCE_CONTRACT')
   }
   fs.writeFileSync(evidenceOut, `${JSON.stringify(evidence, null, 2)}\n`)
+}
+
+// CAP-004 increment 2: stable machine-readable refusal taxonomy. Every
+// operational refusal carries one of these codes on the thrown error
+// (err.reasonCode); raw infrastructure failures default to INFRA_ERROR at
+// the emission point. Codes are append-only: never rename or reuse one.
+const REFUSAL_REASON_CODES = Object.freeze([
+  'INVALID_INPUT',
+  'EVIDENCE_DESTINATION_COLLISION',
+  'MANIFEST_INTEGRITY',
+  'AUTHORIZATION_MISMATCH',
+  'STALE_STATE',
+  'LOCK_TIMEOUT',
+  'BACKUP_CONTRACT',
+  'PRECONDITION',
+  'APPLY_FAILED_ROLLBACK',
+  'CAS_REFUSED',
+  'EVIDENCE_CONTRACT',
+  'EVIDENCE_PERSISTENCE_FAILED',
+  'IDENTITY_DRIFT',
+  'INFRA_ERROR'
+])
+const REFUSAL_SCHEMA_VERSION = 1
+
+// CAP-004 increment 2: pure constructor for structured refusal evidence.
+// Only fields actually known at the refusal point are included — callers
+// pass null for anything never observed (never fabricate SHAs, applyRefs,
+// or identities). v1 success evidence stays frozen and separate.
+function buildRefusalEvidence({
+  reasonCode,
+  message,
+  startedAt,
+  endedAt,
+  operator,
+  target,
+  migration,
+  environment,
+  authorizationRef,
+  authorizedManifestSha = null,
+  observedManifestSha = null,
+  applyRef = null
+}) {
+  return {
+    refusalSchemaVersion: REFUSAL_SCHEMA_VERSION,
+    outcome: 'refused',
+    reasonCode,
+    message,
+    startedAt,
+    endedAt,
+    operator,
+    target,
+    migration,
+    environment,
+    authorizationRef,
+    authorizedManifestSha,
+    observedManifestSha,
+    applyRef
+  }
+}
+
+// CAP-004 increment 2: pure, side-effect-free validator for refusal (v1)
+// evidence. Mirrors validateApplyEvidence conventions: strict formats,
+// required identity/context, optional-when-known SHAs/applyRef (null or
+// absent allowed, never fabricated), extra fields tolerated. Deliberately
+// accepts authorizedManifestSha === observedManifestSha: equality is a
+// statement about state, not a validity signal.
+function validateRefusalEvidence(evidence) {
+  const errors = []
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    return { ok: false, errors: ['refusal evidence must be an object'] }
+  }
+  if (evidence.refusalSchemaVersion !== REFUSAL_SCHEMA_VERSION) {
+    errors.push(`refusalSchemaVersion must be ${REFUSAL_SCHEMA_VERSION}`)
+  }
+  if (evidence.outcome !== 'refused') {
+    errors.push('outcome must be "refused"')
+  }
+  if (typeof evidence.reasonCode !== 'string' || !REFUSAL_REASON_CODES.includes(evidence.reasonCode)) {
+    errors.push(`reasonCode must be one of: ${REFUSAL_REASON_CODES.join(', ')}`)
+  }
+  for (const field of ['message', 'operator', 'target', 'migration', 'environment', 'authorizationRef']) {
+    if (typeof evidence[field] !== 'string' || evidence[field].trim().length === 0) {
+      errors.push(`refusal evidence missing or empty required field "${field}"`)
+    }
+  }
+  for (const field of ['startedAt', 'endedAt']) {
+    if (!ISO_UTC.test(evidence[field] || '') || Number.isNaN(Date.parse(evidence[field]))) {
+      errors.push(`refusal evidence field "${field}" must be an ISO-8601 UTC timestamp`)
+    }
+  }
+  for (const field of ['authorizedManifestSha', 'observedManifestSha']) {
+    const value = evidence[field]
+    if (value !== null && value !== undefined && !EVIDENCE_HEX64.test(value)) {
+      errors.push(`refusal evidence field "${field}" must be a 64-hex sha256 when present`)
+    }
+  }
+  const applyRef = evidence.applyRef
+  if (applyRef !== null && applyRef !== undefined) {
+    if (typeof applyRef !== 'string' || !applyRef.startsWith('controlled-apply/')) {
+      errors.push('refusal evidence applyRef must reference a controlled-apply execution when present')
+    }
+  }
+  return { ok: errors.length === 0, errors }
+}
+
+// Refusal persistence validates first, mirroring writeEvidenceOut. Never
+// targets the production manifest (INV-004-01 holds for refusal evidence).
+function writeRefusalEvidenceOut(evidenceOut, refusal) {
+  const validation = validateRefusalEvidence(refusal)
+  if (!validation.ok) {
+    throw new ApplyError(`refusal evidence failed contract validation — ${validation.errors.join('; ')} (nothing was persisted)`, 'EVIDENCE_CONTRACT')
+  }
+  if (evidenceOutTargetsManifest({ manifestPath: resolveProductionManifestPath(), evidenceOut })) {
+    throw new RefusedError('--evidence-out must not target the production manifest (evidence output would destroy the authorization ledger)', 'EVIDENCE_DESTINATION_COLLISION')
+  }
+  fs.writeFileSync(evidenceOut, `${JSON.stringify(refusal, null, 2)}\n`)
+}
+
+// CAP-004 increment 2: structured refusal emission. Prints the refusal JSON
+// to stdout (canonical audit record), optionally persists a copy to
+// evidenceOut (INV-004-01 still enforced; a file failure there never
+// changes the refusal outcome), then reports the human message on stderr.
+// Always exit 1: the operation was refused or failed before/without a
+// successful apply. Returns { exitCode, wroteFile, refusal }.
+function emitRefusalEvidence({ err, context, log = console.log, errlog = console.error }) {
+  const reasonCode = (err && err.reasonCode && REFUSAL_REASON_CODES.includes(err.reasonCode))
+    ? err.reasonCode
+    : 'INFRA_ERROR'
+  const message = err instanceof Error ? err.message : String(err)
+  const refusal = buildRefusalEvidence({ ...context, reasonCode, message })
+  const validation = validateRefusalEvidence(refusal)
+  if (!validation.ok) {
+    errlog(humanErrorMessage(err))
+    return { exitCode: 1, wroteFile: false, refusal: null }
+  }
+  log(JSON.stringify(refusal, null, 2))
+  let wroteFile = false
+  if (context && context.evidenceOut) {
+    try {
+      writeRefusalEvidenceOut(context.evidenceOut, refusal)
+      wroteFile = true
+    } catch (fileErr) {
+      errlog(`[controlled-apply] WARNING: refusal evidence file not persisted — ${fileErr.message} (canonical record above)`)
+    }
+  }
+  errlog(humanErrorMessage(err))
+  return { exitCode: 1, wroteFile, refusal }
+}
+
+// CAP-004 increment 2: post-known-outcome audit failure. The apply outcome
+// is already established (evidence describes it truthfully); only the
+// audit/persistence step failed. Prints the truthful evidence JSON to
+// stdout, reports the audit failure on stderr WITHOUT any FAILED-prefix
+// that would imply the migration itself failed, and returns exit code 2.
+function auditFailure({ evidence, reasonCode, message, log = console.log, errlog = console.error }) {
+  log(JSON.stringify(evidence, null, 2))
+  errlog(`[controlled-apply] AUDIT FAILURE (${reasonCode}): ${message} (apply outcome already known; evidence/audit persistence failed)`)
+  return { exitCode: 2 }
+}
+
+// CAP-004 increment 2: success-path evidence finalization. Validates the
+// produced evidence, persists the file copy when requested, prints the
+// canonical stdout record. Any failure here happens AFTER the outcome is
+// known, so it resolves to exit 2 via auditFailure — never to an
+// apply-failure report.
+function finalizeEvidence({ evidence, evidenceOut, log = console.log, errlog = console.error }) {
+  const validation = validateApplyEvidence(evidence)
+  if (!validation.ok) {
+    return auditFailure({
+      evidence,
+      reasonCode: 'EVIDENCE_CONTRACT',
+      message: `produced evidence failed contract validation — ${validation.errors.join('; ')}`,
+      log,
+      errlog
+    })
+  }
+  const out = JSON.stringify(evidence, null, 2)
+  if (evidenceOut) {
+    try {
+      writeEvidenceOut(evidenceOut, evidence)
+    } catch (fileErr) {
+      const detail = fileErr instanceof Error ? fileErr.message : String(fileErr)
+      return auditFailure({
+        evidence,
+        reasonCode: 'EVIDENCE_PERSISTENCE_FAILED',
+        message: `evidence file could not be persisted to "${evidenceOut}" — ${detail}`,
+        log,
+        errlog
+      })
+    }
+  }
+  log(out)
+  return { exitCode: 0 }
 }
 
 // CAP-001: canonical production manifest resolution. The production CLI path
@@ -342,21 +544,21 @@ function resolveProductionManifestPath() {
 function verifyManifestRow({ manifest, manifestPath, files, environment, migration, authorizeSha256, apply }) {
   const validation = rules.validateDispositionManifest(manifest, { files, environment })
   if (!validation.ok) {
-    throw new RefusedError(`manifest invalid — ${validation.errors.join('; ')}`)
+    throw new RefusedError(`manifest invalid — ${validation.errors.join('; ')}`, 'MANIFEST_INTEGRITY')
   }
   if (apply) {
     const actual = sha256OfFile(manifestPath)
     if (actual !== authorizeSha256) {
-      throw new RefusedError(`manifest sha256 ${actual} does not match the authorized sha256`)
+      throw new RefusedError(`manifest sha256 ${actual} does not match the authorized sha256`, 'AUTHORIZATION_MISMATCH')
     }
     if (!validation.approved) {
-      throw new RefusedError('manifest is not approved (approvedBy/approvedAt pending); mutation refused')
+      throw new RefusedError('manifest is not approved (approvedBy/approvedAt pending); mutation refused', 'AUTHORIZATION_MISMATCH')
     }
   }
   const row = manifest.migrations.find((r) => r.migration === migration)
-  if (!row) throw new RefusedError(`migration "${migration}" has no manifest row`)
+  if (!row) throw new RefusedError(`migration "${migration}" has no manifest row`, 'MANIFEST_INTEGRITY')
   if (row.disposition !== rules.DISPOSITIONS.CONTROLLED_APPLY_PENDING) {
-    throw new RefusedError(`migration "${migration}" disposition is ${row.disposition}, not CONTROLLED_APPLY_PENDING`)
+    throw new RefusedError(`migration "${migration}" disposition is ${row.disposition}, not CONTROLLED_APPLY_PENDING`, 'STALE_STATE')
   }
   return { validation, row }
 }
@@ -367,13 +569,13 @@ function verifyBackupEvidence({ evidencePath, expectedDatabase, manifestSha, now
   try {
     raw = fs.readFileSync(evidencePath, 'utf8')
   } catch {
-    throw new RefusedError(`backup evidence unreadable at "${evidencePath}"`)
+    throw new RefusedError(`backup evidence unreadable at "${evidencePath}"`, 'BACKUP_CONTRACT')
   }
   let doc
   try {
     doc = JSON.parse(raw)
   } catch {
-    throw new RefusedError('backup evidence is not valid JSON')
+    throw new RefusedError('backup evidence is not valid JSON', 'BACKUP_CONTRACT')
   }
   const required = [
     'databaseIdentity', 'environment', 'backupTimestamp', 'mechanism',
@@ -382,28 +584,28 @@ function verifyBackupEvidence({ evidencePath, expectedDatabase, manifestSha, now
   ]
   for (const field of required) {
     if (typeof doc[field] !== 'string' || doc[field].trim().length === 0) {
-      throw new RefusedError(`backup evidence missing or empty required field "${field}"`)
+      throw new RefusedError(`backup evidence missing or empty required field "${field}"`, 'BACKUP_CONTRACT')
     }
   }
   if (doc.environment !== 'production') {
-    throw new RefusedError(`backup evidence environment is "${doc.environment}", not production`)
+    throw new RefusedError(`backup evidence environment is "${doc.environment}", not production`, 'BACKUP_CONTRACT')
   }
   if (doc.databaseIdentity !== expectedDatabase) {
-    throw new RefusedError(`backup evidence database "${doc.databaseIdentity}" does not match target database "${expectedDatabase}"`)
+    throw new RefusedError(`backup evidence database "${doc.databaseIdentity}" does not match target database "${expectedDatabase}"`, 'BACKUP_CONTRACT')
   }
   if (!ISO_UTC.test(doc.backupTimestamp) || Number.isNaN(Date.parse(doc.backupTimestamp))) {
-    throw new RefusedError('backup evidence backupTimestamp must be ISO-8601 UTC (e.g. 2026-10-06T00:00:00Z)')
+    throw new RefusedError('backup evidence backupTimestamp must be ISO-8601 UTC (e.g. 2026-10-06T00:00:00Z)', 'BACKUP_CONTRACT')
   }
   const ts = Date.parse(doc.backupTimestamp)
-  if (ts > nowMs) throw new RefusedError('backup evidence backupTimestamp is in the future')
+  if (ts > nowMs) throw new RefusedError('backup evidence backupTimestamp is in the future', 'BACKUP_CONTRACT')
   if (nowMs - ts > BACKUP_MAX_AGE_MS) {
-    throw new RefusedError('backup evidence is older than 72h; take a fresh pre-apply backup')
+    throw new RefusedError('backup evidence is older than 72h; take a fresh pre-apply backup', 'BACKUP_CONTRACT')
   }
   if (doc.completionStatus !== 'success') {
-    throw new RefusedError(`backup completionStatus is "${doc.completionStatus}", not success`)
+    throw new RefusedError(`backup completionStatus is "${doc.completionStatus}", not success`, 'BACKUP_CONTRACT')
   }
   if (doc.releaseManifestSha !== manifestSha) {
-    throw new RefusedError('backup evidence releaseManifestSha does not match the authorized manifest sha256 (backup is not bound to this release)')
+    throw new RefusedError('backup evidence releaseManifestSha does not match the authorized manifest sha256 (backup is not bound to this release)', 'BACKUP_CONTRACT')
   }
   return doc
 }
@@ -413,13 +615,13 @@ function buildProductionSequelize() {
   const { Sequelize } = require('sequelize')
   const pg = require('pg')
   for (const v of ['POSTGRES_USER', 'POSTGRES_DATABASE', 'POSTGRES_HOST']) {
-    if (!process.env[v]) throw new RefusedError(`${v} is not set for target production`)
+    if (!process.env[v]) throw new RefusedError(`${v} is not set for target production`, 'INVALID_INPUT')
   }
   if (LOCAL_HOSTS.includes(process.env.POSTGRES_HOST)) {
-    throw new RefusedError(`production host "${process.env.POSTGRES_HOST}" is local; refusing (misconfiguration guard)`)
+    throw new RefusedError(`production host "${process.env.POSTGRES_HOST}" is local; refusing (misconfiguration guard)`, 'INVALID_INPUT')
   }
   if (process.env.STAGING_DB_DATABASE && process.env.STAGING_DB_DATABASE === process.env.POSTGRES_DATABASE) {
-    throw new RefusedError('staging database must not be the production database (crossover refused)')
+    throw new RefusedError('staging database must not be the production database (crossover refused)', 'INVALID_INPUT')
   }
   return new Sequelize({
     username: process.env.POSTGRES_USER,
@@ -441,7 +643,7 @@ async function verifyTargetDatabase(sequelize, expectedDatabase) {
     type: sequelize.QueryTypes.SELECT
   })
   if (db !== expectedDatabase) {
-    throw new RefusedError(`connected database "${db}" does not match configured target database "${expectedDatabase}"`)
+    throw new RefusedError(`connected database "${db}" does not match configured target database "${expectedDatabase}"`, 'IDENTITY_DRIFT')
   }
   return db
 }
@@ -506,18 +708,18 @@ async function indexShape(sequelize, indexName, transaction) {
 // expression column) fails closed. No substring matching anywhere.
 function assertIndexShape(found, expected) {
   const where = `postcondition failed: index ${expected.name} shape mismatch`
-  if (!found) throw new ApplyError(`postcondition failed: index missing after apply: ${expected.name}`)
+  if (!found) throw new ApplyError(`postcondition failed: index missing after apply: ${expected.name}`, 'APPLY_FAILED_ROLLBACK')
   if (found.schema !== expected.schema || found.table !== expected.table || found.name !== expected.name) {
-    throw new ApplyError(`${where}: expected ${expected.schema}.${expected.table}.${expected.name}, found ${found.schema}.${found.table}.${found.name}`)
+    throw new ApplyError(`${where}: expected ${expected.schema}.${expected.table}.${expected.name}, found ${found.schema}.${found.table}.${found.name}`, 'APPLY_FAILED_ROLLBACK')
   }
   if (found.unique !== expected.unique) {
-    throw new ApplyError(`${where}: expected unique=${expected.unique}, found unique=${found.unique}`)
+    throw new ApplyError(`${where}: expected unique=${expected.unique}, found unique=${found.unique}`, 'APPLY_FAILED_ROLLBACK')
   }
   if (found.nullAttrs !== 0) {
-    throw new ApplyError(`${where}: index contains expression entries, expected plain columns ${JSON.stringify(expected.columns)}`)
+    throw new ApplyError(`${where}: index contains expression entries, expected plain columns ${JSON.stringify(expected.columns)}`, 'APPLY_FAILED_ROLLBACK')
   }
   if (JSON.stringify(found.columns) !== JSON.stringify(expected.columns)) {
-    throw new ApplyError(`${where}: expected columns ${JSON.stringify(expected.columns)}, found ${JSON.stringify(found.columns)}`)
+    throw new ApplyError(`${where}: expected columns ${JSON.stringify(expected.columns)}, found ${JSON.stringify(found.columns)}`, 'APPLY_FAILED_ROLLBACK')
   }
 }
 
@@ -527,7 +729,7 @@ async function runPreconditions(sequelize, kind, transaction) {
   const checks = []
   const record = (name, passed, detail) => {
     checks.push({ name, passed, detail: String(detail) })
-    if (!passed) throw new RefusedError(`precondition failed: ${name} — ${detail}`)
+    if (!passed) throw new RefusedError(`precondition failed: ${name} — ${detail}`, 'PRECONDITION')
   }
   if (kind === 'region-indexes') {
     record('region.table-exists', await tableExists(sequelize, 'region', transaction), 'region table must exist (controlled apply never creates tables)')
@@ -565,7 +767,7 @@ async function runPreconditions(sequelize, kind, transaction) {
       record('split_bill.order-table', false, '"order" table absent; FK target assumption violated')
     }
   } else {
-    throw new RefusedError(`unknown controlled-apply kind "${kind}"`)
+    throw new RefusedError(`unknown controlled-apply kind "${kind}"`, 'INFRA_ERROR')
   }
   return checks
 }
@@ -614,7 +816,7 @@ async function applyMissingEffects(sequelize, kind, transaction) {
     // rows committed between the Gate-6 scan and this transaction refuse here.
     const nulls = await selectAll(sequelize, 'SELECT COUNT(*) AS c FROM split_bill WHERE status IS NULL', { transaction })
     if (Number(nulls[0].c) > 0) {
-      throw new RefusedError(`precondition failed: ${nulls[0].c} split_bill NULL status row(s) at apply time`)
+      throw new RefusedError(`precondition failed: ${nulls[0].c} split_bill NULL status row(s) at apply time`, 'PRECONDITION', 'PRECONDITION')
     }
     await sequelize.query('ALTER TABLE "split_bill" ALTER COLUMN "status" SET NOT NULL', { transaction })
     applied.push('split_bill.status SET NOT NULL')
@@ -631,10 +833,10 @@ async function applyMissingEffects(sequelize, kind, transaction) {
       { transaction }
     )
     if (!nullable.length || nullable[0].is_nullable !== 'NO') {
-      throw new ApplyError('postcondition failed: split_bill.status is still nullable')
+      throw new ApplyError('postcondition failed: split_bill.status is still nullable', 'APPLY_FAILED_ROLLBACK')
     }
     if (!(await columnExists(sequelize, 'split_bill', 'idempotencyKey', transaction))) {
-      throw new ApplyError('postcondition failed: split_bill.idempotencyKey missing after apply')
+      throw new ApplyError('postcondition failed: split_bill.idempotencyKey missing after apply', 'APPLY_FAILED_ROLLBACK')
     }
     const found = await indexShape(sequelize, SPLIT_BILL_INDEX.name, transaction)
     // Non-unique by design (one idempotencyKey covers a multi-row batch).
@@ -646,7 +848,7 @@ async function applyMissingEffects(sequelize, kind, transaction) {
       columns: [...SPLIT_BILL_INDEX.columns]
     })
   } else {
-    throw new RefusedError(`unknown controlled-apply kind "${kind}"`)
+    throw new RefusedError(`unknown controlled-apply kind "${kind}"`, 'INFRA_ERROR')
   }
   return applied
 }
@@ -673,7 +875,7 @@ async function acquireAdvisoryLock(sequelize, session, timeoutMs) {
     })
     if (rows.length > 0 && (rows[0].locked === true || rows[0].locked === 't')) return keys
     if (Date.now() >= deadline) {
-      throw new RefusedError('timed out waiting for the controlled-apply advisory lock (another controlled apply may be running); refusing without mutation')
+      throw new RefusedError('timed out waiting for the controlled-apply advisory lock (another controlled apply may be running); refusing without mutation', 'LOCK_TIMEOUT')
     }
     await new Promise((resolve) => setTimeout(resolve, ADVISORY_LOCK_POLL_MS))
   }
@@ -703,22 +905,22 @@ async function casUpdateManifestRow({ manifestPath, expectedSha, migration, appl
   const currentBytes = fs.readFileSync(manifestPath)
   const currentSha = crypto.createHash('sha256').update(currentBytes).digest('hex')
   if (currentSha !== expectedSha) {
-    throw new RefusedError(`manifest changed since authorization (expected sha256 ${expectedSha}, found ${currentSha}); refusing stale manifest write`)
+    throw new RefusedError(`manifest changed since authorization (expected sha256 ${expectedSha}, found ${currentSha}); refusing stale manifest write`, 'STALE_STATE')
   }
   let manifest
   try {
     manifest = JSON.parse(currentBytes.toString('utf8'))
   } catch (err) {
-    throw new RefusedError(`manifest is not valid JSON at CAS time: ${err.message}`)
+    throw new RefusedError(`manifest is not valid JSON at CAS time: ${err.message}`, 'MANIFEST_INTEGRITY')
   }
   const validation = rules.validateDispositionManifest(manifest, { files, environment })
   if (!validation.ok) {
-    throw new RefusedError(`manifest invalid at CAS time — ${validation.errors.join('; ')}`)
+    throw new RefusedError(`manifest invalid at CAS time — ${validation.errors.join('; ')}`, 'MANIFEST_INTEGRITY')
   }
   const row = manifest.migrations.find((r) => r.migration === migration)
-  if (!row) throw new RefusedError(`migration "${migration}" has no manifest row at CAS time`)
+  if (!row) throw new RefusedError(`migration "${migration}" has no manifest row at CAS time`, 'MANIFEST_INTEGRITY')
   if (row.disposition !== rules.DISPOSITIONS.CONTROLLED_APPLY_PENDING) {
-    throw new RefusedError(`migration "${migration}" is ${row.disposition}, not CONTROLLED_APPLY_PENDING; refusing stale manifest write`)
+    throw new RefusedError(`migration "${migration}" is ${row.disposition}, not CONTROLLED_APPLY_PENDING; refusing stale manifest write`, 'STALE_STATE')
   }
   if (_hooks.casAfterRead) await _hooks.casAfterRead()
   const next = {
@@ -729,14 +931,14 @@ async function casUpdateManifestRow({ manifestPath, expectedSha, migration, appl
   }
   const revalidation = rules.validateDispositionManifest(next, { files, environment })
   if (!revalidation.ok) {
-    throw new ApplyError(`manifest re-validation failed after ledger update — ${revalidation.errors.join('; ')}`)
+    throw new ApplyError(`manifest re-validation failed after ledger update — ${revalidation.errors.join('; ')}`, 'CAS_REFUSED')
   }
   // Narrow-window guard: re-verify the file is untouched between the CAS
   // read and this write. Concurrent tool writers are already serialized by
   // the advisory lock; this fails closed on out-of-band modification.
   const preWriteSha = sha256OfFile(manifestPath)
   if (preWriteSha !== expectedSha) {
-    throw new RefusedError(`manifest changed since authorization (expected sha256 ${expectedSha}, found ${preWriteSha}); refusing stale manifest write`)
+    throw new RefusedError(`manifest changed since authorization (expected sha256 ${expectedSha}, found ${preWriteSha}); refusing stale manifest write`, 'STALE_STATE')
   }
   const tmp = `${manifestPath}.tmp.${process.pid}`
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`)
@@ -785,9 +987,9 @@ async function runControlledApply({
   // authoritative concurrency checks run after the advisory lock is
   // acquired, on freshly re-read file state (see below).
   const row = manifest.migrations.find((r) => r.migration === migration)
-  if (!row) throw new RefusedError(`migration "${migration}" has no manifest row`)
+  if (!row) throw new RefusedError(`migration "${migration}" has no manifest row`, 'MANIFEST_INTEGRITY')
   if (row.disposition !== rules.DISPOSITIONS.CONTROLLED_APPLY_PENDING) {
-    throw new RefusedError(`migration "${migration}" disposition is ${row.disposition}, not CONTROLLED_APPLY_PENDING`)
+    throw new RefusedError(`migration "${migration}" disposition is ${row.disposition}, not CONTROLLED_APPLY_PENDING`, 'STALE_STATE')
   }
   // Gate 7 runs before Gate 6 so a missing backup refuses without scanning.
   const backup = verifyBackupEvidence({ evidencePath: backupEvidencePath, expectedDatabase, manifestSha, nowMs })
@@ -802,6 +1004,7 @@ async function runControlledApply({
       await preTx.rollback()
     } catch (err) {
       try { await preTx.rollback() } catch {}
+      if (err && typeof err === 'object' && !err.reasonCode) err.reasonCode = 'INFRA_ERROR'
       throw err
     }
     const dryEndedAt = new Date().toISOString()
@@ -863,12 +1066,12 @@ async function runControlledApply({
     const freshBytes = fs.readFileSync(manifestPath)
     const freshSha = crypto.createHash('sha256').update(freshBytes).digest('hex')
     if (freshSha !== manifestSha) {
-      throw new RefusedError(`manifest changed since authorization (expected sha256 ${manifestSha}, found ${freshSha}); refusing before mutation`)
+      throw new RefusedError(`manifest changed since authorization (expected sha256 ${manifestSha}, found ${freshSha}); refusing before mutation`, 'STALE_STATE')
     }
     const fresh = JSON.parse(freshBytes.toString('utf8'))
     const freshRow = fresh.migrations.find((r) => r.migration === migration)
     if (!freshRow || freshRow.disposition !== rules.DISPOSITIONS.CONTROLLED_APPLY_PENDING) {
-      throw new RefusedError(`migration "${migration}" is ${freshRow ? freshRow.disposition : 'absent'}, not CONTROLLED_APPLY_PENDING (concurrent transition); refusing before mutation`)
+      throw new RefusedError(`migration "${migration}" is ${freshRow ? freshRow.disposition : 'absent'}, not CONTROLLED_APPLY_PENDING (concurrent transition); refusing before mutation`, 'STALE_STATE')
     }
     if (_hooks.beforeWriteTx) await _hooks.beforeWriteTx()
     // Gate 6 — read-only precondition scan on the locked session.
@@ -879,6 +1082,7 @@ async function runControlledApply({
       await sequelize.query('ROLLBACK', { transaction: session })
     } catch (err) {
       try { await sequelize.query('ROLLBACK', { transaction: session }) } catch {}
+      if (err && typeof err === 'object' && !err.reasonCode) err.reasonCode = 'INFRA_ERROR'
       throw err
     }
     // Gates 10 + 11 — write transaction on the SAME locked session.
@@ -888,6 +1092,7 @@ async function runControlledApply({
       await sequelize.query('COMMIT', { transaction: session })
     } catch (err) {
       try { await sequelize.query('ROLLBACK', { transaction: session }) } catch {}
+      if (err && typeof err === 'object' && !err.reasonCode) err.reasonCode = 'APPLY_FAILED_ROLLBACK'
       throw err
     }
     if (_hooks.afterCommitBeforeCas) await _hooks.afterCommitBeforeCas()
@@ -930,8 +1135,15 @@ async function runControlledApply({
 
 async function main(argv = process.argv.slice(2)) {
   let sequelize
+  // CAP-004 increment 2: execution context for structured refusal evidence.
+  // opts stays null when parseArgs itself fails (usage errors remain
+  // stderr-only); manifestSha stays null until this execution measures the
+  // manifest (anything earlier never observed a SHA — never fabricate one).
+  const startedAt = new Date().toISOString()
+  let opts = null
+  let manifestSha = null
   try {
-    const opts = parseArgs(argv)
+    opts = parseArgs(argv)
     // CAP-001: production execution is permanently bound to the canonical
     // production manifest. No CLI input influences this path.
     const manifestPath = resolveProductionManifestPath()
@@ -939,10 +1151,10 @@ async function main(argv = process.argv.slice(2)) {
     // production manifest. Refused here, before any manifest read, DB
     // connection, or mutation of any kind.
     if (opts.evidenceOut && evidenceOutTargetsManifest({ manifestPath, evidenceOut: opts.evidenceOut })) {
-      throw new RefusedError('--evidence-out must not target the production manifest (evidence output would destroy the authorization ledger)')
+      throw new RefusedError('--evidence-out must not target the production manifest (evidence output would destroy the authorization ledger)', 'EVIDENCE_DESTINATION_COLLISION')
     }
     const { manifest, errors } = rules.readDispositionManifest(manifestPath)
-    if (errors.length > 0) throw new RefusedError(errors.join('; '))
+    if (errors.length > 0) throw new RefusedError(errors.join('; '), 'MANIFEST_INTEGRITY')
     const files = discoverMigrationFiles()
     // Gates 3+4 (+5 already in parseArgs) run before any connection opens.
     verifyManifestRow({
@@ -954,9 +1166,9 @@ async function main(argv = process.argv.slice(2)) {
       authorizeSha256: opts.authorizeSha256,
       apply: opts.apply
     })
-    const manifestSha = sha256OfFile(manifestPath)
+    manifestSha = sha256OfFile(manifestPath)
     if (opts.apply && manifestSha !== opts.authorizeSha256) {
-      throw new RefusedError(`manifest sha256 ${manifestSha} does not match the authorized sha256`)
+      throw new RefusedError(`manifest sha256 ${manifestSha} does not match the authorized sha256`, 'AUTHORIZATION_MISMATCH')
     }
     sequelize = buildProductionSequelize()
     const expectedDatabase = process.env.POSTGRES_DATABASE
@@ -978,23 +1190,53 @@ async function main(argv = process.argv.slice(2)) {
       operator: opts.operator,
       log: (m) => console.log(`[controlled-apply] ${m}`)
     })
-    if (db !== evidence.databaseIdentity) throw new RefusedError('database identity drifted during execution')
-    // INV-004-02: successful evidence is contract-validated before it is
-    // persisted or reported. (A validation failure here throws loudly; full
-    // apply/persistence outcome separation is a later CAP-004 increment.)
-    const evidenceValidation = validateApplyEvidence(evidence)
-    if (!evidenceValidation.ok) {
-      throw new ApplyError(`produced evidence failed contract validation — ${evidenceValidation.errors.join('; ')}`)
+    // CAP-004 increment 2: the apply outcome is already known once evidence
+    // exists (commit + CAS + SHA capture all precede this point). Identity,
+    // validation, or persistence failures here are audit failures (exit 2),
+    // never apply failures: do not roll back, retry, or re-mutate.
+    if (db !== evidence.databaseIdentity) {
+      const drifted = auditFailure({
+        evidence,
+        reasonCode: 'IDENTITY_DRIFT',
+        message: 'database identity drifted during execution'
+      })
+      process.exitCode = drifted.exitCode
+    } else {
+      const finalized = finalizeEvidence({ evidence, evidenceOut: opts.evidenceOut })
+      process.exitCode = finalized.exitCode
+      if (finalized.exitCode === 0) {
+        if (!opts.apply) console.log('[controlled-apply] DRY-RUN: nothing written.')
+        else console.log('[controlled-apply] APPLIED. Manifest re-approval is now required (SHA changed). Re-run `npm run check:production-schema`.')
+      }
     }
-    const out = JSON.stringify(evidence, null, 2)
-    if (opts.evidenceOut) writeEvidenceOut(opts.evidenceOut, evidence)
-    console.log(out)
-    if (!opts.apply) console.log('[controlled-apply] DRY-RUN: nothing written.')
-    else console.log('[controlled-apply] APPLIED. Manifest re-approval is now required (SHA changed). Re-run `npm run check:production-schema`.')
-    process.exitCode = 0
   } catch (err) {
-    console.error(err instanceof RefusedError || err instanceof ApplyError ? err.message : `[controlled-apply] ERROR: ${err.message}`)
-    process.exitCode = 1
+    // Parse-stage usage errors (opts never established) stay stderr-only.
+    // Every operational refusal/failure carries execution context and gets
+    // a structured stdout record via emitRefusalEvidence.
+    if (!opts) {
+      console.error(humanErrorMessage(err))
+      process.exitCode = 1
+    } else {
+      const endedAt = new Date().toISOString()
+      const authorized = /^[0-9a-f]{64}$/.test(opts.authorizeSha256 || '') ? opts.authorizeSha256 : manifestSha
+      const emitted = emitRefusalEvidence({
+        err,
+        context: {
+          target: opts.target,
+          migration: opts.migration,
+          operator: opts.operator,
+          authorizationRef: opts.authorizationRef,
+          environment: 'production',
+          authorizedManifestSha: authorized,
+          observedManifestSha: manifestSha,
+          applyRef: null,
+          startedAt,
+          endedAt,
+          evidenceOut: opts.evidenceOut
+        }
+      })
+      process.exitCode = emitted.exitCode
+    }
   } finally {
     if (sequelize) {
       try { await sequelize.close() } catch {}
@@ -1032,6 +1274,15 @@ module.exports = {
   validateApplyEvidence,
   writeEvidenceOut,
   buildApplyRef,
+  REFUSAL_REASON_CODES,
+  REFUSAL_SCHEMA_VERSION,
+  buildRefusalEvidence,
+  validateRefusalEvidence,
+  writeRefusalEvidenceOut,
+  emitRefusalEvidence,
+  auditFailure,
+  finalizeEvidence,
+  humanErrorMessage,
   runControlledApply,
   main
 }

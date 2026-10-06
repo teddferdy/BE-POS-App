@@ -1175,3 +1175,554 @@ describe('CAP-004 evidence integrity', () => {
     }
   })
 })
+
+describe('CAP-004 Increment-2 refusal evidence validator', () => {
+  function goldenRefusal(overrides = {}) {
+    return {
+      refusalSchemaVersion: 1,
+      outcome: 'refused',
+      reasonCode: 'AUTHORIZATION_MISMATCH',
+      message: '[controlled-apply] REFUSED: manifest sha256 x does not match the authorized sha256',
+      startedAt: '2026-10-06T00:00:00.000Z',
+      endedAt: '2026-10-06T00:00:01.000Z',
+      operator: 'inc2-tester',
+      target: 'production',
+      migration: REVIEW_MIGRATION,
+      environment: 'production',
+      authorizationRef: 'CHG-2026-004',
+      authorizedManifestSha: 'a'.repeat(64),
+      observedManifestSha: 'b'.repeat(64),
+      applyRef: null,
+      ...overrides
+    }
+  }
+
+  test('INC2-V1. validator accepts a golden refusal', () => {
+    expect(ctl.validateRefusalEvidence(goldenRefusal()).ok).toBe(true)
+  })
+
+  test('INC2-V2. validator rejects wrong schema version', () => {
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ refusalSchemaVersion: 2 })).ok).toBe(false)
+    const missing = goldenRefusal()
+    delete missing.refusalSchemaVersion
+    expect(ctl.validateRefusalEvidence(missing).ok).toBe(false)
+  })
+
+  test('INC2-V3. validator rejects non-refused outcomes', () => {
+    for (const outcome of ['applied', 'dry-run-ok', 'maybe']) {
+      expect(ctl.validateRefusalEvidence(goldenRefusal({ outcome })).ok).toBe(false)
+    }
+  })
+
+  test('INC2-V4. validator rejects missing or unknown reasonCode', () => {
+    const missing = goldenRefusal()
+    delete missing.reasonCode
+    expect(ctl.validateRefusalEvidence(missing).ok).toBe(false)
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ reasonCode: 'SOMETHING_ELSE' })).ok).toBe(false)
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ reasonCode: '' })).ok).toBe(false)
+  })
+
+  test('INC2-V5. validator accepts every locked taxonomy code', () => {
+    for (const code of ctl.REFUSAL_REASON_CODES) {
+      expect(ctl.validateRefusalEvidence(goldenRefusal({ reasonCode: code })).ok).toBe(true)
+    }
+  })
+
+  test('INC2-V6. validator rejects malformed SHAs but accepts equal authorized/observed', () => {
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ authorizedManifestSha: 'xyz' })).ok).toBe(false)
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ observedManifestSha: 'nope' })).ok).toBe(false)
+    expect(ctl.validateRefusalEvidence(goldenRefusal({
+      authorizedManifestSha: 'c'.repeat(64),
+      observedManifestSha: 'c'.repeat(64)
+    })).ok).toBe(true)
+  })
+
+  test('INC2-V7. validator rejects malformed timestamps', () => {
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ startedAt: 'yesterday' })).ok).toBe(false)
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ endedAt: '2026-10-06 00:00:01' })).ok).toBe(false)
+  })
+
+  test('INC2-V8. validator rejects empty identity fields', () => {
+    for (const field of ['operator', 'target', 'migration', 'environment', 'authorizationRef', 'message']) {
+      expect(ctl.validateRefusalEvidence(goldenRefusal({ [field]: '' })).ok).toBe(false)
+      expect(ctl.validateRefusalEvidence(goldenRefusal({ [field]: '   ' })).ok).toBe(false)
+    }
+  })
+
+  test('INC2-V9. validator tolerates extra fields', () => {
+    expect(ctl.validateRefusalEvidence(goldenRefusal({ someFutureField: 1 })).ok).toBe(true)
+  })
+
+  test('INC2-V10. mutual rejection between success and refusal contracts', () => {
+    expect(ctl.validateRefusalEvidence({
+      schemaVersion: 1,
+      outcome: 'applied',
+      mode: 'apply',
+      authorizedManifestSha: 'a'.repeat(64),
+      resultingManifestSha: 'a'.repeat(64),
+      migration: REVIEW_MIGRATION,
+      kind: 'product-review-indexes',
+      environment: 'production',
+      databaseIdentity: 'db',
+      operator: 'op',
+      authorizationRef: 'CHG-1',
+      backupRef: 'b',
+      startedAt: '2026-10-06T00:00:00.000Z',
+      endedAt: '2026-10-06T00:00:01.000Z',
+      preconditions: [],
+      applied: ['i'],
+      postcondition: 'verified-in-transaction',
+      dispositionBefore: 'CONTROLLED_APPLY_PENDING',
+      dispositionAfter: 'CONTROLLED_APPLIED',
+      applyRef: 'controlled-apply/x',
+      status: 'ok'
+    }).ok).toBe(false)
+    expect(ctl.validateApplyEvidence(goldenRefusal()).ok).toBe(false)
+  })
+})
+
+describe('CAP-004 Increment-2 structured refusal emission', () => {
+  let inc2dir
+
+  async function captureMain(args) {
+    const prevExit = process.exitCode
+    const prevError = console.error
+    const prevLog = console.log
+    let stderr = ''
+    let stdout = ''
+    console.error = (m) => { stderr += `${m}\n` }
+    console.log = (m) => { stdout += `${m}\n` }
+    process.exitCode = undefined
+    let captured
+    try {
+      await ctl.main(args)
+      captured = { stderr, stdout, exit: process.exitCode }
+    } finally {
+      process.exitCode = prevExit
+      console.error = prevError
+      console.log = prevLog
+    }
+    return captured
+  }
+
+  function wrongShaArgs(extra = []) {
+    return [
+      '--target=production',
+      `--migration=${SPLIT_MIGRATION}`,
+      '--authorization-ref=CHG-2026-004',
+      '--operator=inc2-tester',
+      '--backup-evidence=/tmp/does-not-matter.json',
+      '--apply',
+      `--authorize-manifest-sha256=${'0'.repeat(64)}`,
+      `--confirm=${SPLIT_MIGRATION}`,
+      ...extra
+    ]
+  }
+
+  beforeAll(() => {
+    inc2dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctl-inc2-emit-'))
+  })
+
+  test('INC2-E1. parse-stage usage errors stay stderr-only with exit 1', async () => {
+    const r = await captureMain(['--target=production', '--bogus-flag'])
+    expect(r.exit).toBe(1)
+    expect(r.stderr).toMatch(/unknown argument/)
+    expect(r.stdout).toBe('')
+  })
+
+  test('INC2-E2. authorization mismatch emits structured refusal with exit 1', async () => {
+    const r = await captureMain(wrongShaArgs())
+    expect(r.exit).toBe(1)
+    expect(r.stderr).toMatch(/does not match the authorized sha256/)
+    const refusal = JSON.parse(r.stdout)
+    expect(refusal.outcome).toBe('refused')
+    expect(refusal.reasonCode).toBe('AUTHORIZATION_MISMATCH')
+    expect(refusal.authorizedManifestSha).toBe('0'.repeat(64))
+    expect(refusal.observedManifestSha == null).toBe(true)
+    expect(refusal.migration).toBe(SPLIT_MIGRATION)
+    expect(ctl.validateRefusalEvidence(refusal).ok).toBe(true)
+  })
+
+  test('INC2-E3. authorization mismatch refusal is also persisted when evidence-out is given', async () => {
+    const target = path.join(inc2dir, `refusal-${crypto.randomBytes(4).toString('hex')}.json`)
+    const r = await captureMain(wrongShaArgs([`--evidence-out=${target}`]))
+    expect(r.exit).toBe(1)
+    const fromStdout = JSON.parse(r.stdout)
+    const fromFile = JSON.parse(fs.readFileSync(target, 'utf8'))
+    expect(fromFile).toEqual(fromStdout)
+    expect(fromFile.reasonCode).toBe('AUTHORIZATION_MISMATCH')
+    expect(ctl.validateRefusalEvidence(fromFile).ok).toBe(true)
+  })
+
+  test('INC2-E4. evidence-destination collision emits structured refusal and writes nothing', async () => {
+    const prodManifest = ctl.resolveProductionManifestPath()
+    const before = fs.readFileSync(prodManifest, 'utf8')
+    const r = await captureMain(wrongShaArgs([`--evidence-out=${prodManifest}`]))
+    expect(r.exit).toBe(1)
+    expect(r.stderr).toMatch(/evidence-out/)
+    const refusal = JSON.parse(r.stdout)
+    expect(refusal.reasonCode).toBe('EVIDENCE_DESTINATION_COLLISION')
+    expect(ctl.validateRefusalEvidence(refusal).ok).toBe(true)
+    expect(fs.readFileSync(prodManifest, 'utf8')).toBe(before)
+  })
+
+  test('INC2-E5. throw sites carry deterministic reason codes', () => {
+    expect(() => ctl.parseArgs(['--target=production', '--nope'])).toThrow(expect.objectContaining({ reasonCode: 'INVALID_INPUT' }))
+    let backupErr = null
+    try {
+      ctl.verifyBackupEvidence({ evidencePath: '/tmp/does-not-exist-inc2.json', expectedDatabase: 'db', manifestSha: 'a'.repeat(64) })
+    } catch (e) { backupErr = e }
+    expect(backupErr.reasonCode).toBe('BACKUP_CONTRACT')
+    let rowErr = null
+    const rowManifestPath = path.join(inc2dir, `row-${crypto.randomBytes(4).toString('hex')}.json`)
+    const rowManifest = { schemaVersion: 1, environment: 'production', evidenceCapturedAt: '2026-10-05T18:29:17.353Z', approvedBy: 'a', approvedAt: '2026-10-05T19:00:00.000Z', migrations: [{ migration: REVIEW_MIGRATION, disposition: 'CONTROLLED_APPLIED', evidenceRef: 'x', applyRef: 'controlled-apply/x' }] }
+    fs.writeFileSync(rowManifestPath, `${JSON.stringify(rowManifest, null, 2)}\n`)
+    try {
+      ctl.verifyManifestRow({
+        manifest: rowManifest,
+        manifestPath: rowManifestPath,
+        files: [REVIEW_MIGRATION],
+        environment: 'production',
+        migration: REVIEW_MIGRATION,
+        authorizeSha256: rules.sha256OfFile(rowManifestPath),
+        apply: true
+      })
+    } catch (e) { rowErr = e }
+    expect(rowErr.reasonCode).toBe('STALE_STATE')
+    let shapeErr = null
+    try {
+      ctl.assertIndexShape(
+        { schema: 'public', table: 'region', name: 'region_code_unique', unique: false, columns: ['code'], nullAttrs: 0 },
+        { schema: 'public', table: 'region', name: 'region_code_unique', unique: true, columns: ['code'] }
+      )
+    } catch (e) { shapeErr = e }
+    expect(shapeErr.reasonCode).toBe('APPLY_FAILED_ROLLBACK')
+  })
+
+  test('INC2-E6. emitRefusalEvidence covers every refusal category with exit 1', async () => {
+    for (const code of ctl.REFUSAL_REASON_CODES) {
+      const err = new ctl.RefusedError(`synthetic ${code}`, code)
+      const logs = []
+      const errs = []
+      const r = ctl.emitRefusalEvidence({
+        err,
+        context: {
+          target: 'production',
+          migration: REVIEW_MIGRATION,
+          operator: 'inc2-tester',
+          authorizationRef: 'CHG-2026-004',
+          environment: 'production',
+          authorizedManifestSha: 'a'.repeat(64),
+          observedManifestSha: null,
+          applyRef: null,
+          startedAt: '2026-10-06T00:00:00.000Z',
+          endedAt: '2026-10-06T00:00:01.000Z',
+          evidenceOut: null
+        },
+        log: (m) => logs.push(m),
+        errlog: (m) => errs.push(m)
+      })
+      expect({ code, exit: r.exitCode }).toEqual({ code, exit: 1 })
+      const refusal = JSON.parse(logs.join('\n'))
+      expect(refusal.reasonCode).toBe(code)
+      expect(ctl.validateRefusalEvidence(refusal).ok).toBe(true)
+      expect(errs.join('\n')).toMatch(/synthetic/)
+    }
+  })
+
+  test('INC2-E7. refusal emission never targets the production manifest', () => {
+    const prodManifest = ctl.resolveProductionManifestPath()
+    const before = fs.readFileSync(prodManifest, 'utf8')
+    const logs = []
+    const errs = []
+    const r = ctl.emitRefusalEvidence({
+      err: new ctl.RefusedError('synthetic', 'MANIFEST_INTEGRITY'),
+      context: {
+        target: 'production',
+        migration: REVIEW_MIGRATION,
+        operator: 'inc2-tester',
+        authorizationRef: 'CHG-2026-004',
+        environment: 'production',
+        authorizedManifestSha: null,
+        observedManifestSha: null,
+        applyRef: null,
+        startedAt: '2026-10-06T00:00:00.000Z',
+        endedAt: '2026-10-06T00:00:01.000Z',
+        evidenceOut: prodManifest
+      },
+      log: (m) => logs.push(m),
+      errlog: (m) => errs.push(m)
+    })
+    expect(r.exitCode).toBe(1)
+    expect(r.wroteFile).toBe(false)
+    expect(JSON.parse(logs.join('\n')).outcome).toBe('refused')
+    expect(fs.readFileSync(prodManifest, 'utf8')).toBe(before)
+  })
+
+  test('INC2-E8. refusal file-write failure keeps exit 1 with stdout intact', () => {
+    const logs = []
+    const errs = []
+    const r = ctl.emitRefusalEvidence({
+      err: new ctl.RefusedError('synthetic', 'BACKUP_CONTRACT'),
+      context: {
+        target: 'production',
+        migration: REVIEW_MIGRATION,
+        operator: 'inc2-tester',
+        authorizationRef: 'CHG-2026-004',
+        environment: 'production',
+        authorizedManifestSha: null,
+        observedManifestSha: null,
+        applyRef: null,
+        startedAt: '2026-10-06T00:00:00.000Z',
+        endedAt: '2026-10-06T00:00:01.000Z',
+        evidenceOut: path.join(inc2dir, 'no-such-dir', 'refusal.json')
+      },
+      log: (m) => logs.push(m),
+      errlog: (m) => errs.push(m)
+    })
+    expect(r.exitCode).toBe(1)
+    expect(r.wroteFile).toBe(false)
+    expect(JSON.parse(logs.join('\n')).reasonCode).toBe('BACKUP_CONTRACT')
+  })
+})
+
+describe('CAP-004 Increment-2 post-apply audit failure (exit 2)', () => {
+  const INC2_DB = `cashier_app_ctlapply_inc2_${process.pid}`
+  let inc2seq
+  let dir
+
+  function inc2Manifest(migrations) {
+    const manifest = {
+      schemaVersion: 1,
+      environment: 'production',
+      evidenceCapturedAt: '2026-10-05T18:29:17.353Z',
+      approvedBy: 'inc2-approver',
+      approvedAt: '2026-10-05T19:00:00.000Z',
+      migrations: [...migrations].sort().map((m) => ({
+        migration: m,
+        disposition: 'CONTROLLED_APPLY_PENDING',
+        evidenceRef: 'inc2 fixture'
+      }))
+    }
+    const manifestPath = path.join(dir, `inc2-manifest-${crypto.randomBytes(4).toString('hex')}.json`)
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    return { manifest, manifestPath, sha: rules.sha256OfFile(manifestPath) }
+  }
+
+  function inc2Opts(fix, migration, operator, extra = {}) {
+    return {
+      sequelize: inc2seq,
+      expectedDatabase: INC2_DB,
+      manifestPath: fix.manifestPath,
+      manifest: JSON.parse(JSON.stringify(fix.manifest)),
+      files: fix.manifest.migrations.map((r) => r.migration),
+      environment: 'production',
+      migration,
+      authorizationRef: 'CHG-2026-004',
+      backupEvidencePath: fixtureBackup(dir, INC2_DB, fix.sha),
+      manifestSha: fix.sha,
+      operator,
+      apply: true,
+      confirm: migration,
+      ...extra
+    }
+  }
+
+  function goldenAppliedInc2(overrides = {}) {
+    return {
+      schemaVersion: 1,
+      outcome: 'applied',
+      mode: 'apply',
+      authorizedManifestSha: 'a'.repeat(64),
+      resultingManifestSha: 'b'.repeat(64),
+      migration: REVIEW_MIGRATION,
+      kind: 'product-review-indexes',
+      environment: 'production',
+      databaseIdentity: INC2_DB,
+      operator: 'inc2-tester',
+      authorizationRef: 'CHG-2026-004',
+      backupRef: 'db_backup#1 backup_fixture.dump',
+      startedAt: '2026-10-06T00:00:00.000Z',
+      endedAt: '2026-10-06T00:00:01.000Z',
+      preconditions: [],
+      applied: ['product_review_product_store'],
+      postcondition: 'verified-in-transaction',
+      dispositionBefore: 'CONTROLLED_APPLY_PENDING',
+      dispositionAfter: 'CONTROLLED_APPLIED',
+      applyRef: 'controlled-apply/x',
+      status: 'ok',
+      ...overrides
+    }
+  }
+
+  beforeAll(async () => {
+    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, INC2_DB], { encoding: 'utf8', env: CLI_ENV })
+    if (createdb.status !== 0) throw new Error(`createdb failed: ${createdb.stderr}`)
+    inc2seq = new Sequelize({
+      dialect: 'postgres', host: DB_HOST, port: DB_PORT,
+      username: DB_USER, password: DB_PASSWORD, database: INC2_DB, logging: false
+    })
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctl-inc2-'))
+  }, 60000)
+
+  afterAll(async () => {
+    if (inc2seq) await inc2seq.close().catch(() => {})
+    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, INC2_DB], { env: CLI_ENV })
+    if (dir) fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('INC2-P1. finalize success persists evidence and exits 0', () => {
+    const target = path.join(dir, `evidence-${crypto.randomBytes(4).toString('hex')}.json`)
+    const logs = []
+    const errs = []
+    const r = ctl.finalizeEvidence({ evidence: goldenAppliedInc2(), evidenceOut: target, log: (m) => logs.push(m), errlog: (m) => errs.push(m) })
+    expect(r.exitCode).toBe(0)
+    expect(JSON.parse(fs.readFileSync(target, 'utf8'))).toEqual(goldenAppliedInc2())
+    expect(JSON.parse(logs.join('\n'))).toEqual(goldenAppliedInc2())
+    expect(errs.join('\n')).toBe('')
+  })
+
+  test('INC2-P2. apply success plus evidence write failure exits 2 with truthful stdout', () => {
+    const badPath = path.join(dir, 'no-such-dir', 'evidence.json')
+    const logs = []
+    const errs = []
+    const r = ctl.finalizeEvidence({ evidence: goldenAppliedInc2(), evidenceOut: badPath, log: (m) => logs.push(m), errlog: (m) => errs.push(m) })
+    expect(r.exitCode).toBe(2)
+    const printed = JSON.parse(logs.join('\n'))
+    expect(printed.outcome).toBe('applied')
+    expect(printed.authorizedManifestSha).toBe('a'.repeat(64))
+    expect(printed.resultingManifestSha).toBe('b'.repeat(64))
+    expect(errs.join('\n')).toMatch(/AUDIT FAILURE/)
+    expect(errs.join('\n')).toMatch(/EVIDENCE_PERSISTENCE_FAILED/)
+    expect(errs.join('\n')).not.toMatch(/\[controlled-apply\] FAILED:/)
+  })
+
+  test('INC2-P3. post-apply evidence validation failure exits 2, not 1', () => {
+    const logs = []
+    const errs = []
+    const r = ctl.finalizeEvidence({ evidence: goldenAppliedInc2({ resultingManifestSha: null }), evidenceOut: null, log: (m) => logs.push(m), errlog: (m) => errs.push(m) })
+    expect(r.exitCode).toBe(2)
+    expect(JSON.parse(logs.join('\n')).outcome).toBe('applied')
+    expect(errs.join('\n')).toMatch(/EVIDENCE_CONTRACT/)
+    expect(errs.join('\n')).not.toMatch(/\[controlled-apply\] FAILED:/)
+  })
+
+  test('INC2-P3b. dry-run persistence failure also exits 2 with truthful stdout', () => {
+    const dry = {
+      schemaVersion: 1,
+      outcome: 'dry-run-ok',
+      mode: 'dry-run',
+      authorizedManifestSha: 'a'.repeat(64),
+      resultingManifestSha: null,
+      migration: REVIEW_MIGRATION,
+      kind: 'product-review-indexes',
+      environment: 'production',
+      databaseIdentity: INC2_DB,
+      operator: 'inc2-tester',
+      authorizationRef: 'CHG-2026-004',
+      backupRef: 'db_backup#1 backup_fixture.dump',
+      startedAt: '2026-10-06T00:00:00.000Z',
+      endedAt: '2026-10-06T00:00:01.000Z',
+      preconditions: [],
+      applied: [],
+      postcondition: 'not-executed-dry-run',
+      dispositionBefore: 'CONTROLLED_APPLY_PENDING',
+      dispositionAfter: 'CONTROLLED_APPLY_PENDING',
+      applyRef: null,
+      status: 'ok'
+    }
+    expect(ctl.validateApplyEvidence(dry).ok).toBe(true)
+    const logs = []
+    const errs = []
+    const r = ctl.finalizeEvidence({ evidence: dry, evidenceOut: path.join(dir, 'no-such-dir', 'dry.json'), log: (m) => logs.push(m), errlog: (m) => errs.push(m) })
+    expect(r.exitCode).toBe(2)
+    expect(JSON.parse(logs.join('\n')).outcome).toBe('dry-run-ok')
+    expect(errs.join('\n')).toMatch(/EVIDENCE_PERSISTENCE_FAILED/)
+  })
+
+  test('INC2-P4. failed apply rolls back with exit 1 and no fabricated applied evidence', async () => {
+    await inc2seq.query('CREATE TABLE region ("id" SERIAL PRIMARY KEY, "code" VARCHAR(20) NOT NULL, "level" VARCHAR(10) NOT NULL, "parentCode" VARCHAR(20), "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMP DEFAULT NOW())')
+    await inc2seq.query('CREATE INDEX "region_code_unique" ON "region" ("code")')
+    const fix = inc2Manifest([REGION_MIGRATION])
+    let caught = null
+    try {
+      await ctl.runControlledApply(inc2Opts(fix, REGION_MIGRATION, 'inc2-p4'))
+    } catch (e) { caught = e }
+    expect(caught).not.toBeNull()
+    expect(caught.name).toBe('ApplyError')
+    expect(caught.reasonCode).toBe('APPLY_FAILED_ROLLBACK')
+    const saved = JSON.parse(fs.readFileSync(fix.manifestPath, 'utf8'))
+    expect(saved.migrations[0].disposition).toBe('CONTROLLED_APPLY_PENDING')
+    const logs = []
+    const errs = []
+    const r = ctl.emitRefusalEvidence({
+      err: caught,
+      context: {
+        target: 'production',
+        migration: REGION_MIGRATION,
+        operator: 'inc2-p4',
+        authorizationRef: 'CHG-2026-004',
+        environment: 'production',
+        authorizedManifestSha: fix.sha,
+        observedManifestSha: fix.sha,
+        applyRef: null,
+        startedAt: '2026-10-06T00:00:00.000Z',
+        endedAt: '2026-10-06T00:00:01.000Z',
+        evidenceOut: null
+      },
+      log: (m) => logs.push(m),
+      errlog: (m) => errs.push(m)
+    })
+    expect(r.exitCode).toBe(1)
+    const refusal = JSON.parse(logs.join('\n'))
+    expect(refusal.reasonCode).toBe('APPLY_FAILED_ROLLBACK')
+    expect(JSON.stringify(refusal)).not.toMatch(/"outcome":\s*"applied"/)
+    await inc2seq.query('DROP TABLE IF EXISTS region')
+  })
+
+  test('INC2-P5. lock timeout carries LOCK_TIMEOUT', async () => {
+    const holder = new Sequelize({
+      dialect: 'postgres', host: DB_HOST, port: DB_PORT,
+      username: DB_USER, password: DB_PASSWORD, database: INC2_DB, logging: false
+    })
+    const keys = ctl.advisoryLockKeys()
+    await holder.query('SELECT pg_advisory_lock(:k1, :k2)', {
+      replacements: { k1: keys[0], k2: keys[1] },
+      type: Sequelize.QueryTypes.SELECT
+    })
+    const fix = inc2Manifest([REVIEW_MIGRATION])
+    let caught = null
+    try {
+      await ctl.runControlledApply({ ...inc2Opts(fix, REVIEW_MIGRATION, 'inc2-p5'), _lockTimeoutMs: 300 })
+    } catch (e) { caught = e }
+    await holder.query('SELECT pg_advisory_unlock(:k1, :k2)', {
+      replacements: { k1: keys[0], k2: keys[1] },
+      type: Sequelize.QueryTypes.SELECT
+    }).catch(() => {})
+    await holder.close().catch(() => {})
+    expect(caught).not.toBeNull()
+    expect(caught.name).toBe('RefusedError')
+    expect(caught.reasonCode).toBe('LOCK_TIMEOUT')
+  })
+
+  test('INC2-P6. precondition and CAS refusals carry deterministic codes', async () => {
+    let preErr = null
+    try {
+      await ctl.runPreconditions(inc2seq, 'region-indexes', null)
+    } catch (e) { preErr = e }
+    expect(preErr.reasonCode).toBe('PRECONDITION')
+    const fix = inc2Manifest([REVIEW_MIGRATION])
+    let casErr = null
+    try {
+      await ctl.casUpdateManifestRow({
+        manifestPath: fix.manifestPath,
+        expectedSha: '0'.repeat(64),
+        migration: REVIEW_MIGRATION,
+        applyRef: 'controlled-apply/x',
+        files: [REVIEW_MIGRATION],
+        environment: 'production'
+      })
+    } catch (e) { casErr = e }
+    expect(casErr.reasonCode).toBe('STALE_STATE')
+  })
+})
