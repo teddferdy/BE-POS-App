@@ -22,9 +22,11 @@ const REVIEW_MIGRATION = '20260829000001-create-product-review-table.js'
 const SPLIT_MIGRATION = '20260906000004-split-bill-hardening.js'
 const ARBITRARY_MIGRATION = '20260601000001-change-product-store-to-jsonb.js'
 
-const DB_HOST = '127.0.0.1'
-const DB_PORT = '5432'
-const DB_USER = 'postgres'
+const DB_HOST = process.env.DB_DEV_HOST || '127.0.0.1'
+const DB_PORT = process.env.DB_DEV_PORT || '5432'
+const DB_USER = process.env.DB_DEV_USERNAME || 'postgres'
+const DB_PASSWORD = process.env.DB_DEV_PASSWORD || process.env.PGPASSWORD || undefined
+const CLI_ENV = DB_PASSWORD ? { ...process.env, PGPASSWORD: String(DB_PASSWORD) } : process.env
 const DISPOSABLE_DB = `cashier_app_ctlapply_${process.pid}`
 
 // ---------- fixtures ----------
@@ -396,11 +398,11 @@ describe('controlled-apply live gates (disposable database)', () => {
   const q = (sql, replacements) => sequelize.query(sql, { replacements, type: Sequelize.QueryTypes.SELECT })
 
   beforeAll(async () => {
-    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB], { encoding: 'utf8' })
+    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB], { encoding: 'utf8', env: CLI_ENV })
     if (createdb.status !== 0) throw new Error(`createdb failed: ${createdb.stderr}`)
     sequelize = new Sequelize({
       dialect: 'postgres', host: DB_HOST, port: DB_PORT,
-      username: DB_USER, database: DISPOSABLE_DB, logging: false
+      username: DB_USER, password: DB_PASSWORD, database: DISPOSABLE_DB, logging: false
     })
     await sequelize.query('CREATE TABLE region ("id" SERIAL PRIMARY KEY, "code" VARCHAR(20) NOT NULL, "level" VARCHAR(10) NOT NULL, "parentCode" VARCHAR(20), "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW())')
     await sequelize.query('CREATE TABLE product_review ("id" SERIAL PRIMARY KEY, "productId" INTEGER NOT NULL, "store" INTEGER, "createdAt" TIMESTAMP DEFAULT NOW(), "updatedAt" TIMESTAMP DEFAULT NOW())')
@@ -414,7 +416,7 @@ describe('controlled-apply live gates (disposable database)', () => {
 
   afterAll(async () => {
     if (sequelize) await sequelize.close().catch(() => {})
-    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB])
+    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB], { env: CLI_ENV })
     if (dir) fs.rmSync(dir, { recursive: true, force: true })
   })
 
@@ -682,11 +684,11 @@ describe('CAP-003 concurrency (disposable database)', () => {
   }
 
   beforeAll(async () => {
-    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB2], { encoding: 'utf8' })
+    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB2], { encoding: 'utf8', env: CLI_ENV })
     if (createdb.status !== 0) throw new Error(`createdb failed: ${createdb.stderr}`)
     sequelize2 = new Sequelize({
       dialect: 'postgres', host: DB_HOST, port: DB_PORT,
-      username: DB_USER, database: DISPOSABLE_DB2, logging: false
+      username: DB_USER, password: DB_PASSWORD, database: DISPOSABLE_DB2, logging: false
     })
     await sequelize2.query('CREATE TABLE region ("id" SERIAL PRIMARY KEY, "code" VARCHAR(20) NOT NULL, "level" VARCHAR(10) NOT NULL, "parentCode" VARCHAR(20), "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW())')
     await sequelize2.query('CREATE TABLE product_review ("id" SERIAL PRIMARY KEY, "productId" INTEGER NOT NULL, "store" INTEGER, "createdAt" TIMESTAMP DEFAULT NOW(), "updatedAt" TIMESTAMP DEFAULT NOW())')
@@ -700,7 +702,7 @@ describe('CAP-003 concurrency (disposable database)', () => {
 
   afterAll(async () => {
     if (sequelize2) await sequelize2.close().catch(() => {})
-    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB2])
+    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB2], { env: CLI_ENV })
     if (dir) fs.rmSync(dir, { recursive: true, force: true })
   })
 
@@ -994,11 +996,11 @@ describe('CAP-004 evidence integrity', () => {
   }
 
   beforeAll(async () => {
-    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB4], { encoding: 'utf8' })
+    const createdb = spawnSync('createdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB4], { encoding: 'utf8', env: CLI_ENV })
     if (createdb.status !== 0) throw new Error(`createdb failed: ${createdb.stderr}`)
     sequelize4 = new Sequelize({
       dialect: 'postgres', host: DB_HOST, port: DB_PORT,
-      username: DB_USER, database: DISPOSABLE_DB4, logging: false
+      username: DB_USER, password: DB_PASSWORD, database: DISPOSABLE_DB4, logging: false
     })
     await sequelize4.query('CREATE TABLE region ("id" SERIAL PRIMARY KEY, "code" VARCHAR(20) NOT NULL, "level" VARCHAR(10) NOT NULL, "parentCode" VARCHAR(20), "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(), "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW())')
     await sequelize4.query('CREATE TABLE product_review ("id" SERIAL PRIMARY KEY, "productId" INTEGER NOT NULL, "store" INTEGER, "createdAt" TIMESTAMP DEFAULT NOW(), "updatedAt" TIMESTAMP DEFAULT NOW())')
@@ -1012,7 +1014,7 @@ describe('CAP-004 evidence integrity', () => {
 
   afterAll(async () => {
     if (sequelize4) await sequelize4.close().catch(() => {})
-    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB4])
+    spawnSync('dropdb', ['-h', DB_HOST, '-p', DB_PORT, '-U', DB_USER, DISPOSABLE_DB4], { env: CLI_ENV })
     if (dir) fs.rmSync(dir, { recursive: true, force: true })
   })
 
