@@ -564,7 +564,7 @@ describe('F7 — snapshot immutability (mandatory)', () => {
     const line = await db.bom_line.findOne({ where: { bomHeaderId: bom.id, ingredientId: ing.id } })
     await line.update({ qty: 100 })
 
-    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
+    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'void', reason: 'F7 test void reason' })
     expect(cancelRes.status).toBe(200)
 
     // Must restore exactly 5 (the original snapshot), never 100.
@@ -596,7 +596,7 @@ describe('F7 — snapshot immutability (mandatory)', () => {
     expect(res.status).toBe(201)
     expect(Number((await db.ingredient.findByPk(ing.id)).stock)).toBe(100 - 12)
 
-    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
+    const cancelRes = await updateOrderStatus(tokenA, { id: res.body.data.id, status: 'void', reason: 'F7 test void reason' })
     expect(cancelRes.status).toBe(200)
     expect(Number((await db.ingredient.findByPk(ing.id)).stock)).toBe(100)
 
@@ -608,6 +608,9 @@ describe('F7 — snapshot immutability (mandatory)', () => {
   })
 })
 
+// DR-23 (BA §35.10 G): reversing a PAID order is an elevated VOID (cancel
+// is only for orders with nothing collected); the reversal assertions below
+// are unchanged and now run on the void path.
 describe('F7 — exactly-once', () => {
   test('duplicate/retried completion attempt on the same order never double-deducts', async () => {
     const ing = await makeIngredient(storeA.id, { stock: 100 })
@@ -620,7 +623,10 @@ describe('F7 — exactly-once', () => {
       updateOrderStatus(tokenA, { id: order.id, status: 'paid' })
     ])
     const statuses = [r1.status, r2.status].sort((a, b) => a - b)
-    expect(statuses).toEqual([200, 200]) // second is a no-op success (already paid), not an error
+    // DR-23 (BA §35.10 K): the loser re-validates under the order lock and is
+    // refused on the fresh state (outstanding 0) — never a hidden 200 no-op.
+    expect(statuses).toEqual([200, 409])
+    expect([r1, r2].find((r) => r.status === 409).body.code).toBe('OUTSTANDING_CHANGED')
 
     expect(Number((await db.ingredient.findByPk(ing.id)).stock)).toBe(94) // deducted exactly once, not 88
     const rows = await db.stock_history.findAll({
@@ -1029,7 +1035,7 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     const cancel = await updateOrderStatus(tokenA, {
       id: created.body.data.id,
-      status: 'cancelled',
+      status: 'void',
       reason: 'F7 test void reason'
     })
     expect(cancel.status).toBe(200)
@@ -1071,7 +1077,7 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     const cancel = await updateOrderStatus(tokenA, {
       id: created.body.data.id,
-      status: 'cancelled',
+      status: 'void',
       reason: 'F7 test void reason'
     })
     expect(cancel.status).toBe(200)
@@ -1128,16 +1134,18 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
     expect(paid.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(9)
 
-    const cancel1 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
+    const cancel1 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'void', reason: 'F7 test void reason' })
     expect(cancel1.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10)
 
-    const cancel2 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    const cancel2 = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'void' })
     expect(cancel2.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10) // no double restore
 
-    const voidAfterCancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'void' })
-    expect(voidAfterCancel.status).toBe(200)
+    // DR-23: switching between terminal states is refused; still no restore.
+    const cancelAfterVoid = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled' })
+    expect(cancelAfterVoid.status).toBe(409)
+    expect(cancelAfterVoid.body.code).toBe('INVALID_TRANSITION')
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10)
 
     await cleanupOrderWithBundle(created.body.data.id, bundle.id)
@@ -1179,7 +1187,7 @@ describe('F7 — bundle FG reversal symmetry (F-REV1)', () => {
 
     // T4: reversal must restore the SALE's immutable deduction (A,D) — not
     // the original order composition (A,B,C), not the current config (A,E).
-    const cancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'cancelled', reason: 'F7 test void reason' })
+    const cancel = await updateOrderStatus(tokenA, { id: created.body.data.id, status: 'void', reason: 'F7 test void reason' })
     expect(cancel.status).toBe(200)
     expect(Number((await db.product.findByPk(A.id)).stock)).toBe(10)
     expect(Number((await db.product.findByPk(D.id)).stock)).toBe(10)

@@ -9,6 +9,13 @@ const {
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { assertIntegerRupiah } = require('../../utils/moneyGuard')
+const {
+  FINANCIAL_STATES,
+  computeOrderFinancials,
+  legacyPaymentStatusFor,
+  financialError,
+  retirePendingSplits
+} = require('../service/orderFinancials')
 
 // split_bill has no store column of its own — ownership is entirely
 // inherited through order.store (a plain INTEGER, same shape scalarStoreScope
@@ -127,41 +134,36 @@ const splitBillController = {
               }
             }
 
-            // F5-2: order-state eligibility, derived from the actual
-            // state machine (traced fresh, not copied from F4) —
-            // paymentStatus only ever leaves 'unpaid' via this
-            // controller's own completion branch below or F4's refund
-            // recompute; 'partial' is exclusively a refund artifact and
-            // never a natural split-bill precondition.
+            // DR-23 (BA §35.10 E): splits may be planned only while the
+            // order is open for collection — UNPAID or PARTIALLY_PAID with
+            // non-terminal fulfilment — judged on ledger aggregates
+            // recomputed under the order lock just acquired.
+            const fin = await computeOrderFinancials(orderRow, t)
             if (
-              orderRow.paymentStatus !== 'unpaid' ||
-              ['cancelled', 'void'].includes(orderRow.status)
+              fin.terminal ||
+              ![FINANCIAL_STATES.UNPAID, FINANCIAL_STATES.PARTIALLY_PAID].includes(fin.state)
             ) {
-              const e = new Error('Order is not eligible for split-bill payment')
-              e.statusCode = 409
-              throw e
+              throw financialError(409, 'ORDER_NOT_SPLITTABLE', 'Order is not eligible for split-bill payment')
             }
 
-            // activeSplitAmount — ORM default (paranoid) scope already
-            // excludes soft-deleted/cancelled rows.
-            const activeSplitAmount =
+            // Σ PENDING splits + new ≤ current outstanding. Paid splits are
+            // already inside the ledger (C), so they are not counted twice;
+            // the ORM default (paranoid) scope excludes retired splits.
+            const pendingSplitAmount =
               (await db.split_bill.sum('amount', {
-                where: { order },
+                where: { order, status: 'pending' },
                 transaction: t
               })) || 0
             const newSplitAmount = items.reduce((sum, i) => sum + Number(i.amount), 0)
 
-            // Multiple creation rounds are intentionally allowed — this
-            // replaces the old "any pending split blocks a new create()"
-            // gate, which is strictly more restrictive than necessary
-            // now that the real invariant (never exceed the order total)
-            // is enforced directly.
-            if (activeSplitAmount + newSplitAmount > orderRow.totalPrice) {
-              const e = new Error(
-                `New split total (${activeSplitAmount + newSplitAmount}) would exceed the order total (${orderRow.totalPrice})`
+            // Multiple creation rounds are intentionally allowed as long as
+            // the planned amount never exceeds what is still outstanding.
+            if (Number(pendingSplitAmount) + newSplitAmount > fin.O) {
+              throw financialError(
+                409,
+                'SPLIT_EXCEEDS_OUTSTANDING',
+                `New split total (${Number(pendingSplitAmount) + newSplitAmount}) would exceed the outstanding amount (${fin.O})`
               )
-              e.statusCode = 409
-              throw e
             }
 
             const createdSplits = []
@@ -210,7 +212,8 @@ const splitBillController = {
       console.log(error)
       return res.status(error.statusCode || 500).json({
         success: false,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        ...(error.statusCode && error.code ? { code: error.code } : {})
       })
     }
   },
@@ -271,18 +274,18 @@ const splitBillController = {
 
           // Peek (unlocked) purely to learn the parent order id, so the
           // order can be locked FIRST — uniform with create/cancel/merge.
-          const peek = await db.split_bill.findByPk(id, { transaction: t })
+          // paranoid:false so a retired (superseded/voided/cancelled)
+          // split answers SPLIT_NOT_PAYABLE instead of a misleading 404.
+          const peek = await db.split_bill.findByPk(id, { paranoid: false, transaction: t })
           if (!peek) {
             const e = new Error('Split bill not found')
             e.statusCode = 404
             throw e
           }
 
-          // Order-first lock — now UNCONDITIONAL for every payment, not
-          // just the completing one (previously only locked on the
-          // allPaid branch). This is what makes the corrected completion
-          // invariant below race-safe against a concurrent cancel() on a
-          // sibling split. IDOR fix (preserved) via scalarStoreScope.
+          // Order-first lock — the single serialization point for every
+          // financial mutation on this order (settlement, split pay, cancel,
+          // void). IDOR fix (preserved) via scalarStoreScope.
           const order = await db.order.findOne({
             where: scalarStoreScope(req, { id: peek.order }),
             lock: t.LOCK.UPDATE,
@@ -294,34 +297,56 @@ const splitBillController = {
             throw e
           }
 
-          // Lock every split row for this order (not just the one being
-          // paid), sorted — needed to evaluate the completion invariant
-          // race-safely: two different splits paid at the same instant
-          // would otherwise each read the other as still 'pending'.
+          // Lock every live split row for this order, sorted (deterministic
+          // lock order), then the target itself (it may already be retired).
           const allSplits = await db.split_bill.findAll({
             where: { order: order.id },
             order: [['id', 'ASC']],
             lock: t.LOCK.UPDATE,
             transaction: t
           })
-          const split = allSplits.find((s) => s.id === Number(id))
+          const split =
+            allSplits.find((s) => s.id === Number(id)) ||
+            (await db.split_bill.findOne({
+              where: { id, order: order.id },
+              paranoid: false,
+              lock: t.LOCK.UPDATE,
+              transaction: t
+            }))
           if (!split) {
             const e = new Error('Split bill not found')
             e.statusCode = 404
             throw e
           }
+
+          // DR-23 P0-2: re-validate under the lock against ledger
+          // aggregates. A split is payable only while it is a live PENDING
+          // split of an order still open for collection, and only up to the
+          // current outstanding amount — never after the order was fully
+          // settled, cancelled, voided or refunded.
+          const fin = await computeOrderFinancials(order, t)
           if (split.status === 'paid') {
-            const e = new Error('Split bill already paid')
-            e.statusCode = 409
-            throw e
+            throw financialError(409, 'SPLIT_NOT_PAYABLE', 'Split bill already paid')
+          }
+          if (
+            split.deletedAt ||
+            split.status !== 'pending' ||
+            fin.terminal ||
+            ![FINANCIAL_STATES.UNPAID, FINANCIAL_STATES.PARTIALLY_PAID].includes(fin.state) ||
+            Number(split.amount) > fin.O
+          ) {
+            throw financialError(
+              409,
+              'SPLIT_NOT_PAYABLE',
+              'This split is no longer payable: the order is not open for collection or the split exceeds the outstanding amount',
+              { outstanding: fin.O }
+            )
           }
 
           await split.update({ status: 'paid', paymentMethod }, { transaction: t })
 
-          // Every split payment is its own real payment — recorded on
-          // the payment ledger as it happens. This row is what F4's
-          // totalCollected and F2's cashSalesReceived already sum
-          // generically; no split-specific calculation is introduced.
+          // Every split payment is its own real payment, recorded on the
+          // payment ledger as it happens (exactly split.amount).
           await db.transaction.create(
             {
               order: split.order,
@@ -333,34 +358,24 @@ const splitBillController = {
             { transaction: t }
           )
 
-          // Authoritative completion invariant, recomputed fresh under
-          // the still-held order lock. `allSplits` already reflects
-          // `split`'s just-committed status change (same object
-          // reference — Sequelize's .update() mutates in place). This
-          // replaces the old, insufficient `every(status==='paid')`
-          // check — that check alone could not detect an order whose
-          // active split total no longer matches order.totalPrice
-          // (e.g. after a sibling was cancelled), which is exactly the
-          // P0 this hardening closes.
-          const activeSplitAmount = allSplits.reduce((sum, s) => sum + Number(s.amount), 0)
-          const paidSplitAmount = allSplits
-            .filter((s) => s.status === 'paid')
-            .reduce((sum, s) => sum + Number(s.amount), 0)
-          const everyActivePaid = allSplits.every((s) => s.status === 'paid')
+          // Authoritative completion: recomputed from the ledger, still
+          // under the order lock. PAID exactly when outstanding reaches 0.
+          const after = await computeOrderFinancials(order, t)
+          if (after.state === FINANCIAL_STATES.INVALID || after.C > after.G) {
+            throw financialError(
+              409,
+              'FINANCIAL_INVARIANT_VIOLATION',
+              'This payment would leave the order in an invalid financial state'
+            )
+          }
 
           let orderComplete = false
           let accountingJobs = null
+          let retired = []
 
-          if (
-            activeSplitAmount === order.totalPrice &&
-            paidSplitAmount === order.totalPrice &&
-            everyActivePaid
-          ) {
-            // Guard against re-running completion if this order was
-            // somehow already marked paid via another path, and refuse a
-            // cancelled/voided order outright (cancellation sets
-            // paymentStatus to 'refunded', never revived here).
-            if (order.paymentStatus !== 'paid' && !['cancelled', 'void'].includes(order.status)) {
+          if (after.state === FINANCIAL_STATES.PAID) {
+            // Stock is deducted exactly once, on the transition to PAID.
+            if (order.paymentStatus !== 'paid') {
               await deductStockForPaidOrder(
                 order.id,
                 order.store,
@@ -368,48 +383,45 @@ const splitBillController = {
                 req.user?.id || null,
                 t
               )
-              await order.update({ status: 'paid', paymentStatus: 'paid' }, { transaction: t })
-              if (order.tableId) {
-                await db.table.update(
-                  { status: 'available' },
-                  { where: { id: order.tableId }, transaction: t }
-                )
-              }
-              orderComplete = true
-
-              // F5-3: durable accounting posting, reusing order.js's own
-              // outbox helpers instead of calling accountingService
-              // directly — the outbox row commits inside this SAME
-              // transaction as the stock deduction/order update/ledger
-              // row above, so a rollback here leaves no orphan job, and
-              // a post-commit posting failure leaves it durably pending
-              // for the existing scheduler, exactly like order.js's own
-              // two completion paths.
-              accountingJobs = await enqueueOrderAccountingJobs(
-                order,
-                order.store,
-                order.orderNumber,
-                {
-                  subTotal: order.subTotal,
-                  discountAmount: order.discountAmount,
-                  taxAmount: order.taxAmount,
-                  serviceChargeAmount: order.serviceChargeAmount,
-                  totalPrice: order.totalPrice
-                },
-                'split',
-                req.user?.id || null,
-                t
-              )
-            } else if (order.paymentStatus === 'paid') {
-              // Already completed via another path — still a true "complete".
-              orderComplete = true
             }
-            // If the order was cancelled/voided, orderComplete stays
-            // false: every active split is paid and the amounts match,
-            // but the order itself was not (and must not be) revived.
+            await order.update({ status: 'paid', paymentStatus: 'paid' }, { transaction: t })
+            if (order.tableId) {
+              await db.table.update(
+                { status: 'available' },
+                { where: { id: order.tableId }, transaction: t }
+              )
+            }
+            // No pending split may outlive full settlement.
+            retired = await retirePendingSplits(order.id, t)
+            orderComplete = true
+
+            // F5-3: durable accounting posting via order.js's outbox
+            // helpers, committed in this same transaction.
+            accountingJobs = await enqueueOrderAccountingJobs(
+              order,
+              order.store,
+              order.orderNumber,
+              {
+                subTotal: order.subTotal,
+                discountAmount: order.discountAmount,
+                taxAmount: order.taxAmount,
+                serviceChargeAmount: order.serviceChargeAmount,
+                totalPrice: order.totalPrice
+              },
+              'split',
+              req.user?.id || null,
+              t
+            )
+          } else {
+            // DR-23: partial collection is first-class — never hidden as
+            // 'unpaid' (legacy carrier for PARTIALLY_PAID is 'partial').
+            await order.update(
+              { paymentStatus: legacyPaymentStatusFor(after.state) },
+              { transaction: t }
+            )
           }
 
-          return { split, orderComplete, accountingJobs }
+          return { split, orderComplete, accountingJobs, retired, orderNumber: order.orderNumber }
         })
       )
 
@@ -420,6 +432,17 @@ const splitBillController = {
         result.split.id,
         'Updated split_bill: ' + result.split.id
       )
+      for (const s of result.retired) {
+        await createAudit(
+          req,
+          'update',
+          'split_bill',
+          s.id,
+          `Split ${s.splitNumber} SUPERSEDED by full settlement of order ${result.orderNumber}`,
+          { status: 'pending' },
+          { status: 'SUPERSEDED', amount: s.amount }
+        )
+      }
 
       // Best-effort immediate attempt, after commit — never rolls back
       // an already-valid paid order on posting failure; the outbox row
@@ -440,7 +463,8 @@ const splitBillController = {
       console.log(error)
       return res.status(error.statusCode || 500).json({
         success: false,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        ...(error.statusCode && error.code ? { code: error.code, ...(error.extra || {}) } : {})
       })
     }
   },

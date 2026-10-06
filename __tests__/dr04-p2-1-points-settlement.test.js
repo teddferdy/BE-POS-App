@@ -308,7 +308,7 @@ describe('DR-04 P2-1 points settlement — business failures (422, nothing persi
 })
 
 describe('DR-04 P2-1 points settlement — idempotency', () => {
-  test('existing settlement + points request keeps the skip: no deduction, no history, no payment row', async () => {
+  test('points request on an already-settled order is refused: no deduction, no history, no payment row', async () => {
     const member = await makeMember({ storeId: store.id, totalPoints: PRICE * 3 })
     const createRes = await request(app)
       .post('/order/create')
@@ -329,8 +329,11 @@ describe('DR-04 P2-1 points settlement — idempotency', () => {
     const pointsBefore = await memberPoints(member.id)
     const historyBefore = (await historyRows(member.id)).length
 
+    // DR-23 (BA §35.10): outstanding is 0, so a further settlement is
+    // refused on the fresh state — never a hidden 200 no-op.
     const res = await settlePaid({ id: orderId, store: store.id, status: 'paid', paymentMethod: 'points' })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('OUTSTANDING_CHANGED')
 
     const rows = await txnRows(orderId)
     expect(rows).toHaveLength(1)
@@ -339,10 +342,11 @@ describe('DR-04 P2-1 points settlement — idempotency', () => {
     expect(await historyRows(member.id)).toHaveLength(historyBefore)
   })
 
-  test('unpaid order with an existing settlement row (partial split payment) + points request skips redemption', async () => {
-    // Real repository state: a partially split-paid QR order holds a payment
-    // row while still pending/unpaid, so update-status reaches the
-    // paidSettlementExists skip (not the oldStatus === 'paid' gate).
+  test('partially split-paid order: a stale points settlement is refused; the exact remainder redeems exactly the outstanding', async () => {
+    // DR-23 (BA §35.10 E, P0-1): a partial split payment makes the order
+    // PARTIALLY_PAID. The former "skip because a settlement row exists"
+    // behaviour (which marked the order paid with only 20,000 collected)
+    // is superseded: settlement must equal the CURRENT outstanding amount.
     const member = await makeMember({ storeId: store.id, totalPoints: PRICE * 3 })
     const order = await makeQrOrder({ customerId: member.id })
 
@@ -358,44 +362,41 @@ describe('DR-04 P2-1 points settlement — idempotency', () => {
     expect(payRes.status).toBe(200)
     expect(payRes.body.data.orderComplete).toBe(false)
 
-    // Precondition proof: not paid, and a settlement row already exists.
     const pre = await db.order.findByPk(order.id)
     expect(pre.status).toBe('pending')
-    expect(pre.status).not.toBe('paid')
-    expect(pre.paymentStatus).toBe('unpaid')
-    const txnsBefore = await txnRows(order.id)
-    expect(txnsBefore).toHaveLength(1)
-    expect(txnsBefore[0].typePayment).toBe('cash')
-    expect(Number(txnsBefore[0].amount)).toBe(20000)
+    expect(pre.paymentStatus).toBe('partial') // PARTIALLY_PAID (legacy carrier)
     const pointsBefore = await memberPoints(member.id)
     expect(pointsBefore).toBe(PRICE * 3)
     const historyBefore = (await historyRows(member.id)).length
 
-    // Balance covers the total, so a redemption running before the skip
-    // would succeed and visibly deduct — this test would then fail.
-    const res = await settlePaid({ id: order.id, store: store.id, status: 'paid', paymentMethod: 'points' })
-    expect(res.status).toBe(200)
-
-    // No points movement of any kind.
+    // Stale claim of the full total (no amount) → refused, no points move.
+    const stale = await settlePaid({ id: order.id, store: store.id, status: 'paid', paymentMethod: 'points' })
+    expect(stale.status).toBe(409)
+    expect(stale.body.code).toBe('OUTSTANDING_CHANGED')
+    expect(stale.body.outstanding).toBe(PRICE - 20000)
     expect(await memberPoints(member.id)).toBe(pointsBefore)
     expect(await historyRows(member.id)).toHaveLength(historyBefore)
-    const memberAfter = await db.member.findByPk(member.id)
-    expect(Number(memberAfter.lifetimePoints)).toBe(PRICE * 3)
+    expect(await txnRows(order.id)).toHaveLength(1)
+    expect((await db.order.findByPk(order.id)).paymentStatus).toBe('partial')
 
-    // The existing settlement row is respected: same single row, untouched.
-    const txnsAfter = await txnRows(order.id)
-    expect(txnsAfter).toHaveLength(1)
-    expect(txnsAfter[0].id).toBe(txnsBefore[0].id)
-    expect(txnsAfter[0].typePayment).toBe('cash')
-    expect(Number(txnsAfter[0].amount)).toBe(20000)
-
-    // Existing skip behavior: the transition applies, but no points tender
-    // is written onto the order.
+    // Exact remainder → points redeem exactly the outstanding amount.
+    const remainder = await settlePaid({
+      id: order.id,
+      store: store.id,
+      status: 'paid',
+      paymentMethod: 'points',
+      amount: PRICE - 20000
+    })
+    expect(remainder.status).toBe(200)
+    expect(await memberPoints(member.id)).toBe(pointsBefore - (PRICE - 20000))
+    const rows = await txnRows(order.id)
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => [r.typePayment, Number(r.amount)]).sort()).toEqual(
+      [['cash', 20000], ['points', PRICE - 20000]].sort()
+    )
     const after = await db.order.findByPk(order.id)
     expect(after.paymentStatus).toBe('paid')
-    expect(after.paymentMethod).toBe(pre.paymentMethod)
-    expect(after.paymentMethod).not.toBe('points')
-    expect(after.cashRegisterId).toBe(pre.cashRegisterId)
+    expect(after.paymentMethod).toBe('points')
   })
 
   test('repeated paid transition does not deduct again', async () => {
@@ -408,7 +409,8 @@ describe('DR-04 P2-1 points settlement — idempotency', () => {
     const historyAfterFirst = (await historyRows(member.id)).length
 
     const second = await settlePaid({ id: order.id, store: store.id, status: 'paid', paymentMethod: 'points' })
-    expect(second.status).toBe(200)
+    expect(second.status).toBe(409)
+    expect(second.body.code).toBe('OUTSTANDING_CHANGED')
     expect(await memberPoints(member.id)).toBe(PRICE * 2)
     expect(await historyRows(member.id)).toHaveLength(historyAfterFirst)
     expect(await txnRows(order.id)).toHaveLength(1)

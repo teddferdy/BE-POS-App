@@ -7,6 +7,7 @@ const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { scalarStoreScope, isSuperAdmin, resolveStoreId } = require('../../utils/tenantScope')
 const { IRREVERSIBLE_STORE_STATUSES } = require('../validation/schemas')
 const { canonicalPhone } = require('../../utils/memberIdentity')
+const { computeOrderFinancials } = require('../service/orderFinancials')
 const {
   getConnectionStatus,
   sendDocument,
@@ -1302,6 +1303,15 @@ const posController = {
           })
           if (!lockedOrder || !['paid', 'partial'].includes(lockedOrder.paymentStatus)) {
             const e = new Error('Only paid or partially-refunded orders can be returned')
+            e.statusCode = 409
+            throw e
+          }
+          // DR-23 (BA §35.10): 'partial' now also carries PARTIALLY_PAID.
+          // Returns require a fully settled order (outstanding = 0), judged
+          // on ledger aggregates under this lock — never on the cache alone.
+          const fin = await computeOrderFinancials(lockedOrder, t)
+          if (fin.O > 0) {
+            const e = new Error('Only fully settled orders can be returned; this order still has an outstanding balance')
             e.statusCode = 409
             throw e
           }

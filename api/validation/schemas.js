@@ -376,6 +376,14 @@ exports.updateOrderStatusSchema = z.object({
   changeAmount: z.any().transform((v) =>
     v === '' || v === null || v === undefined ? null : Number(v)
   ).optional(),
+  // DR-23 (BA §35.10): explicit settlement amount — must equal the current
+  // outstanding amount (validated under the order lock, 409/422 in the
+  // controller). Omitted = legacy claim of the order's full total.
+  amount: z.any().transform((v) =>
+    v === '' || v === null || v === undefined ? null : Number(v)
+  ).optional(),
+  // DR-23: reference for the non-cash portion of a void refund.
+  refundReference: z.string().max(255).optional().nullable(),
   // Phase 31 Batch 1: required (non-empty after trim) when cancelling a
   // paid order — enforced in updateOrderStatus, which alone knows the
   // locked oldPaymentStatus. Optional here so unrelated transitions keep

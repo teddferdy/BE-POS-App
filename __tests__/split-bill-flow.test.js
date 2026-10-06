@@ -68,9 +68,19 @@ beforeAll(async () => {
     { id: 7301, userName: 'admin_spl_flow', roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // DR-23: a void's cash refund is attributed to the open register
+  // performing it (split collections happen inside this register window).
+  await db.cashRegister.create({
+    store: location.id,
+    user: 7301,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: location.id }, force: true })
   await db.user.destroy({ where: { id: [7301] }, force: true })
   await db.split_bill.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
@@ -304,19 +314,13 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     expect(remaining[0].amount).toBe(25000)
   })
 
-  test('cancelling the order racing the final split payment: stock never ends up wrong regardless of ordering', async () => {
-    // Cross-endpoint race: order-cancel (updateOrderStatus) vs the last
-    // split payment's order-completion step (splitBill.pay). Both lock
-    // the same order row, so exactly one interleaving happens:
-    //  - cancel first: order cancelled while still unpaid (stock was
-    //    never deducted for this order yet) — pay's completion guard
-    //    must see the cancelled order and skip stock deduction/revival.
-    //  - pay first: the order legitimately completes to paid (stock
-    //    deducted), then cancel runs on a now-paid order exactly like an
-    //    ordinary post-payment cancellation — reversing that same stock.
-    // Either way, stock must land back at the pre-race baseline; it must
-    // never be inflated (deducted-without-payment or revived-and-
-    // re-deducted) or left permanently deducted with no reversal.
+  test('cancelling the order racing the final split payment: money never disappears and stock never ends up wrong', async () => {
+    // DR-23 (BA §35.10 G, P0-3): once the first split is collected the order
+    // holds money (N > 0), so cancel is refused (CANCEL_REQUIRES_VOID) under
+    // the order lock no matter how the race interleaves — the former "cancel
+    // won" outcome (a cancelled order still holding collected money) is the
+    // P0-3 defect itself. The final split completes the order exactly once;
+    // reversing it is an authorized void that restores stock exactly once.
     const order = await makeUnpaidOrder({ qty: 5 })
     const baseline = await db.product.findByPk(product.id)
 
@@ -344,23 +348,30 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
         .send({ paymentMethod: 'cash' })
     ])
 
-    expect(cancelRes.status).toBe(200)
+    expect(cancelRes.status).toBe(409)
+    expect(cancelRes.body.code).toBe('CANCEL_REQUIRES_VOID')
     expect(finalPayRes.status).toBe(200)
+    expect(finalPayRes.body.data.orderComplete).toBe(true)
+
+    const paidOrder = await db.order.findByPk(order.id)
+    expect(paidOrder.status).toBe('paid')
+    expect(paidOrder.paymentStatus).toBe('paid')
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(Number(baseline.stock) - 5)
+    const ledger = await db.transaction.findAll({ where: { order: order.id } })
+    expect(ledger.filter((t) => Number(t.amount) < 0)).toHaveLength(0)
+    expect(ledger.reduce((sum, t) => sum + Number(t.amount), 0)).toBe(50000)
+
+    const voidRes = await request(app)
+      .put('/order/update-status')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: order.id, status: 'void', store: location.id, reason: 'Race test void reason' })
+    expect(voidRes.status).toBe(200)
 
     const finalOrder = await db.order.findByPk(order.id)
-    const finalStock = await db.product.findByPk(product.id)
-
-    expect(finalOrder.status).toBe('cancelled')
-    expect(Number(finalStock.stock)).toBe(Number(baseline.stock))
-
-    if (finalPayRes.body.data.orderComplete) {
-      // Pay won the order-completion race: it deducted stock and marked
-      // the order paid, then cancel reversed that same deduction.
-      expect(finalOrder.paymentStatus).toBe('refunded')
-    } else {
-      // Cancel won: pay's completion step correctly saw the cancelled
-      // order and never deducted anything to begin with.
-      expect(finalOrder.paymentStatus).toBe('unpaid')
-    }
+    expect(finalOrder.status).toBe('void')
+    expect(finalOrder.paymentStatus).toBe('refunded')
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(Number(baseline.stock))
+    const finalLedger = await db.transaction.findAll({ where: { order: order.id } })
+    expect(finalLedger.reduce((sum, t) => sum + Number(t.amount), 0)).toBe(0)
   })
 })

@@ -145,60 +145,79 @@ async function voidAudits(orderId) {
   })
 }
 
-describe('paid-order cancel/void requires a reason', () => {
-  test('1. paid cancel WITHOUT reason is rejected', async () => {
+async function voidOrder(token, id, body = {}) {
+  return request(app)
+    .put('/order/update-status')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ id, status: 'void', store: location.id, ...body })
+}
+
+// DR-23 (BA §35.10 G, DR-08): reversing a PAID order is a VOID — an elevated
+// capability (interim: admin/super_admin) with a mandatory reason, an exact
+// refund and stock reversal. Cancel is only for orders with nothing
+// collected, so a paid cancel is refused with CANCEL_REQUIRES_VOID. The
+// Phase 31 "kasir may cancel a paid order with a reason" path is superseded.
+describe('paid-order reversal (void) requires a reason and an elevated capability', () => {
+  test('1. paid void WITHOUT reason is rejected', async () => {
     const { order } = await createPaidOrder(kasirToken)
-    const res = await cancelOrder(kasirToken, order.id)
-    expect([400, 422]).toContain(res.status)
+    const res = await voidOrder(adminToken, order.id)
+    expect(res.status).toBe(422)
+    expect(res.body.code).toBe('REASON_REQUIRED')
+    const still = await db.order.findByPk(order.id)
+    expect(still.status).toBe('paid')
+    expect(await refundTxns(order.id)).toHaveLength(0)
+  })
+
+  test('2. paid void with empty reason is rejected', async () => {
+    const { order } = await createPaidOrder(kasirToken)
+    const res = await voidOrder(adminToken, order.id, { reason: '' })
+    expect(res.status).toBe(422)
     const still = await db.order.findByPk(order.id)
     expect(still.status).toBe('paid')
   })
 
-  test('2. paid cancel with empty reason is rejected', async () => {
+  test('3. paid void with whitespace-only reason is rejected', async () => {
     const { order } = await createPaidOrder(kasirToken)
-    const res = await cancelOrder(kasirToken, order.id, { reason: '' })
-    expect([400, 422]).toContain(res.status)
+    const res = await voidOrder(adminToken, order.id, { reason: '   ' })
+    expect(res.status).toBe(422)
     const still = await db.order.findByPk(order.id)
     expect(still.status).toBe('paid')
   })
 
-  test('3. paid cancel with whitespace-only reason is rejected', async () => {
+  test('4+5. kasir can no longer reverse a paid order: cancel → 409 CANCEL_REQUIRES_VOID, void → 403', async () => {
     const { order } = await createPaidOrder(kasirToken)
-    const res = await cancelOrder(kasirToken, order.id, { reason: '   ' })
-    expect([400, 422]).toContain(res.status)
+    const cancel = await cancelOrder(kasirToken, order.id, { reason: 'Customer changed mind' })
+    expect(cancel.status).toBe(409)
+    expect(cancel.body.code).toBe('CANCEL_REQUIRES_VOID')
+    const voided = await voidOrder(kasirToken, order.id, { reason: 'Customer changed mind' })
+    expect(voided.status).toBe(403)
     const still = await db.order.findByPk(order.id)
     expect(still.status).toBe('paid')
+    expect(still.paymentStatus).toBe('paid')
+    expect(await refundTxns(order.id)).toHaveLength(0)
   })
 
-  test('4+5. paid cancel with valid reason succeeds and kasir stays authorized', async () => {
-    const { order } = await createPaidOrder(kasirToken)
-    const res = await cancelOrder(kasirToken, order.id, {
-      reason: 'Customer changed mind'
-    })
-    expect(res.status).toBe(200)
-    const cancelled = await db.order.findByPk(order.id)
-    expect(cancelled.status).toBe('cancelled')
-    expect(cancelled.paymentStatus).toBe('refunded')
-  })
-
-  test('6. admin with valid reason succeeds', async () => {
+  test('6. admin void with valid reason succeeds', async () => {
     const { order } = await createPaidOrder(adminToken)
-    const res = await cancelOrder(adminToken, order.id, {
+    const res = await voidOrder(adminToken, order.id, {
       reason: 'Duplicate order entered twice'
     })
     expect(res.status).toBe(200)
-    const cancelled = await db.order.findByPk(order.id)
-    expect(cancelled.status).toBe('cancelled')
+    const voided = await db.order.findByPk(order.id)
+    expect(voided.status).toBe('void')
+    expect(voided.paymentStatus).toBe('refunded')
   })
 
-  test('7. refund transaction still created exactly as before', async () => {
+  test('7. void refunds exactly what was collected, in the original tender', async () => {
     const { order } = await createPaidOrder(kasirToken, 3)
     const full = await db.order.findByPk(order.id)
-    const res = await cancelOrder(kasirToken, order.id, { reason: 'Out of stock item' })
+    const res = await voidOrder(adminToken, order.id, { reason: 'Out of stock item' })
     expect(res.status).toBe(200)
     const refunds = await refundTxns(order.id)
     expect(refunds).toHaveLength(1)
     expect(Number(refunds[0].amount)).toBe(-Math.abs(Number(full.totalPrice)))
+    expect(refunds[0].typePayment).toBe('cash')
+    expect(Number(refunds[0].createdBy)).toBe(ADMIN_ID)
   })
 
   test('8. stock reversal still occurs exactly as before', async () => {
@@ -206,7 +225,7 @@ describe('paid-order cancel/void requires a reason', () => {
     const before = 50
     const mid = Number((await db.product.findByPk(prod.id)).stock)
     expect(mid).toBe(before - 4)
-    const res = await cancelOrder(kasirToken, order.id, { reason: 'Kitchen closed early' })
+    const res = await voidOrder(adminToken, order.id, { reason: 'Kitchen closed early' })
     expect(res.status).toBe(200)
     const after = Number((await db.product.findByPk(prod.id)).stock)
     expect(after).toBe(before)
@@ -215,7 +234,7 @@ describe('paid-order cancel/void requires a reason', () => {
   test('9+10. audit record contains reason and identifies actor/order/store/action', async () => {
     const { order } = await createPaidOrder(kasirToken)
     const reason = 'Customer paid wrong amount, re-ring'
-    const res = await cancelOrder(kasirToken, order.id, { reason })
+    const res = await voidOrder(adminToken, order.id, { reason })
     expect(res.status).toBe(200)
     const audits = await voidAudits(order.id)
     expect(audits.length).toBeGreaterThanOrEqual(1)
@@ -223,19 +242,19 @@ describe('paid-order cancel/void requires a reason', () => {
     expect(audit.action).toBe('void')
     expect(Number(audit.entityId)).toBe(Number(order.id))
     expect(Number(audit.store)).toBe(Number(location.id))
-    expect(Number(audit.userId)).toBe(KASIR_ID)
+    expect(Number(audit.userId)).toBe(ADMIN_ID)
     expect(audit.description).toContain(reason)
     expect(audit.newValues && audit.newValues.reason).toBe(reason)
   })
 
-  test('11+12. repeat cancellation creates no duplicate refund or audit', async () => {
+  test('11+12. repeat void creates no duplicate refund or audit', async () => {
     const { order } = await createPaidOrder(kasirToken)
-    const first = await cancelOrder(kasirToken, order.id, { reason: 'No show' })
+    const first = await voidOrder(adminToken, order.id, { reason: 'No show' })
     expect(first.status).toBe(200)
     expect(await refundTxns(order.id)).toHaveLength(1)
     expect(await voidAudits(order.id)).toHaveLength(1)
     // Repeat without reason: still a no-op success, no new side effects.
-    const second = await cancelOrder(kasirToken, order.id)
+    const second = await voidOrder(adminToken, order.id)
     expect(second.status).toBe(200)
     expect(await refundTxns(order.id)).toHaveLength(1)
     expect(await voidAudits(order.id)).toHaveLength(1)

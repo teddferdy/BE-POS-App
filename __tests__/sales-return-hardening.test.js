@@ -277,7 +277,7 @@ describe('Amount invariant', () => {
     expect(returnsAfter).toBe(0)
   })
 
-  test('a mixed sales_return + cancellation-auto-refund never lets total refunded exceed collected — cancellation is blocked once an approved return exists', async () => {
+  test('a mixed sales_return + cancel/void never lets total refunded exceed collected — both are blocked once an approved return exists', async () => {
     const order = await buildPaidOrder({
       items: [{ product: product.id, productName: product.nameProduct, quantity: 4, price: 20000, totalPrice: 80000 }]
     })
@@ -287,13 +287,22 @@ describe('Amount invariant', () => {
     })
     await approveReturn(adminToken, ret.body.data.id)
 
+    // DR-23 (BA §35.10 G): money is still net-collected, so cancel is
+    // refused (CANCEL_REQUIRES_VOID); a PARTIALLY_REFUNDED order cannot be
+    // voided in v1 (remaining lines go through a sales return). Formerly a
+    // 400 from the approved-return guard; the mutual exclusion still holds.
     const cancelRes = await request(app)
       .put('/order/update-status')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ id: order.id, status: 'cancelled', store: store.id, reason: 'Hardening test void reason' })
-    // Existing, preserved mutual-exclusion guard in order.js — untouched
-    // by F4, re-verified here as part of the refund-invariant proof.
-    expect(cancelRes.status).toBe(400)
+    expect(cancelRes.status).toBe(409)
+    expect(cancelRes.body.code).toBe('CANCEL_REQUIRES_VOID')
+    const voidRes = await request(app)
+      .put('/order/update-status')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: order.id, status: 'void', store: store.id, reason: 'Hardening test void reason' })
+    expect(voidRes.status).toBe(409)
+    expect(voidRes.body.code).toBe('VOID_NOT_APPLICABLE')
 
     const ledger = await db.transaction.findAll({ where: { order: order.id } })
     const totalCollected = ledger.filter((t) => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0)

@@ -24,6 +24,7 @@ let category = null
 let product = null
 let lowStockProduct = null
 let cashierToken = null
+let adminToken = null
 const tableIds = []
 
 const token = () => cashierToken
@@ -64,10 +65,10 @@ const qrOrder = (tableId, key) =>
       items: [{ productId: product.id, productName: product.nameProduct, quantity: 1 }]
     })
 
-const updateStatus = (body) =>
+const updateStatus = (body, asToken = token()) =>
   request(app)
     .put('/order/update-status')
-    .set('Authorization', `Bearer ${token()}`)
+    .set('Authorization', `Bearer ${asToken}`)
     .send({ store: store.id, ...body })
 
 const setAvailable = (tableId) =>
@@ -122,11 +123,34 @@ beforeAll(async () => {
     status: 'active',
     fullName: 'pos_occ_cashier'
   })
+  await db.user.create({
+    id: 9712,
+    userName: 'pos_occ_admin',
+    email: 'p14-9712-pos-occ@test.com',
+    roleType: 'admin',
+    userType: 'admin',
+    store: store.id,
+    status: 'active',
+    fullName: 'pos_occ_admin'
+  })
   // AUTH-1 P2: sessions need their user rows (FK), so mint tokens after them.
   cashierToken = await signSessionToken(
     { id: 9711, userName: 'pos_occ_cashier', roleType: 'kasir', store: store.id },
     JWT_SECRET
   )
+  adminToken = await signSessionToken(
+    { id: 9712, userName: 'pos_occ_admin', roleType: 'admin', store: store.id },
+    JWT_SECRET
+  )
+  // DR-23: a void's cash refund is attributed to the open register; POS
+  // sales made while it is open belong to it.
+  await db.cashRegister.create({
+    store: store.id,
+    user: 9712,
+    status: 'open',
+    openingBalance: 0,
+    openedAt: new Date()
+  })
   // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
   // so these occupancy assertions exercise configured tax.
   for (const s of [store, otherStore]) {
@@ -142,7 +166,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   jest.restoreAllMocks()
-  await db.user.destroy({ where: { id: [9711] }, force: true })
+  await db.cashRegister.destroy({ where: { store: [store?.id, otherStore?.id].filter(Boolean) }, force: true })
+  await db.user.destroy({ where: { id: [9711, 9712] }, force: true })
   await db.taxConfig.destroy({
     where: { store: [store?.id, otherStore?.id].filter(Boolean) },
     force: true
@@ -412,11 +437,17 @@ describe('POS occupancy — order lifecycle never releases a POS visit', () => {
     const table = await mkTable()
     const created = await posOrder(table.id)
     expect(created.status).toBe(201)
-    for (const status of ['preparing', 'ready', 'served', 'paid']) {
+    for (const status of ['preparing', 'ready', 'served']) {
       const res = await updateStatus({ id: created.body.data.id, status })
       expect(res.status).toBe(200)
       expect(await tableStatus(table.id)).toBe('occupied')
     }
+    // DR-23 (BA §35.10 K): a repeated settlement of a PAID order is refused
+    // on the fresh state (outstanding 0) instead of a hidden 200 no-op.
+    const repaid = await updateStatus({ id: created.body.data.id, status: 'paid' })
+    expect(repaid.status).toBe(409)
+    expect(repaid.body.code).toBe('OUTSTANDING_CHANGED')
+    expect(await tableStatus(table.id)).toBe('occupied')
     // Existing payment behavior intact: still paid, still exactly one ledger row.
     expect((await db.order.findByPk(created.body.data.id)).paymentStatus).toBe('paid')
     expect(await db.transaction.count({ where: { order: created.body.data.id } })).toBe(1)
@@ -438,30 +469,48 @@ describe('POS occupancy — order lifecycle never releases a POS visit', () => {
     expect(await tableStatus(table.id)).toBe('occupied')
   })
 
-  test.each(['cancelled', 'void'])(
-    '%s leaves the POS table occupied, with its existing refund/stock/ledger effects intact',
-    async (status) => {
-      const table = await mkTable()
-      const stockBefore = Number((await db.product.findByPk(product.id)).stock)
-      const created = await posOrder(table.id, { quantity: 2 })
-      expect(created.status).toBe(201)
-      const orderId = created.body.data.id
-      expect(Number((await db.product.findByPk(product.id)).stock)).toBe(stockBefore - 2)
+  // DR-23 (BA §35.10 G): a PAID POS order cannot be cancelled (money is
+  // collected → CANCEL_REQUIRES_VOID); it is reversed by an elevated void.
+  test('cancelling a paid POS order is refused and leaves table, stock and ledger untouched', async () => {
+    const table = await mkTable()
+    const stockBefore = Number((await db.product.findByPk(product.id)).stock)
+    const created = await posOrder(table.id, { quantity: 2 })
+    expect(created.status).toBe(201)
+    const orderId = created.body.data.id
 
-      const res = await updateStatus({ id: orderId, status, reason: 'POS occupancy test' })
-      expect(res.status).toBe(200)
+    const res = await updateStatus({ id: orderId, status: 'cancelled', reason: 'POS occupancy test' })
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('CANCEL_REQUIRES_VOID')
 
-      const order = await db.order.findByPk(orderId)
-      expect(order.status).toBe(status)
-      expect(order.paymentStatus).toBe('refunded')
-      expect(Number((await db.product.findByPk(product.id)).stock)).toBe(stockBefore)
-      const ledger = await db.transaction.findAll({ where: { order: orderId } })
-      expect(ledger).toHaveLength(2)
-      expect(ledger.map((r) => Math.sign(Number(r.amount))).sort()).toEqual([-1, 1])
+    const order = await db.order.findByPk(orderId)
+    expect(order.status).toBe('paid')
+    expect(order.paymentStatus).toBe('paid')
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(stockBefore - 2)
+    expect(await db.transaction.count({ where: { order: orderId } })).toBe(1)
+    expect(await tableStatus(table.id)).toBe('occupied')
+  })
 
-      expect(await tableStatus(table.id)).toBe('occupied')
-    }
-  )
+  test('void leaves the POS table occupied, with its refund/stock/ledger effects intact', async () => {
+    const table = await mkTable()
+    const stockBefore = Number((await db.product.findByPk(product.id)).stock)
+    const created = await posOrder(table.id, { quantity: 2 })
+    expect(created.status).toBe(201)
+    const orderId = created.body.data.id
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(stockBefore - 2)
+
+    const res = await updateStatus({ id: orderId, status: 'void', reason: 'POS occupancy test' }, adminToken)
+    expect(res.status).toBe(200)
+
+    const order = await db.order.findByPk(orderId)
+    expect(order.status).toBe('void')
+    expect(order.paymentStatus).toBe('refunded')
+    expect(Number((await db.product.findByPk(product.id)).stock)).toBe(stockBefore)
+    const ledger = await db.transaction.findAll({ where: { order: orderId } })
+    expect(ledger).toHaveLength(2)
+    expect(ledger.map((r) => Math.sign(Number(r.amount))).sort()).toEqual([-1, 1])
+
+    expect(await tableStatus(table.id)).toBe('occupied')
+  })
 
   test('QR release semantics are unchanged: a cancelled QR order still frees its table', async () => {
     const table = await mkTable()
