@@ -22,7 +22,8 @@ const { LOCAL_HOSTS } = require('../scripts/check-migration-preflight')
 const DB = `cashier_app_p1attr_schema_${process.pid}`
 const M1 = '20261013000001-p1-transaction-attribution.js'
 const M2 = '20261013000002-p1-transaction-linkage-fks.js'
-const M3 = '20261013000003-p1-canonical-payment-check.js'
+// D-08 E2 Option C: M3 renamed to sort after M5 (B3 runs after P1 is live).
+const M3 = '20261013000005-p1-canonical-payment-check.js'
 const M5 = '20261013000004-p1-register-close-snapshot.js'
 
 const CANONICAL_METHODS = ['CASH', 'CARD', 'BANK_TRANSFER', 'E_WALLET', 'QRIS', 'POINTS', 'OTHER']

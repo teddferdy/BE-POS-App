@@ -79,7 +79,11 @@ Field rules:
 3. **Run migrations.** `npm run migrate` runs the preflight first and starts
    `sequelize-cli db:migrate` only when every disposition is stamped and none
    is blocked or pending. Never run `sequelize-cli db:migrate` against
-   production before stamping is complete.
+   production before stamping is complete. E2 (migrations not listed in the
+   manifest) runs in separately approved bounded batches,
+   `npm run migrate -- --env production --batch B1|B2|B3`. See
+   `scripts/migration-batches.js` and
+   `docs/superpowers/evidence/d08-e2-batch-contract-record.md`.
 4. **Controlled apply.** For each `CONTROLLED_APPLY_PENDING` row, a reviewed
    operation applies the missing effect. Once it is verified, the row becomes
    `CONTROLLED_APPLIED` with an `applyRef`. The migration file itself is never
