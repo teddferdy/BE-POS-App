@@ -98,17 +98,19 @@ vocabulary and field rules are in `db/migration-dispositions/README.md`.
      - **B2**: P1 M1 + M2 + M5;
      - **B3**: P1 M3 only, after P1 is live with canonical payment writes
        verified.
-   - After the preflight, the runner refuses a batch whose members are
-     missing or already recorded, when any pending migration outside the
-     batch would run first, or when a governance gate is open (B1: DR-22;
-     B3: P1 canonical writes verified). It then runs
+    - After the preflight, the runner refuses a batch whose members are
+      missing or already recorded, when any pending migration outside the
+      batch would run first, or when a governance gate is open (B3: P1
+      canonical writes verified; B1's DR-22 gate was resolved 2026-10-07 and
+      carries no open gate). It then runs
      `db:migrate --to <last member>` and re-reads `SequelizeMeta` to confirm
      exactly the batch was recorded.
    - While any batch member is pending, an unbatched `npm run migrate`
      against production or staging is refused.
-   - A batch existing in the repository does not approve it. Each batch
-     needs its own explicit execution approval, a restore point and fresh
-     read-only preconditions.
+    - A batch existing in the repository does not approve it. Each batch
+      needs its own explicit execution approval, a restore point and fresh
+      read-only preconditions. DR-22 resolution made B1 governance-eligible;
+      it does not itself authorize B1 production execution.
 6. **Verify**: `npm run check:production-schema` must PASS.
 
 **Never run `sequelize-cli db:migrate` (or `npx sequelize-cli`) directly

@@ -55,13 +55,14 @@ const E2_BATCHES = Object.freeze({
       '20261011000001-add-reactivated-at-to-tenant-membership.js',
       '20261012000001-d05-member-identity-uniqueness.js'
     ],
-    openGates: [
-      {
-        id: 'DR-22',
-        reason:
-          'production provisioning of the legacy kasir role by 20260613000003 is DEFERRED (BA §35.9); B1 cannot run until the product owner decides'
-      }
-    ]
+    // DR-22: RESOLVED 2026-10-07 by Product Owner CONDITIONAL AUTHORIZATION
+    // (docs/superpowers/evidence/dr22-conditional-authorization-record.md;
+    // intent dr22-condition1-intent-record-2026-10-07.md; role-state
+    // dr22-condition-recapture-2026-10-07T18-14-37Z.md). Gate clearance makes
+    // B1 governance-eligible only: B1 execution still needs its own explicit
+    // approval plus, per the D-08 record and RELEASING.md, an execution-time
+    // restore point and fresh read-only preconditions.
+    openGates: []
   }),
   B2: deepFreeze({
     id: 'B2',
