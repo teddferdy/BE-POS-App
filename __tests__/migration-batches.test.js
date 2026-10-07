@@ -113,8 +113,8 @@ describe('D-08 E2 batch contract (Option C)', () => {
     expect(mig.CONSTRAINT_NAME).toBe('transaction_typepayment_canonical')
   })
 
-  test('B1 and B3 carry their open governance gates; B2 has none', () => {
-    expect(batches.E2_BATCHES.B1.openGates.map((g) => g.id)).toEqual(['DR-22'])
+  test('B1 gate DR-22 is resolved; B3 gate stays open; B2 has none', () => {
+    expect(batches.E2_BATCHES.B1.openGates).toEqual([])
     expect(batches.E2_BATCHES.B2.openGates).toEqual([])
     expect(batches.E2_BATCHES.B3.openGates.map((g) => g.id)).toEqual(['P1-CANONICAL-WRITES-VERIFIED'])
   })
@@ -216,8 +216,20 @@ describe('D-08 E2 batch evaluation (runner safety)', () => {
     expect(r.reasons.join('\n')).toMatch(/unknown batch "B4"/)
   })
 
-  test('B1 is refused while DR-22 is open (real contract)', () => {
+  test('B1 is governance-eligible now that DR-22 is resolved (real contract)', () => {
     const r = batches.evaluateBatch({ batchId: 'B1', files: FILES, metaNames: ledgerWith() })
+    expect(r.ok).toBe(true)
+    expect(r.reasons.join('\n')).not.toMatch(/open governance gate DR-22/)
+    expect(r.migrations).toEqual(ORIGINAL_E2_13)
+  })
+
+  test('an unknown open gate still refuses (gate enforcement intact)', () => {
+    const r = batches.evaluateBatch({
+      batchId: 'B1',
+      files: FILES,
+      metaNames: ledgerWith(),
+      batches: withBatch('B1', { openGates: [{ id: 'DR-22', reason: 'regression probe' }] })
+    })
     expect(r.ok).toBe(false)
     expect(r.reasons.join('\n')).toMatch(/open governance gate DR-22/)
   })
@@ -351,11 +363,8 @@ describe('D-08 batched runner (npm run migrate -- --batch)', () => {
     expect(spawn).not.toHaveBeenCalled()
   })
 
-  test('B1 and B3 are refused by their open gates before anything is spawned', async () => {
-    for (const [batch, meta, gate] of [
-      ['B1', ledgerWith(), /DR-22/],
-      ['B3', ledgerWith(B1, B2), /P1-CANONICAL-WRITES-VERIFIED/]
-    ]) {
+  test('B3 is refused by its open gate before anything is spawned (B1 gate resolved)', async () => {
+    for (const [batch, meta, gate] of [['B3', ledgerWith(B1, B2), /P1-CANONICAL-WRITES-VERIFIED/]]) {
       errSpy.mockClear()
       const spawn = jest.fn()
       const code = await runner.main({
