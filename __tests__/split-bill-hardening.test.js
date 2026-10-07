@@ -73,9 +73,12 @@ beforeAll(async () => {
     { id: 7401, userName: 'admin_spl_hard', roleType: 'admin', store: location.id },
     JWT_SECRET
   )
+  // P1 (DR-PAY-ATTR-02): split settlement under test requires an open register.
+  await db.cashRegister.create({ store: location.id, user: 7401, status: 'open', openingBalance: 0, openedAt: new Date() })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: location?.id }, force: true })
   await db.user.destroy({ where: { id: [7401] }, force: true })
   await db.accounting_outbox.destroy({ where: { referenceType: 'order' }, force: true })
   await db.journal_entry_line.destroy({ where: {}, force: true })

@@ -87,9 +87,12 @@ beforeAll(async () => {
     status: 'active',
     store: store.id
   })
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: store.id, user: 7201, status: 'open', openingBalance: 0, openedAt: new Date() })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.user.destroy({ where: { id: [7201] }, force: true })
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   const productIds = [productA?.id, productB?.id].filter(Boolean)

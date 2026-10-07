@@ -36,7 +36,11 @@ const KNOWN_E2 = [
   '20261006000001-stock-transfer-idempotency-decimal.js',
   '20261007000001-add-dr20-foundation-fields-to-audit-log.js',
   '20261011000001-add-reactivated-at-to-tenant-membership.js',
-  '20261012000001-d05-member-identity-uniqueness.js'
+  '20261012000001-d05-member-identity-uniqueness.js',
+  '20261013000001-p1-transaction-attribution.js',
+  '20261013000002-p1-transaction-linkage-fks.js',
+  '20261013000003-p1-canonical-payment-check.js',
+  '20261013000004-p1-register-close-snapshot.js'
 ]
 
 // Locked intentional staging/production divergence (D-06 manifest
@@ -209,7 +213,7 @@ describe('W-02R.4 staging manifest (locked rehearsal contract)', () => {
     expect(r.approved).toBe(false)
   })
 
-  test('derived E2 set equals the locked 13 and partitions 236 = 197 + 26 + 13', () => {
+  test('derived E2 set equals the locked 17 and partitions 240 = 197 + 26 + 17', () => {
     const staging = STAGING_MANIFEST()
     const ledger = harness.fixtureLedgerNames(FILES)
     expect(ledger).toHaveLength(26)
@@ -764,9 +768,9 @@ describe('W-02R.4 full rehearsal integration (disposable database)', () => {
     expect(ev.result).toBe('rehearsal-pass-blocked')
     expect(ev.target).toBe('staging')
     expect(ev.stagingDb).toBe(DB)
-    expect(ev.steps.plan.e2Candidates).toHaveLength(13)
+    expect(ev.steps.plan.e2Candidates).toHaveLength(17)
     expect(ev.steps.stamp.inserted).toHaveLength(197)
-    expect(ev.steps.e2.executed).toHaveLength(13)
+    expect(ev.steps.e2.executed).toHaveLength(17)
     expect(ev.steps.e2.missingAfterRun).toEqual([])
     // D-05: the snapshot's target indexes are dropped before E2 (production
     // has member_pkey only), so the D-05 migration genuinely creates them.
@@ -774,9 +778,20 @@ describe('W-02R.4 full rehearsal integration (disposable database)', () => {
     expect(ev.steps.e2.executed).toContainEqual(
       expect.objectContaining({ migration: '20261012000001-d05-member-identity-uniqueness.js', status: 0 })
     )
+    // P1 attribution foundation: the four additive migrations execute
+    // cleanly in rehearsal (M2 orphan preflight passes on fixture data;
+    // M3 CHECK is NOT VALID so legacy alias rows do not block it).
+    for (const migration of [
+      '20261013000001-p1-transaction-attribution.js',
+      '20261013000002-p1-transaction-linkage-fks.js',
+      '20261013000003-p1-canonical-payment-check.js',
+      '20261013000004-p1-register-close-snapshot.js'
+    ]) {
+      expect(ev.steps.e2.executed).toContainEqual(expect.objectContaining({ migration, status: 0 }))
+    }
     expect(ev.steps.d05Indexes.present.sort()).toEqual([...harness.D05_MEMBER_INDEXES].sort())
     expect(ev.steps.d05Indexes.missing).toEqual([])
-    expect(ev.steps.verify.metaCount).toBe(236)
+    expect(ev.steps.verify.metaCount).toBe(240)
     expect(ev.steps.verify.failures).toEqual([])
     expect(ev.steps.verify.status).toBe('BLOCKED')
     expect(ev.steps.verify.blocked).toHaveLength(3)

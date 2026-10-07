@@ -216,7 +216,7 @@ describe('paid-order reversal (void) requires a reason and an elevated capabilit
     const refunds = await refundTxns(order.id)
     expect(refunds).toHaveLength(1)
     expect(Number(refunds[0].amount)).toBe(-Math.abs(Number(full.totalPrice)))
-    expect(refunds[0].typePayment).toBe('cash')
+    expect(refunds[0].typePayment).toBe('CASH')
     expect(Number(refunds[0].createdBy)).toBe(ADMIN_ID)
   })
 

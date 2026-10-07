@@ -158,12 +158,12 @@ describe('DR-04 update-status settlement tender', () => {
 
     const settled = await db.order.findByPk(order.id)
     expect(settled.paymentStatus).toBe('paid')
-    expect(settled.paymentMethod).toBe('cash')
+    expect(settled.paymentMethod).toBe('CASH')
     expect(Number(settled.cashRegisterId)).toBe(Number(registerId))
 
     const rows = await txnRows(order.id)
     expect(rows).toHaveLength(1)
-    expect(rows[0].typePayment).toBe('cash')
+    expect(rows[0].typePayment).toBe('CASH')
     expect(Number(rows[0].amount)).toBe(PRICE)
     expect(Number(rows[0].cashReceived)).toBe(60000)
     expect(Number(rows[0].changeGiven)).toBe(10000)
@@ -176,12 +176,12 @@ describe('DR-04 update-status settlement tender', () => {
     expect(res.status).toBe(200)
 
     const settled = await db.order.findByPk(order.id)
-    expect(settled.paymentMethod).toBe('qris')
+    expect(settled.paymentMethod).toBe('QRIS')
     expect(Number(settled.cashRegisterId)).toBe(Number(registerId))
 
     const rows = await txnRows(order.id)
     expect(rows).toHaveLength(1)
-    expect(rows[0].typePayment).toBe('qris')
+    expect(rows[0].typePayment).toBe('QRIS')
     expect(Number(rows[0].amount)).toBe(PRICE)
     expect(rows[0].cashReceived).toBeNull()
     expect(Number(rows[0].changeGiven)).toBe(0)
@@ -199,10 +199,10 @@ describe('DR-04 update-status settlement tender', () => {
       changeAmount: 0
     })
     expect(res.status).toBe(200)
-    expect((await db.order.findByPk(order.id)).paymentMethod).toBe('cash')
+    expect((await db.order.findByPk(order.id)).paymentMethod).toBe('CASH')
     const rows = await txnRows(order.id)
     expect(rows).toHaveLength(1)
-    expect(rows[0].typePayment).toBe('cash')
+    expect(rows[0].typePayment).toBe('CASH')
     expect(Number(rows[0].cashReceived)).toBe(PRICE)
   })
 
@@ -219,10 +219,13 @@ describe('DR-04 update-status settlement tender', () => {
     expect(await txnRows(order.id)).toHaveLength(before.length)
   })
 
-  test('unknown payment method is rejected at the boundary', async () => {
+  test('unknown payment method is refused with 422 before any persistence', async () => {
     const order = await makeQrOrder({ storeId: store.id })
     const res = await settlePaid({ id: order.id, store: store.id, status: 'paid', paymentMethod: 'gold-bars' })
-    expect(res.status).toBe(400)
+    // P1 (DR-PAY-ATTR-06): unknown tenders reach the canonicalizer, which
+    // refuses with 422 — the old shape-boundary 400 is superseded.
+    expect(res.status).toBe(422)
+    expect(res.body.code).toBe('INVALID_PAYMENT_METHOD')
     expect((await db.order.findByPk(order.id)).paymentStatus).toBe('unpaid')
   })
 
@@ -330,7 +333,7 @@ describe('DR-04 update-status settlement tender', () => {
 
     const rows = await txnRows(orderId)
     expect(rows).toHaveLength(1)
-    expect(rows[0].typePayment).toBe('cash')
+    expect(rows[0].typePayment).toBe('CASH')
     expect(Number(rows[0].cashReceived)).toBe(PRICE)
     expect(Number(rows[0].changeGiven)).toBe(0)
   })

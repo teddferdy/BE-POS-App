@@ -316,7 +316,23 @@ module.exports = async () => {
     // T-03B (migration 20261011000001): tenant_membership.reactivatedAt
     // reactivation freshness marker. Same precedent: idempotent here, no-op
     // when the migration already ran. NULL = no freshness constraint.
-    ['tenant_membership', 'reactivatedAt', 'TIMESTAMP WITH TIME ZONE']
+    ['tenant_membership', 'reactivatedAt', 'TIMESTAMP WITH TIME ZONE'],
+    // P1-3 (migrations 20261013000001/20261013000004): transaction
+    // attribution columns + cash_register close-snapshot columns. Same
+    // precedent as above: provision idempotently here so fresh CI clones
+    // converge (Sequelize selects all model attributes, so a missing column
+    // breaks every read of the table), no-op when the migration ran.
+    // All NULL-able by contract — legacy rows stay NULL, never backfilled.
+    ['transaction', 'cashRegisterId', 'INTEGER'],
+    ['transaction', 'splitBillId', 'INTEGER'],
+    ['cash_register', 'expectedCash', 'INTEGER'],
+    ['cash_register', 'activeCashIn', 'INTEGER'],
+    ['cash_register', 'activeCashOut', 'INTEGER'],
+    ['cash_register', 'cashRefundsTotal', 'INTEGER'],
+    ['cash_register', 'refundsTotal', 'INTEGER'],
+    ['cash_register', 'refundCount', 'INTEGER'],
+    ['cash_register', 'totalTransactions', 'INTEGER'],
+    ['cash_register', 'closeSnapshot', 'JSONB'],
   ]
 
   // Phase 34: stock_opname_item's quantity columns are migration-owned

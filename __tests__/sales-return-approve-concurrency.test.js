@@ -88,6 +88,8 @@ beforeAll(async () => {
     { id: adminUser.id, userName: adminUser.userName, roleType: 'admin', store: store.id },
     JWT_SECRET
   )
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: store.id, user: adminUser.id, status: 'open', openingBalance: 0, openedAt: new Date() })
   // W3-3 (DR-17): PPN is explicit setup, never a fallback — seed the rate
   // so these approval assertions exercise configured tax.
   await db.taxConfig.create({
@@ -100,6 +102,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.stock_history.destroy({ where: { store: store?.id }, force: true })
   await db.transaction.destroy({ where: {}, force: true })

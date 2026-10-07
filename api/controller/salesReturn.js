@@ -12,6 +12,8 @@ const {
   attemptJob,
   recordImmediateAttempt
 } = require('../service/accountingOutboxService')
+const { normalizePaymentMethod } = require('../service/canonicalPayment')
+const { resolveAttributedRegister } = require('../service/settlementAttribution')
 
 const salesReturnController = {
   async getAll(req, res) {
@@ -705,14 +707,38 @@ const salesReturnController = {
           })
         }
 
-        // 2. Refund Transaction
+        // 2. Refund Transaction — P1 (DR-PAY-ATTR-01/02): canonical
+        // tender, refunding-register attribution (SHARE-serialized against
+        // close), authenticated actor, and reference propagation onto the
+        // immutable ledger row. Cash without an open register is refused;
+        // non-cash without one proceeds unattributed (NULL, never guessed).
         if (ret.refundAmount > 0) {
+          const refundMethod = normalizePaymentMethod(
+            ret.refundMethod || order.paymentMethod || 'cash'
+          )
+          let refundRegisterId = null
+          if (refundMethod === 'CASH') {
+            const refunding = await resolveAttributedRegister(
+              ret.store ?? order.store,
+              transaction
+            )
+            refundRegisterId = refunding.id
+          } else {
+            const opportunistic = await db.cashRegister.findOne({
+              where: { store: ret.store ?? order.store, status: 'open' },
+              lock: transaction.LOCK.SHARE,
+              transaction
+            })
+            if (opportunistic) refundRegisterId = opportunistic.id
+          }
           await db.transaction.create(
             {
               order: ret.order,
               salesReturnId: ret.id,
-              typePayment: ret.refundMethod || 'cash',
+              typePayment: refundMethod,
               amount: -Math.abs(ret.refundAmount),
+              referenceNumber: refundReference || null,
+              cashRegisterId: refundRegisterId,
               notes: `Refund for return ${ret.returnNumber}`,
               createdBy: req.user?.id || null
             },

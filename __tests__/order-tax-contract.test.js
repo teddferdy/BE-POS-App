@@ -42,10 +42,13 @@ beforeAll(async () => {
     { id: 7002, userName: 'cashier_tax_ct', roleType: 'kasir', store: location.id },
     JWT_SECRET
   )
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: location.id, user: 7002, status: 'open', openingBalance: 0, openedAt: new Date() })
   tableA = await db.table.create({ store: location.id, name: 'TAX_CT_TABLE', capacity: 4 })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: location?.id }, force: true })
   await db.user.destroy({ where: { id: [7002] }, force: true })
   await db.taxConfig.destroy({ where: { store: null, name: 'TEST_GLOBAL_PPN' }, force: true })
   await db.taxConfig.destroy({ where: { store: location.id }, force: true })
@@ -245,7 +248,7 @@ describe('W3-3 DR-17 hardened resolver contract', () => {
     const res = await orderOne({ paymentMethod: 'e-wallet' })
 
     expect(res.status).toBe(201)
-    expect(res.body.data.paymentMethod).toBe('e-wallet')
+    expect(res.body.data.paymentMethod).toBe('E_WALLET')
   })
 
   test('counter with no service-charge rows charges 0 service charge (absence is valid)', async () => {

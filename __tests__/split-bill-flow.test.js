@@ -121,7 +121,9 @@ describe('Split bill — transactions, ledger, and stock deduction on completion
     const payB = await request(app)
       .put(`/split-bill/pay/${splitB.id}`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ paymentMethod: 'qris' })
+      // P1 (DR-PAY-ATTR-06/15): non-cash split settlement carries a
+      // reference persisted on the immutable ledger row.
+      .send({ paymentMethod: 'qris', referenceNumber: 'QR-SPLITFLOW-1' })
     expect(payB.status).toBe(200)
     expect(payB.body.data.orderComplete).toBe(true)
 

@@ -51,6 +51,22 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BIGINT,
         allowNull: false,
         defaultValue: 0
+      },
+      // PAYMENT P1 Register & Settlement Attribution (migration
+      // 20261013000001): per-record receiving/refunding register (MC-4).
+      // Nullable — legacy rows stay NULL, never backfilled. New applicable
+      // rows must set it (application phase); order.cashRegisterId remains
+      // legacy order-context data and is NOT authoritative per-record.
+      cashRegisterId: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      // PAYMENT P1 (migration 20261013000001): split-plan linkage,
+      // event -> plan. Nullable — legacy split-pay rows stay NULL, never
+      // inferred from notes text. ON DELETE SET NULL (never CASCADE).
+      splitBillId: {
+        type: DataTypes.INTEGER,
+        allowNull: true
       }
     },
     {
@@ -69,6 +85,14 @@ module.exports = (sequelize, DataTypes) => {
     transaction.belongsTo(models.sales_return, {
       foreignKey: 'salesReturnId',
       as: 'salesReturn'
+    })
+    transaction.belongsTo(models.cashRegister, {
+      foreignKey: 'cashRegisterId',
+      as: 'register'
+    })
+    transaction.belongsTo(models.split_bill, {
+      foreignKey: 'splitBillId',
+      as: 'splitBill'
     })
   }
 

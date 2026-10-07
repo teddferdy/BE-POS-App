@@ -140,11 +140,11 @@ describe('POST /order/customer-create — QR paid only via trusted cashier trans
     expect(Number(ledgerRows[0].amount)).toBe(Number(res.body.data.totalPrice))
     // DR-04: the trusted transition settles with a complete tender —
     // cash intent, exact-tender detail, and the open register attribution.
-    expect(ledgerRows[0].typePayment).toBe('cash')
+    expect(ledgerRows[0].typePayment).toBe('CASH')
     expect(Number(ledgerRows[0].cashReceived)).toBe(Number(res.body.data.totalPrice))
     expect(Number(ledgerRows[0].changeGiven)).toBe(0)
     const settledOrder = await db.order.findByPk(res.body.data.id)
-    expect(settledOrder.paymentMethod).toBe('cash')
+    expect(settledOrder.paymentMethod).toBe('CASH')
     expect(settledOrder.cashRegisterId).not.toBeNull()
   })
 })

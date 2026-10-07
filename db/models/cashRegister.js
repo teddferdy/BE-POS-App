@@ -66,6 +66,46 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: true
       },
+      // PAYMENT P1 Register & Settlement Attribution (migration
+      // 20261013000004): frozen closed-register snapshot. All nullable —
+      // historical closes stay NULL (unreconstructible, never backfilled).
+      // Populated by the close path in the later application phase; schema
+      // only here. See the migration for the required/derived/reused
+      // classification.
+      expectedCash: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      activeCashIn: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      activeCashOut: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      cashRefundsTotal: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      refundsTotal: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      refundCount: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      totalTransactions: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+      },
+      // { gross:{subtotal,discount,tax,serviceCharge,quantity,covers},
+      //   payments:[{type,total,count}], expenses:[{category,total,count}] }
+      closeSnapshot: {
+        type: DataTypes.JSONB,
+        allowNull: true
+      },
       varianceApprovalStatus: {
         type: DataTypes.ENUM(
           'auto_approved',

@@ -65,9 +65,12 @@ beforeAll(async () => {
     status: 'active',
     store: store.id
   })
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: store.id, user: cashierUser.id, status: 'open', openingBalance: 0, openedAt: new Date() })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.product_store_stock.destroy({ where: { product: product.id }, force: true })
   await db.product.destroy({ where: { id: product.id }, force: true })

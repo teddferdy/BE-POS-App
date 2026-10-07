@@ -31,6 +31,8 @@ const {
   financialError,
   retirePendingSplits
 } = require('../service/orderFinancials')
+const { normalizePaymentMethod } = require('../service/canonicalPayment')
+const { resolveAttributedRegister } = require('../service/settlementAttribution')
 
 // DR-23 interim compatibility mapping for the elevated `order.void`
 // capability (DR-12 memberships are not wired yet): legacy admin roles only.
@@ -1186,7 +1188,8 @@ exports.createOrder = async (req, res) => {
     redeemedPoints,
     idempotencyKey,
     cashAmount,
-    changeAmount
+    changeAmount,
+    referenceNumber
   } = req.body
 
   try {
@@ -1281,7 +1284,9 @@ exports.createOrder = async (req, res) => {
     // contract treats an absent method as cash exact tender (status notes,
     // paid-transition and split-bill `|| 'cash'` fallbacks), so normalize
     // once here and route through normal cash validation + persistence.
-    const effectivePaymentMethod = paymentMethod || 'cash'
+    // P1 (DR-PAY-ATTR-06): the persisted tender is always canonical; an
+    // unknown method is refused with 422 before any write.
+    const effectivePaymentMethod = normalizePaymentMethod(paymentMethod || 'cash')
 
     // Fails fast, before any DB write is attempted, if the cash tender
     // is physically impossible or malformed.
@@ -1390,17 +1395,12 @@ exports.createOrder = async (req, res) => {
         await lockedTable.update({ status: 'occupied' }, { transaction: t })
       }
 
-      // Deliberately a plain, unlocked read — the F2 blueprint's accepted
-      // design trade-off. This is inside the checkout transaction (moved
-      // here from before it opened) specifically to shrink the window in
-      // which a concurrent register close() could commit without ever
-      // seeing this order, but it does NOT eliminate that window and must
-      // never be described as doing so. See F2 blueprint §10.
-      const openRegister = await db.cashRegister.findOne({
-        where: { store, status: 'open' },
-        transaction: t
-      })
-      orderData.cashRegisterId = openRegister?.id || null
+      // P1 (DR-PAY-ATTR-02/03): every counter collection requires an open
+      // register, resolved under a SHARE lock that serializes against
+      // register close(). No open register -> 422 with zero side effects;
+      // a register that closes mid-flight -> 409. Never NULL-and-continue.
+      const openRegister = await resolveAttributedRegister(store, t)
+      orderData.cashRegisterId = openRegister.id
 
       orderData.customerNumber = await generateCustomerNumber(store, t)
       const createdOrder = await Order.create(orderData, { transaction: t })
@@ -1432,7 +1432,16 @@ exports.createOrder = async (req, res) => {
         req.user?.id,
         t,
         cashReceived,
-        changeGiven
+        changeGiven,
+        {
+          cashRegisterId: openRegister.id,
+          referenceNumber:
+            effectivePaymentMethod === 'CASH'
+              ? null
+              : typeof referenceNumber === 'string' && referenceNumber.trim() !== ''
+                ? referenceNumber.trim()
+                : null
+        }
       )
       await createInitialOrderStatus(
         createdOrder,
@@ -1478,7 +1487,7 @@ exports.createOrder = async (req, res) => {
         store,
         orderNumber,
         totals,
-        paymentMethod,
+        effectivePaymentMethod,
         req.user?.id,
         t
       )
@@ -1577,7 +1586,8 @@ exports.createOrder = async (req, res) => {
     }
     console.error('Error:', error)
     return res.status(error.statusCode || 500).json({
-      error: error.message || 'Internal Server Error'
+      error: error.message || 'Internal Server Error',
+      ...(error.code ? { code: error.code } : {})
     })
   }
 }
@@ -1895,7 +1905,7 @@ const deductStockForOrder = async (
 // because every ZodError in this codebase resolves to 400 regardless of
 // content (see api/middleware/validate.js) — this invariant must be 422.
 function validateCashTender({ paymentMethod, cashAmount, changeAmount, amountDue }) {
-  const isCash = paymentMethod === 'cash'
+  const isCash = paymentMethod === 'CASH'
   const hasCash = cashAmount !== undefined && cashAmount !== null
   const hasChange = changeAmount !== undefined && changeAmount !== null
 
@@ -1962,7 +1972,8 @@ const recordOrderPayment = async (
   userId,
   transaction,
   cashReceived,
-  changeGiven
+  changeGiven,
+  attribution = {}
 ) => {
   if (!paymentMethod) return
   await db.transaction.create(
@@ -1972,7 +1983,10 @@ const recordOrderPayment = async (
       amount: totalPrice,
       cashReceived: cashReceived ?? null,
       changeGiven: changeGiven ?? 0,
-      createdBy: userId
+      createdBy: userId,
+      cashRegisterId: attribution.cashRegisterId ?? null,
+      splitBillId: attribution.splitBillId ?? null,
+      referenceNumber: attribution.referenceNumber ?? null
     },
     { transaction }
   )
@@ -1981,22 +1995,27 @@ const recordOrderPayment = async (
 // DR-04: builds the complete settlement tender for an update-status paid
 // transition. The request must carry a payment method when the order does
 // not already hold one (QR orders are created method-less); cash detail is
-// validated with the same server-side validateCashTender as order create;
-// drawer attribution reuses an existing server-set register link, else
-// resolves the currently open register. Any failure throws 4xx inside the
-// caller's transaction, so the order is never left paid-but-unattributed.
+// validated with the same server-side validateCashTender as order create.
+// P1 attribution (DR-PAY-ATTR-01..03): the tender is canonicalized (422 on
+// unknown), and drawer attribution ALWAYS resolves the currently open
+// register under a SHARE lock that serializes against register close — the
+// order header's cashRegisterId is legacy context and is never inherited as
+// financial ownership (it would retroactively reattribute earlier split
+// collections). Any failure throws 4xx inside the caller's transaction, so
+// the order is never left paid-but-unattributed.
 // DR-23 (BA §35.10): amountDue is the CURRENT outstanding amount recomputed
 // from the ledger under the order lock — never the order's gross total.
 const resolvePaidSettlement = async ({
   bodyMethod,
   cashAmount,
   changeAmount,
+  referenceNumber,
   lockedOrder,
   effectiveStore,
   amountDue,
   t
 }) => {
-  const method = bodyMethod || lockedOrder.paymentMethod || null
+  const method = normalizePaymentMethod(bodyMethod || lockedOrder.paymentMethod || null)
   if (!method) {
     const err = new Error('paymentMethod is required to settle an order to paid')
     err.statusCode = 422
@@ -2008,25 +2027,15 @@ const resolvePaidSettlement = async ({
     changeAmount: changeAmount ?? null,
     amountDue
   })
-  let registerId = lockedOrder.cashRegisterId || null
-  if (!registerId) {
-    if (!effectiveStore) {
-      const err = new Error('No store context to resolve an open cash register for settlement')
-      err.statusCode = 422
-      throw err
-    }
-    const openRegister = await db.cashRegister.findOne({
-      where: { store: effectiveStore, status: 'open' },
-      transaction: t
-    })
-    if (!openRegister) {
-      const err = new Error('No open cash register for this store; open a register before settling')
-      err.statusCode = 422
-      throw err
-    }
-    registerId = openRegister.id
+  const register = await resolveAttributedRegister(effectiveStore, t)
+  return {
+    method,
+    cashReceived,
+    changeGiven,
+    registerId: register.id,
+    referenceNumber: method === 'CASH' ? null : referenceNumber ?? null,
+    amountDue
   }
-  return { method, cashReceived, changeGiven, registerId, amountDue }
 }
 
 // DR-04 P2-1: a `points` settlement redeems the order's full payable total
@@ -2644,6 +2653,9 @@ const deductStockForPaidOrder = async (
   }
 }
 exports.deductStockForPaidOrder = deductStockForPaidOrder
+// P1: split-bill settlement reuses the same server-side cash-tender
+// invariant (exact change math, integer rupiah) instead of duplicating it.
+exports.validateCashTender = validateCashTender
 // F5: additive exports only — both functions are unchanged, already used
 // by this file's own two order-completion paths (immediate pay,
 // updateOrderStatus's paid-transition). splitBill.js's completion branch
@@ -2994,6 +3006,7 @@ exports.updateOrderStatus = async (req, res) => {
             bodyMethod: req.body.paymentMethod,
             cashAmount: req.body.cashAmount,
             changeAmount: req.body.changeAmount,
+            referenceNumber: req.body.referenceNumber,
             lockedOrder,
             effectiveStore,
             amountDue: settleAmount,
@@ -3001,7 +3014,7 @@ exports.updateOrderStatus = async (req, res) => {
           })
           // DR-04 P2-1: points redemption is part of the same settlement
           // unit and covers exactly the settlement amount.
-          if (paidTender.method === 'points') {
+          if (paidTender.method === 'POINTS') {
             await redeemSettlementPoints({
               lockedOrder,
               effectiveStore,
@@ -3082,14 +3095,18 @@ exports.updateOrderStatus = async (req, res) => {
       let voidPlan = []
       let refundRegisterId = null
       if (isVoiding) {
+        // P1 (DR-PAY-ATTR-06): refund rows are new ledger writes, so their
+        // tender is canonicalized. A legacy settlement row whose tender
+        // cannot be mapped refuses the void (422) instead of persisting an
+        // unclassified refund — fail-safe over silent misclassification.
         voidPlan = [...fin.settlements].reverse().map((row) => ({
           row,
           amount: Number(row.amount),
-          method: row.typePayment
+          method: normalizePaymentMethod(row.typePayment)
         }))
-        const cashParts = voidPlan.filter((p) => p.method === 'cash')
-        const externalParts = voidPlan.filter((p) => !['cash', 'points'].includes(p.method))
-        const pointParts = voidPlan.filter((p) => p.method === 'points')
+        const cashParts = voidPlan.filter((p) => p.method === 'CASH')
+        const externalParts = voidPlan.filter((p) => !['CASH', 'POINTS'].includes(p.method))
+        const pointParts = voidPlan.filter((p) => p.method === 'POINTS')
         const refundReference =
           typeof req.body.refundReference === 'string' ? req.body.refundReference.trim() : ''
         if (externalParts.length && !refundReference) {
@@ -3100,7 +3117,7 @@ exports.updateOrderStatus = async (req, res) => {
           )
         }
         voidPlan.forEach((p) => {
-          p.reference = ['cash', 'points'].includes(p.method) ? null : refundReference
+          p.reference = ['CASH', 'POINTS'].includes(p.method) ? null : refundReference
         })
         if (pointParts.length && !lockedOrder.customerId) {
           throw financialError(
@@ -3109,10 +3126,12 @@ exports.updateOrderStatus = async (req, res) => {
             'The points portion cannot be restored: the order has no attached member'
           )
         }
-        if (cashParts.length) {
-          // The register performing the refund: the store's open register,
-          // share-locked so a concurrent close() serializes against this
-          // refund (DR-13).
+          // P1 (DR-PAY-ATTR-02/03): the refunding register is the store's
+          // open register, share-locked so a concurrent close()
+          // serializes against this refund (DR-13). MC-4 interim guard
+          // below is preserved as fail-safe: cash is never moved out of
+          // a closed/original register.
+          if (cashParts.length) {
           const openRegister = await db.cashRegister.findOne({
             where: { store: lockedOrder.store, status: 'open' },
             lock: t.LOCK.SHARE,
@@ -3125,17 +3144,24 @@ exports.updateOrderStatus = async (req, res) => {
               'A cash refund requires an open cash register for this store'
             )
           }
-          // Interim, until per-record register attribution exists
-          // (migration contract MC-4): drawer attribution is order-level,
-          // so the refund is allowed only when that attribution is the
-          // refunding register — either already, or because every cash
-          // collection happened inside this register's open window (one
-          // open register per store, DB-enforced). Never move cash out of
-          // a closed/original register.
+          // Drawer attribution is order-level, so the refund is allowed
+          // only when that attribution is the refunding register — either
+          // already, or because every cash collection happened inside
+          // this register's open window (one open register per store,
+          // DB-enforced). Never move cash out of a closed/original
+          // register.
+          // P1 (DR-PAY-ATTR-02/§21): when EVERY voided settlement row
+          // already carries its own per-record register, the refund rows
+          // attribute to the refunding register explicitly — no silent
+          // cross-register move can occur, so refunding from any open
+          // register is allowed (e.g. sale on closed R1, refund on R2).
+          // Legacy rows without per-record registers keep the strict
+          // same-register/window rule below.
+          const fullyAttributed = voidPlan.every((p) => p.row.cashRegisterId != null)
           if (lockedOrder.cashRegisterId == null) {
             const openedAt = new Date(openRegister.openedAt || openRegister.createdAt)
             const insideWindow = cashParts.every((p) => new Date(p.row.createdAt) >= openedAt)
-            if (!insideWindow) {
+            if (!insideWindow && !fullyAttributed) {
               throw financialError(
                 409,
                 'REFUND_REGISTER_ATTRIBUTION_UNAVAILABLE',
@@ -3144,14 +3170,29 @@ exports.updateOrderStatus = async (req, res) => {
             }
             refundRegisterId = openRegister.id
           } else if (Number(lockedOrder.cashRegisterId) !== Number(openRegister.id)) {
-            throw financialError(
-              409,
-              'REFUND_REGISTER_ATTRIBUTION_UNAVAILABLE',
-              'This cash refund cannot be attributed to the refunding register: the sale belongs to another (closed) register'
-            )
+            if (!fullyAttributed) {
+              throw financialError(
+                409,
+                'REFUND_REGISTER_ATTRIBUTION_UNAVAILABLE',
+                'This cash refund cannot be attributed to the refunding register: the sale belongs to another (closed) register'
+              )
+            }
+            refundRegisterId = openRegister.id
+          } else {
+            refundRegisterId = openRegister.id
+          }
+          } else {
+            // Non-cash/points-only void needs no register to proceed, but
+            // when one is open its refund rows still carry it for shift
+            // audit. Absence stays NULL — never a refusal, never a guess.
+            const opportunistic = await db.cashRegister.findOne({
+              where: { store: lockedOrder.store, status: 'open' },
+              lock: t.LOCK.SHARE,
+              transaction: t
+            })
+            if (opportunistic) refundRegisterId = opportunistic.id
           }
         }
-      }
 
       await order.update(
         {
@@ -3202,10 +3243,14 @@ exports.updateOrderStatus = async (req, res) => {
             lockedOrder,
             paidTender.method,
             settleAmount,
-            changedBy || req.user?.id,
+            req.user?.id,
             t,
             paidTender.cashReceived,
-            paidTender.changeGiven
+            paidTender.changeGiven,
+            {
+              cashRegisterId: paidTender.registerId,
+              referenceNumber: paidTender.referenceNumber
+            }
           )
         }
         retiredSplits = await retirePendingSplits(id, t)
@@ -3238,7 +3283,8 @@ exports.updateOrderStatus = async (req, res) => {
         }
 
         // DR-23 void refund: one refund row per original settlement (LIFO),
-        // in its original tender, attributed to the executing actor.
+        // in its original (now canonical) tender, attributed to the
+        // executing actor and the refunding register (P1 DR-PAY-ATTR-02).
         if (isVoiding) {
           for (const part of voidPlan) {
             await db.transaction.create(
@@ -3248,11 +3294,12 @@ exports.updateOrderStatus = async (req, res) => {
                 amount: -Math.abs(part.amount),
                 referenceNumber: part.reference,
                 notes: `Void refund of settlement #${part.row.id} for order ${order.orderNumber}`,
-                createdBy: req.user?.id || null
+                createdBy: req.user?.id || null,
+                cashRegisterId: refundRegisterId
               },
               { transaction: t }
             )
-            if (part.method === 'points') {
+            if (part.method === 'POINTS') {
               await adjustMemberPoints({
                 memberId: lockedOrder.customerId,
                 deltaPoints: part.amount,

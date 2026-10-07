@@ -5,6 +5,35 @@ const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { assertIntegerRupiah } = require('../../utils/moneyGuard')
+const { normalizePaymentMethod, CANONICAL_METHOD_ORDER } = require('../service/canonicalPayment')
+
+// P1 (DR-PAY-ATTR-06): payment-breakdown bucketing speaks canonical
+// methods. Historical rows whose tender cannot be mapped are summed into
+// an explicit UNRECONCILED bucket — never silently merged into another
+// tender and never rewritten. Pure function over aggregate rows.
+function bucketPaymentsByCanonical(rows) {
+  const buckets = new Map()
+  for (const row of rows) {
+    let type = 'UNRECONCILED'
+    try {
+      const canonical = normalizePaymentMethod(row.typePayment)
+      if (canonical) type = canonical
+    } catch {
+      type = 'UNRECONCILED'
+    }
+    const bucket = buckets.get(type) || { type, total: 0, count: 0 }
+    bucket.total += Number(row.total || 0)
+    bucket.count += Number(row.count || 0)
+    buckets.set(type, bucket)
+  }
+  // Deterministic: total descending, canonical method order (§21) on ties.
+  return [...buckets.values()].sort(
+    (a, b) =>
+      b.total - a.total ||
+      (CANONICAL_METHOD_ORDER[a.type] ?? CANONICAL_METHOD_ORDER.UNRECONCILED) -
+        (CANONICAL_METHOD_ORDER[b.type] ?? CANONICAL_METHOD_ORDER.UNRECONCILED)
+  )
+}
 
 // Same channel rule as order.js: a QR order is one created by
 // createCustomerOrder (source 'qr', no createdBy); every other order is POS.
@@ -152,13 +181,27 @@ async function computeCashLedgerSummary({
   // register regardless of the order's current status is what actually
   // nets out correctly: +100,000 cash sale followed by a -20,000 cash
   // refund nets to +80,000, with no special-casing for the status change
-  // in between.
+  // in between. P1: new rows carry their own cashRegisterId (COALESCE
+  // above); the order header remains the fallback for legacy rows only.
+  // P1 (DR-PAY-ATTR-01/05): drawer ownership is per financial record.
+  // COALESCE prefers the row's own cashRegisterId and falls back to the
+  // legacy order header, so historical rows keep their existing drawer
+  // membership while new rows attribute exactly where they were collected.
+  // P1 close-window bound: only rows created inside [openedAt, endAt] count,
+  // so late-arriving rows for other shifts can never leak into this
+  // register's frozen snapshot. Canonical CASH only (legacy lowercase kept
+  // for transition); negatives are refunds and net out of the same leg.
   const [cashSalesRow] = await db.sequelize.query(
-    `SELECT COALESCE(SUM(COALESCE(t."cashReceived", t.amount) - COALESCE(t."changeGiven", 0)), 0) as "cashSalesReceived"
+    `SELECT COALESCE(SUM(COALESCE(t."cashReceived", t.amount) - COALESCE(t."changeGiven", 0)), 0) as "cashSalesReceived",
+            COALESCE(SUM(CASE WHEN t."amount" > 0 THEN COALESCE(t."cashReceived", t.amount) - COALESCE(t."changeGiven", 0) ELSE 0 END), 0) as "cashSettlements",
+            COALESCE(SUM(CASE WHEN t."amount" < 0 THEN -(COALESCE(t."cashReceived", t.amount) - COALESCE(t."changeGiven", 0)) ELSE 0 END), 0) as "cashRefundsTotal",
+            COALESCE(SUM(CASE WHEN t."amount" < 0 THEN -t."amount" ELSE 0 END), 0) as "refundsTotal",
+            COUNT(CASE WHEN t."amount" < 0 THEN 1 END)::int as "refundCount"
        FROM "transaction" t
        JOIN "order" o ON o.id = t."order"
-      WHERE o."cashRegisterId" = :registerId
-        AND t."typePayment" = 'cash'`,
+      WHERE COALESCE(t."cashRegisterId", o."cashRegisterId") = :registerId
+        AND t."typePayment" IN ('cash', 'CASH')
+        AND t."createdAt" >= :openedAt AND t."createdAt" <= :endAt`,
     queryOpts
   )
 
@@ -192,6 +235,9 @@ async function computeCashLedgerSummary({
   const cashExpenses = Number(expenseRow.cashExpenses || 0)
   const activeCashIn = Number(movementRow.activeCashIn || 0)
   const activeCashOut = Number(movementRow.activeCashOut || 0)
+  const cashRefundsTotal = Number(cashSalesRow.cashRefundsTotal || 0)
+  const refundsTotal = Number(cashSalesRow.refundsTotal || 0)
+  const refundCount = Number(cashSalesRow.refundCount || 0)
   const expectedCash =
     Number(openingBalance || 0) +
     cashSalesReceived +
@@ -199,7 +245,16 @@ async function computeCashLedgerSummary({
     activeCashOut -
     cashExpenses
 
-  return { cashSalesReceived, cashExpenses, activeCashIn, activeCashOut, expectedCash }
+  return {
+    cashSalesReceived,
+    cashExpenses,
+    activeCashIn,
+    activeCashOut,
+    expectedCash,
+    cashRefundsTotal,
+    refundsTotal,
+    refundCount
+  }
 }
 
 async function buildReportData({
@@ -251,7 +306,7 @@ async function buildReportData({
            AND o."createdAt" >= :openedAt AND o."createdAt" <= :endAt
            AND o."paymentStatus" = 'paid'
          GROUP BY t."typePayment"
-         ORDER BY total DESC`,
+         ORDER BY total DESC, t."typePayment" ASC`,
       { replacements, type: db.sequelize.QueryTypes.SELECT }
     ),
     // Same createdBy-removal / date->createdAt correction as the cash
@@ -280,11 +335,9 @@ async function buildReportData({
   const totalTax = Number(salesAgg.totalTax || 0)
   const totalServiceCharge = Number(salesAgg.totalServiceCharge || 0)
 
-  const payments = paymentRows.map((r) => ({
-    type: r.typePayment,
-    amount: Number(r.total || 0),
-    count: Number(r.count || 0)
-  }))
+  const payments = bucketPaymentsByCanonical(
+    paymentRows.map((r) => ({ typePayment: r.typePayment, total: r.total, count: r.count }))
+  ).map((b) => ({ type: b.type, amount: b.total, count: b.count }))
 
   const totalNonCashPayment = payments.reduce((s, p) => s + p.amount, 0)
 
@@ -296,7 +349,10 @@ async function buildReportData({
     cashExpenses,
     activeCashIn,
     activeCashOut,
-    expectedCash
+    expectedCash,
+    cashRefundsTotal,
+    refundsTotal,
+    refundCount
   } = await computeCashLedgerSummary({
     registerId: register.id,
     store,
@@ -353,6 +409,9 @@ async function buildReportData({
       activeCashIn,
       activeCashOut,
       expectedCash,
+      cashRefundsTotal,
+      refundsTotal,
+      refundCount,
       variance
     },
     payments,
@@ -361,6 +420,101 @@ async function buildReportData({
       amount: Number(r.total || 0),
       count: Number(r.count || 0)
     }))
+  }
+}
+
+// P1 (DR-PAY-ATTR-04): authoritative close-time snapshot, computed once
+// inside close()'s transaction (which already holds the register UPDATE
+// lock, so no settlement/refund can race into the gap between calculation
+// and the status flip). Cash/drawer/refund legs are per-record attribution
+// (transaction.cashRegisterId with legacy order-header fallback); gross and
+// payment/expense breakdowns freeze the existing creator-basis display
+// queries byte-for-byte as computed live at close time. Everything is
+// derived from immutable rows — no history is rewritten to build it.
+async function buildCloseSnapshot({ registerId, store, user, openedAt, endAt, openingBalance, transaction }) {
+  const replacements = { registerId, store, user, openedAt, endAt }
+  const queryOpts = {
+    replacements,
+    type: db.sequelize.QueryTypes.SELECT,
+    ...(transaction ? { transaction } : {})
+  }
+  const [salesAgg, paymentRows, expCatRows, ledger] = await Promise.all([
+    db.sequelize.query(
+      `SELECT COUNT(*) as "totalTransactions",
+              COALESCE(SUM("subTotal"), 0) as "totalSubtotal",
+              COALESCE(SUM("discountAmount"), 0) as "totalDiscount",
+              COALESCE(SUM("taxAmount"), 0) as "totalTax",
+              COALESCE(SUM("serviceChargeAmount"), 0) as "totalServiceCharge",
+              COALESCE(SUM("totalQuantity"), 0) as "totalQuantity",
+              COALESCE(SUM("totalCovers"), 0) as "totalCovers",
+              COALESCE(SUM("totalPrice"), 0) as "totalSales"
+         FROM "order"
+        WHERE "store" = :store AND "createdBy" = :user
+          AND "createdAt" >= :openedAt AND "createdAt" <= :endAt
+          AND "paymentStatus" = 'paid'`,
+      queryOpts
+    ).then((r) => r[0]),
+    db.sequelize.query(
+      `SELECT t."typePayment",
+              COALESCE(SUM(t."amount"), 0) as total,
+              COUNT(*)::int as "count"
+         FROM "transaction" t
+         JOIN "order" o ON o.id = t."order"
+        WHERE o."store" = :store AND o."createdBy" = :user
+          AND o."createdAt" >= :openedAt AND o."createdAt" <= :endAt
+          AND o."paymentStatus" = 'paid'
+        GROUP BY t."typePayment"
+        ORDER BY total DESC, t."typePayment" ASC`,
+      queryOpts
+    ),
+    db.sequelize.query(
+      `SELECT COALESCE(ec.name, 'Lainnya') as "category",
+              COALESCE(SUM(e."amount"), 0) as total,
+              COUNT(*)::int as "count"
+         FROM expense e
+         LEFT JOIN expense_category ec ON ec.id = e."category"
+        WHERE e."store" = :store
+          AND e."createdAt" >= :openedAt AND e."createdAt" <= :endAt
+          AND e."status" = 'approved'
+        GROUP BY ec.name
+        ORDER BY total DESC, ec.name ASC`,
+      queryOpts
+    ),
+    computeCashLedgerSummary({ registerId, store, openingBalance, openedAt, endAt, transaction })
+  ])
+  const payments = bucketPaymentsByCanonical(
+    paymentRows.map((r) => ({ typePayment: r.typePayment, total: r.total, count: r.count }))
+  ).map((b) => ({ type: b.type, total: b.total, count: b.count }))
+  const expenses = expCatRows.map((r) => ({
+    category: r.category,
+    total: Number(r.total || 0),
+    count: Number(r.count || 0)
+  }))
+  return {
+    expectedCash: ledger.expectedCash,
+    activeCashIn: ledger.activeCashIn,
+    activeCashOut: ledger.activeCashOut,
+    cashRefundsTotal: ledger.cashRefundsTotal,
+    refundsTotal: ledger.refundsTotal,
+    refundCount: ledger.refundCount,
+    totalTransactions: Number(salesAgg.totalTransactions || 0),
+    gross: {
+      subtotal: Number(salesAgg.totalSubtotal || 0),
+      discount: Number(salesAgg.totalDiscount || 0),
+      tax: Number(salesAgg.totalTax || 0),
+      serviceCharge: Number(salesAgg.totalServiceCharge || 0),
+      quantity: Number(salesAgg.totalQuantity || 0),
+      covers: Number(salesAgg.totalCovers || 0),
+      totalSales: Number(salesAgg.totalSales || 0)
+    },
+    payments,
+    expenses,
+    // Cash inputs shared with the scalar columns above, kept inside the
+    // document so the snapshot is self-describing for auditors.
+    cash: {
+      cashSalesReceived: ledger.cashSalesReceived,
+      cashExpenses: ledger.cashExpenses
+    }
   }
 }
 
@@ -827,57 +981,39 @@ const cashRegisterController = {
           }
 
           const now = new Date()
-          const replacements = {
+          // P1 (DR-PAY-ATTR-04): the snapshot is computed here, inside the
+          // same transaction that already holds the register UPDATE lock —
+          // calculate -> unlock -> later UPDATE is forbidden because a
+          // settlement/refund could race into the gap. Every figure below
+          // is what the live report would show at this exact instant, so
+          // the frozen Z is byte-equivalent to close-time live output.
+          const snapshot = await buildCloseSnapshot({
+            registerId: cashRegister.id,
             store,
             user: cashRegister.user,
             openedAt: cashRegister.openedAt,
-            now
-          }
+            endAt: now,
+            openingBalance: cashRegister.openingBalance,
+            transaction: t
+          })
 
-          // totalSales: UNCHANGED, byte-for-byte identical to pre-F2 —
-          // gross paid-order sales across every payment method. Never
-          // used in the expectedCash formula below; kept purely for
-          // backward-compatible display (see Finding 7).
-          const [salesAgg] = await db.sequelize.query(
-            `SELECT COALESCE(SUM("totalPrice"), 0) as "totalSales"
-             FROM "order"
-             WHERE "store" = :store AND "createdBy" = :user
-               AND "createdAt" >= :openedAt AND "createdAt" <= :now
-               AND "paymentStatus" = 'paid'`,
-            { replacements, transaction: t, type: db.sequelize.QueryTypes.SELECT }
-          )
-
-          const paymentRows = await db.sequelize.query(
-            `SELECT t."typePayment", COALESCE(SUM(t."amount"), 0) as total
-             FROM "transaction" t
-             JOIN "order" o ON o.id = t."order"
-             WHERE o."store" = :store AND o."createdBy" = :user
-               AND o."createdAt" >= :openedAt AND o."createdAt" <= :now
-               AND o."paymentStatus" = 'paid'
-             GROUP BY t."typePayment"`,
-            { replacements, transaction: t, type: db.sequelize.QueryTypes.SELECT }
-          )
-
-          const totalSales = Number(salesAgg.totalSales || 0)
+          const totalSales = snapshot.gross.totalSales
           const totalPayments = {}
-          for (const row of paymentRows) {
-            totalPayments[row.typePayment || 'cash'] = Number(row.total || 0)
+          for (const p of snapshot.payments) {
+            totalPayments[p.type] = p.total
           }
 
           const {
-            cashSalesReceived,
-            cashExpenses,
+            expectedCash,
             activeCashIn,
             activeCashOut,
-            expectedCash
-          } = await computeCashLedgerSummary({
-            registerId: cashRegister.id,
-            store,
-            openingBalance: cashRegister.openingBalance,
-            openedAt: cashRegister.openedAt,
-            endAt: now,
-            transaction: t
-          })
+            cashRefundsTotal,
+            refundsTotal,
+            refundCount,
+            totalTransactions
+          } = snapshot
+          const cashSalesReceived = snapshot.cash.cashSalesReceived
+          const cashExpenses = snapshot.cash.cashExpenses
 
           const variance = (closingBalance || 0) - expectedCash
           const threshold =
@@ -893,6 +1029,18 @@ const cashRegisterController = {
               cashSalesReceived,
               totalExpenses: cashExpenses,
               totalPayments,
+              expectedCash,
+              activeCashIn,
+              activeCashOut,
+              cashRefundsTotal,
+              refundsTotal,
+              refundCount,
+              totalTransactions,
+              closeSnapshot: {
+                gross: snapshot.gross,
+                payments: snapshot.payments,
+                expenses: snapshot.expenses
+              },
               variance,
               varianceApprovalStatus,
               status: 'closed',
@@ -926,30 +1074,92 @@ const cashRegisterController = {
             activeCashIn,
             activeCashOut,
             expectedCash,
+            cashRefundsTotal,
+            refundsTotal,
+            refundCount,
+            totalTransactions,
+            closeSnapshot: {
+              gross: snapshot.gross,
+              payments: snapshot.payments,
+              expenses: snapshot.expenses
+            },
             variance,
             varianceApprovalStatus
           }
         })
       )
 
+      // P1 (DR-PAY-ATTR-04): the close response carries the same report
+      // shape a frozen Z serves (summary/payments/expenses), so a closed
+      // Z re-fetch is byte-equivalent to close-time output by
+      // construction. varianceApprovalStatus is close-only metadata.
+      const closePayments = result.closeSnapshot.payments.map((p) => ({
+        type: p.type,
+        amount: p.total,
+        count: p.count
+      }))
+      const closeExpenses = result.closeSnapshot.expenses.map((e) => ({
+        category: e.category,
+        amount: e.total,
+        count: e.count
+      }))
+      const closeGross = result.closeSnapshot.gross || {}
       return res.status(200).json({
         success: true,
         message: 'Cash register closed',
         data: {
-          register: result.cashRegister,
+          register: {
+            id: result.cashRegister.id,
+            shift: result.cashRegister.shift,
+            status: 'closed',
+            openedAt: result.cashRegister.openedAt,
+            closedAt: result.cashRegister.closedAt,
+            notes: result.cashRegister.notes,
+            openingBalance: Number(result.cashRegister.openingBalance || 0),
+            closingBalance: Number(result.cashRegister.closingBalance || 0)
+          },
+          store: result.cashRegister.storeData
+            ? {
+                id: result.cashRegister.storeData.id,
+                name: result.cashRegister.storeData.name,
+                address: result.cashRegister.storeData.address,
+                city: result.cashRegister.storeData.city,
+                phone:
+                  result.cashRegister.storeData.phoneNumber ||
+                  result.cashRegister.storeData.phone ||
+                  null,
+                timezone: result.cashRegister.storeData.timezone || null
+              }
+            : null,
+          cashier: result.cashRegister.userData
+            ? { id: result.cashRegister.userData.id, fullName: result.cashRegister.userData.fullName }
+            : { id: result.cashRegister.user },
           summary: {
-            openingBalance: result.cashRegister.openingBalance,
-            closingBalance: result.cashRegister.closingBalance,
+            totalTransactions: result.totalTransactions,
+            totalQuantity: Number(closeGross.quantity || 0),
+            totalCovers: Number(closeGross.covers || 0),
+            subtotal: Number(closeGross.subtotal || 0),
+            discount: Number(closeGross.discount || 0),
+            tax: Number(closeGross.tax || 0),
+            serviceCharge: Number(closeGross.serviceCharge || 0),
             totalSales: result.totalSales,
-            cashSalesReceived: result.cashSalesReceived,
             totalExpenses: result.totalExpenses,
-            totalPayments: result.totalPayments,
+            totalCashPayment: result.cashSalesReceived,
+            cashSalesReceived: result.cashSalesReceived,
+            totalNonCashPayment: closePayments
+              .filter((p) => p.type !== 'CASH')
+              .reduce((s, p) => s + p.amount, 0),
             activeCashIn: result.activeCashIn,
             activeCashOut: result.activeCashOut,
             expectedCash: result.expectedCash,
+            cashRefundsTotal: result.cashRefundsTotal,
+            refundsTotal: result.refundsTotal,
+            refundCount: result.refundCount,
             variance: result.variance,
             varianceApprovalStatus: result.varianceApprovalStatus
-          }
+          },
+          payments: closePayments,
+          expenses: closeExpenses
         }
       })
     } catch (error) {
@@ -1764,15 +1974,82 @@ const cashRegisterController = {
         })
       }
 
-      const data = await buildReportData({
-        register,
-        store: register.store,
-        user: register.user,
-        openedAt: register.openedAt,
-        endAt: register.closedAt || new Date(),
-        storeData: register.storeData,
-        userData: register.userData
-      })
+      // P1 (DR-PAY-ATTR-04): a closed register with a persisted snapshot
+      // serves its frozen close-time figures — never a live recomputation
+      // that later settlements/refunds/movements could drift. Registers
+      // closed before snapshots existed (NULL closeSnapshot) keep the
+      // legacy live path for backward compatibility.
+      let data
+      if (register.status === 'closed' && register.closeSnapshot) {
+        const snap = register.closeSnapshot
+        const gross = snap.gross || {}
+        const frozenPayments = Array.isArray(snap.payments) ? snap.payments : []
+        const frozenExpenses = Array.isArray(snap.expenses) ? snap.expenses : []
+        const num = (v) => Number(v || 0)
+        const closingBalance = num(register.closingBalance)
+        const frozenExpected = num(register.expectedCash)
+        data = {
+          register: {
+            id: register.id,
+            shift: register.shift,
+            status: register.status,
+            openedAt: register.openedAt,
+            closedAt: register.closedAt,
+            notes: register.notes,
+            openingBalance: num(register.openingBalance),
+            closingBalance
+          },
+          store: register.storeData
+            ? {
+                id: register.storeData.id,
+                name: register.storeData.name,
+                address: register.storeData.address,
+                city: register.storeData.city,
+                phone: register.storeData.phoneNumber || register.storeData.phone || null,
+                timezone: register.storeData.timezone || null
+              }
+            : null,
+          cashier: register.userData
+            ? { id: register.userData.id, fullName: register.userData.fullName }
+            : { id: register.user },
+          summary: {
+            totalTransactions: num(register.totalTransactions),
+            totalQuantity: num(gross.quantity),
+            totalCovers: num(gross.covers),
+            subtotal: num(gross.subtotal),
+            discount: num(gross.discount),
+            tax: num(gross.tax),
+            serviceCharge: num(gross.serviceCharge),
+            totalSales: num(register.totalSales),
+            totalExpenses: num(register.totalExpenses),
+            totalCashPayment: num(register.cashSalesReceived),
+            cashSalesReceived: num(register.cashSalesReceived),
+            totalNonCashPayment: frozenPayments
+              .filter((p) => p.type !== 'CASH')
+              .reduce((s, p) => s + num(p.total), 0),
+            activeCashIn: num(register.activeCashIn),
+            activeCashOut: num(register.activeCashOut),
+            expectedCash: frozenExpected,
+            cashRefundsTotal: num(register.cashRefundsTotal),
+            refundsTotal: num(register.refundsTotal),
+            refundCount: num(register.refundCount),
+            variance: closingBalance - frozenExpected,
+            varianceApprovalStatus: register.varianceApprovalStatus || null
+          },
+          payments: frozenPayments.map((p) => ({ type: p.type, amount: num(p.total), count: num(p.count) })),
+          expenses: frozenExpenses.map((e) => ({ category: e.category, amount: num(e.total), count: num(e.count) }))
+        }
+      } else {
+        data = await buildReportData({
+          register,
+          store: register.store,
+          user: register.user,
+          openedAt: register.openedAt,
+          endAt: register.closedAt || new Date(),
+          storeData: register.storeData,
+          userData: register.userData
+        })
+      }
 
       // Batch B: additive reconciliation so /cash-register/history/detail can
       // explain exactly which transactions feed the summary and which are
