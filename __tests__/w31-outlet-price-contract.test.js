@@ -105,9 +105,13 @@ beforeAll(async () => {
     { id: 9903, userName: 'w31_admin_b', roleType: 'admin', store: storeB.id },
     JWT_SECRET
   )
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: storeA.id, user: 9901, status: 'open', openingBalance: 0, openedAt: new Date() })
+  await db.cashRegister.create({ store: storeB.id, user: 9903, status: 'open', openingBalance: 0, openedAt: new Date() })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: [storeA?.id, storeB?.id].filter(Boolean) }, force: true })
   await db.user.destroy({ where: { id: [9901, 9902, 9903] }, force: true })
   await db.taxConfig.destroy({
     where: { store: [storeA?.id, storeB?.id].filter(Boolean) },

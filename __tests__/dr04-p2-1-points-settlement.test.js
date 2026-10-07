@@ -193,13 +193,13 @@ describe('DR-04 P2-1 points settlement — success', () => {
     const settled = await db.order.findByPk(order.id)
     expect(settled.paymentStatus).toBe('paid')
     expect(settled.status).toBe('paid')
-    expect(settled.paymentMethod).toBe('points')
+    expect(settled.paymentMethod).toBe('POINTS')
     expect(Number(settled.cashRegisterId)).toBe(Number(registerId))
 
     // Single payment row with the points tender and no cash detail.
     const rows = await txnRows(order.id)
     expect(rows).toHaveLength(1)
-    expect(rows[0].typePayment).toBe('points')
+    expect(rows[0].typePayment).toBe('POINTS')
     expect(Number(rows[0].amount)).toBe(PRICE)
     expect(rows[0].cashReceived).toBeNull()
     expect(Number(rows[0].changeGiven)).toBe(0)
@@ -337,7 +337,7 @@ describe('DR-04 P2-1 points settlement — idempotency', () => {
 
     const rows = await txnRows(orderId)
     expect(rows).toHaveLength(1)
-    expect(rows[0].typePayment).toBe('cash')
+    expect(rows[0].typePayment).toBe('CASH')
     expect(await memberPoints(member.id)).toBe(pointsBefore)
     expect(await historyRows(member.id)).toHaveLength(historyBefore)
   })
@@ -392,11 +392,11 @@ describe('DR-04 P2-1 points settlement — idempotency', () => {
     const rows = await txnRows(order.id)
     expect(rows).toHaveLength(2)
     expect(rows.map((r) => [r.typePayment, Number(r.amount)]).sort()).toEqual(
-      [['cash', 20000], ['points', PRICE - 20000]].sort()
+      [['CASH', 20000], ['POINTS', PRICE - 20000]].sort()
     )
     const after = await db.order.findByPk(order.id)
     expect(after.paymentStatus).toBe('paid')
-    expect(after.paymentMethod).toBe('points')
+    expect(after.paymentMethod).toBe('POINTS')
   })
 
   test('repeated paid transition does not deduct again', async () => {
@@ -443,7 +443,7 @@ describe('DR-04 P2-1 points settlement — concurrency', () => {
 
     const paidTxns = [...(await txnRows(orderA.id)), ...(await txnRows(orderB.id))]
     expect(paidTxns).toHaveLength(1)
-    expect(paidTxns[0].typePayment).toBe('points')
+    expect(paidTxns[0].typePayment).toBe('POINTS')
 
     const [a, b] = await Promise.all([db.order.findByPk(orderA.id), db.order.findByPk(orderB.id)])
     expect([a.paymentStatus, b.paymentStatus].sort()).toEqual(['paid', 'unpaid'])

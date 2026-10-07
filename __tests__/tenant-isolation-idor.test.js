@@ -528,6 +528,12 @@ beforeAll(async () => {
   // ---- driver fixtures ----
   driver1 = await db.driver.create({ store: [store1.id], name: 'IDOR_DRIVER_1' })
   driver2 = await db.driver.create({ store: [store2.id], name: 'IDOR_DRIVER_2' })
+
+  // P1 (DR-PAY-ATTR-02): split settlement under test requires an open
+  // register per store. Cross-store isolation assertions are unaffected:
+  // the order lookup is store-scoped before any register logic runs.
+  await db.cashRegister.create({ store: store1.id, user: 70002, status: 'open', openingBalance: 0, openedAt: new Date() })
+  await db.cashRegister.create({ store: store2.id, user: 70003, status: 'open', openingBalance: 0, openedAt: new Date() })
 })
 
 afterAll(async () => {
@@ -575,6 +581,8 @@ afterAll(async () => {
   await db.discount.destroy({ where: { id: [discount1?.id, discount2?.id] }, force: true })
   await db.user.destroy({ where: { id: [employee1?.id, employee2?.id] }, force: true })
   // P1-4 caller-identity fixtures (see beforeAll).
+  // P1 registers reference their opener users — destroy registers first.
+  await db.cashRegister.destroy({ where: { store: [store1?.id, store2?.id] }, force: true })
   await db.user.destroy({ where: { id: [70001, 70002, 70003, 70004] }, force: true })
   await db.delivery_status_history.destroy({ where: {}, force: true })
   await db.delivery_order.destroy({

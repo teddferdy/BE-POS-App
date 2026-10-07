@@ -293,18 +293,10 @@ exports.createOrderSchema = z.object({
   subTotal: strToNum().optional().default(0),
   taxRate: z.any().optional(),
   serviceChargeRate: z.any().optional(),
-  paymentMethod: z
-    .enum([
-      'cash',
-      'qris',
-      'debit',
-      'credit',
-      'other',
-      'points',
-      'transfer',
-      'e-wallet'
-    ])
-    .optional(),
+  paymentMethod: z.string().max(50).optional(),
+  // P1: optional client reference for non-cash settlement, persisted on
+  // the immutable ledger row (never trusted for cash math).
+  referenceNumber: z.string().max(255).optional().nullable(),
   appliedDiscountId: strToNum().optional().nullable(),
   pointDiscountAmount: strToNum().optional().default(0),
   redeemedPoints: strToNum().optional().default(0),
@@ -358,24 +350,19 @@ exports.updateOrderStatusSchema = z.object({
   // cash detail when cash) and resolves register attribution server-side.
   // cashAmount/changeAmount use the same bare coercion as order create —
   // semantic checks live in validateCashTender (422), never here (400).
-  paymentMethod: z
-    .enum([
-      'cash',
-      'qris',
-      'debit',
-      'credit',
-      'other',
-      'points',
-      'transfer',
-      'e-wallet'
-    ])
-    .optional(),
+  // P1 (DR-PAY-ATTR-06): any string reaches the controller, where the
+  // canonicalizer maps locked aliases and refuses unknown tenders with
+  // 422 (a Zod enum would reject them with 400 at the shape boundary).
+  paymentMethod: z.string().max(50).optional(),
   cashAmount: z.any().transform((v) =>
     v === '' || v === null || v === undefined ? null : Number(v)
   ).optional(),
   changeAmount: z.any().transform((v) =>
     v === '' || v === null || v === undefined ? null : Number(v)
   ).optional(),
+  // P1: optional client reference for non-cash settlement, persisted on
+  // the immutable ledger row (never trusted for cash math).
+  referenceNumber: z.string().max(255).optional().nullable(),
   // DR-23 (BA §35.10): explicit settlement amount — must equal the current
   // outstanding amount (validated under the order lock, 409/422 in the
   // controller). Omitted = legacy claim of the order's full total.

@@ -92,6 +92,15 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
       { id: 8801, userName: 'race_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
+    // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+    await db.cashRegister.destroy({ where: { store: location.id, status: 'open' }, force: true })
+    await db.cashRegister.create({
+      store: location.id,
+      user: 8801,
+      status: 'open',
+      openingBalance: 0,
+      openedAt: new Date()
+    })
   })
 
   afterAll(async () => {
@@ -107,6 +116,7 @@ describe('Concurrent checkout — overselling (order.js createOrder)', () => {
     // Release the per-describe store assignment (user.store FK) before deleting it.
     await db.user.update({ store: null }, { where: { store: location.id } })
     await db.taxConfig.destroy({ where: { store: location.id }, force: true })
+    await db.cashRegister.destroy({ where: { store: location.id }, force: true })
     await db.location.destroy({ where: { id: location.id }, force: true })
   })
 
@@ -356,9 +366,19 @@ describe('Concurrent duplicate submit — idempotency key (order.js createOrder)
       { id: 8804, userName: 'race_idempotency_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
+    // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+    await db.cashRegister.destroy({ where: { store: location.id, status: 'open' }, force: true })
+    await db.cashRegister.create({
+      store: location.id,
+      user: 8804,
+      status: 'open',
+      openingBalance: 0,
+      openedAt: new Date()
+    })
   })
 
   afterAll(async () => {
+    await db.cashRegister.destroy({ where: { store: location.id }, force: true })
     await db.order_item.destroy({ where: {}, force: true })
     await db.transaction.destroy({ where: {}, force: true })
     await db.order_status.destroy({ where: {}, force: true })
@@ -468,9 +488,19 @@ describe('Concurrent order creation — daily customer number uniqueness (order.
       { id: 8805, userName: 'race_custnum_cashier', roleType: 'kasir', store: location.id },
       JWT_SECRET
     )
+    // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+    await db.cashRegister.destroy({ where: { store: location.id, status: 'open' }, force: true })
+    await db.cashRegister.create({
+      store: location.id,
+      user: 8805,
+      status: 'open',
+      openingBalance: 0,
+      openedAt: new Date()
+    })
   })
 
   afterAll(async () => {
+    await db.cashRegister.destroy({ where: { store: location.id }, force: true })
     await db.user.destroy({ where: { id: [8801, 8802, 8803, 8804, 8805] }, force: true })
     await db.order_item.destroy({ where: {}, force: true })
     await db.transaction.destroy({ where: {}, force: true })

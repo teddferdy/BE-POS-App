@@ -617,6 +617,8 @@ describe('Order void — additive to the existing generic status-update audit', 
   })
 
   test('a non-cancelling status transition (e.g. confirmed) does not create a void entry', async () => {
+    // P1 (DR-PAY-ATTR-02): counter creation under test requires an open register.
+    await db.cashRegister.create({ store: store.id, user: adminUser.id, status: 'open', openingBalance: 0, openedAt: new Date() })
     const createRes = await request(app)
       .post('/order/create')
       .set('Authorization', `Bearer ${cashierToken}`)

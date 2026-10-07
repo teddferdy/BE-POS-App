@@ -69,6 +69,8 @@ beforeAll(async () => {
     status: 'active',
     store: store.id
   })
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: store.id, user: adminUser.id, status: 'open', openingBalance: 0, openedAt: new Date() })
   const orderRes = await request(app)
     .post('/order/create')
     .set('Authorization', `Bearer ${adminToken}`)
@@ -92,6 +94,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.ar_payment.destroy({ where: {}, force: true })
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.accounts_receivable.destroy({ where: { store: store?.id }, force: true })
   await db.order_item.destroy({ where: { order: order?.id }, force: true })

@@ -4,7 +4,8 @@ const { createAudit } = require('../../utils/auditLog')
 const {
   deductStockForPaidOrder,
   enqueueOrderAccountingJobs,
-  attemptOrderAccountingEntries
+  attemptOrderAccountingEntries,
+  validateCashTender
 } = require('./order')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
@@ -16,6 +17,8 @@ const {
   financialError,
   retirePendingSplits
 } = require('../service/orderFinancials')
+const { normalizePaymentMethod } = require('../service/canonicalPayment')
+const { resolveAttributedRegister } = require('../service/settlementAttribution')
 
 // split_bill has no store column of its own — ownership is entirely
 // inherited through order.store (a plain INTEGER, same shape scalarStoreScope
@@ -270,7 +273,12 @@ const splitBillController = {
       const result = await withDeadlockRetry(() =>
         db.sequelize.transaction(async (t) => {
           const { id } = req.params
-          const { paymentMethod } = req.body
+          const { paymentMethod: bodyMethod, cashAmount, changeAmount, referenceNumber } = req.body
+
+          // P1 (DR-PAY-ATTR-06): the persisted tender is always canonical.
+          // Absent method keeps the established exact-cash fallback; an
+          // unknown method is refused with 422 before any mutation.
+          const method = normalizePaymentMethod(bodyMethod || 'cash')
 
           // Peek (unlocked) purely to learn the parent order id, so the
           // order can be locked FIRST — uniform with create/cancel/merge.
@@ -343,15 +351,51 @@ const splitBillController = {
             )
           }
 
-          await split.update({ status: 'paid', paymentMethod }, { transaction: t })
+          // P1 (DR-PAY-ATTR-01..03): every paid split is an attributable
+          // settlement event. CASH carries server-validated tender detail
+          // (change is derived, never trusted); non-CASH carries a required
+          // reference and no drawer cash. The register is the currently
+          // open one under a SHARE lock — never inherited, never guessed.
+          // Everything below throws before the first mutation on failure.
+          let splitCashReceived = null
+          let splitChangeGiven = 0
+          let splitReference = null
+          if (method === 'CASH') {
+            const tender = validateCashTender({
+              paymentMethod: method,
+              cashAmount: cashAmount ?? null,
+              changeAmount: changeAmount ?? null,
+              amountDue: Number(split.amount) || 0
+            })
+            splitCashReceived = tender.cashReceived
+            splitChangeGiven = tender.changeGiven
+          } else {
+            const ref = typeof referenceNumber === 'string' ? referenceNumber.trim() : ''
+            if (!ref) {
+              throw financialError(
+                422,
+                'REFERENCE_REQUIRED',
+                'A reference is required for a non-cash split payment'
+              )
+            }
+            splitReference = ref
+          }
+          const splitRegister = await resolveAttributedRegister(order.store, t)
+
+          await split.update({ status: 'paid', paymentMethod: method }, { transaction: t })
 
           // Every split payment is its own real payment, recorded on the
           // payment ledger as it happens (exactly split.amount).
           await db.transaction.create(
             {
               order: split.order,
-              typePayment: paymentMethod || 'cash',
+              splitBillId: split.id,
+              typePayment: method,
               amount: Number(split.amount) || 0,
+              cashReceived: splitCashReceived,
+              changeGiven: splitChangeGiven,
+              referenceNumber: splitReference,
+              cashRegisterId: splitRegister.id,
               notes: `Split bill payment: ${split.splitNumber}`,
               createdBy: req.user?.id || null
             },

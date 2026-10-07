@@ -62,9 +62,14 @@ beforeAll(async () => {
     status: 'active',
     store: store.id
   })
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  // The persisted-tender assertions below are unchanged apart from the
+  // locked canonical vocabulary (CASH/QRIS).
+  await db.cashRegister.create({ store: store.id, user: 7501, status: 'open', openingBalance: 0, openedAt: new Date() })
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.user.destroy({ where: { id: [7501] }, force: true })
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
@@ -102,13 +107,13 @@ describe('F-PAY-1 no-payment-method paid order', () => {
       where: { order: res.body.data.id }
     })
     expect(rows.length).toBe(1)
-    expect(rows[0].typePayment).toBe('cash')
+    expect(rows[0].typePayment).toBe('CASH')
     expect(Number(rows[0].amount)).toBe(Number(res.body.data.totalPrice))
     expect(Number(rows[0].cashReceived)).toBe(Number(res.body.data.totalPrice))
     expect(Number(rows[0].changeGiven)).toBe(0)
 
     const stored = await db.order.findByPk(res.body.data.id)
-    expect(stored.paymentMethod).toBe('cash')
+    expect(stored.paymentMethod).toBe('CASH')
   })
 
   test('explicit cash with exact tender still writes the identical ledger row', async () => {
@@ -122,7 +127,7 @@ describe('F-PAY-1 no-payment-method paid order', () => {
       where: { order: res.body.data.id }
     })
     expect(rows.length).toBe(1)
-    expect(rows[0].typePayment).toBe('cash')
+    expect(rows[0].typePayment).toBe('CASH')
   })
 
   test('explicit non-cash method still writes its ledger row', async () => {
@@ -133,6 +138,6 @@ describe('F-PAY-1 no-payment-method paid order', () => {
       where: { order: res.body.data.id }
     })
     expect(rows.length).toBe(1)
-    expect(rows[0].typePayment).toBe('qris')
+    expect(rows[0].typePayment).toBe('QRIS')
   })
 })

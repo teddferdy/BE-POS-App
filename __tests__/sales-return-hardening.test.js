@@ -88,6 +88,25 @@ const approveReturn = (token, id, body = {}) =>
     .set('Authorization', `Bearer ${token}`)
     .send({ id, ...body })
 
+// P1 (DR-PAY-ATTR-02): cash-refund approval under test requires an open
+// register. Opened per test and closed at its end (the file also contains
+// tests that manage their own register, so no shared fixture is used).
+const openTestRegister = async () => {
+  const open = await request(app)
+    .post('/cash-register/open')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ openingBalance: 0 })
+  expect(open.status).toBe(201)
+  return open.body.data.id
+}
+const closeTestRegister = async (registerId) => {
+  const close = await request(app)
+    .put(`/cash-register/close/${registerId}`)
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ closingBalance: 0 })
+  expect(close.status).toBe(200)
+}
+
 const rejectReturn = (token, id) =>
   request(app)
     .patch(`/sales-return/reject/${id}`)
@@ -163,12 +182,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.sales_return_item.destroy({ where: {}, force: true })
+  // P1 linkage hardening: transaction.salesReturnId is RESTRICT — refund
+  // ledger rows must go before the returns they reference (cleanup order
+  // only; no assertion changed).
+  await db.transaction.destroy({ where: {}, force: true })
   await db.sales_return.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
   await db.cashMovement.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
   await db.cashRegister.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
   await db.auditLog.destroy({ where: { store: [store.id, storeOther.id] }, force: true, __auditMaintenance: true })
   await db.stock_history.destroy({ where: { product: [product.id, productB.id] }, force: true })
-  await db.transaction.destroy({ where: {}, force: true })
   await db.order_item.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: [store.id, storeOther.id] }, force: true })
@@ -210,6 +232,7 @@ describe('Amount invariant', () => {
   })
 
   test('full collection allows a full refund exactly equal to collected amount', async () => {
+    const registerId = await openTestRegister()
     const order = await buildPaidOrder({
       items: [{ product: product.id, productName: product.nameProduct, quantity: 2, price: 20000, totalPrice: 40000 }]
     })
@@ -221,9 +244,11 @@ describe('Amount invariant', () => {
     expect(res.body.data.refundAmount).toBe(40000)
     const approveRes = await approveReturn(adminToken, res.body.data.id)
     expect(approveRes.status).toBe(200)
+    await closeTestRegister(registerId)
   })
 
   test('exact remaining refund succeeds; one rupiah over the remaining amount fails', async () => {
+    const registerId = await openTestRegister()
     const order = await buildPaidOrder({
       items: [{ product: product.id, productName: product.nameProduct, quantity: 5, price: 20000, totalPrice: 100000 }]
     })
@@ -244,6 +269,7 @@ describe('Amount invariant', () => {
     expect(exact.body.data.refundAmount).toBe(40000)
     const approveExact = await approveReturn(adminToken, exact.body.data.id)
     expect(approveExact.status).toBe(200)
+    await closeTestRegister(registerId)
   })
 
   test('cumulative refund exceeding collected amount is rejected with 409, nothing committed', async () => {
@@ -278,6 +304,7 @@ describe('Amount invariant', () => {
   })
 
   test('a mixed sales_return + cancel/void never lets total refunded exceed collected — both are blocked once an approved return exists', async () => {
+    const registerId = await openTestRegister()
     const order = await buildPaidOrder({
       items: [{ product: product.id, productName: product.nameProduct, quantity: 4, price: 20000, totalPrice: 80000 }]
     })
@@ -308,6 +335,7 @@ describe('Amount invariant', () => {
     const totalCollected = ledger.filter((t) => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0)
     const totalRefunded = ledger.filter((t) => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
     expect(totalRefunded).toBeLessThanOrEqual(totalCollected)
+    await closeTestRegister(registerId)
   })
 })
 
@@ -364,6 +392,7 @@ describe('Concurrency', () => {
   })
 
   test('two concurrent approve calls on two DIFFERENT pending returns that jointly exceed remaining: exactly one approve succeeds', async () => {
+    const registerId = await openTestRegister()
     const order = await buildPaidOrder({
       items: [
         { product: product.id, productName: product.nameProduct, quantity: 3, price: 20000, totalPrice: 60000 },
@@ -398,6 +427,7 @@ describe('Concurrency', () => {
     const totalCollected = ledger.filter((t) => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0)
     const totalRefunded = ledger.filter((t) => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0)
     expect(totalRefunded).toBeLessThanOrEqual(totalCollected)
+    await closeTestRegister(registerId)
   })
 
   test('approve racing an over-the-remaining THIRD pending return: the third is rejected with 409', async () => {
@@ -859,6 +889,7 @@ describe('Database / migration integrity', () => {
 
 describe('Regression', () => {
   test('an approved return persists approvedBy/approvedAt atomically with the status transition', async () => {
+    const registerId = await openTestRegister()
     const order = await buildPaidOrder({
       items: [{ product: product.id, productName: product.nameProduct, quantity: 1, price: 20000, totalPrice: 20000 }]
     })
@@ -874,9 +905,11 @@ describe('Regression', () => {
     expect(row.approvedBy).toBe(adminUser.id)
     expect(row.approvedAt).toBeTruthy()
     expect(new Date(row.approvedAt).getTime()).toBeGreaterThanOrEqual(before.getTime() - 5000)
+    await closeTestRegister(registerId)
   })
 
   test('refundReference is accepted at approval and persisted', async () => {
+    const registerId = await openTestRegister()
     const order = await buildPaidOrder({
       items: [{ product: product.id, productName: product.nameProduct, quantity: 1, price: 20000, totalPrice: 20000 }]
     })
@@ -888,5 +921,6 @@ describe('Regression', () => {
     expect(res.status).toBe(200)
     const row = await db.sales_return.findByPk(ret.body.data.id)
     expect(row.refundReference).toBe('BANK-REF-12345')
+    await closeTestRegister(registerId)
   })
 })

@@ -102,9 +102,12 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.taxConfig.destroy({ where: { store: location?.id }, force: true })
   await db.sales_return_item.destroy({ where: {}, force: true })
+  // P1 linkage hardening: transaction.salesReturnId is RESTRICT — refund
+  // ledger rows must go before the returns they reference (cleanup order
+  // only; no assertion changed).
+  await db.transaction.destroy({ where: {}, force: true })
   await db.sales_return.destroy({ where: { store: location.id }, force: true })
   await db.order_item.destroy({ where: {}, force: true })
-  await db.transaction.destroy({ where: {}, force: true })
   await db.order_status.destroy({ where: {}, force: true })
   await db.order.destroy({ where: { store: location.id }, force: true })
   await db.best_selling.destroy({ where: { productId: product?.id }, force: true })
@@ -288,6 +291,9 @@ describe('PATCH /sales-return/approve and /reject', () => {
     // otherProduct now has sales_return_item history referencing it — the
     // FK is RESTRICT (F4), so that history must go first, matching the
     // new financial-history-integrity guarantee under test elsewhere.
+    // P1 linkage hardening: the approved return also has a refund ledger
+    // row (salesReturnId, RESTRICT) — it goes first as well.
+    await db.transaction.destroy({ where: { salesReturnId: ret.id }, force: true })
     await db.sales_return_item.destroy({ where: { salesReturn: ret.id }, force: true })
     await db.sales_return.destroy({ where: { id: ret.id }, force: true })
     await db.product.destroy({ where: { id: otherProduct.id }, force: true })

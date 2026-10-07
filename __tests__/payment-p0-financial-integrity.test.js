@@ -300,7 +300,7 @@ describe('P0-1 — no under-settlement / stale outstanding', () => {
 
     const after = await snapshot(order.id, member.id)
     const newTxns = after.txns.filter(([id]) => !before.txns.some(([bid]) => bid === id))
-    expect(newTxns).toEqual([[expect.any(Number), 80000, 'cash']])
+    expect(newTxns).toEqual([[expect.any(Number), 80000, 'CASH']])
 
     const o = await oracle(order.id)
     expect(o).toMatchObject({ G, V: 0, P: G, C: G, R: 0, N: G, O: 0, state: 'PAID' })
@@ -454,7 +454,7 @@ describe('P0-3 — money never disappears on cancel; void refunds exactly what w
     const refunds = o.rows.filter((r) => Number(r.amount) < 0)
     expect(refunds).toHaveLength(1)
     expect(Number(refunds[0].amount)).toBe(-20000)
-    expect(refunds[0].typePayment).toBe('cash') // default = original tender
+    expect(refunds[0].typePayment).toBe('CASH') // default = original tender
     expect(refunds[0].createdBy).toBe(adminUser.id) // executing actor, server-resolved
     // Attributed to the register open at refund time (the collection
     // happened inside this same register window, so the order-level
@@ -469,7 +469,21 @@ describe('P0-3 — money never disappears on cancel; void refunds exactly what w
   })
 
   test('P0-3D. void with a cash portion and no open register → 422 REGISTER_REQUIRED, zero mutation', async () => {
+    // P1 (DR-PAY-ATTR-02): split settlement itself now requires an open
+    // register, so the partially-paid fixture is built while one is open
+    // and the register is closed before the void — the void refusal (no
+    // open register at refund time) and zero-mutation assertions stand.
+    const opened = await request(app)
+      .post('/cash-register/open')
+      .set(auth(adminNoRegToken))
+      .send({ store: storeNoRegister.id, openingBalance: 0, shift: 1 })
+    expect([200, 201]).toContain(opened.status)
     const { order } = await makePartiallyPaid({ storeId: storeNoRegister.id })
+    const closed = await request(app)
+      .put(`/cash-register/close/${opened.body.data.id}`)
+      .set(auth(adminNoRegToken))
+      .send({ store: storeNoRegister.id, closingBalance: 20000 })
+    expect(closed.status).toBe(200)
     const before = await snapshot(order.id)
 
     const res = await updateStatus(adminNoRegToken, {
@@ -483,7 +497,7 @@ describe('P0-3 — money never disappears on cancel; void refunds exactly what w
     expect(await snapshot(order.id)).toEqual(before)
   })
 
-  test('P0-3E. void never attributes a cash refund to the original (closed) sale register', async () => {
+  test('P0-3E. void after the sale register closed attributes the cash refund to the refunding register, never the closed one', async () => {
     const openA = await request(app).post('/cash-register/open').set(auth(adminRotToken))
       .send({ store: storeRotating.id, openingBalance: 0, shift: 1 })
     expect([200, 201]).toContain(openA.status)
@@ -498,13 +512,22 @@ describe('P0-3 — money never disappears on cancel; void refunds exactly what w
       .send({ store: storeRotating.id, openingBalance: 0, shift: 2 })
     expect([200, 201]).toContain(openB.status)
 
-    const before = await snapshot(order.id)
     const res = await updateStatus(adminRotToken, { id: order.id, store: storeRotating.id, status: 'void', reason: 'P0-3E' })
-    // Interim (until per-record attribution, migration MC-4): refuse rather
-    // than move cash out of a closed register (DR-13).
-    expect(res.status).toBe(409)
-    expect(res.body.code).toBe('REFUND_REGISTER_ATTRIBUTION_UNAVAILABLE')
-    expect(await snapshot(order.id)).toEqual(before)
+    // P1 (DR-PAY-ATTR-02/§21) supersedes the interim MC-4 refusal: every
+    // settlement row already carries its own register, so the refund can
+    // be attributed to the refunding register B without moving anything
+    // out of closed A. The core guarantee stands — no refund row may ever
+    // point at the closed sale register.
+    expect(res.status).toBe(200)
+    const o = await oracle(order.id)
+    expect(o).toMatchObject({ V: G, P: 0, C: G, R: G, N: 0, O: 0, state: 'REFUNDED' })
+    expect(o.order.status).toBe('void')
+    const refunds = o.rows.filter((r) => Number(r.amount) < 0)
+    expect(refunds).toHaveLength(1)
+    expect(Number(refunds[0].cashRegisterId)).toBe(openB.body.data.id)
+    const sales = o.rows.filter((r) => Number(r.amount) > 0)
+    expect(sales).toHaveLength(1)
+    expect(Number(sales[0].cashRegisterId)).toBe(openA.body.data.id)
   })
 })
 

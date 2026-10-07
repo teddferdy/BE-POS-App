@@ -593,6 +593,13 @@ describe('Variance approval', () => {
 })
 
 describe('Cash tender invariant (P1-02)', () => {
+  // P1 (DR-PAY-ATTR-02): counter collection requires an open register.
+  // The file-level afterEach force-closes registers, so each tender test
+  // opens its own; tender-math assertions are unchanged.
+  beforeEach(async () => {
+    await openRegister(adminToken, { openingBalance: 0 })
+  })
+
   test('exact cash tender (no explicit fields) falls back to cashReceived=amountDue, changeGiven=0', async () => {
     const res = await cashOrder(cashierToken)
     expect(res.status).toBe(201)
@@ -1015,14 +1022,18 @@ describe('Backward compatibility', () => {
     await closeRegister(adminToken, registerId)
   })
 
-  test('an order created with no open register present has cashRegisterId=null and still succeeds', async () => {
-    // No register open for `store` at this point (afterEach closes any).
+  test('an order created with no open register present is refused with 422 and persists nothing', async () => {
+    // P1 (DR-PAY-ATTR-02) supersedes the old null-register tolerance:
+    // no open register for `store` at this point (afterEach closes any).
+    const before = await db.order.count({ where: { store: store.id } })
     const res = await cashOrder(cashierToken)
-    expect(res.status).toBe(201)
-    expect(res.body.data.cashRegisterId).toBeNull()
+    expect(res.status).toBe(422)
+    expect(res.body.code).toBe('REGISTER_REQUIRED')
+    expect(await db.order.count({ where: { store: store.id } })).toBe(before)
   })
 
   test('old-shape checkout requests (no cashAmount/changeAmount at all) continue to work exactly as before', async () => {
+    await openRegister(adminToken, { openingBalance: 0 })
     const res = await request(app)
       .post('/order/create')
       .set('Authorization', `Bearer ${cashierToken}`)

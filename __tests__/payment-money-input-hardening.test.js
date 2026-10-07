@@ -112,6 +112,8 @@ beforeAll(async () => {
   })
 
   // Learn the exact amount due (price + tax/service) for fractional probes.
+  // P1 (DR-PAY-ATTR-02): counter sales under test require an open register.
+  await db.cashRegister.create({ store: store.id, user: 7602, status: 'open', openingBalance: 0, openedAt: new Date() })
   const probe = await postOrder({ idempotencyKey: unique('monProbe') })
   if (probe.status !== 201) throw new Error('money setup failed')
   amountDue = Number(probe.body.data.totalPrice)
@@ -119,6 +121,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await db.cashRegister.destroy({ where: { store: store?.id }, force: true })
   await db.user.destroy({ where: { id: [7601, 7602] }, force: true })
   await db.taxConfig.destroy({ where: { store: store?.id }, force: true })
   await db.split_bill.destroy({ where: {}, force: true })
