@@ -137,13 +137,22 @@ async function readMetaReadOnly(cfg) {
   }
 }
 
+// Read-only ledger read for `env` (used by the batched runner's post-run
+// verification). Same READ ONLY transaction as the preflight itself.
+async function readRecordedMigrations(env) {
+  return readMetaReadOnly(loadTargetConfig(resolveEnv(env)))
+}
+
+// The returned `files` and `metaNames` are the exact state the decision was
+// made on, so the batched runner evaluates its batch against the same
+// snapshot instead of re-reading.
 async function runPreflight({ env: argEnv } = {}) {
   const env = resolveEnv(argEnv)
   try {
     const cfg = loadTargetConfig(env)
     const files = discoverMigrationFiles()
     if (!MANIFEST_BY_ENV[env]) {
-      return { env, ...evaluatePreflight({ env, targetHost: cfg.host, files }) }
+      return { env, files, ...evaluatePreflight({ env, targetHost: cfg.host, files }) }
     }
     const { manifest, errors } = rules.readDispositionManifest(MANIFEST_BY_ENV[env])
     let metaNames = null
@@ -154,6 +163,8 @@ async function runPreflight({ env: argEnv } = {}) {
     }
     return {
       env,
+      files,
+      metaNames,
       ...evaluatePreflight({ env, targetHost: cfg.host, dispositions: manifest, dispositionErrors: errors, files, metaNames })
     }
   } catch (err) {
@@ -193,4 +204,4 @@ if (require.main === module) {
   main()
 }
 
-module.exports = { LOCAL_HOSTS, MANIFEST_BY_ENV, evaluatePreflight, resolveEnv, runPreflight, report, main }
+module.exports = { LOCAL_HOSTS, MANIFEST_BY_ENV, evaluatePreflight, resolveEnv, runPreflight, readRecordedMigrations, report, main }

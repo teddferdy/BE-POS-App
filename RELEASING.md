@@ -47,7 +47,7 @@ recorded before W-01.1 have no verified execution provenance. The verifier
 reports **recorded** state only, for example:
 
 ```
-236/236 recorded in SequelizeMeta: runner-recorded N (execution provenance not asserted for pre-W-01.1 rows), attested X, excluded Y, controlled-applied Z, controlled-pending P, blocked B
+240/240 recorded in SequelizeMeta: runner-recorded N (execution provenance not asserted for pre-W-01.1 rows), attested X, excluded Y, controlled-applied Z, controlled-pending P, blocked B
 ```
 
 It never reports that "all migrations were executed/applied".
@@ -89,6 +89,26 @@ vocabulary and field rules are in `db/migration-dispositions/README.md`.
    and approved, every disposition recorded, nothing blocked or pending, no
    orphan rows) and only then starts the pinned `sequelize-cli db:migrate`
    for the same `--env`. Flags that could retarget the runner are refused.
+   - **D-08 E2 runs in bounded batches (Option C)**, one separately approved
+     batch at a time:
+     `npm run migrate -- --env production --batch B1` (then `B2`, then `B3`).
+     The batches are defined in `scripts/migration-batches.js` and recorded
+     in `docs/superpowers/evidence/d08-e2-batch-contract-record.md`:
+     - **B1**: the original 13 E2 migrations;
+     - **B2**: P1 M1 + M2 + M5;
+     - **B3**: P1 M3 only, after P1 is live with canonical payment writes
+       verified.
+   - After the preflight, the runner refuses a batch whose members are
+     missing or already recorded, when any pending migration outside the
+     batch would run first, or when a governance gate is open (B1: DR-22;
+     B3: P1 canonical writes verified). It then runs
+     `db:migrate --to <last member>` and re-reads `SequelizeMeta` to confirm
+     exactly the batch was recorded.
+   - While any batch member is pending, an unbatched `npm run migrate`
+     against production or staging is refused.
+   - A batch existing in the repository does not approve it. Each batch
+     needs its own explicit execution approval, a restore point and fresh
+     read-only preconditions.
 6. **Verify**: `npm run check:production-schema` must PASS.
 
 **Never run `sequelize-cli db:migrate` (or `npx sequelize-cli`) directly
@@ -107,10 +127,22 @@ runs, then re-verify.
 
 Before any production remediation, the migration plan is rehearsed against a
 **disposable local PostgreSQL database**. The rehearsal proves the
-disposition contract converges (stamping, controlled applies, the 13 E2
+disposition contract converges (stamping, controlled applies, the 17 E2
 runner candidates, final verification) while open business decisions stay
 isolated. A successful rehearsal does NOT approve the production manifest,
 stamp production, authorize production migration, or pass G-02.
+
+> **Correction (2026-10-07, D-08 E2 Option C).** This section previously
+> said "13 E2" and "236 = 197 + 26 + 13". That described the repository
+> before PR #168. PR #168 added four Payment P1 migrations, so the derived E2
+> inventory is now 17 and the accounting is 240 = 197 + 26 + 17. Their
+> presence in the repository did not approve them for production. Production
+> executes E2 in the three separately approved batches B1/B2/B3 described in
+> step 5 above and in `docs/superpowers/evidence/d08-e2-batch-contract-record.md`.
+> The rehearsal still runs all 17 sequentially, in the B1 → B2 → B3 order,
+> against its disposable database to prove convergence; that is not a
+> production execution plan. Earlier evidence files keep their original
+> "13 E2" figures because they describe the repository state they captured.
 
 ### Lifecycle
 
@@ -120,7 +152,7 @@ stamp production, authorize production migration, or pass G-02.
    authorizes production.
 2. **Dry run** (no database touched):
    `node scripts/rehearse-staging.js --staging-db=cashier_app_staging_rehearsal`
-   Validates the manifest, approval state, and 236 = 197 + 26 + 13
+   Validates the manifest, approval state, and 240 = 197 + 26 + 17
    accounting, then prints the plan.
 3. **Rehearse** (creates, uses, and drops the ephemeral database):
    ```
@@ -129,7 +161,7 @@ stamp production, authorize production migration, or pass G-02.
    ```
    Stages: create → identity guard → baseline → snapshot + synthetic drift
    fixture → disposition stamping → controlled applies (missing effects
-   only) → 13 E2 through the real runner (timed per migration) →
+   only) → 17 E2 through the real runner (timed per migration) →
    verification → evidence bundle → teardown.
    The rehearsal database name must match
    `cashier_app_staging_rehearsal*` on a local host or the harness refuses

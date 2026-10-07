@@ -223,7 +223,9 @@ describe('W-01.1 guarded runner (npm run migrate)', () => {
     const pf = fakePreflight({ ok: true, applicable: true, reasons: [] })
     pf.runPreflight.mockImplementation(async ({ env }) => {
       order.push('preflight')
-      return { env, ok: true, applicable: true, reasons: [] }
+      // Every file recorded, so no D-08 E2 batch member is pending and the
+      // unbatched run is allowed (batch guard: __tests__/migration-batches.test.js).
+      return { env, ok: true, applicable: true, reasons: [], files: FILES, metaNames: FILES }
     })
     const spawn = jest.fn((env) => {
       order.push(`spawn:${env}`)

@@ -39,8 +39,9 @@ const KNOWN_E2 = [
   '20261012000001-d05-member-identity-uniqueness.js',
   '20261013000001-p1-transaction-attribution.js',
   '20261013000002-p1-transaction-linkage-fks.js',
-  '20261013000003-p1-canonical-payment-check.js',
-  '20261013000004-p1-register-close-snapshot.js'
+  '20261013000004-p1-register-close-snapshot.js',
+  // D-08 E2 Option C: M3 sorts after M5 (B1 → B2 → B3, scripts/migration-batches.js).
+  '20261013000005-p1-canonical-payment-check.js'
 ]
 
 // Locked intentional staging/production divergence (D-06 manifest
@@ -784,8 +785,8 @@ describe('W-02R.4 full rehearsal integration (disposable database)', () => {
     for (const migration of [
       '20261013000001-p1-transaction-attribution.js',
       '20261013000002-p1-transaction-linkage-fks.js',
-      '20261013000003-p1-canonical-payment-check.js',
-      '20261013000004-p1-register-close-snapshot.js'
+      '20261013000004-p1-register-close-snapshot.js',
+      '20261013000005-p1-canonical-payment-check.js'
     ]) {
       expect(ev.steps.e2.executed).toContainEqual(expect.objectContaining({ migration, status: 0 }))
     }
