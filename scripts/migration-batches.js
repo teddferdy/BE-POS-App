@@ -118,13 +118,15 @@ const BATCH_RESUMES = Object.freeze({
     ledgerBefore: 235,
     ledgerAfter: 236,
     postconditions: 'D05_MEMBER_IDENTITY',
-    openGates: [
-      {
-        id: 'D05-AFFECTED-ROWS-DISPOSITIONED',
-        reason:
-          'D-05 preflight P1 refuses the 4 active non-guest members with unparseable phones; every affected row needs a recorded business disposition (REAL: true phone set through the audited application path; TEST: soft delete through the audited application path), and a fresh read-only recapture must show 0 unparseable active non-guest phones and 0 canonical collisions'
-      }
-    ]
+    // D05-AFFECTED-ROWS-DISPOSITIONED: RESOLVED 2026-10-08 by formal gate
+    // review (docs/superpowers/evidence/d08-b1-d05-gate-review-record.md:
+    // owner TEST dispositions for all four affected rows, authorized full
+    // reset superseding per-row verification, 9+9 live fixture lifecycle,
+    // clean M08 recapture, 184 green automated tests). Gate clearance makes
+    // B1-D05 governance-eligible only: execution still needs its own explicit
+    // authorization plus, per the D-08 record and RELEASING.md, an
+    // execution-time restore point and fresh read-only preconditions.
+    openGates: []
   })
 })
 
