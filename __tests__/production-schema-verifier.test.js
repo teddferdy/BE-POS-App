@@ -325,7 +325,7 @@ describe('W-01 production schema verifier', () => {
       // first step: approve → stamp → controlled apply → verify → runner).
       expect(joined).not.toMatch(/not approved/)
       expect(joined).toMatch(/disposition manifest rows not recorded in SequelizeMeta \(197\)/)
-      expect(joined).toMatch(/controlled apply still pending \(2\)/)
+      expect(joined).toMatch(/controlled apply still pending \(1\)/)
     })
 
     test('repository manifest, approved + fully stamped + controlled applies done → PASS (every E6 decision recorded: D-05, DR-21, DR-06)', () => {

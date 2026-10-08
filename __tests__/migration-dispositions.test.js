@@ -158,8 +158,8 @@ describe('W-01.1 repository production manifest (locked W-02R.3R matrix v2)', ()
   test('disposition counts match the locked matrix (E1 177 + E3 5 + E4 6 + E5 4 + E6 5, all E6 decisions recorded)', () => {
     expect(r.byDisposition).toEqual({
       ATTESTED_PRESENT: 179, // 177 E1 + 2 E3 whose missing half is superseded
-      CONTROLLED_APPLY_PENDING: 2, // 2 E3 still needing a controlled apply (CAP #1 region APPLIED 2026-10-08)
-      CONTROLLED_APPLIED: 1, // CAP #1 20260812010000-create-region-table.js, verified production CAS
+      CONTROLLED_APPLY_PENDING: 1, // 1 E3 still needing a controlled apply (CAP #1 region + CAP #2 product-review APPLIED)
+      CONTROLLED_APPLIED: 2, // CAP #1 region + CAP #2 product-review, verified production CAS
       EXCLUDED_UNSAFE: 6, // E4
       EXCLUDED_SUPERSEDED: 4, // E5
       // E6 fully decided: D-05 (20260620000004 + 20260913000001, superseded by
