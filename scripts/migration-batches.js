@@ -92,6 +92,172 @@ const E2_BATCHES = Object.freeze({
 
 const BATCH_ORDER = Object.freeze(['B1', 'B2', 'B3'])
 
+// D-08 B1 resume contracts. A resume finishes a batch whose earlier members
+// were recorded by an interrupted run; it never redefines the batch (the
+// frozen B1 list above is the single source of membership). Each resume pins
+// the exact incident ledger it may continue from and the ledger it must leave.
+//
+// B1-D05: on 2026-10-08 the production B1 run recorded B1 #1–#12 normally and
+// D-05 aborted in its own preflight P1 (`unparseable active phone values
+// (count=4)`, fail closed: no DDL, no rewrite). SequelizeMeta = 223 + 12 = 235.
+// Record: docs/superpowers/evidence/d08-b1-d05-resume-record.md.
+const deepFreezeResume = (resume) =>
+  Object.freeze({
+    ...resume,
+    migrations: Object.freeze([...resume.migrations]),
+    openGates: Object.freeze(resume.openGates.map((g) => Object.freeze({ ...g })))
+  })
+
+const BATCH_RESUMES = Object.freeze({
+  'B1-D05': deepFreezeResume({
+    id: 'B1-D05',
+    batch: 'B1',
+    title: 'B1 resume: D-05 only, after the 2026-10-08 D-05 preflight abort',
+    recordedCount: 12,
+    migrations: ['20261012000001-d05-member-identity-uniqueness.js'],
+    ledgerBefore: 235,
+    ledgerAfter: 236,
+    postconditions: 'D05_MEMBER_IDENTITY',
+    openGates: [
+      {
+        id: 'D05-AFFECTED-ROWS-DISPOSITIONED',
+        reason:
+          'D-05 preflight P1 refuses the 4 active non-guest members with unparseable phones; every affected row needs a recorded business disposition (REAL: true phone set through the audited application path; TEST: soft delete through the audited application path), and a fresh read-only recapture must show 0 unparseable active non-guest phones and 0 canonical collisions'
+      }
+    ]
+  })
+})
+
+// D-05 postconditions, as PostgreSQL renders them in pg_indexes.indexdef
+// (contract record d05-member-identity-contract.md §3.2): the four partial
+// unique indexes exist on public.member with their expressions and
+// predicates, no superseded historical member uniqueness object survives,
+// and the backfill left no active non-guest phone outside E.164 form.
+// Fragments (not whole strings) are matched, as in the D-05 migration test,
+// so the check does not depend on the server's exact deparse formatting;
+// the runner records the observed definitions verbatim as evidence.
+const D05_TARGET_INDEXES = Object.freeze({
+  uq_member_store_name_ci: Object.freeze(['(store, lower(TRIM(BOTH FROM name)))', '(store IS NOT NULL)', '("deletedAt" IS NULL)']),
+  uq_member_global_name_ci: Object.freeze(['(lower(TRIM(BOTH FROM name)))', '(store IS NULL)', '("deletedAt" IS NULL)']),
+  uq_member_phone_e164: Object.freeze(['("phoneNumber")', '("deletedAt" IS NULL)', "((\"phoneNumber\")::text !~~ 'GUEST-%'::text)"]),
+  uq_member_email_ci: Object.freeze(['(lower(TRIM(BOTH FROM email)))', '("deletedAt" IS NULL)', '(email IS NOT NULL)'])
+})
+const D05_HISTORICAL_OBJECTS = Object.freeze([
+  'uq_member_name',
+  'uq_member_phoneNumber',
+  'uq_member_email',
+  'uq_member_store_name',
+  'uq_member_global_name'
+])
+
+function verifyD05MemberIdentity(state) {
+  const indexDefs = state && state.indexDefs
+  const constraintNames = state && state.constraintNames
+  const nonCanonical = state && state.nonCanonicalActivePhones
+  if (!indexDefs || typeof indexDefs !== 'object' || !Array.isArray(constraintNames) || !Number.isInteger(nonCanonical)) {
+    return { ok: false, failures: ['member index/constraint/phone state unavailable'] }
+  }
+  const failures = []
+  for (const [name, fragments] of Object.entries(D05_TARGET_INDEXES)) {
+    const def = indexDefs[name]
+    if (typeof def !== 'string') {
+      failures.push(`index ${name} missing`)
+      continue
+    }
+    if (!def.startsWith('CREATE UNIQUE INDEX ')) failures.push(`index ${name} is not UNIQUE`)
+    for (const f of ['ON public.member USING btree ', ...fragments]) {
+      if (!def.includes(f)) failures.push(`index ${name} definition lacks "${f}"`)
+    }
+  }
+  for (const name of D05_HISTORICAL_OBJECTS) {
+    if (Object.prototype.hasOwnProperty.call(indexDefs, name) || constraintNames.includes(name)) {
+      failures.push(`historical ${name} still present`)
+    }
+  }
+  if (nonCanonical !== 0) failures.push(`${nonCanonical} active non-guest phone(s) not in E.164 form`)
+  return { ok: failures.length === 0, failures }
+}
+
+const POSTCONDITIONS = Object.freeze({ D05_MEMBER_IDENTITY: verifyD05MemberIdentity })
+const D05_TARGET_INDEX_NAMES = Object.freeze(Object.keys(D05_TARGET_INDEXES))
+
+function validateResumeDefinition(resume, batches = E2_BATCHES) {
+  const errors = []
+  const batch = resume && Object.prototype.hasOwnProperty.call(batches, resume.batch) ? batches[resume.batch] : null
+  if (!batch) return [`unknown base batch "${resume && resume.batch}"`]
+  for (const e of validateBatchDefinition(batch)) errors.push(`base batch ${batch.id}: ${e}`)
+  const list = Array.isArray(resume.migrations) ? resume.migrations : []
+  if (list.length === 0) errors.push('resume lists no migrations')
+  if (!Number.isInteger(resume.recordedCount) || resume.recordedCount + list.length !== batch.migrations.length) {
+    errors.push(`recordedCount ${resume.recordedCount} + ${list.length} resume member(s) must equal the ${batch.migrations.length} members of ${batch.id}`)
+  }
+  const suffix = batch.migrations.slice(batch.migrations.length - list.length)
+  if (list.length === 0 || list.some((m, i) => m !== suffix[i])) {
+    errors.push(`resume members must be exactly the last ${list.length} member(s) of ${batch.id} (suffix), in order`)
+  }
+  if (!Number.isInteger(resume.ledgerBefore) || resume.ledgerAfter !== resume.ledgerBefore + list.length) {
+    errors.push(`ledgerAfter ${resume.ledgerAfter} must equal ledgerBefore ${resume.ledgerBefore} + ${list.length}`)
+  }
+  if (!Object.prototype.hasOwnProperty.call(POSTCONDITIONS, resume.postconditions)) {
+    errors.push(`unknown postcondition check "${resume.postconditions}"`)
+  }
+  return errors
+}
+
+// Decides whether `sequelize-cli db:migrate --to <to>` would execute exactly
+// the resume members from exactly the pinned incident ledger: the batch
+// prefix is fully recorded, no resume member is recorded, the ledger has the
+// pinned row count with no duplicates, the pending list starts with exactly
+// the resume members, and no governance gate is open.
+function evaluateResume({ resumeId, files, metaNames, batches = E2_BATCHES, resumes = BATCH_RESUMES }) {
+  const resume = Object.prototype.hasOwnProperty.call(resumes, resumeId) ? resumes[resumeId] : null
+  if (!resume) return { ok: false, reasons: [`unknown resume "${resumeId}" (known: ${Object.keys(resumes).join(', ')})`] }
+  const reasons = validateResumeDefinition(resume, batches).map((e) => `resume ${resumeId}: ${e}`)
+  if (!Array.isArray(files) || !Array.isArray(metaNames)) {
+    reasons.push(`resume ${resumeId}: repository files or SequelizeMeta state unavailable`)
+    return { ok: false, reasons, resume }
+  }
+  if (reasons.length === 0) {
+    const batch = batches[resume.batch]
+    const prefix = batch.migrations.slice(0, resume.recordedCount)
+    const fileSet = new Set(files)
+    const recorded = new Set(metaNames)
+    if (recorded.size !== metaNames.length) reasons.push(`resume ${resumeId}: SequelizeMeta contains duplicate names`)
+    const missing = batch.migrations.filter((m) => !fileSet.has(m))
+    if (missing.length) reasons.push(`resume ${resumeId}: missing migration file(s): ${missing.join(', ')}`)
+    const notRecorded = prefix.filter((m) => !recorded.has(m))
+    if (notRecorded.length) {
+      reasons.push(`resume ${resumeId}: expected recorded ${batch.id} member(s) not recorded: ${notRecorded.join(', ')}`)
+    }
+    const already = resume.migrations.filter((m) => recorded.has(m))
+    if (already.length) reasons.push(`resume ${resumeId}: already recorded in SequelizeMeta: ${already.join(', ')}`)
+    if (metaNames.length !== resume.ledgerBefore) {
+      reasons.push(`resume ${resumeId}: SequelizeMeta has ${metaNames.length} row(s); the ${resumeId} resume requires exactly ${resume.ledgerBefore} (verified incident state)`)
+    }
+    if (reasons.length === 0) {
+      const pending = [...files].sort().filter((f) => !recorded.has(f))
+      const to = resume.migrations[resume.migrations.length - 1]
+      const window = pending.slice(0, pending.indexOf(to) + 1)
+      const outside = window.filter((f) => !resume.migrations.includes(f))
+      if (outside.length) {
+        reasons.push(`resume ${resumeId}: pending migration(s) outside ${resumeId} would run first: ${outside.join(', ')}`)
+      } else if (window.length !== resume.migrations.length) {
+        reasons.push(`resume ${resumeId}: would execute ${window.length} migrations, expected ${resume.migrations.length}`)
+      }
+    }
+  }
+  for (const gate of resume.openGates) reasons.push(`resume ${resumeId}: open governance gate ${gate.id} — ${gate.reason}`)
+  if (reasons.length) return { ok: false, reasons, resume }
+  return {
+    ok: true,
+    reasons: [],
+    resume,
+    migrations: [...resume.migrations],
+    to: resume.migrations[resume.migrations.length - 1],
+    ledgerAfter: resume.ledgerAfter
+  }
+}
+
 function validateBatchDefinition(batch) {
   const errors = []
   const list = Array.isArray(batch?.migrations) ? batch.migrations : []
@@ -113,7 +279,7 @@ function validateBatchDefinition(batch) {
 // this batch: every member exists, none is recorded yet, the pending list
 // (files − SequelizeMeta, filename order) starts with exactly these members,
 // and no governance gate is open.
-function evaluateBatch({ batchId, files, metaNames, batches = E2_BATCHES }) {
+function evaluateBatch({ batchId, files, metaNames, batches = E2_BATCHES, resumes = BATCH_RESUMES }) {
   const batch = Object.prototype.hasOwnProperty.call(batches, batchId) ? batches[batchId] : null
   if (!batch) return { ok: false, reasons: [`unknown batch "${batchId}" (known: ${Object.keys(batches).join(', ')})`] }
   const reasons = validateBatchDefinition(batch).map((e) => `batch ${batchId}: ${e}`)
@@ -127,7 +293,11 @@ function evaluateBatch({ batchId, files, metaNames, batches = E2_BATCHES }) {
   if (missing.length) reasons.push(`batch ${batchId}: missing migration file(s): ${missing.join(', ')}`)
   const already = batch.migrations.filter((m) => recorded.has(m))
   if (already.length) {
-    reasons.push(`batch ${batchId}: already recorded in SequelizeMeta (unexpected ledger state): ${already.join(', ')}`)
+    const resumeIds = Object.keys(resumes).filter((id) => resumes[id].batch === batchId)
+    const hint = resumeIds.length
+      ? `; a partially recorded batch continues only through its reviewed resume contract (--resume ${resumeIds.join(' | ')})`
+      : ''
+    reasons.push(`batch ${batchId}: already recorded in SequelizeMeta (unexpected ledger state): ${already.join(', ')}${hint}`)
   }
   if (reasons.length === 0) {
     const pending = [...files].sort().filter((f) => !recorded.has(f))
@@ -168,4 +338,16 @@ function verifyBatchRecorded({ migrations, before, after }) {
   return { ok: unexpected.length === 0 && missing.length === 0, added, unexpected, missing }
 }
 
-module.exports = { E2_BATCHES, BATCH_ORDER, validateBatchDefinition, evaluateBatch, pendingBatchMembers, verifyBatchRecorded }
+module.exports = {
+  E2_BATCHES,
+  BATCH_ORDER,
+  BATCH_RESUMES,
+  POSTCONDITIONS,
+  D05_TARGET_INDEX_NAMES,
+  validateBatchDefinition,
+  validateResumeDefinition,
+  evaluateBatch,
+  evaluateResume,
+  pendingBatchMembers,
+  verifyBatchRecorded
+}

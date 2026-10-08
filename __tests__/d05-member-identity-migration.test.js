@@ -328,3 +328,72 @@ describe('D-05 migration: down', () => {
     expect(await phonesById()).toEqual(['+6281500000063'])
   })
 })
+
+// D-08 B1-D05 resume: the runner's postcondition checker against the real
+// PostgreSQL rendering of the migrated schema, and the row-disposition
+// semantics the resume gate depends on (synthetic values only).
+describe('D-05 migration: B1-D05 resume postconditions and disposition semantics', () => {
+  const { queryMemberIdentityObjects } = require('../scripts/check-migration-preflight')
+  const { POSTCONDITIONS } = require('../scripts/migration-batches')
+  const postconditions = async () => POSTCONDITIONS.D05_MEMBER_IDENTITY(await queryMemberIdentityObjects(sequelize))
+  const seedIncidentShape = () =>
+    sequelize.query(
+      `INSERT INTO "member" (store, name, "phoneNumber") VALUES
+       (1, 'Synthetic A', '12345'),
+       (1, 'Synthetic B', '1234'),
+       (NULL, 'Synthetic C', '12345678'),
+       (2, 'Synthetic D', '11111111')`
+    )
+
+  test('checker passes on the real migrated schema and fails before migration', async () => {
+    expect((await postconditions()).ok).toBe(false)
+    await runUp()
+    expect(await postconditions()).toEqual({ ok: true, failures: [] })
+  })
+
+  test('checker fails when an active non-guest phone is not canonical E.164', async () => {
+    await runUp()
+    await sequelize.query(`INSERT INTO "member" (store, name, "phoneNumber") VALUES (1, 'Synthetic National', '081500000070')`)
+    await sequelize.query(`INSERT INTO "member" (store, name, "phoneNumber") VALUES (1, 'Synthetic Guest', 'GUEST-synthetic')`)
+    const r = await postconditions()
+    expect(r.ok).toBe(false)
+    expect(r.failures).toEqual(['1 active non-guest phone(s) not in E.164 form'])
+  })
+
+  test('checker fails when a historical uniqueness constraint survives', async () => {
+    await runUp()
+    await sequelize.query(`ALTER TABLE "member" ADD CONSTRAINT "uq_member_phoneNumber" UNIQUE ("phoneNumber")`)
+    const r = await postconditions()
+    expect(r.ok).toBe(false)
+    expect(r.failures.join('\n')).toMatch(/historical uq_member_phoneNumber still present/)
+  })
+
+  test('incident shape (4/5/8/8-digit values) aborts with count=4 and leaves no D-05 object', async () => {
+    await seedIncidentShape()
+    await expect(runUp()).rejects.toThrow(/unparseable active phone values \(count=4\)/)
+    expect((await postconditions()).ok).toBe(false)
+  })
+
+  test('status=inactive does not remove a row from the D-05 population', async () => {
+    await seedIncidentShape()
+    await sequelize.query(`UPDATE "member" SET status = 'inactive'`)
+    await expect(runUp()).rejects.toThrow(/unparseable active phone values \(count=4\)/)
+  })
+
+  test('only governed dispositions unblock: soft delete (TEST) or a valid true phone (REAL)', async () => {
+    await seedIncidentShape()
+    await sequelize.query(`UPDATE "member" SET "deletedAt" = NOW() WHERE name IN ('Synthetic A', 'Synthetic B', 'Synthetic C')`)
+    await expect(runUp()).rejects.toThrow(/unparseable active phone values \(count=1\)/)
+    await sequelize.query(`UPDATE "member" SET "phoneNumber" = '+6281500000099' WHERE name = 'Synthetic D'`)
+    await runUp()
+    expect(await postconditions()).toEqual({ ok: true, failures: [] })
+    const rows = await select(`SELECT name, "phoneNumber", "deletedAt" IS NOT NULL AS deleted FROM "member" ORDER BY name`)
+    // soft-deleted rows are retained untouched; the corrected row stays canonical
+    expect(rows).toEqual([
+      { name: 'Synthetic A', phoneNumber: '12345', deleted: true },
+      { name: 'Synthetic B', phoneNumber: '1234', deleted: true },
+      { name: 'Synthetic C', phoneNumber: '12345678', deleted: true },
+      { name: 'Synthetic D', phoneNumber: '+6281500000099', deleted: false }
+    ])
+  })
+})

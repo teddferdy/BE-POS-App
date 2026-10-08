@@ -111,6 +111,19 @@ vocabulary and field rules are in `db/migration-dispositions/README.md`.
       needs its own explicit execution approval, a restore point and fresh
       read-only preconditions. DR-22 resolution made B1 governance-eligible;
       it does not itself authorize B1 production execution.
+   - **B1 resume (B1-D05).** The 2026-10-08 B1 run recorded B1 #1–#12, and
+     D-05 aborted in its own preflight (SequelizeMeta 235). `--batch B1` now
+     refuses. The only way to finish B1 is
+     `npm run migrate -- --env production --resume B1-D05`.
+     - It runs only from exactly that ledger: 235 rows, B1 #1–#12 recorded,
+       D-05 unrecorded, nothing else pending before it.
+     - Afterwards it requires exactly 236 rows with only D-05 added, checks
+       the D-05 indexes and constraints read-only, and prints one
+       `RESUME RECORD` JSON line.
+     - Gate `D05-AFFECTED-ROWS-DISPOSITIONED` stays open until every affected
+       member row has a recorded business disposition. Clearing the gate
+       does not authorize execution.
+     - See `docs/superpowers/evidence/d08-b1-d05-resume-record.md`.
 6. **Verify**: `npm run check:production-schema` must PASS.
 
 **Never run `sequelize-cli db:migrate` (or `npx sequelize-cli`) directly
