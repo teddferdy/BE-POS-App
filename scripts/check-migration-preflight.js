@@ -143,6 +143,56 @@ async function readRecordedMigrations(env) {
   return readMetaReadOnly(loadTargetConfig(resolveEnv(env)))
 }
 
+// D-08 B1-D05 resume postcondition state: member index definitions and
+// constraint names, exactly as PostgreSQL reports them (pg_indexes /
+// pg_constraint), plus the COUNT of active non-guest phones not in E.164
+// form (a count only — no member value is read out). SELECT-only; the caller
+// supplies the transaction.
+async function queryMemberIdentityObjects(sequelize, { transaction } = {}) {
+  const SELECT = (sequelize.QueryTypes || require('sequelize').QueryTypes).SELECT
+  const indexes = await sequelize.query(
+    `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'member'`,
+    { transaction, type: SELECT }
+  )
+  const constraints = await sequelize.query(
+    `SELECT conname FROM pg_constraint WHERE conrelid = to_regclass('public.member')`,
+    { transaction, type: SELECT }
+  )
+  const [phones] = await sequelize.query(
+    `SELECT COUNT(*)::int AS n FROM "member"
+     WHERE "deletedAt" IS NULL AND "phoneNumber" NOT LIKE 'GUEST-%'
+       AND "phoneNumber" !~ '^\\+[1-9][0-9]{6,14}$'`,
+    { transaction, type: SELECT }
+  )
+  return {
+    indexDefs: Object.fromEntries(indexes.map((r) => [r.indexname, r.indexdef])),
+    constraintNames: constraints.map((r) => r.conname).sort(),
+    nonCanonicalActivePhones: Number(phones.n)
+  }
+}
+
+// Read-only postcondition read for `env` (used by the resume runner after
+// the run). Same READ ONLY transaction pattern as the ledger read.
+async function readMemberIdentityObjects(env) {
+  const cfg = loadTargetConfig(resolveEnv(env))
+  const { Sequelize } = require('sequelize')
+  const sequelize = new Sequelize(cfg.database, cfg.username, cfg.password, { ...cfg, logging: false })
+  const transaction = await sequelize.transaction()
+  try {
+    await sequelize.query('SET TRANSACTION READ ONLY', { transaction })
+    const state = await queryMemberIdentityObjects(sequelize, { transaction })
+    await transaction.commit()
+    return state
+  } catch (err) {
+    try {
+      await transaction.rollback()
+    } catch {}
+    throw err
+  } finally {
+    await sequelize.close().catch(() => {})
+  }
+}
+
 // The returned `files` and `metaNames` are the exact state the decision was
 // made on, so the batched runner evaluates its batch against the same
 // snapshot instead of re-reading.
@@ -204,4 +254,15 @@ if (require.main === module) {
   main()
 }
 
-module.exports = { LOCAL_HOSTS, MANIFEST_BY_ENV, evaluatePreflight, resolveEnv, runPreflight, readRecordedMigrations, report, main }
+module.exports = {
+  LOCAL_HOSTS,
+  MANIFEST_BY_ENV,
+  evaluatePreflight,
+  resolveEnv,
+  runPreflight,
+  readRecordedMigrations,
+  queryMemberIdentityObjects,
+  readMemberIdentityObjects,
+  report,
+  main
+}
