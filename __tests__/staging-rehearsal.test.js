@@ -80,6 +80,20 @@ const sortBlocked = (list) =>
 // staging/production shapes. approvedBy/approvedAt are deliberately NOT
 // compared: each manifest has its own whole-file approval, and approving one
 // environment never authorizes the other (db/migration-dispositions/README.md).
+// A verified production controlled-apply progression is likewise not
+// unexpected divergence (see isVerifiedControlledProgression below): the
+// staging rehearsal manifest is independent and keeps exercising the pending
+// path on disposable databases while production legitimately moves on.
+const isVerifiedControlledProgression = (s, p) =>
+  s.disposition === 'CONTROLLED_APPLY_PENDING' &&
+  p.disposition === 'CONTROLLED_APPLIED' &&
+  s.migration === p.migration &&
+  s.evidenceRef === p.evidenceRef &&
+  !('applyRef' in s) &&
+  typeof p.applyRef === 'string' &&
+  p.applyRef.startsWith('controlled-apply/') &&
+  Object.keys(s).sort().join(',') === 'disposition,evidenceRef,migration' &&
+  Object.keys(p).sort().join(',') === 'applyRef,disposition,evidenceRef,migration'
 const stagingDivergenceViolations = (staging, production) => {
   const out = []
   const sNames = staging.migrations.map((r) => r.migration)
@@ -96,7 +110,9 @@ const stagingDivergenceViolations = (staging, production) => {
     if (!p) continue
     const locked = STAGING_DIVERGENCE[s.migration]
     if (!locked) {
-      if (JSON.stringify(s) !== JSON.stringify(p)) out.push(`unexpected divergence: ${s.migration}`)
+      if (JSON.stringify(s) !== JSON.stringify(p) && !isVerifiedControlledProgression(s, p)) {
+        out.push(`unexpected divergence: ${s.migration}`)
+      }
       continue
     }
     const sKeys = Object.keys(s).sort().join(',')
