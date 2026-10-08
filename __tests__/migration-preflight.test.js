@@ -81,7 +81,7 @@ describe('W-01.1 migration preflight (production)', () => {
     const dispositions = approvedRepositoryManifest((r) => (r.disposition === 'BLOCKED_DECISION' ? resolveAll(r) : r))
     const result = evaluate({ dispositions, metaNames: allDispositionsStamped(dispositions) })
     expect(result.ok).toBe(false)
-    expect(result.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains \(3\)/)
+    expect(result.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains \(2\)/)
   })
 
   test('disposition missing from SequelizeMeta (E4/E5 would replay) → refused', () => {
@@ -174,7 +174,7 @@ describe('W-01.1 migration preflight (non-production environments)', () => {
       isolateBlockedDecisions: true
     })
     // Controlled-pending rows still fail the gate; only BLOCKED is isolated.
-    expect(isolated.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains \(3\)/)
+    expect(isolated.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains \(2\)/)
     expect(isolated.reasons.join('\n')).not.toMatch(/BLOCKED_DECISION remains/)
     expect(isolated.blocked).toHaveLength(3)
   })

@@ -14,7 +14,7 @@
     {
       "migration": "20260601000002-add-supplier-tax-pricetiers-to-product.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): product.tax, product.priceTiers present; product.supplier absent and not referenced by db/models/product.js (w02r_columns); replay: APPLIES_MISSING_ONLY; missing half superseded (no current model reference) \u2014 never apply"
+      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): product.tax, product.priceTiers present; product.supplier absent and not referenced by db/models/product.js (w02r_columns); replay: APPLIES_MISSING_ONLY; missing half superseded (no current model reference) — never apply"
     },
     {
       "migration": "20260601000003-create-tax-config.js",
@@ -114,7 +114,7 @@
     {
       "migration": "20260607000004-add-fields-to-product.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: product.tipeProduk; product.hppPerPorsi; product.foodCostPersen; product.marginPersen; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: product.tipeProduk; product.hppPerPorsi; product.foodCostPersen; product.marginPersen; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
     },
     {
       "migration": "20260607000005-create-daily-report.js",
@@ -154,7 +154,7 @@
     {
       "migration": "20260610000000-remove-invoice-footer-logo-social.js",
       "disposition": "EXCLUDED_UNSAFE",
-      "evidenceRef": "W-02R.3R matrix v2 E4 (HIGH): logoImage/footerText/showFooter/socialMediaList absent; showLogo present because re-added by 20260610000003 (evolved); replay: EXECUTES removeColumn invoice_setting.showLogo (guard sees column present; re-added by 20260610000003; used by api/controller/order.js:4221, pos.js:3074) \u2014 DESTRUCTIVE"
+      "evidenceRef": "W-02R.3R matrix v2 E4 (HIGH): logoImage/footerText/showFooter/socialMediaList absent; showLogo present because re-added by 20260610000003 (evolved); replay: EXECUTES removeColumn invoice_setting.showLogo (guard sees column present; re-added by 20260610000003; used by api/controller/order.js:4221, pos.js:3074) — DESTRUCTIVE"
     },
     {
       "migration": "20260610000001-add-show-member-info.js",
@@ -224,7 +224,7 @@
     {
       "migration": "20260614093441-fix-expense-category-status-type.js",
       "disposition": "EXCLUDED_UNSAFE",
-      "evidenceRef": "W-02R.3R matrix v2 E4 (HIGH (mutation) / MEDIUM (abort point)): expense_category.status already varchar default active (w02r_columns); replay stmt1 DROP DEFAULT executes, stmt2 (status = true on varchar) fails -> default left dropped; replay: EXECUTES DROP DEFAULT, then PREDICTED ABORT (varchar = boolean) \u2014 default left dropped"
+      "evidenceRef": "W-02R.3R matrix v2 E4 (HIGH (mutation) / MEDIUM (abort point)): expense_category.status already varchar default active (w02r_columns); replay stmt1 DROP DEFAULT executes, stmt2 (status = true on varchar) fails -> default left dropped; replay: EXECUTES DROP DEFAULT, then PREDICTED ABORT (varchar = boolean) — default left dropped"
     },
     {
       "migration": "20260615000001-create-ingredient-category.js",
@@ -375,7 +375,7 @@
     {
       "migration": "20260627000002-create-product-store-stock.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 2 effect(s) PRESENT: product_store_stock; product_store_stock.product+store (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: createTable no-op, then CREATES redundant unique index product_store_stock_product_store (existing: product_store_stock_product_store_key) \u2014 additive, non-destructive"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 2 effect(s) PRESENT: product_store_stock; product_store_stock.product+store (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: createTable no-op, then CREATES redundant unique index product_store_stock_product_store (existing: product_store_stock_product_store_key) — additive, non-destructive"
     },
     {
       "migration": "20260628000001-make-cashierId-nullable-in-order.js",
@@ -405,7 +405,7 @@
     {
       "migration": "20260708000001-change-supplier-store-to-jsonb.js",
       "disposition": "EXCLUDED_UNSAFE",
-      "evidenceRef": "W-02R.3R matrix v2 E4 (MEDIUM (untested)): supplier.store already jsonb (w02r_columns); replay USING to_jsonb(ARRAY[store]) nests existing jsonb values; replay: EXECUTES ALTER TYPE jsonb USING to_jsonb(ARRAY[store]) \u2014 nests existing values"
+      "evidenceRef": "W-02R.3R matrix v2 E4 (MEDIUM (untested)): supplier.store already jsonb (w02r_columns); replay USING to_jsonb(ARRAY[store]) nests existing jsonb values; replay: EXECUTES ALTER TYPE jsonb USING to_jsonb(ARRAY[store]) — nests existing values"
     },
     {
       "migration": "20260712000001-expense-allow-null-category-amount.js",
@@ -415,7 +415,7 @@
     {
       "migration": "20260712000002-po-allow-null-supplier-pic.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): purchase_order.pic nullable=YES (present); purchase_order.supplier column absent and not in db/models/purchaseOrder.js (w02r_columns) -> stmt 1 would fail; replay: ABORTS_AT_FIRST_STATEMENT; missing half superseded (no current model reference) \u2014 never apply"
+      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): purchase_order.pic nullable=YES (present); purchase_order.supplier column absent and not in db/models/purchaseOrder.js (w02r_columns) -> stmt 1 would fail; replay: ABORTS_AT_FIRST_STATEMENT; missing half superseded (no current model reference) — never apply"
     },
     {
       "migration": "20260713000001-add-ingredient-fk-to-stock-history.js",
@@ -435,7 +435,7 @@
     {
       "migration": "20260716000002-create-delivery-order.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 6 effect(s) PRESENT: delivery_order; delivery_order.order; delivery_order.store; delivery_order.driverId; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 6 effect(s) PRESENT: delivery_order; delivery_order.order; delivery_order.store; delivery_order.driverId; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260716000003-create-delivery-status-history.js",
@@ -450,12 +450,12 @@
     {
       "migration": "20260716000005-create-supplier-score.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: supplier_score; supplier_score.store; supplier_score.supplierId; supplier_score.period; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: supplier_score; supplier_score.store; supplier_score.supplierId; supplier_score.period; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260716000006-create-promo-campaign.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: promo_campaign; promo_campaign.store; promo_campaign.status; promo_campaign.type; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: promo_campaign; promo_campaign.store; promo_campaign.status; promo_campaign.type; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260716000007-create-promo-rule.js",
@@ -470,12 +470,12 @@
     {
       "migration": "20260716000009-create-promo-usage.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: promo_usage; promo_usage.store; promo_usage.campaignId; promo_usage.orderId; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: promo_usage; promo_usage.store; promo_usage.campaignId; promo_usage.orderId; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260717000001-create-product-bundle.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 7 effect(s) PRESENT: product_bundle; product_bundle_item; product_bundle.store; product_bundle.status; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 7 effect(s) PRESENT: product_bundle; product_bundle_item; product_bundle.store; product_bundle.status; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260717000002-add-bundleId-to-order-item.js",
@@ -530,7 +530,7 @@
     {
       "migration": "20260725000001-add-isSystem-to-role.js",
       "disposition": "EXCLUDED_UNSAFE",
-      "evidenceRef": "W-02R.3R matrix v2 E4 (MEDIUM): role.isSystem present; 3 true / 1 false (w02r1_dataonly.role_isSystem); replay UPDATE ... WHERE createdBy IS NULL cannot be proven identity (role.createdBy values not captured); replay: EXECUTES UPDATE role SET isSystem=true WHERE createdBy IS NULL \u2014 identity unprovable (createdBy not captured)"
+      "evidenceRef": "W-02R.3R matrix v2 E4 (MEDIUM): role.isSystem present; 3 true / 1 false (w02r1_dataonly.role_isSystem); replay UPDATE ... WHERE createdBy IS NULL cannot be proven identity (role.createdBy values not captured); replay: EXECUTES UPDATE role SET isSystem=true WHERE createdBy IS NULL — identity unprovable (createdBy not captured)"
     },
     {
       "migration": "20260727000001-add-payment-fields-to-purchase-order.js",
@@ -560,7 +560,7 @@
     {
       "migration": "20260731000003-create-reporting-tables.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 12 effect(s) PRESENT: sales_summary; sales_summary.store+report_date; sales_summary.report_date; product_sales_summary; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 12 effect(s) PRESENT: sales_summary; sales_summary.store+report_date; sales_summary.report_date; product_sales_summary; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260731000004-create-product-batch-tables.js",
@@ -580,7 +580,7 @@
     {
       "migration": "20260731000007-create-dead-stock-alert.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: dead_stock_alert; dead_stock_alert.product+store; dead_stock_alert.alert_level; dead_stock_alert.alert_status; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: dead_stock_alert; dead_stock_alert.product+store; dead_stock_alert.alert_level; dead_stock_alert.alert_status; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260731000008-create-stock-forecast.js",
@@ -645,7 +645,7 @@
     {
       "migration": "20260809000001-create-accounting.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 8 effect(s) PRESENT: account; account.account_store_code_unique; account.account_store_type_idx; journal_entry; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 8 effect(s) PRESENT: account; account.account_store_code_unique; account.account_store_type_idx; journal_entry; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260809000002-add-reset-token-to-user.js",
@@ -660,12 +660,13 @@
     {
       "migration": "20260810000001-create-goods-request.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: goods_request; goods_request_item; goods_request.store; goods_request.status; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: goods_request; goods_request_item; goods_request.store; goods_request.status; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AFTER_NOOP/IDENTITY"
     },
     {
       "migration": "20260812010000-create-region-table.js",
-      "disposition": "CONTROLLED_APPLY_PENDING",
-      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): region table present; region_code_unique, region_level_idx, region_parent_code_idx absent (w02r_indexes: only region_pkey); table-exists guard makes whole-file replay a no-op; replay: SAFE_NOOP (all guarded); required: apply only the verified missing effect; never run whole file"
+      "disposition": "CONTROLLED_APPLIED",
+      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): region table present; region_code_unique, region_level_idx, region_parent_code_idx absent (w02r_indexes: only region_pkey); table-exists guard makes whole-file replay a no-op; replay: SAFE_NOOP (all guarded); required: apply only the verified missing effect; never run whole file",
+      "applyRef": "controlled-apply/20260812010000-create-region-table.js/2026-10-08T03:39:46.213Z/teddy-ferdian"
     },
     {
       "migration": "20260812020000-add-latitude-longitude-to-region.js",
@@ -740,12 +741,12 @@
     {
       "migration": "20260822000001-add-gr-operational-fields.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 6 effect(s) PRESENT: goods_receipt.suratJalan; goods_receipt.taxInvoiceNo; goods_receipt.shippingCost; goods_receipt.documentation; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 6 effect(s) PRESENT: goods_receipt.suratJalan; goods_receipt.taxInvoiceNo; goods_receipt.shippingCost; goods_receipt.documentation; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
     },
     {
       "migration": "20260822000002-add-performance-indexes.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: order.order_store_createdAt; order.order_store_status; order_item.order_item_order_idx; stock_history.stock_history_store_createdAt; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: order.order_store_createdAt; order.order_store_status; order_item.order_item_order_idx; stock_history.stock_history_store_createdAt; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
     },
     {
       "migration": "20260823000001-alter-supplier-product-price-to-bigint.js",
@@ -891,7 +892,7 @@
     {
       "migration": "20260905000003-add-cash-register-variance-fields.js",
       "disposition": "ATTESTED_PRESENT",
-      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: cash_register.variance; cash_register.varianceApprovalStatus; cash_register.approvedBy; cash_register.approvedAt; \u2026 (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
+      "evidenceRef": "W-02R.3R matrix v2 E1 (HIGH): 5 effect(s) PRESENT: cash_register.variance; cash_register.varianceApprovalStatus; cash_register.approvedBy; cash_register.approvedAt; … (w02r_columns/w02r_indexes/w02r_constraints/w02r1_enums); replay: ABORTS_AT_FIRST_STATEMENT"
     },
     {
       "migration": "20260905000004-cash-register-one-open-partial-index.js",
