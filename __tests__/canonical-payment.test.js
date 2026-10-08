@@ -93,3 +93,26 @@ describe('canonical payment registry', () => {
     expect(normalizePaymentMethod(normalizePaymentMethod(input))).toBe(input)
   })
 })
+
+// Reporting-side classification (dashboard + register breakdowns): one
+// canonical bucket per row. Unmappable or empty tenders go to the explicit
+// UNRECONCILED reporting bucket; nothing is ever folded into another tender.
+describe('reportingBucket', () => {
+  test.each(['CASH', 'CARD', 'BANK_TRANSFER', 'E_WALLET', 'QRIS', 'POINTS', 'OTHER'])(
+    'canonical %s is its own bucket',
+    (method) => {
+      expect(loadService().reportingBucket(method)).toBe(method)
+    }
+  )
+
+  test('historical rows follow the locked P1 alias map', () => {
+    expect(loadService().reportingBucket('tunai')).toBe('CASH')
+  })
+
+  test.each([['bitcoin'], ['e_wallet'], [''], [null], [undefined], [42]])(
+    '%p is UNRECONCILED',
+    (value) => {
+      expect(loadService().reportingBucket(value)).toBe('UNRECONCILED')
+    }
+  )
+})

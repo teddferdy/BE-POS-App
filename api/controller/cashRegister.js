@@ -5,7 +5,7 @@ const { redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { withDeadlockRetry } = require('../../utils/deadlockRetry')
 const { scalarStoreScope } = require('../../utils/tenantScope')
 const { assertIntegerRupiah } = require('../../utils/moneyGuard')
-const { normalizePaymentMethod, CANONICAL_METHOD_ORDER } = require('../service/canonicalPayment')
+const { reportingBucket, CANONICAL_METHOD_ORDER } = require('../service/canonicalPayment')
 
 // P1 (DR-PAY-ATTR-06): payment-breakdown bucketing speaks canonical
 // methods. Historical rows whose tender cannot be mapped are summed into
@@ -14,13 +14,7 @@ const { normalizePaymentMethod, CANONICAL_METHOD_ORDER } = require('../service/c
 function bucketPaymentsByCanonical(rows) {
   const buckets = new Map()
   for (const row of rows) {
-    let type = 'UNRECONCILED'
-    try {
-      const canonical = normalizePaymentMethod(row.typePayment)
-      if (canonical) type = canonical
-    } catch {
-      type = 'UNRECONCILED'
-    }
+    const type = reportingBucket(row.typePayment)
     const bucket = buckets.get(type) || { type, total: 0, count: 0 }
     bucket.total += Number(row.total || 0)
     bucket.count += Number(row.count || 0)
