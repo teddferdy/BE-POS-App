@@ -932,8 +932,9 @@
     },
     {
       "migration": "20260906000004-split-bill-hardening.js",
-      "disposition": "CONTROLLED_APPLY_PENDING",
-      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): split_bill.status nullable=YES (absent NOT NULL); idempotencyKey + split_bill_order_idempotencykey present (w02r_columns, w02r_indexes); whole-file replay would SET NOT NULL then fail at addColumn (non-transactional); replay: APPLIES SET NOT NULL, then ABORTS at existing idempotencyKey column (partial, non-transactional); required: apply only the verified missing effect; never run whole file"
+      "disposition": "CONTROLLED_APPLIED",
+      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): split_bill.status nullable=YES (absent NOT NULL); idempotencyKey + split_bill_order_idempotencykey present (w02r_columns, w02r_indexes); whole-file replay would SET NOT NULL then fail at addColumn (non-transactional); replay: APPLIES SET NOT NULL, then ABORTS at existing idempotencyKey column (partial, non-transactional); required: apply only the verified missing effect; never run whole file",
+      "applyRef": "controlled-apply/20260906000004-split-bill-hardening.js/2026-10-08T06:05:56.996Z/teddy-ferdian"
     },
     {
       "migration": "20260907000001-add-inventory-mode-to-product.js",

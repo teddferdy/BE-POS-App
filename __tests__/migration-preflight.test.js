@@ -78,10 +78,20 @@ describe('W-01.1 migration preflight (production)', () => {
   })
 
   test('CONTROLLED_APPLY_PENDING remaining → refused', () => {
-    const dispositions = approvedRepositoryManifest((r) => (r.disposition === 'BLOCKED_DECISION' ? resolveAll(r) : r))
+    // The repository manifest itself has no pending rows left (all three
+    // controlled applies verified); the gate is covered with a synthetic
+    // pending row so a future pending row still refuses.
+    const forcePending = (r) =>
+      r.migration === '20260906000004-split-bill-hardening.js'
+        ? { migration: r.migration, disposition: 'CONTROLLED_APPLY_PENDING', evidenceRef: r.evidenceRef }
+        : r.disposition === 'BLOCKED_DECISION'
+          ? resolveAll(r)
+          : r
+    const dispositions = approvedRepositoryManifest(forcePending)
     const result = evaluate({ dispositions, metaNames: allDispositionsStamped(dispositions) })
     expect(result.ok).toBe(false)
     expect(result.reasons.join('\n')).toMatch(/CONTROLLED_APPLY_PENDING remains \(1\)/)
+    expect(result.reasons.join('\n')).toMatch(/20260906000004-split-bill-hardening\.js/)
   })
 
   test('disposition missing from SequelizeMeta (E4/E5 would replay) → refused', () => {
@@ -158,7 +168,13 @@ describe('W-01.1 migration preflight (non-production environments)', () => {
       ...dispositions,
       approvedBy: 't',
       approvedAt: '2026-10-02T00:00:00Z',
-      migrations: dispositions.migrations.map(withSyntheticBlocked)
+      // Synthetic pending (the repository manifest itself has none left) so
+      // the pending gate stays covered alongside the synthetic blocked rows.
+      migrations: dispositions.migrations.map(withSyntheticBlocked).map((r) =>
+        r.migration === '20260906000004-split-bill-hardening.js'
+          ? { migration: r.migration, disposition: 'CONTROLLED_APPLY_PENDING', evidenceRef: r.evidenceRef }
+          : r
+      )
     }
     const metaNames = approved.migrations.map((r) => r.migration)
     const strict = preflight.evaluatePreflight({ env: 'production', targetHost: 'db', dispositions: approved, files: FILES, metaNames })
