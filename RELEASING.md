@@ -120,9 +120,12 @@ vocabulary and field rules are in `db/migration-dispositions/README.md`.
      - Afterwards it requires exactly 236 rows with only D-05 added, checks
        the D-05 indexes and constraints read-only, and prints one
        `RESUME RECORD` JSON line.
-     - Gate `D05-AFFECTED-ROWS-DISPOSITIONED` stays open until every affected
-       member row has a recorded business disposition. Clearing the gate
-       does not authorize execution.
+     - Gate `D05-AFFECTED-ROWS-DISPOSITIONED` was resolved 2026-10-08 by
+       formal gate review
+       (`docs/superpowers/evidence/d08-b1-d05-gate-review-record.md`: owner
+       TEST dispositions, authorized-reset supersession, 9+9 live fixture
+       lifecycle, clean M08). Clearing the gate does not authorize
+       execution.
      - See `docs/superpowers/evidence/d08-b1-d05-resume-record.md`.
 6. **Verify**: `npm run check:production-schema` must PASS.
 

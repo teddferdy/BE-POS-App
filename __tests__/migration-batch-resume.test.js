@@ -73,8 +73,8 @@ describe('B1-D05 resume contract', () => {
     expect(batches.validateResumeDefinition(RESUME)).toEqual([])
   })
 
-  test('D-05 row-disposition gate is open on the real contract', () => {
-    expect(RESUME.openGates.map((g) => g.id)).toEqual(['D05-AFFECTED-ROWS-DISPOSITIONED'])
+  test('D-05 row-disposition gate is cleared on the real contract (formal gate review)', () => {
+    expect(RESUME.openGates).toEqual([])
   })
 
   test('definition validation: resume members must be exactly the unrecorded suffix of the batch', () => {
@@ -109,10 +109,23 @@ describe('B1-D05 resume evaluation (fail closed)', () => {
     expect(e.ledgerAfter).toBe(236)
   })
 
-  test('real contract is refused by the open D-05 row-disposition gate', () => {
+  test('real contract evaluates clean now that the D-05 row-disposition gate is cleared', () => {
     const e = batches.evaluateResume({ resumeId: 'B1-D05', files: FILES, metaNames: INCIDENT })
+    expect(e.reasons).toEqual([])
+    expect(e.ok).toBe(true)
+    expect(e.migrations).toEqual([D05])
+    expect(e.to).toBe(D05)
+  })
+
+  test('an unknown open gate still refuses the resume (fail-closed mechanism intact)', () => {
+    const e = batches.evaluateResume({
+      resumeId: 'B1-D05',
+      files: FILES,
+      metaNames: INCIDENT,
+      resumes: gateCleared({ openGates: [{ id: 'SOME-FUTURE-GATE', reason: 'synthetic' }] })
+    })
     expect(e.ok).toBe(false)
-    expect(e.reasons.join('\n')).toMatch(/open governance gate D05-AFFECTED-ROWS-DISPOSITIONED/)
+    expect(e.reasons.join('\n')).toMatch(/open governance gate SOME-FUTURE-GATE/)
   })
 
   test('refused unless every one of the expected 12 B1 migrations is recorded', () => {
@@ -330,15 +343,14 @@ describe('D-08 runner --resume B1-D05', () => {
     expect(rec.finishedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 
-  test('real contract: refused by the open gate before anything is spawned or read', async () => {
-    const spawn = jest.fn()
-    const readMeta = jest.fn()
+  test('real contract proceeds past gate evaluation now that the gate is cleared', async () => {
+    const spawn = jest.fn(() => ({ status: 0 }))
+    const readMeta = jest.fn(async () => [...INCIDENT, D05])
     const code = await run({ spawn, readMeta, resumes: undefined })
-    expect(code).toBe(1)
-    expect(spawn).not.toHaveBeenCalled()
-    expect(readMeta).not.toHaveBeenCalled()
-    expect(errSpy.mock.calls.flat().join('\n')).toMatch(/REFUSED resume B1-D05.*NOT started/s)
-    expect(errSpy.mock.calls.flat().join('\n')).toMatch(/D05-AFFECTED-ROWS-DISPOSITIONED/)
+    expect(code).toBe(0)
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(spawn).toHaveBeenCalledWith('production', { to: D05 })
+    expect(readMeta).toHaveBeenCalledWith('production')
   })
 
   test('D-05 preflight abort (runner exit 1, ledger unchanged) is propagated and recorded', async () => {
