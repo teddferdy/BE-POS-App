@@ -309,6 +309,17 @@ describe('W-01 production schema verifier', () => {
       // must not silently pass. 26 = production SequelizeMeta size recorded by W-02.
       const files = verifier.discoverMigrationFiles()
       const { manifest } = dispositions.readDispositionManifest()
+      // The repository manifest itself has no pending rows left (all three
+      // controlled applies verified); force one synthetic pending row so the
+      // pending gate stays covered while the unstamped-ledger FAIL is probed.
+      const withPending = {
+        ...manifest,
+        migrations: manifest.migrations.map((r) =>
+          r.migration === '20260906000004-split-bill-hardening.js'
+            ? { migration: r.migration, disposition: 'CONTROLLED_APPLY_PENDING', evidenceRef: r.evidenceRef }
+            : r
+        )
+      }
       const prodMeta = files.filter((f) => f < '20260601000000' || /^20261008|^20261009|^20261010/.test(f))
       expect(prodMeta).toHaveLength(26)
       const result = verifier.verifyFromState({
@@ -316,7 +327,7 @@ describe('W-01 production schema verifier', () => {
         manifest: verifier.readMigrationManifest(),
         metaNames: prodMeta,
         schema: verifier.completeTestSchema(),
-        dispositions: manifest
+        dispositions: withPending
       })
       expect(result.status).toBe('FAIL')
       const joined = result.failures.join('\n')
