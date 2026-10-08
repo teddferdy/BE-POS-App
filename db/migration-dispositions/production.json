@@ -791,8 +791,9 @@
     },
     {
       "migration": "20260829000001-create-product-review-table.js",
-      "disposition": "CONTROLLED_APPLY_PENDING",
-      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): product_review table present; (productId,store) and (store) indexes absent (w02r_indexes: product_review_pkey, uq_product_review_device only); table-exists guard makes replay a no-op; replay: SAFE_NOOP (all guarded); required: apply only the verified missing effect; never run whole file"
+      "disposition": "CONTROLLED_APPLIED",
+      "evidenceRef": "W-02R.3R matrix v2 E3 (HIGH): product_review table present; (productId,store) and (store) indexes absent (w02r_indexes: product_review_pkey, uq_product_review_device only); table-exists guard makes replay a no-op; replay: SAFE_NOOP (all guarded); required: apply only the verified missing effect; never run whole file",
+      "applyRef": "controlled-apply/20260829000001-create-product-review-table.js/2026-10-08T04:34:00.295Z/teddy-ferdian"
     },
     {
       "migration": "20260830000001-add-images-to-product.js",
