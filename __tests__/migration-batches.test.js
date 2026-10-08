@@ -113,10 +113,10 @@ describe('D-08 E2 batch contract (Option C)', () => {
     expect(mig.CONSTRAINT_NAME).toBe('transaction_typepayment_canonical')
   })
 
-  test('B1 gate DR-22 is resolved; B3 gate stays open; B2 has none', () => {
+  test('B1 gate DR-22 is resolved; B3 gate P1-CANONICAL-WRITES-VERIFIED is resolved; B2 has none', () => {
     expect(batches.E2_BATCHES.B1.openGates).toEqual([])
     expect(batches.E2_BATCHES.B2.openGates).toEqual([])
-    expect(batches.E2_BATCHES.B3.openGates.map((g) => g.id)).toEqual(['P1-CANONICAL-WRITES-VERIFIED'])
+    expect(batches.E2_BATCHES.B3.openGates).toEqual([])
   })
 })
 
@@ -234,10 +234,12 @@ describe('D-08 E2 batch evaluation (runner safety)', () => {
     expect(r.reasons.join('\n')).toMatch(/open governance gate DR-22/)
   })
 
-  test('B3 is refused until P1 canonical writes are verified (real contract)', () => {
+  test('B3 evaluates clean now that P1 canonical writes are verified (real contract)', () => {
     const r = batches.evaluateBatch({ batchId: 'B3', files: FILES, metaNames: ledgerWith(B1, B2) })
-    expect(r.ok).toBe(false)
-    expect(r.reasons.join('\n')).toMatch(/open governance gate P1-CANONICAL-WRITES-VERIFIED/)
+    expect(r.reasons).toEqual([])
+    expect(r.ok).toBe(true)
+    expect(r.migrations).toEqual([M3])
+    expect(r.to).toBe(M3)
   })
 
   test('B2 has no code gate but still requires B1 recorded first (real contract)', () => {
@@ -363,20 +365,19 @@ describe('D-08 batched runner (npm run migrate -- --batch)', () => {
     expect(spawn).not.toHaveBeenCalled()
   })
 
-  test('B3 is refused by its open gate before anything is spawned (B1 gate resolved)', async () => {
-    for (const [batch, meta, gate] of [['B3', ledgerWith(B1, B2), /P1-CANONICAL-WRITES-VERIFIED/]]) {
-      errSpy.mockClear()
-      const spawn = jest.fn()
-      const code = await runner.main({
-        argv: ['--env', 'production', '--batch', batch],
-        preflight: okPreflight({ files: FILES, metaNames: meta }),
-        spawn,
-        readMeta: jest.fn()
-      })
-      expect(code).toBe(1)
-      expect(spawn).not.toHaveBeenCalled()
-      expect(errSpy.mock.calls.flat().join('\n')).toMatch(gate)
-    }
+  test('B3 proceeds past gate evaluation now that the gate is cleared (B1 gate resolved)', async () => {
+    const spawn = jest.fn(() => ({ status: 0 }))
+    const readMeta = jest.fn(async () => [...ledgerWith(B1, B2), M3])
+    const code = await runner.main({
+      argv: ['--env', 'production', '--batch', 'B3'],
+      preflight: okPreflight({ files: FILES, metaNames: ledgerWith(B1, B2) }),
+      spawn,
+      readMeta
+    })
+    expect(code).toBe(0)
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(spawn).toHaveBeenCalledWith('production', { to: M3 })
+    expect(readMeta).toHaveBeenCalledWith('production')
   })
 
   test('B2 refused while B1 is pending (cannot run past a batch boundary)', async () => {

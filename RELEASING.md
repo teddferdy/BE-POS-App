@@ -97,7 +97,8 @@ vocabulary and field rules are in `db/migration-dispositions/README.md`.
      - **B1**: the original 13 E2 migrations;
      - **B2**: P1 M1 + M2 + M5;
      - **B3**: P1 M3 only, after P1 is live with canonical payment writes
-       verified.
+       verified (gate P1-CANONICAL-WRITES-VERIFIED was resolved 2026-10-08
+       and carries no open gate).
     - After the preflight, the runner refuses a batch whose members are
       missing or already recorded, when any pending migration outside the
       batch would run first, or when a governance gate is open (B3: P1

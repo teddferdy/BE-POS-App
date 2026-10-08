@@ -80,13 +80,15 @@ const E2_BATCHES = Object.freeze({
     title: 'P1 M3 canonical payment CHECK',
     expectedCount: 1,
     migrations: ['20261013000005-p1-canonical-payment-check.js'],
-    openGates: [
-      {
-        id: 'P1-CANONICAL-WRITES-VERIFIED',
-        reason:
-          'M3 refuses non-canonical typePayment writes; it may run only after P1 code is live in production and canonical payment writes are verified'
-      }
-    ]
+    // P1-CANONICAL-WRITES-VERIFIED: RESOLVED 2026-10-08 by formal gate
+    // review (docs/superpowers/evidence/d08-b3-gate-review-record.md:
+    // P1 canonical build f80ef8e live in production; CASH order #26 /
+    // E_WALLET order #27 persisted canonically with reconciled side
+    // effects; 154 green automated tests). Gate clearance makes B3
+    // governance-eligible only: execution still needs its own explicit
+    // authorization plus, per the D-08 record and RELEASING.md, an
+    // execution-time restore point and fresh read-only preconditions.
+    openGates: []
   })
 })
 
