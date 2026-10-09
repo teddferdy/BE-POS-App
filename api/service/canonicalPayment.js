@@ -84,8 +84,21 @@ function normalizePaymentMethod(value) {
   return canonical
 }
 
+// Reporting-side classification of one stored tender (dashboards and
+// register breakdowns). Never throws: a tender the locked map cannot
+// resolve — or an empty one — is reported in the explicit UNRECONCILED
+// bucket, never folded into another tender. Stored values are untouched.
+function reportingBucket(value) {
+  try {
+    return normalizePaymentMethod(value) || 'UNRECONCILED'
+  } catch {
+    return 'UNRECONCILED'
+  }
+}
+
 module.exports = {
   CANONICAL_PAYMENT_METHODS,
   CANONICAL_METHOD_ORDER,
-  normalizePaymentMethod
+  normalizePaymentMethod,
+  reportingBucket
 }
