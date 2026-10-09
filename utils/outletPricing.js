@@ -65,8 +65,11 @@ const getEffectivePriceMap = async (products, store) => {
         map.set(String(row.product), Number(row.price))
       }
     }
-  } catch {
-    // product_store_price table may not exist; every product keeps base price
+  } catch (err) {
+    if (err && err.code === '42P01') {
+      return map
+    }
+    throw err
   }
   return map
 }
