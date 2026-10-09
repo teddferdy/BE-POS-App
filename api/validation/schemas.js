@@ -268,7 +268,7 @@ const orderItemSchema = z
   .passthrough()
 
 exports.createOrderSchema = z.object({
-  store: strToNum(),
+  store: strToNum().optional(),
   tableId: strToNum().optional().nullable(),
   customerId: strToNum().optional().nullable(),
   customerName: z.string().optional().nullable(),
@@ -1853,7 +1853,18 @@ exports.updatePriceByStoreSchema = z.object({
     .array(
       z.object({
         storeId: z.union([z.literal('base'), strToNum()]),
-        price: z.coerce.number()
+        price: z
+          .any()
+          .refine((v) => typeof v !== 'boolean', { message: 'price must not be a boolean' })
+          .transform((v) => {
+            if (v === '' || v === null || v === undefined) return undefined
+            return Number(v)
+          })
+          .refine((v) => v !== undefined, { message: 'price is required' })
+          .refine((v) => Number.isInteger(v), { message: 'price must be an integer' })
+          .refine((v) => v >= 0, { message: 'price must not be negative' })
+          .refine((v) => v <= 2147483647, { message: 'price exceeds maximum (2147483647)' })
+          .refine((v) => Number.isSafeInteger(v), { message: 'price is not a safe integer' })
       })
     )
     .min(1, 'At least one store price is required')

@@ -22,6 +22,7 @@ jest.mock('../db/models', () => {
   }
   const product_store_price = {
     findAll: jest.fn(),
+    findOne: jest.fn(),
     upsert: jest.fn()
   }
   const location = {
@@ -58,6 +59,7 @@ beforeEach(() => {
   db.product.findByPk.mockResolvedValue({ id: 5, nameProduct: 'Kopi', price: 20000 })
   db.product.update.mockResolvedValue({})
   db.product_store_price.findAll.mockResolvedValue([])
+  db.product_store_price.findOne.mockResolvedValue(null)
   db.product_store_price.upsert.mockResolvedValue({})
 })
 

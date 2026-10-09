@@ -2956,16 +2956,33 @@ order: [['updatedAt', 'DESC']],
         })
       }
 
+      for (const sp of storePrices) {
+        if (!Number.isInteger(sp.price) || sp.price < 0 || sp.price > 2147483647 || !Number.isSafeInteger(sp.price)) {
+          return res.status(400).json({
+            success: false,
+            message: 'price must be an integer between 0 and 2147483647'
+          })
+        }
+      }
+
       const result = await db.sequelize.transaction(async (t) => {
-        // Update base price
-        const basePrice = storePrices.find((sp) => sp.storeId === 'base')?.price
-        if (basePrice) {
-          await product.update({ price: basePrice }, { transaction: t })
+        const priorStorePrices = []
+        const baseRow = storePrices.find((sp) => sp.storeId === 'base')
+        if (baseRow) {
+          priorStorePrices.push({ storeId: 'base', price: product.price })
+          await product.update({ price: baseRow.price }, { transaction: t })
         }
 
-        // Update store-specific prices
         for (const sp of storePrices) {
           if (sp.storeId !== 'base') {
+            const existing = await db.product_store_price.findOne({
+              where: { product: productId, store: sp.storeId },
+              transaction: t
+            })
+            priorStorePrices.push({
+              storeId: sp.storeId,
+              price: existing ? existing.price : null
+            })
             await db.product_store_price.upsert(
               {
                 product: productId,
@@ -2982,6 +2999,7 @@ order: [['updatedAt', 'DESC']],
           entity: 'product_price',
           entityId: productId,
           description: 'Updated per-store pricing',
+          oldValues: { storePrices: priorStorePrices },
           newValues: { storePrices },
           transaction: t
         })
