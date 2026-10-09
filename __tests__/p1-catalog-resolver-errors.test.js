@@ -34,7 +34,7 @@ describe('getEffectivePriceMap — error handling', () => {
 
     const priceMap = await getEffectivePriceMap(products, 10)
 
-    expect(priceMap).toEqual({
+    expect(Object.fromEntries(priceMap)).toEqual({
       1: 6000,
       2: 3500,
       3: 7000
@@ -46,7 +46,7 @@ describe('getEffectivePriceMap — error handling', () => {
 
     const priceMap = await getEffectivePriceMap(products, 10)
 
-    expect(priceMap).toEqual({
+    expect(Object.fromEntries(priceMap)).toEqual({
       1: 5000,
       2: 3000,
       3: 7000
@@ -60,7 +60,7 @@ describe('getEffectivePriceMap — error handling', () => {
 
     const priceMap = await getEffectivePriceMap(products, 10)
 
-    expect(priceMap).toEqual({
+    expect(Object.fromEntries(priceMap)).toEqual({
       1: 0,
       2: 3000,
       3: 7000
@@ -74,7 +74,7 @@ describe('getEffectivePriceMap — error handling', () => {
 
     const priceMap = await getEffectivePriceMap(products, 10)
 
-    expect(priceMap).toEqual({
+    expect(Object.fromEntries(priceMap)).toEqual({
       1: 5000,
       2: 3000,
       3: 7000
@@ -90,7 +90,7 @@ describe('getEffectivePriceMap — error handling', () => {
     // Otherwise this should propagate. Adjust based on authoritative BA guidance.
     const priceMap = await getEffectivePriceMap(products, 10)
 
-    expect(priceMap).toEqual({
+    expect(Object.fromEntries(priceMap)).toEqual({
       1: 5000,
       2: 3000,
       3: 7000

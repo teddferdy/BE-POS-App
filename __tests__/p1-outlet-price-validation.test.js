@@ -13,7 +13,11 @@
 
 jest.mock('../db/models', () => ({
   product: {
-    findByPk: jest.fn(),
+    findByPk: jest.fn().mockImplementation(() => {
+      return {
+        update: jest.fn()
+      }
+    }),
     update: jest.fn()
   },
   product_store_price: {
@@ -46,7 +50,13 @@ const superReq = (body) => ({
 
 beforeEach(() => {
   jest.clearAllMocks()
-  db.product.findByPk.mockResolvedValue({ id: 5, nameProduct: 'Kopi', price: 20000 })
+  const mockProductInstance = {
+    id: 5,
+    nameProduct: 'Kopi',
+    price: 20000,
+    update: jest.fn()
+  }
+  db.product.findByPk.mockResolvedValue(mockProductInstance)
   db.product.update.mockResolvedValue({})
   db.product_store_price.findOne.mockResolvedValue(null)
   db.product_store_price.upsert.mockResolvedValue({})
@@ -183,8 +193,9 @@ describe('updatePriceByStore — price validation', () => {
 
     await posController.updatePriceByStore(req, res)
 
+    const productInstance = await db.product.findByPk.mock.results[0].value
     expect(res.status).toHaveBeenCalledWith(200)
-    expect(db.product.update).toHaveBeenCalledWith(
+    expect(productInstance.update).toHaveBeenCalledWith(
       expect.objectContaining({ price: 0 }),
       expect.anything()
     )

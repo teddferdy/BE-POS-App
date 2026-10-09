@@ -1855,6 +1855,7 @@ exports.updatePriceByStoreSchema = z.object({
         storeId: z.union([z.literal('base'), strToNum()]),
         price: z
           .any()
+          .refine((v) => typeof v !== 'boolean', { message: 'price must not be a boolean' })
           .transform((v) => {
             if (v === '' || v === null || v === undefined) return undefined
             return Number(v)
