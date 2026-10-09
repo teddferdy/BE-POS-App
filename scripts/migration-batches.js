@@ -185,6 +185,154 @@ function verifyD05MemberIdentity(state) {
 const POSTCONDITIONS = Object.freeze({ D05_MEMBER_IDENTITY: verifyD05MemberIdentity })
 const D05_TARGET_INDEX_NAMES = Object.freeze(Object.keys(D05_TARGET_INDEXES))
 
+// B3 execution guards. M3 adds a CHECK constraint, which takes an ACCESS
+// EXCLUSIVE lock on "transaction" (blocks reads and writes while held or
+// queued), so the B3 run is bounded server-side and verified afterwards.
+//
+// Session guard: the spawned sequelize-cli process (and only that process)
+// gets lock_timeout / statement_timeout / application_name through the pg
+// driver's PGOPTIONS / PGAPPNAME environment fallback (pg 8.x reads them
+// only when the connection config sets no `options` / `application_name`;
+// config/config.js sets neither). A pooler may reject or silently drop
+// startup options, so the runner proves the values are in effect on the
+// target endpoint (read-only probe) before it starts the migration.
+const BATCH_SESSION_GUARDS = Object.freeze({
+  B3: Object.freeze({ lockTimeoutMs: 3000, statementTimeoutMs: 60000, applicationName: 'd08-b3-m3' })
+})
+
+// Transaction-scoped advisory lock serializing guarded D-08 runs (B3).
+// Transaction-scoped (not session-scoped) so a transaction-mode pooler can
+// never strand it on a pooled server connection. Fixed, namespaced 64-bit
+// key (two 32-bit halves) derived from 'd08-batch-runner/v1', following the
+// CAP-003 precedent (scripts/controlled-apply-production.js advisoryLockKeys).
+const D08_RUNNER_LOCK_KEYS = (() => {
+  const h = require('crypto').createHash('sha256').update('d08-batch-runner/v1').digest()
+  return Object.freeze([h.readInt32BE(0), h.readInt32BE(4)])
+})()
+
+function sessionEnv(guard) {
+  return {
+    PGOPTIONS: `-c lock_timeout=${guard.lockTimeoutMs} -c statement_timeout=${guard.statementTimeoutMs}`,
+    PGAPPNAME: guard.applicationName
+  }
+}
+
+// `observed` is what the target server reports for a connection opened with
+// sessionEnv(guard): { lockTimeoutMs, statementTimeoutMs, applicationName }.
+function verifySessionSettings(observed, guard) {
+  if (!observed || typeof observed !== 'object') return { ok: false, failures: ['session settings unavailable'] }
+  const failures = []
+  if (observed.lockTimeoutMs !== guard.lockTimeoutMs) {
+    failures.push(`lock_timeout is ${observed.lockTimeoutMs} ms, expected ${guard.lockTimeoutMs} ms`)
+  }
+  if (observed.statementTimeoutMs !== guard.statementTimeoutMs) {
+    failures.push(`statement_timeout is ${observed.statementTimeoutMs} ms, expected ${guard.statementTimeoutMs} ms`)
+  }
+  if (observed.applicationName !== guard.applicationName) {
+    failures.push(`application_name is "${observed.applicationName}", expected "${guard.applicationName}"`)
+  }
+  return { ok: failures.length === 0, failures }
+}
+
+// M3 state contract. The expected constraint is an independent literal —
+// never read back from the migration — so neither a drifted migration nor a
+// pre-existing same-named constraint (M3's `IF NOT EXISTS` checks the name
+// only) can verify itself. PostgreSQL renders `"typePayment" IN (...)` on a
+// VARCHAR column as `= ANY (ARRAY[...])` (verified on 14.19 and 17.11); any
+// other rendering fails closed.
+const M3_MIGRATION = '20261013000005-p1-canonical-payment-check.js'
+const M3_CONSTRAINT = Object.freeze({
+  name: 'transaction_typepayment_canonical',
+  schema: 'public',
+  table: 'transaction',
+  column: 'typePayment',
+  values: Object.freeze(['CASH', 'CARD', 'BANK_TRANSFER', 'E_WALLET', 'QRIS', 'POINTS', 'OTHER'])
+})
+const M3_DEF_PATTERN = /^CHECK \(\(\("typePayment"\)::text = ANY \(\(ARRAY\[(.+)\]\)::text\[\]\)\)\)( NOT VALID)?$/
+const M3_VALUE_PATTERN = /^'([A-Z_]+)'::character varying$/
+
+function parseM3Definition(def) {
+  const match = typeof def === 'string' ? M3_DEF_PATTERN.exec(def) : null
+  if (!match) return null
+  const values = match[1].split(', ').map((item) => {
+    const v = M3_VALUE_PATTERN.exec(item)
+    return v ? v[1] : null
+  })
+  if (values.includes(null)) return null
+  return { values, notValid: Boolean(match[2]) }
+}
+
+function m3StateAvailable(state) {
+  return Boolean(state) && Array.isArray(state.constraints) && Number.isInteger(state.ledgerCount) && Boolean(state.column)
+}
+
+// M3 relies on "typePayment" being NOT NULL (a CHECK passes NULL). `column`
+// is the catalog view of exactly public.transaction("typePayment"):
+// { relation: 'public.transaction' | null, relkind, matches, notNull }.
+function m3ColumnFailures(column) {
+  if (!column || typeof column !== 'object') return ['public.transaction("typePayment") state unavailable']
+  if (column.relation !== `${M3_CONSTRAINT.schema}.${M3_CONSTRAINT.table}`) return ['relation public.transaction not found']
+  if (column.relkind !== 'r' && column.relkind !== 'p') return [`public.transaction is not a table (relkind ${column.relkind})`]
+  if (column.matches !== 1) return [`column "${M3_CONSTRAINT.column}" found ${column.matches} time(s) on public.transaction, expected exactly 1`]
+  if (column.notNull !== true) return [`column "${M3_CONSTRAINT.column}" is not NOT NULL (attnotnull ${column.notNull}); M3 relies on it`]
+  return []
+}
+
+// Before B3 spawns: public.transaction("typePayment") exists and is NOT
+// NULL, no same-named constraint exists anywhere, and M3 is unrecorded.
+// A pre-existing constraint is never adopted (M3 would skip it and record
+// the ledger over an unverified definition).
+function verifyM3Absent(state) {
+  if (!m3StateAvailable(state)) return { ok: false, failures: ['M3 constraint/ledger state unavailable'] }
+  const failures = m3ColumnFailures(state.column)
+  if (state.constraints.length) {
+    failures.push(`constraint ${M3_CONSTRAINT.name} already exists (${state.constraints.length}) — inspect its definition independently; B3 never adopts a pre-existing constraint`)
+  }
+  if (state.ledgerCount !== 0) failures.push(`SequelizeMeta already records ${M3_MIGRATION} (${state.ledgerCount})`)
+  return { ok: failures.length === 0, failures }
+}
+
+// After B3 returns: the column is still NOT NULL, and there is exactly one
+// CHECK on public.transaction("typePayment"),
+// exactly the seven canonical values, NOT VALID (convalidated = false; the
+// VALIDATE step is M6), and M3 recorded exactly once.
+function verifyM3CanonicalCheck(state) {
+  if (!m3StateAvailable(state)) return { ok: false, failures: ['M3 constraint/ledger state unavailable'] }
+  const failures = m3ColumnFailures(state.column)
+  if (state.ledgerCount !== 1) failures.push(`SequelizeMeta records ${M3_MIGRATION} ${state.ledgerCount} time(s), expected exactly 1`)
+  if (state.constraints.length !== 1) {
+    failures.push(`expected exactly one constraint named ${M3_CONSTRAINT.name}, found ${state.constraints.length}`)
+    return { ok: false, failures }
+  }
+  const c = state.constraints[0]
+  if (c.schema !== M3_CONSTRAINT.schema || c.table !== M3_CONSTRAINT.table) {
+    failures.push(`constraint is on ${c.schema}.${c.table}, expected ${M3_CONSTRAINT.schema}.${M3_CONSTRAINT.table}`)
+  }
+  if (c.contype !== 'c') failures.push(`constraint type is "${c.contype}", expected CHECK ("c")`)
+  if (!Array.isArray(c.columns) || c.columns.length !== 1 || c.columns[0] !== M3_CONSTRAINT.column) {
+    failures.push(`constraint columns are ${JSON.stringify(c.columns)}, expected ["${M3_CONSTRAINT.column}"]`)
+  }
+  if (c.convalidated !== false) failures.push(`convalidated is ${c.convalidated}, expected false (NOT VALID; VALIDATE is M6)`)
+  const parsed = parseM3Definition(c.def)
+  if (!parsed) {
+    failures.push(`definition does not match the canonical CHECK shape: ${c.def}`)
+  } else {
+    if (!parsed.notValid) failures.push('definition is not NOT VALID')
+    const expected = M3_CONSTRAINT.values
+    const unexpected = parsed.values.filter((v) => !expected.includes(v))
+    const missing = expected.filter((v) => !parsed.values.includes(v))
+    if (unexpected.length) failures.push(`definition allows non-canonical value(s): ${unexpected.join(', ')}`)
+    if (missing.length) failures.push(`definition lacks canonical value(s): ${missing.join(', ')}`)
+    if (new Set(parsed.values).size !== parsed.values.length) failures.push('definition lists a value more than once')
+  }
+  return { ok: failures.length === 0, failures }
+}
+
+// Batches whose run is bracketed by read-only state checks.
+const BATCH_STATE_CHECKS = Object.freeze({
+  B3: Object.freeze({ id: 'M3_CANONICAL_CHECK', before: verifyM3Absent, after: verifyM3CanonicalCheck })
+})
+
 function validateResumeDefinition(resume, batches = E2_BATCHES) {
   const errors = []
   const batch = resume && Object.prototype.hasOwnProperty.call(batches, resume.batch) ? batches[resume.batch] : null
@@ -348,6 +496,16 @@ module.exports = {
   BATCH_RESUMES,
   POSTCONDITIONS,
   D05_TARGET_INDEX_NAMES,
+  BATCH_SESSION_GUARDS,
+  BATCH_STATE_CHECKS,
+  D08_RUNNER_LOCK_KEYS,
+  M3_MIGRATION,
+  M3_CONSTRAINT,
+  sessionEnv,
+  verifySessionSettings,
+  parseM3Definition,
+  verifyM3Absent,
+  verifyM3CanonicalCheck,
   validateBatchDefinition,
   validateResumeDefinition,
   evaluateBatch,
