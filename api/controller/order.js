@@ -7,6 +7,7 @@ const Table = db.table
 const Product = db.product
 const Discount = db.discount
 const { Op } = require('sequelize')
+const { fetchActiveTaxRows } = require('../../utils/taxResolution')
 const { createNotification } = require('../../utils/createNotification')
 const { createAudit, redactAndAudit, AUDIT_ACTIONS } = require('../../utils/auditLog')
 const { emitItemStatusUpdate, emitNewOrder } = require('../service/socket')
@@ -423,13 +424,12 @@ const generateCustomerNumber = async (store, t) => {
 const getActiveTaxRate = async (store) => {
   // W3-3 (DR-17): missing PPN configuration is an explicit setup error and
   // read failures propagate — never a silent numeric fallback. A 0 sum from
-  // explicitly configured rows is valid and returned as 0.
+  // explicitly configured rows is valid and returned as 0. Row resolution
+  // is shared with the read-only summary via fetchActiveTaxRows (P1); the
+  // summation and error semantics below are unchanged.
   let taxConfigs
   try {
-    taxConfigs = await db.taxConfig.findAll({
-      where: { [Op.or]: [{ store }, { store: null }], type: 'ppn', status: 'active' },
-      attributes: ['rate']
-    })
+    taxConfigs = (await fetchActiveTaxRows(store)).ppn
   } catch (e) {
     console.error('Error fetching tax config:', e.message)
     throw e
@@ -447,13 +447,11 @@ const getActiveTaxRate = async (store) => {
 const getServiceChargeRate = async (store) => {
   // W3-3 (DR-17): no configured service-charge rows means 0 (valid business
   // behavior, unchanged). A read failure is NOT converted into 0 — it
-  // propagates to the existing 500 handling.
+  // propagates to the existing 500 handling. Rows shared via
+  // fetchActiveTaxRows (P1); summation semantics unchanged.
   let configs
   try {
-    configs = await db.taxConfig.findAll({
-      where: { [Op.or]: [{ store }, { store: null }], type: 'service_charge', status: 'active' },
-      attributes: ['rate']
-    })
+    configs = (await fetchActiveTaxRows(store)).serviceCharge
   } catch (e) {
     console.error('Error fetching service charge config:', e.message)
     throw e

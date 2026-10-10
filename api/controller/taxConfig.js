@@ -3,6 +3,7 @@ const { Op } = require('sequelize')
 const ExcelJS = require('exceljs')
 const { createAudit } = require('../../utils/auditLog')
 const { enrichAuditFields } = require('../../utils/auditFields')
+const { fetchActiveTaxRows } = require('../../utils/taxResolution')
 
 const taxConfigController = {
   async getPublic(req, res) {
@@ -32,6 +33,147 @@ const taxConfigController = {
     } catch (error) {
       console.error('getPublic error:', error)
       return res.status(500).json({ message: 'Internal server error' })
+    }
+  },
+
+  async getEffective(req, res) {
+    // P1: read-only effective-tax summary for one evaluated scope. Uses
+    // the same row resolution as checkout (fetchActiveTaxRows) and reports
+    // what checkout would charge — it never changes checkout behavior.
+    // Scope: explicit ?store=<id>, else the caller's own store, else the
+    // global scope for a super_admin with no store selected. Outlet
+    // callers can never see another outlet (enforced by
+    // validateStoreAccess before this handler runs).
+    try {
+      const rawStore = req.query?.store
+      let store = null
+      if (rawStore !== undefined && rawStore !== null && rawStore !== '') {
+        store = Number(rawStore)
+        if (!Number.isInteger(store) || store <= 0) {
+          return res.status(400).json({
+            success: false,
+            code: 'INVALID_STORE',
+            message: 'Invalid store value'
+          })
+        }
+      } else if (req.user?.roleType !== 'super_admin') {
+        store = req.storeId ?? req.user?.store ?? null
+      }
+
+      const rawChannel = req.query?.channel
+      const channel =
+        rawChannel === undefined || rawChannel === null || rawChannel === ''
+          ? 'counter'
+          : rawChannel
+      if (channel !== 'counter' && channel !== 'qr') {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_CHANNEL',
+          message: 'channel must be counter or qr'
+        })
+      }
+
+      let rows
+      try {
+        rows = await fetchActiveTaxRows(store)
+      } catch (error) {
+        console.error('getEffective error:', error)
+        return res.status(500).json({
+          success: false,
+          message: 'Internal server error'
+        })
+      }
+
+      // Missing PPN mirrors the checkout setup error (DR-17 fail-closed):
+      // an explicit error, never a silent zero.
+      if (rows.ppn.length === 0) {
+        return res.status(400).json({
+          success: false,
+          code: 'PPN_MISSING',
+          message: `PPN tax configuration is missing for this outlet (store ${store}); configure an active PPN rate before selling`
+        })
+      }
+
+      const toRow = (r) => ({
+        id: r.id,
+        name: r.name,
+        rate: Number(r.rate),
+        scope: r.store === null || r.store === undefined ? 'global' : 'outlet'
+      })
+      const ppnRows = rows.ppn.map(toRow)
+      const ppnRate = ppnRows.reduce((sum, r) => sum + r.rate, 0)
+
+      const findings = []
+      const scopesPresent = new Set(ppnRows.map((r) => r.scope))
+      const byScope = {}
+      for (const r of ppnRows) {
+        byScope[r.scope] = byScope[r.scope] || []
+        byScope[r.scope].push(r)
+      }
+      for (const [scope, group] of Object.entries(byScope)) {
+        if (group.length > 1) {
+          findings.push({
+            code: 'MULTIPLE_ACTIVE_SAME_SCOPE',
+            severity: 'warning',
+            message:
+              `${group.length} active PPN rows share the ${scope} scope; ` +
+              'the effective rate is their sum under current checkout behavior',
+            policyRef: 'D3',
+            decision: 'undecided'
+          })
+        }
+      }
+      if (scopesPresent.has('global') && scopesPresent.has('outlet')) {
+        findings.push({
+          code: 'GLOBAL_AND_OUTLET_COMBINED',
+          severity: 'info',
+          message:
+            'global and outlet PPN rows both contribute; the effective ' +
+            'rate is their sum under current checkout behavior',
+          policyRef: 'D3',
+          decision: 'undecided'
+        })
+      }
+      if (ppnRate === 0) {
+        findings.push({
+          code: 'PPN_ZERO_CONFIGURED',
+          severity: 'info',
+          message:
+            'effective PPN is 0 from explicitly configured rows (valid configuration, distinct from missing PPN)'
+        })
+      }
+
+      // Service charge follows checkout semantics: resolved for counter,
+      // never applicable to QR (same contract as getCustomerTaxRate).
+      let serviceCharge
+      if (channel === 'qr') {
+        serviceCharge = { status: 'not_applicable', rate: null, rows: [] }
+      } else {
+        const scRows = rows.serviceCharge.map(toRow)
+        const scRate = scRows.reduce((sum, r) => sum + r.rate, 0)
+        serviceCharge =
+          scRows.length === 0
+            ? { status: 'absent', rate: 0, rows: [] }
+            : { status: 'configured', rate: scRate, rows: scRows }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Success get effective tax',
+        data: {
+          store,
+          channel,
+          ppn: { status: 'configured', rate: ppnRate, rows: ppnRows },
+          serviceCharge,
+          findings
+        }
+      })
+    } catch (error) {
+      console.error('getEffective error:', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      })
     }
   },
 

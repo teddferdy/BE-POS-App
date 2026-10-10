@@ -16,6 +16,11 @@ const uploadExcel = multer({ storage: multer.memoryStorage() })
 // Get tax configs - Public (no auth)
 router.get('/public', taxConfigController.getPublic)
 
+// Effective-tax summary - All authenticated users (read-only). Reports the
+// active configuration applying to one scope using the same resolution as
+// checkout; creates, updates, deletes, and seeds nothing.
+router.get('/effective', authorization, validateStoreAccess, taxConfigController.getEffective)
+
 // Get tax configs - All authenticated users
 router.get('/', authorization, validateStoreAccess, taxConfigController.getAll)
 router.get(
