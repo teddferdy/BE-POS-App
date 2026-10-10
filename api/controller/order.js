@@ -439,6 +439,7 @@ const getActiveTaxRate = async (store) => {
       `PPN tax configuration is missing for this outlet (store ${store}); configure an active PPN rate before selling`
     )
     e.statusCode = 400
+    e.code = 'PPN_MISSING'
     throw e
   }
   return taxConfigs.reduce((sum, t) => sum + Number(t.rate), 0)
@@ -4415,7 +4416,8 @@ exports.createCustomerOrder = async (req, res) => {
     // Mirror createOrder: surface fail-closed stock/BOM errors (409) and
     // other explicitly-tagged statusCodes instead of collapsing to 500.
     return res.status(error.statusCode || 500).json({
-      error: error.message || 'Internal Server Error'
+      error: error.message || 'Internal Server Error',
+      ...(error.code ? { code: error.code } : {})
     })
   }
 }
@@ -5046,7 +5048,10 @@ exports.getCustomerTaxRate = async (req, res) => {
     // Surface explicitly-tagged errors (e.g. missing PPN setup → 400);
     // genuine read failures stay 500 through the existing handling.
     if (error.statusCode) {
-      return res.status(error.statusCode).json({ message: error.message })
+      return res.status(error.statusCode).json({
+        message: error.message,
+        ...(error.code ? { code: error.code } : {})
+      })
     }
     return res.status(500).json({ error: 'Internal Server Error' })
   }
