@@ -172,15 +172,77 @@ describe('P1-A global-row guard', () => {
     expect(fresh.store).toBeNull()
   })
 
-  test('platform admin update carrying a different store value keeps global scope', async () => {
+  test('platform admin moving a global row to an outlet is refused (409, unchanged)', async () => {
+    const before = (await db.taxConfig.findByPk(globalRow.id)).toJSON()
     const res = await request(app)
       .put(`/tax-config/edit-tax-config/${globalRow.id}?store=${storeA.id}`)
       .set('Authorization', `Bearer ${superToken}`)
       .send({ description: 'scope probe', store: storeB.id })
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('TAX_SCOPE_IMMUTABLE')
+    const fresh = await db.taxConfig.findByPk(globalRow.id)
+    expect(fresh.toJSON()).toEqual(before)
+    expect(fresh.store).toBeNull()
+  })
+
+  test('platform admin moving an outlet row to another outlet is refused (409, unchanged)', async () => {
+    const before = (await db.taxConfig.findByPk(outletRowA.id)).toJSON()
+    const res = await request(app)
+      .put(`/tax-config/edit-tax-config/${outletRowA.id}?store=${storeA.id}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ description: 'scope probe', store: storeB.id })
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('TAX_SCOPE_IMMUTABLE')
+    const fresh = await db.taxConfig.findByPk(outletRowA.id)
+    expect(fresh.toJSON()).toEqual(before)
+    expect(fresh.store).toBe(storeA.id)
+  })
+
+  test('platform admin moving an outlet row to global (store: null) is refused (409, unchanged)', async () => {
+    const before = (await db.taxConfig.findByPk(outletRowA.id)).toJSON()
+    const res = await request(app)
+      .put(`/tax-config/edit-tax-config/${outletRowA.id}?store=${storeA.id}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ description: 'scope probe', store: null })
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('TAX_SCOPE_IMMUTABLE')
+    const fresh = await db.taxConfig.findByPk(outletRowA.id)
+    expect(fresh.toJSON()).toEqual(before)
+    expect(fresh.store).toBe(storeA.id)
+  })
+
+  test('outlet admin requesting global scope for an own row is refused (409, unchanged)', async () => {
+    const before = (await db.taxConfig.findByPk(outletRowA.id)).toJSON()
+    const res = await request(app)
+      .put(`/tax-config/edit-tax-config/${outletRowA.id}?store=${storeA.id}`)
+      .set('Authorization', `Bearer ${adminAToken}`)
+      .send({ rate: 99, store: null })
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('TAX_SCOPE_IMMUTABLE')
+    const fresh = await db.taxConfig.findByPk(outletRowA.id)
+    expect(fresh.toJSON()).toEqual(before)
+  })
+
+  test('platform admin supplying the same global scope updates normally', async () => {
+    const res = await request(app)
+      .put(`/tax-config/edit-tax-config/${globalRow.id}?store=${storeA.id}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ description: 'same global scope', store: null })
     expect(res.status).toBe(200)
     const fresh = await db.taxConfig.findByPk(globalRow.id)
-    expect(fresh.description).toBe('scope probe')
+    expect(fresh.description).toBe('same global scope')
     expect(fresh.store).toBeNull()
+  })
+
+  test('outlet admin supplying the same outlet scope updates normally', async () => {
+    const res = await request(app)
+      .put(`/tax-config/edit-tax-config/${outletRowA.id}?store=${storeA.id}`)
+      .set('Authorization', `Bearer ${adminAToken}`)
+      .send({ description: 'same outlet scope', store: storeA.id })
+    expect(res.status).toBe(200)
+    const fresh = await db.taxConfig.findByPk(outletRowA.id)
+    expect(fresh.description).toBe('same outlet scope')
+    expect(fresh.store).toBe(storeA.id)
   })
 
   test('platform admin can delete a global row', async () => {

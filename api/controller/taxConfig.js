@@ -230,6 +230,24 @@ const taxConfigController = {
         })
       }
 
+      // P1-C: an explicitly supplied scope must equal the row's scope —
+      // a different one is refused, never silently ignored with a 200.
+      // Omission keeps the scope. After validation `store` is a number,
+      // or null; 0 (from '' or 0) means global, the same reading the
+      // former `store || null` write-back gave it.
+      if (Object.prototype.hasOwnProperty.call(req.body, 'store')) {
+        const requestedScope = req.body.store === null || req.body.store === 0 ? null : req.body.store
+        const currentScope = tax.store ?? null
+        if (requestedScope !== currentScope) {
+          return res.status(409).json({
+            success: false,
+            code: 'TAX_SCOPE_IMMUTABLE',
+            message:
+              'Cakupan toko konfigurasi pajak tidak dapat diubah. Buat konfigurasi pajak baru untuk cakupan yang diinginkan.'
+          })
+        }
+      }
+
       await tax.update({
         // P1-C: row scope is immutable via update. The `store` variable
         // above is scope-resolution input for the fetch filter only — it
