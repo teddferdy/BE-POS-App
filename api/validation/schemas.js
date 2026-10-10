@@ -1194,10 +1194,19 @@ exports.updateTableSchema = exports.createTableSchema.partial().extend({
 exports.createTaxConfigSchema = z.object({
   store: strToNum().optional().nullable(),
   name: z.string().min(1, 'Tax name is required'),
-  rate: z.union([z.number(), z.string()]).transform((v) => {
-    if (typeof v === 'number') return v
-    return parseFloat(v)
-  }),
+  rate: z.union([z.number(), z.string()])
+    .transform((v) => {
+      if (typeof v === 'number') return v
+      return parseFloat(v)
+    })
+    // T1: a rate must be finite. NaN (e.g. from a non-numeric string)
+    // and Infinity can never be valid under any rate policy; finite
+    // decimals, zero, negatives, and large integers remain accepted
+    // (no maximum or decimal policy decided here). Flows into the
+    // update schema via .partial() below.
+    .refine((v) => Number.isFinite(v), {
+      message: 'rate must be a finite number'
+    }),
   type: z.enum(['ppn', 'service_charge', 'other']).optional().default('ppn'),
   status: statusEnum,
   description: z.string().optional().nullable()
