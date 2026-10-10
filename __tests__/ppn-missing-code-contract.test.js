@@ -2,6 +2,7 @@ process.env.NODE_ENV = 'test'
 process.env.VERCEL = 'true'
 
 const request = require('supertest')
+const crypto = require('crypto')
 const { signSessionToken } = require('../test-helpers/authSession')
 const app = require('../api/index')
 const db = require('../db/models')
@@ -95,7 +96,7 @@ describe('PPN_MISSING machine-readable code on checkout paths', () => {
         tableId: tableA.id,
         customerName: 'PPN Code QR',
         items: [{ productId: productA.id, productName: 'PPN_CODE_PRODUCT_A', quantity: 1 }],
-        session: `ppn-code-${Date.now()}-${Math.random()}`
+        session: `ppn-code-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`
       })
     expect(res.status).toBe(400)
     expect(res.body.code).toBe('PPN_MISSING')
