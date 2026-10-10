@@ -1203,7 +1203,16 @@ exports.createTaxConfigSchema = z.object({
   description: z.string().optional().nullable()
 })
 
-exports.updateTaxConfigSchema = exports.createTaxConfigSchema.partial()
+exports.updateTaxConfigSchema = exports.createTaxConfigSchema.partial().extend({
+  // P1: `.partial()` does NOT strip the create-schema `.default()`s, so the
+  // bare (defaultless) versions are restored here — same convention as
+  // updateProductSchema/inventoryModeEnumBase above. Otherwise an omitted
+  // `type`/`status` on a partial update would parse to 'ppn'/'active' and
+  // silently convert service-charge or inactive rows. Omitted fields parse
+  // to undefined and the controller keeps the persisted values.
+  type: z.enum(['ppn', 'service_charge', 'other']).optional(),
+  status: statusEnumBase.optional()
+})
 
 // ===================== Expense =====================
 exports.createExpenseSchema = z

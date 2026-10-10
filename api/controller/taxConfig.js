@@ -42,12 +42,12 @@ const taxConfigController = {
       const store = req.storeId ?? req.user?.store
       const { page = 1, limit = 10, search, status } = req.query
 
-      // Auto-seed default PPh 2026 data if table is empty
-      const totalAll = await db.taxConfig.count()
-      if (totalAll === 0) {
-        await seedDefaultTaxes()
-      }
-
+      // P1-B: reading the list must never create tax configuration.
+      // The former auto-seed of a default active global PPN 11% row is
+      // removed: DR-17 fail-closed behavior requires missing PPN to stay
+      // missing (explicit setup error at checkout), never silently
+      // materialized by a read. Explicit seeding remains available only
+      // through the super_admin-gated POST /tax-config/seed endpoint.
       const where = {}
       if (store) {
         where[Op.or] = [{ store }, { store: null }]
@@ -211,8 +211,50 @@ const taxConfigController = {
         })
       }
 
+      // P1-A: a global (store-null) row is platform configuration. An
+      // outlet admin may read it but must never mutate it. Only a
+      // global super_admin (roleType super_admin with no store pin)
+      // keeps platform access: a store-bound super_admin has no legacy
+      // platform authority (same contract as backup.js MED-2
+      // isGlobalSuperAdmin and utils/authContext
+      // legacySuperAdminScopeOf). Rejected requests change nothing.
+      if (
+        (tax.store === null || tax.store === undefined) &&
+        !(
+          req.user?.roleType === 'super_admin' && req.user?.store == null
+        )
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengakses data di toko Anda'
+        })
+      }
+
+      // P1-C: an explicitly supplied scope must equal the row's scope —
+      // a different one is refused, never silently ignored with a 200.
+      // Omission keeps the scope. After validation `store` is a number,
+      // or null; 0 (from '' or 0) means global, the same reading the
+      // former `store || null` write-back gave it.
+      if (Object.prototype.hasOwnProperty.call(req.body, 'store')) {
+        const requestedScope = req.body.store === null || req.body.store === 0 ? null : req.body.store
+        const currentScope = tax.store ?? null
+        if (requestedScope !== currentScope) {
+          return res.status(409).json({
+            success: false,
+            code: 'TAX_SCOPE_IMMUTABLE',
+            message:
+              'Cakupan toko konfigurasi pajak tidak dapat diubah. Buat konfigurasi pajak baru untuk cakupan yang diinginkan.'
+          })
+        }
+      }
+
       await tax.update({
-        store: store !== undefined ? store || null : tax.store,
+        // P1-C: row scope is immutable via update. The `store` variable
+        // above is scope-resolution input for the fetch filter only — it
+        // must never be written back, otherwise editing a global row
+        // while scoped to an outlet silently transfers it there (and an
+        // outlet row could drift on any scope mismatch). Scope is
+        // assigned at create; no supported re-scope workflow exists.
         name: name || tax.name,
         rate: rate !== undefined ? parseInt(rate) : tax.rate,
         type: type || tax.type,
@@ -260,6 +302,21 @@ const taxConfigController = {
         return res.status(404).json({
           success: false,
           message: 'Tax config not found'
+        })
+      }
+
+      // P1-A: same global-row guard as update — only a global
+      // super_admin may delete platform configuration. Rejected
+      // requests change nothing.
+      if (
+        (tax.store === null || tax.store === undefined) &&
+        !(
+          req.user?.roleType === 'super_admin' && req.user?.store == null
+        )
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda hanya dapat mengakses data di toko Anda'
         })
       }
 
