@@ -9,6 +9,10 @@ const { IRREVERSIBLE_STORE_STATUSES } = require('../validation/schemas')
 const { canonicalPhone } = require('../../utils/memberIdentity')
 const { computeOrderFinancials } = require('../service/orderFinancials')
 const {
+  reportingBucket,
+  CANONICAL_METHOD_ORDER
+} = require('../service/canonicalPayment')
+const {
   getConnectionStatus,
   sendDocument,
   logout,
@@ -2046,10 +2050,10 @@ order: [['updatedAt', 'DESC']],
           `SELECT
              COALESCE(SUM("totalPrice"),0)::int as revenue,
              COUNT(*)::int as orders,
-             COALESCE(SUM("totalQuantity"),0)::int as itemsSold,
+             COALESCE(SUM("totalQuantity"),0)::int as "itemsSold",
              COALESCE(SUM("discountAmount"),0)::int as discount,
              COALESCE(SUM("taxAmount"),0)::int as tax,
-             COALESCE(SUM("serviceChargeAmount"),0)::int as serviceCharge
+             COALESCE(SUM("serviceChargeAmount"),0)::int as "serviceCharge"
            FROM "order"
            WHERE "paymentStatus" = 'paid'
              AND "deletedAt" IS NULL
@@ -2062,7 +2066,7 @@ order: [['updatedAt', 'DESC']],
           `SELECT o."store" as "storeId",
              COALESCE(SUM(o."totalPrice"),0)::int as revenue,
              COUNT(DISTINCT o.id)::int as orders,
-             COALESCE(SUM(o."totalQuantity"),0)::int as itemsSold,
+             COALESCE(SUM(o."totalQuantity"),0)::int as "itemsSold",
              COALESCE(SUM(o."discountAmount"),0)::int as discount,
              COALESCE(SUM(o."taxAmount"),0)::int as tax
            FROM "order" o
@@ -2078,7 +2082,7 @@ order: [['updatedAt', 'DESC']],
           `SELECT DATE(o."createdAt") as date,
              COALESCE(SUM(o."totalPrice"),0)::int as revenue,
              COUNT(DISTINCT o.id)::int as orders,
-             COALESCE(SUM(o."totalQuantity"),0)::int as itemsSold
+             COALESCE(SUM(o."totalQuantity"),0)::int as "itemsSold"
            FROM "order" o
            WHERE o."paymentStatus" = 'paid'
              AND o."deletedAt" IS NULL
@@ -2325,8 +2329,8 @@ order: [['updatedAt', 'DESC']],
         // 20. Stock value (products + ingredients)
         db.sequelize.query(
           `SELECT
-             (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "product" WHERE status='active' AND "deletedAt" IS NULL) as productValue,
-             (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "ingredient" WHERE status='active' AND "deletedAt" IS NULL ${store ? ' AND "store" = :store' : ''}) as ingredientValue`,
+             (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "product" WHERE status='active' AND "deletedAt" IS NULL) as "productValue",
+             (SELECT COALESCE(SUM(stock * "costPrice"),0)::int FROM "ingredient" WHERE status='active' AND "deletedAt" IS NULL ${store ? ' AND "store" = :store' : ''}) as "ingredientValue"`,
           {
             replacements: store ? { store } : {},
             type: db.sequelize.QueryTypes.SELECT
@@ -2528,25 +2532,12 @@ order: [['updatedAt', 'DESC']],
         })
         .sort((a, b) => b.revenue - a.revenue)
 
-      // Payment method classification helper
-      const classifyMethod = (method) => {
-        const m = String(method || '').toLowerCase()
-        if (/(cash|tunai)/.test(m)) return 'cash'
-        if (
-          /(qris|emoney|e-wallet|ewallet|gopay|ovo|dana|shopeepay|linkaja)/.test(
-            m
-          )
-        )
-          return 'ewallet'
-        if (/(transfer|bank|debit|bca|bni|mandiri|bri)/.test(m)) return 'bank'
-        if (/(credit|kartu|visa|master)/.test(m)) return 'card'
-        return 'other'
-      }
+      // Canonical reporting bucket per stored tender (+ UNRECONCILED).
       const byMethod = (paymentMethodRows || []).map((r) => ({
         method: r.method,
         count: r.count,
         amount: Number(r.amount || 0),
-        bucket: classifyMethod(r.method)
+        bucket: reportingBucket(r.method)
       }))
       const byTypeMap = {}
       byMethod.forEach((r) => {
@@ -2558,8 +2549,11 @@ order: [['updatedAt', 'DESC']],
         byTypeMap[r.bucket].count += r.count
         byTypeMap[r.bucket].amount += r.amount
       })
+      // Deterministic: amount desc, canonical method order on ties.
       const byType = Object.values(byTypeMap).sort(
-        (a, b) => b.amount - a.amount
+        (a, b) =>
+          b.amount - a.amount ||
+          CANONICAL_METHOD_ORDER[a.type] - CANONICAL_METHOD_ORDER[b.type]
       )
 
       // Build daily timeline with revenue/expense/inflow/outflow
@@ -2962,16 +2956,33 @@ order: [['updatedAt', 'DESC']],
         })
       }
 
+      for (const sp of storePrices) {
+        if (!Number.isInteger(sp.price) || sp.price < 0 || sp.price > 2147483647 || !Number.isSafeInteger(sp.price)) {
+          return res.status(400).json({
+            success: false,
+            message: 'price must be an integer between 0 and 2147483647'
+          })
+        }
+      }
+
       const result = await db.sequelize.transaction(async (t) => {
-        // Update base price
-        const basePrice = storePrices.find((sp) => sp.storeId === 'base')?.price
-        if (basePrice) {
-          await product.update({ price: basePrice }, { transaction: t })
+        const priorStorePrices = []
+        const baseRow = storePrices.find((sp) => sp.storeId === 'base')
+        if (baseRow) {
+          priorStorePrices.push({ storeId: 'base', price: product.price })
+          await product.update({ price: baseRow.price }, { transaction: t })
         }
 
-        // Update store-specific prices
         for (const sp of storePrices) {
           if (sp.storeId !== 'base') {
+            const existing = await db.product_store_price.findOne({
+              where: { product: productId, store: sp.storeId },
+              transaction: t
+            })
+            priorStorePrices.push({
+              storeId: sp.storeId,
+              price: existing ? existing.price : null
+            })
             await db.product_store_price.upsert(
               {
                 product: productId,
@@ -2988,6 +2999,7 @@ order: [['updatedAt', 'DESC']],
           entity: 'product_price',
           entityId: productId,
           description: 'Updated per-store pricing',
+          oldValues: { storePrices: priorStorePrices },
           newValues: { storePrices },
           transaction: t
         })
