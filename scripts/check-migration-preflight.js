@@ -193,6 +193,79 @@ async function readMemberIdentityObjects(env) {
   }
 }
 
+// B3 state (before and after the run): every constraint named like M3's in
+// ANY schema/table — the name alone proves nothing — with its catalog
+// identity, columns, validation flag and server-rendered definition, plus
+// how often SequelizeMeta records M3. Catalog reads only; no row data.
+async function queryM3CanonicalCheckState(sequelize, { transaction } = {}) {
+  const SELECT = (sequelize.QueryTypes || require('sequelize').QueryTypes).SELECT
+  const { M3_CONSTRAINT, M3_MIGRATION } = require('./migration-batches')
+  const constraints = await sequelize.query(
+    `SELECT n.nspname AS "schema", cl.relname AS "table", c.contype, c.convalidated,
+            pg_get_constraintdef(c.oid) AS def,
+            (SELECT json_agg(a.attname ORDER BY a.attnum) FROM pg_attribute a
+              WHERE a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)) AS columns
+       FROM pg_constraint c
+       JOIN pg_namespace n ON n.oid = c.connamespace
+       LEFT JOIN pg_class cl ON cl.oid = c.conrelid
+      WHERE c.conname = :name
+      ORDER BY n.nspname, cl.relname`,
+    { transaction, type: SELECT, replacements: { name: M3_CONSTRAINT.name } }
+  )
+  const [ledger] = await sequelize.query(`SELECT COUNT(*)::int AS n FROM "SequelizeMeta" WHERE name = :name`, {
+    transaction,
+    type: SELECT,
+    replacements: { name: M3_MIGRATION }
+  })
+  // Exactly public."transaction"("typePayment"): relation resolved by
+  // qualified name (NULL when absent), live attribute rows counted.
+  const [column] = await sequelize.query(
+    `SELECT n.nspname || '.' || cl.relname AS relation, cl.relkind::text AS relkind,
+            (SELECT COUNT(*)::int FROM pg_attribute a
+              WHERE a.attrelid = cl.oid AND a.attname = :column AND a.attnum > 0 AND NOT a.attisdropped) AS matches,
+            (SELECT bool_and(a.attnotnull) FROM pg_attribute a
+              WHERE a.attrelid = cl.oid AND a.attname = :column AND a.attnum > 0 AND NOT a.attisdropped) AS "notNull"
+       FROM (SELECT to_regclass(:relation) AS oid) r
+       LEFT JOIN pg_class cl ON cl.oid = r.oid
+       LEFT JOIN pg_namespace n ON n.oid = cl.relnamespace`,
+    {
+      transaction,
+      type: SELECT,
+      replacements: { relation: `${M3_CONSTRAINT.schema}."${M3_CONSTRAINT.table}"`, column: M3_CONSTRAINT.column }
+    }
+  )
+  return {
+    constraints,
+    ledgerCount: Number(ledger.n),
+    column: {
+      relation: column.relation,
+      relkind: column.relkind,
+      matches: column.matches === null ? 0 : Number(column.matches),
+      notNull: column.notNull
+    }
+  }
+}
+
+async function readM3CanonicalCheckState(env) {
+  const cfg = loadTargetConfig(resolveEnv(env))
+  const { Sequelize } = require('sequelize')
+  const sequelize = new Sequelize(cfg.database, cfg.username, cfg.password, { ...cfg, logging: false })
+  const transaction = await sequelize.transaction()
+  try {
+    await sequelize.query('SET TRANSACTION READ ONLY', { transaction })
+    const state = await queryM3CanonicalCheckState(sequelize, { transaction })
+    await transaction.commit()
+    return state
+  } catch (err) {
+    try {
+      await transaction.rollback()
+    } catch {}
+    throw err
+  } finally {
+    await sequelize.close().catch(() => {})
+  }
+}
+
 // The returned `files` and `metaNames` are the exact state the decision was
 // made on, so the batched runner evaluates its batch against the same
 // snapshot instead of re-reading.
@@ -263,6 +336,9 @@ module.exports = {
   readRecordedMigrations,
   queryMemberIdentityObjects,
   readMemberIdentityObjects,
+  queryM3CanonicalCheckState,
+  readM3CanonicalCheckState,
+  loadTargetConfig,
   report,
   main
 }

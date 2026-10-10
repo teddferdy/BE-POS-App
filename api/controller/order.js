@@ -1167,8 +1167,24 @@ const fetchFullOrder = async (orderId) =>
   })
 
 exports.createOrder = async (req, res) => {
+  const authorizedStore = req.user?.roleType === 'super_admin'
+    ? (req.body.store !== undefined ? Number(req.body.store) : Number(req.query?.store))
+    : req.storeId
+
+  if (authorizedStore === null || !Number.isInteger(authorizedStore) || authorizedStore <= 0) {
+    return res.status(400).json({ message: 'Invalid or missing store authorization' })
+  }
+
+  if (req.user?.roleType !== 'super_admin') {
+    const suppliedStores = [req.body?.store, req.body?.storeId, req.query?.store]
+      .filter((v) => v !== undefined && v !== null && v !== '')
+      .map((v) => Number(v))
+    if (suppliedStores.some((v) => !Number.isInteger(v) || v !== Number(authorizedStore))) {
+      return res.status(401).json({ message: 'Unauthorized store access' })
+    }
+  }
+
   const {
-    store,
     tableId,
     cashierId,
     cashierName,
@@ -1198,8 +1214,8 @@ exports.createOrder = async (req, res) => {
     // the order already created instead of creating a second one. This is
     // a fast-path check only — the real guarantee is the unique index on
     // (store, idempotencyKey), enforced below if two such requests race.
-    if (idempotencyKey) {
-      const existing = await Order.findOne({ where: { store, idempotencyKey } })
+     if (idempotencyKey) {
+       const existing = await Order.findOne({ where: { store: authorizedStore, idempotencyKey } })
       if (existing) {
         const fullOrder = await fetchFullOrder(existing.id)
         if (!orderItemsMatchPayload(fullOrder?.items, items)) {
@@ -1214,13 +1230,13 @@ exports.createOrder = async (req, res) => {
 
     const orderNumber = generateOrderNumber()
 
-    const tableCheck = await checkTableAvailable(tableId, store)
+    const tableCheck = await checkTableAvailable(tableId, authorizedStore)
     if (!tableCheck.ok) {
       // A dine-in order occupies its table on success, so a same-key retry
       // whose winner committed after the fast path above (but before this
       // fresh table read) sees "occupied" here — replay it, not a 400.
       if (idempotencyKey) {
-        const existing = await Order.findOne({ where: { store, idempotencyKey } })
+        const existing = await Order.findOne({ where: { store: authorizedStore, idempotencyKey } })
         if (existing) {
           const fullOrder = await fetchFullOrder(existing.id)
           if (!orderItemsMatchPayload(fullOrder?.items, items)) {
@@ -1240,11 +1256,11 @@ exports.createOrder = async (req, res) => {
       promoCode,
       customerId,
       redeemedPoints,
-      store
+      store: authorizedStore
     })
     const { discountValue, discountType, appliedDiscountId } = discount
 
-    const pricing = await loadAndPriceOrderItems(items, store, req.user)
+    const pricing = await loadAndPriceOrderItems(items, authorizedStore, req.user)
     if (!pricing.ok) {
       // W3-2: the price-mismatch conflict keeps its exact locked body and
       // must never collapse into the generic error shape below.
@@ -1256,8 +1272,8 @@ exports.createOrder = async (req, res) => {
     const { bundleMap, productById } = pricing
 
     const useTaxFlag = useTax === undefined ? true : Boolean(useTax)
-    const taxRate = useTaxFlag ? await getActiveTaxRate(store) : 0
-    const serviceChargeRate = await getServiceChargeRate(store)
+    const taxRate = useTaxFlag ? await getActiveTaxRate(authorizedStore) : 0
+    const serviceChargeRate = await getServiceChargeRate(authorizedStore)
 
     const {
       totals,
@@ -1266,7 +1282,7 @@ exports.createOrder = async (req, res) => {
       campaignWithSubtotal
     } = await calculateFinalTotals({
       items,
-      store,
+      store: authorizedStore,
       customerId,
       discountValue,
       discountType,
@@ -1299,7 +1315,7 @@ exports.createOrder = async (req, res) => {
 
     const orderData = {
       orderNumber,
-      store,
+      store: authorizedStore,
       tableId,
       cashierId,
       cashierName,
@@ -1360,9 +1376,9 @@ exports.createOrder = async (req, res) => {
       // rolls back with the order. Released only by the Table Management
       // "Set Available" action — never by this order's own status changes.
       if (tableId) {
-        const lockedTable = await Table.findOne({
-          where: { id: tableId, store },
-          transaction: t,
+         const lockedTable = await Table.findOne({
+           where: { id: tableId, store: authorizedStore },
+           transaction: t,
           lock: t.LOCK.UPDATE
         })
         if (!lockedTable) {
@@ -1374,10 +1390,10 @@ exports.createOrder = async (req, res) => {
           // A concurrent same-key retry can lose this lock to its own
           // winner — replay that order instead of rejecting it.
           if (idempotencyKey) {
-            const existingOrder = await Order.findOne({
-              where: { store, idempotencyKey },
-              transaction: t
-            })
+             const existingOrder = await Order.findOne({
+               where: { store: authorizedStore, idempotencyKey },
+               transaction: t
+             })
             if (existingOrder) {
               const replayErr = new Error('Order already exists for this idempotency key')
               replayErr.idempotencyReplayOrderId = existingOrder.id
@@ -1399,10 +1415,10 @@ exports.createOrder = async (req, res) => {
       // register, resolved under a SHARE lock that serializes against
       // register close(). No open register -> 422 with zero side effects;
       // a register that closes mid-flight -> 409. Never NULL-and-continue.
-      const openRegister = await resolveAttributedRegister(store, t)
-      orderData.cashRegisterId = openRegister.id
+       const openRegister = await resolveAttributedRegister(authorizedStore, t)
+       orderData.cashRegisterId = openRegister.id
 
-      orderData.customerNumber = await generateCustomerNumber(store, t)
+       orderData.customerNumber = await generateCustomerNumber(authorizedStore, t)
       const createdOrder = await Order.create(orderData, { transaction: t })
 
       await createOrderItems(
@@ -1415,17 +1431,17 @@ exports.createOrder = async (req, res) => {
         t
       )
 
-      await deductStockForOrder(
-        createdOrder,
-        items,
-        bundleMap,
-        store,
-        orderNumber,
-        req.user?.id,
-        t
-      )
+       await deductStockForOrder(
+         createdOrder,
+         items,
+         bundleMap,
+         authorizedStore,
+         orderNumber,
+         req.user?.id,
+         t
+       )
 
-      await recordOrderPayment(
+       await recordOrderPayment(
         createdOrder,
         effectivePaymentMethod,
         totals.totalPrice,
@@ -1484,7 +1500,7 @@ exports.createOrder = async (req, res) => {
 
       accountingJobs = await enqueueOrderAccountingJobs(
         createdOrder,
-        store,
+        authorizedStore,
         orderNumber,
         totals,
         effectivePaymentMethod,
@@ -1507,7 +1523,7 @@ exports.createOrder = async (req, res) => {
 
     createNotification({
       type: 'payment_received',
-      store,
+      store: authorizedStore,
       referenceId: order.id,
       referenceType: 'order',
       params: [orderNumber, totals.totalPrice],
@@ -1545,9 +1561,9 @@ exports.createOrder = async (req, res) => {
       )
     }
 
-    emitNewOrder(store, fullOrder)
+     emitNewOrder(authorizedStore, fullOrder)
 
-    await attemptOrderAccountingEntries(accountingJobs)
+     await attemptOrderAccountingEntries(accountingJobs)
 
     return res.status(201).json({
       message: 'Order created successfully',
@@ -1572,7 +1588,7 @@ exports.createOrder = async (req, res) => {
     // here. Rather than a raw 500, return the winner's order, same as the
     // fast-path replay above. Scoped (F-04) to that specific constraint only.
     if (isOrderReplayRelevantUniqueError(error) && idempotencyKey) {
-      const existing = await Order.findOne({ where: { store, idempotencyKey } })
+      const existing = await Order.findOne({ where: { store: authorizedStore, idempotencyKey } })
       if (existing) {
         const fullOrder = await fetchFullOrder(existing.id)
         if (!orderItemsMatchPayload(fullOrder?.items, items)) {

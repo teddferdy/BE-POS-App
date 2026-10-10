@@ -366,17 +366,37 @@ describe('D-08 batched runner (npm run migrate -- --batch)', () => {
   })
 
   test('B3 proceeds past gate evaluation now that the gate is cleared (B1 gate resolved)', async () => {
+    // B3 runs through its execution guards (run lock, session probe, M3
+    // state checks); all are injected so no database is touched.
+    const guard = batches.BATCH_SESSION_GUARDS.B3
+    const m3Row = {
+      schema: 'public',
+      table: 'transaction',
+      contype: 'c',
+      convalidated: false,
+      columns: ['typePayment'],
+      def:
+        'CHECK ((("typePayment")::text = ANY ((ARRAY[' +
+        batches.M3_CONSTRAINT.values.map((v) => `'${v}'::character varying`).join(', ') +
+        '])::text[]))) NOT VALID'
+    }
+    const column = { relation: 'public.transaction', relkind: 'r', matches: 1, notNull: true }
+    const states = [{ constraints: [], ledgerCount: 0, column }, { constraints: [m3Row], ledgerCount: 1, column }]
     const spawn = jest.fn(() => ({ status: 0 }))
-    const readMeta = jest.fn(async () => [...ledgerWith(B1, B2), M3])
+    const metas = [ledgerWith(B1, B2), [...ledgerWith(B1, B2), M3]]
+    const readMeta = jest.fn(async () => metas.shift())
     const code = await runner.main({
       argv: ['--env', 'production', '--batch', 'B3'],
       preflight: okPreflight({ files: FILES, metaNames: ledgerWith(B1, B2) }),
       spawn,
-      readMeta
+      readMeta,
+      acquireRunLock: async () => ({ acquired: true, stillHeld: async () => ({ held: true }), release: async () => {} }),
+      probeSession: async () => ({ lockTimeoutMs: guard.lockTimeoutMs, statementTimeoutMs: guard.statementTimeoutMs, applicationName: guard.applicationName }),
+      readBatchState: async () => states.shift()
     })
     expect(code).toBe(0)
     expect(spawn).toHaveBeenCalledTimes(1)
-    expect(spawn).toHaveBeenCalledWith('production', { to: M3 })
+    expect(spawn).toHaveBeenCalledWith('production', { to: M3, childEnv: batches.sessionEnv(guard) })
     expect(readMeta).toHaveBeenCalledWith('production')
   })
 
